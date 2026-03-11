@@ -1,0 +1,301 @@
+/* ─────────────────────────────────────────────
+ * [artifact:前端代码] DashboardPage.module.css
+ * 重构依据：frontend-sdd-analysis.md T009 / T010 / T011
+ * ───────────────────────────────────────────── */
+
+/* ── 页面容器 ── */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* ────────────────────────────────
+ * T011 — AI 分析状态 Banner
+ * 橙色左边框，浅橙背景，水平布局
+ * ──────────────────────────────── */
+.ai_banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-accent-50, #fff7ed);
+  border-left: 4px solid var(--color-accent-500, #f97316);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(0,0,0,.06));
+}
+
+.ai_banner__icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.ai_banner__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai_banner__title {
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.ai_banner__count {
+  color: var(--color-accent-600, #ea580c);
+  font-weight: 700;
+}
+
+.ai_banner__meta {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+}
+
+.ai_banner__action {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ────────────────────────────────
+ * T009 — KPI 网格
+ * 4 列等宽，响应式折叠
+ * ──────────────────────────────── */
+.kpi_grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--layout-card-gap, var(--space-4));
+}
+
+@media (max-width: 1200px) {
+  .kpi_grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .kpi_grid { grid-template-columns: 1fr; }
+}
+
+/* ────────────────────────────────
+ * 中部两列：图表 + 进度列表
+ * ──────────────────────────────── */
+.middle_row {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: var(--layout-card-gap, var(--space-4));
+}
+
+@media (max-width: 1100px) {
+  .middle_row { grid-template-columns: 1fr; }
+}
+
+.chart_card   { flex: 1; }
+.progress_card { min-width: 0; }
+
+/* ────────────────────────────────
+ * 区块通用 Header
+ * ──────────────────────────────── */
+.section_header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.section_title {
+  font-size: var(--text-h4);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.section_subtitle {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+}
+
+/* ────────────────────────────────
+ * T010 — 在产工单进度列表
+ * ──────────────────────────────── */
+.order_list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.order_item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.order_item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.order_item__no   { font-weight: 600; font-size: var(--text-body-m); color: var(--text-primary); }
+.order_item__sku  { font-size: var(--text-body-s); color: var(--text-secondary); }
+.order_item__date { font-size: var(--text-body-s); color: var(--text-disabled); }
+
+/* T010: ProgressBar 组件包裹层 — 占满剩余宽度 */
+.order_item__progress_wrap {
+  width: 100%;
+}
+
+/* ProgressBar 组件撑满容器宽度 */
+.order_item__progress_bar {
+  width: 100%;
+}
+
+/* ────────────────────────────────
+ * 底部两列：库存预警 + 采购建议
+ * ──────────────────────────────── */
+.bottom_row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--layout-card-gap, var(--space-4));
+}
+
+@media (max-width: 768px) {
+  .bottom_row { grid-template-columns: 1fr; }
+}
+
+.alert_card { min-width: 0; }
+
+/* ────────────────────────────────
+ * T010 — 库存预警列表
+ * ──────────────────────────────── */
+.alert_list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.alert_item {
+  padding: var(--space-3);
+  background: var(--color-gray-50);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-error-400);
+}
+
+/* T010: 新增 header 行（物料名 + StatusDot 右对齐） */
+.alert_item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 4px;
+}
+
+.alert_item__name {
+  font-size: var(--text-body-m);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* T010: StatusDot 组件在预警列表内的对齐 */
+.alert_item__dot {
+  flex-shrink: 0;
+}
+
+.alert_item__detail {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.alert_item__qty_bad { color: var(--color-error-600); font-weight: 600; }
+.alert_item__safety  { color: var(--text-secondary); }
+.alert_item__sep     { color: var(--text-disabled); }
+
+/* T010: 缺口量强调（橙色 + 粗体数字） */
+.alert_item__gap {
+  margin-left: var(--space-2);
+  font-size: var(--text-body-s);
+  color: var(--color-error-600);
+  font-weight: 500;
+}
+
+.alert_item__gap strong {
+  font-family: var(--font-family-number, 'DIN Alternate', 'Roboto Mono', monospace);
+  font-weight: 700;
+}
+
+/* ────────────────────────────────
+ * 待审批采购建议列表
+ * ──────────────────────────────── */
+.suggestion_item {
+  padding: var(--space-3);
+  background: var(--color-gray-50);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-accent-400, #fb923c);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.suggestion_item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.suggestion_item__name {
+  font-size: var(--text-body-m);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.suggestion_item__amount {
+  font-size: var(--text-body-s);
+  font-weight: 600;
+  color: var(--color-accent-600, #ea580c);
+  white-space: nowrap;
+  font-family: var(--font-family-number, 'DIN Alternate', 'Roboto Mono', monospace);
+}
+
+.suggestion_item__detail {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+}
+
+.suggestion_item__reason {
+  font-size: var(--text-body-s);
+  color: var(--text-disabled);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ────────────────────────────────
+ * 通用辅助
+ * ──────────────────────────────── */
+.empty_hint {
+  font-size: var(--text-body-m);
+  color: var(--text-secondary);
+  padding: var(--space-4) 0;
+  text-align: center;
+}
+
+.list_loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list_skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}

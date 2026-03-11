@@ -1,0 +1,324 @@
+/**
+ * [artifact:前端代码] — Design Tokens CSS 变量
+ * 严格对应设计规范 v1.0
+ */
+
+:root {
+  /* ═══════════════════════════════════════════
+     主色（工业蓝）
+  ═══════════════════════════════════════════ */
+  --color-primary-50:  #EFF6FF;
+  --color-primary-100: #DBEAFE;
+  --color-primary-200: #BFDBFE;
+  --color-primary-300: #93C5FD;
+  --color-primary-400: #60A5FA;
+  --color-primary-500: #3B82F6;
+  --color-primary-600: #2563EB;
+  --color-primary-700: #1D4ED8;
+  --color-primary-800: #1E40AF;
+  --color-primary-900: #1E3A8A;
+
+  /* ═══════════════════════════════════════════
+     辅助色（活力橙 / AI 标识色）
+  ═══════════════════════════════════════════ */
+  --color-accent-50:  #FFF7ED;
+  --color-accent-200: #FED7AA;
+  --color-accent-400: #FB923C;
+  --color-accent-500: #F97316;
+  --color-accent-600: #EA580C;
+
+  /* ═══════════════════════════════════════════
+     语义色 — 成功（绿）
+  ═══════════════════════════════════════════ */
+  --color-success-50:  #F0FDF4;
+  --color-success-100: #DCFCE7;
+  --color-success-500: #22C55E;
+  --color-success-600: #16A34A;
+  --color-success-700: #15803D;
+
+  /* 语义色 — 警告（琥珀）*/
+  --color-warning-50:  #FFFBEB;
+  --color-warning-100: #FEF3C7;
+  --color-warning-500: #F59E0B;
+  --color-warning-600: #D97706;
+  --color-warning-700: #B45309;
+
+  /* 语义色 — 错误（红） */
+  --color-error-50:  #FEF2F2;
+  --color-error-100: #FEE2E2;
+  --color-error-500: #EF4444;
+  --color-error-600: #DC2626;
+  --color-error-700: #B91C1C;
+
+  /* 语义色 — 信息（青） */
+  --color-info-50:  #F0F9FF;
+  --color-info-100: #E0F2FE;
+  --color-info-500: #0EA5E9;
+  --color-info-600: #0284C7;
+  --color-info-700: #0369A1;
+
+  /* 语义色 — 呆滞风险（蓝紫） */
+  --color-stagnant-100: #EDE9FE;
+  --color-stagnant-500: #8B5CF6;
+  --color-stagnant-600: #7C3AED;
+
+  /* ═══════════════════════════════════════════
+     中性色
+  ═══════════════════════════════════════════ */
+  --color-gray-0:   #FFFFFF;
+  --color-gray-50:  #F8FAFC;
+  --color-gray-100: #F1F5F9;
+  --color-gray-200: #E2E8F0;
+  --color-gray-300: #CBD5E1;
+  --color-gray-400: #94A3B8;
+  --color-gray-500: #64748B;
+  --color-gray-600: #475569;
+  --color-gray-700: #334155;
+  --color-gray-800: #1E293B;
+  --color-gray-900: #0F172A;
+
+  /* ═══════════════════════════════════════════
+     语义别名（亮色模式）
+  ═══════════════════════════════════════════ */
+  --bg-page:            #F8FAFC;
+  --bg-card:            #FFFFFF;
+  --bg-sidebar:         #1E293B;
+  --text-sidebar:       #CBD5E1;
+  --bg-sidebar-active:  #2563EB;
+  --text-primary:       #1E293B;
+  --text-secondary:     #64748B;
+  --text-disabled:      #94A3B8;
+  --text-on-primary:    #FFFFFF;
+  --border-default:     #E2E8F0;
+  --border-strong:      #CBD5E1;
+  --border-focus:       #3B82F6;
+
+  /* ═══════════════════════════════════════════
+     数字字体辅助
+  ═══════════════════════════════════════════ */
+  /* --font-family-number 已定义于字体区块。
+     tabular-nums 通过 .font-tabular 工具类启用（见文件末尾）。 */
+
+  /* ═══════════════════════════════════════════
+     库存状态语义色（4 态）
+     正常绿 / 预警黄 / 不足红 / 呆滞灰（紫）
+  ═══════════════════════════════════════════ */
+  /* 正常（绿）— 库存充足，高于安全库存 */
+  --inventory-normal-bg:    var(--color-success-100);
+  --inventory-normal-text:  var(--color-success-700);
+  --inventory-normal-dot:   var(--color-success-500);
+  /* 预警（黄）— 临近安全库存阈值 */
+  --inventory-warning-bg:   var(--color-warning-100);
+  --inventory-warning-text: var(--color-warning-700);
+  --inventory-warning-dot:  var(--color-warning-500);
+  /* 不足（红）— 低于安全库存，存在缺货风险 */
+  --inventory-danger-bg:    var(--color-error-100);
+  --inventory-danger-text:  var(--color-error-700);
+  --inventory-danger-dot:   var(--color-error-500);
+  /* 呆滞（蓝紫）— 长期未动用，存在资金占压风险 */
+  --inventory-stagnant-bg:   var(--color-stagnant-100);
+  --inventory-stagnant-text: var(--color-stagnant-600);
+  --inventory-stagnant-dot:  var(--color-stagnant-500);
+
+  /* ═══════════════════════════════════════════
+     Tag 变体语义色
+  ═══════════════════════════════════════════ */
+  /* 缸号标签（.tag--dye-lot）— 面料/皮料缸号标识，虚线边框橙色系 */
+  --tag-dye-lot-bg:     var(--color-accent-50);
+  --tag-dye-lot-text:   var(--color-accent-600);
+  --tag-dye-lot-border: var(--color-accent-200);  /* dashed 边框色 */
+
+  /* SKU 一级品类标签（.tag--sku-rm / wip / fg）*/
+  /* 原材料（RM）— 棕橙色系 */
+  --tag-sku-rm-bg:   #FDF3E7;
+  --tag-sku-rm-text: #9A3412;
+  /* 半成品（WIP）— 蓝灰色系 */
+  --tag-sku-wip-bg:   #EFF6FF;
+  --tag-sku-wip-text: #1D4ED8;
+  /* 成品（FG）— 翠绿色系 */
+  --tag-sku-fg-bg:   #F0FDF4;
+  --tag-sku-fg-text: #166534;
+
+  /* 优先级标签（.tag--priority-*）*/
+  /* 紧急 — 红色，加粗边框 */
+  --tag-priority-urgent-bg:     var(--color-error-100);
+  --tag-priority-urgent-text:   var(--color-error-700);
+  --tag-priority-urgent-border: var(--color-error-500);
+  /* 高优先级 — 橙色 */
+  --tag-priority-high-bg:       var(--color-accent-50);
+  --tag-priority-high-text:     var(--color-accent-600);
+  --tag-priority-high-border:   transparent;
+  /* 普通 — 中性灰 */
+  --tag-priority-normal-bg:     var(--color-gray-100);
+  --tag-priority-normal-text:   var(--color-gray-700);
+  --tag-priority-normal-border: transparent;
+
+  /* ═══════════════════════════════════════════
+     二级品类标签色（17种）
+  ═══════════════════════════════════════════ */
+  /* 原材料 8 类 */
+  --sub-board-bg:     #FDF3E7; --sub-board-text:     #9A3412;
+  --sub-hardware-bg:  #F3F4F6; --sub-hardware-text:  #4B5563;
+  --sub-fabric-bg:    #F3E8FF; --sub-fabric-text:    #7C3AED;
+  --sub-foam-bg:      #ECFDF5; --sub-foam-text:      #059669;
+  --sub-paint-bg:     #FEF9C3; --sub-paint-text:     #A16207;
+  --sub-adhesive-bg:  #FFF1F2; --sub-adhesive-text:  #E11D48;
+  --sub-pack-bg:      #F0F9FF; --sub-pack-text:      #0369A1;
+  --sub-other-bg:     #F5F5F5; --sub-other-text:     #737373;
+  /* 半成品 3 类 */
+  --sub-frame-bg:     #FFF7ED; --sub-frame-text:     #C2410C;
+  --sub-cover-bg:     #FDF4FF; --sub-cover-text:     #7E22CE;
+  --sub-assembly-bg:  #F0F9FF; --sub-assembly-text:  #0369A1;
+  /* 成品 5 类 */
+  --sub-sofa-bg:      #FFF0F9; --sub-sofa-text:      #9D174D;
+  --sub-cabinet-bg:   #F0FDF4; --sub-cabinet-text:   #166534;
+  --sub-table-bg:     #FFFBEB; --sub-table-text:     #92400E;
+  --sub-bed-bg:       #EFF6FF; --sub-bed-text:       #1D4ED8;
+  --sub-custom-bg:    #F8FAFC; --sub-custom-text:    #334155;
+  /* 未分类 */
+  --sub-none-bg:      #FEF2F2; --sub-none-text:      #B91C1C;
+
+  /* ═══════════════════════════════════════════
+     字体
+  ═══════════════════════════════════════════ */
+  --font-family-base:   "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei",
+                        -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-family-mono:   "JetBrains Mono", "SF Mono", "Consolas", monospace;
+  --font-family-number: "DIN Alternate", "Roboto Mono", var(--font-family-base);
+
+  /* 字号 */
+  --text-h1:        2rem;
+  --text-h2:        1.5rem;
+  --text-h3:        1.25rem;
+  --text-h4:        1.125rem;
+  --text-body-l:    1rem;
+  --text-body-m:    0.875rem;
+  --text-body-s:    0.75rem;
+  --text-label:     0.75rem;
+  --text-caption:   0.6875rem;
+  --text-number-xl: 2.5rem;
+  --text-number-l:  1.75rem;
+  --text-number-m:  1.25rem;
+
+  /* ═══════════════════════════════════════════
+     间距（4px 基准网格）
+  ═══════════════════════════════════════════ */
+  --space-0:  0;
+  --space-1:  0.25rem;
+  --space-2:  0.5rem;
+  --space-3:  0.75rem;
+  --space-4:  1rem;
+  --space-5:  1.25rem;
+  --space-6:  1.5rem;
+  --space-7:  1.75rem;
+  --space-8:  2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+
+  /* 布局专属 */
+  --layout-sidebar-width:       240px;
+  --layout-sidebar-collapsed:   60px;
+  --layout-header-height:       64px;
+  --layout-page-padding:        24px;
+  --layout-card-gap:            16px;
+  /* 小程序布局专属 */
+  --layout-mini-tab-height:     56px;
+  --layout-mini-header-height:  48px;
+
+  /* ═══════════════════════════════════════════
+     圆角
+  ═══════════════════════════════════════════ */
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-2xl:  24px;
+  --radius-full: 9999px;
+
+  /* ═══════════════════════════════════════════
+     阴影
+  ═══════════════════════════════════════════ */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+  /* ═══════════════════════════════════════════
+     动画时长
+  ═══════════════════════════════════════════ */
+  --transition-fast:   150ms ease;
+  --transition-base:   200ms ease;
+  --transition-slow:   300ms ease;
+  --transition-spring: 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ═══════════════════════════════════════════
+     层叠（z-index）
+  ═══════════════════════════════════════════ */
+  --z-base:     0;
+  --z-dropdown: 100;
+  --z-sticky:   200;
+  --z-overlay:  300;
+  --z-modal:    400;
+  --z-toast:    500;
+  --z-tooltip:  600;
+}
+
+/* ── 暗色模式 ──────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-page:        #0F172A;
+    --bg-card:        #1E293B;
+    --bg-sidebar:     #0F172A;
+    --text-primary:   #F1F5F9;
+    --text-secondary: #94A3B8;
+    --text-disabled:  #475569;
+    --border-default: #334155;
+    --border-strong:  #475569;
+  }
+}
+
+/* ── AI 状态动画 Keyframes ─────────────────── */
+@keyframes ai-thinking {
+  0%, 80%, 100% { transform: translateY(0); opacity: 1; }
+  40%            { transform: translateY(-6px); opacity: 0.7; }
+}
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes slide-out-right {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── 数字字体工具类 ────────────────────────── */
+/* 用于 KPI 大数字、库存数量、价格金额等需要等宽对齐的数字场景 */
+.font-tabular {
+  font-family: var(--font-family-number);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}

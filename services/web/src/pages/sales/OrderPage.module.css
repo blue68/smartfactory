@@ -1,0 +1,191 @@
+.page { display: flex; flex-direction: column; gap: var(--space-5); }
+
+/* 状态 Tabs */
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 2px solid var(--border-default);
+}
+.tab {
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-body-m);
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+  cursor: pointer;
+}
+.tab:hover { color: var(--text-primary); }
+.tab--active {
+  color: var(--color-primary-600);
+  border-bottom-color: var(--color-primary-500);
+  font-weight: 600;
+}
+
+/* Detail Drawer */
+.detail_section { display: flex; flex-direction: column; gap: var(--space-5); }
+
+.detail_info_grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3) var(--space-5);
+}
+.detail_info_item { display: flex; flex-direction: column; gap: 4px; }
+.detail_info_label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.detail_info_value {
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+}
+
+.detail_block_title {
+  font-size: var(--text-body-s);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-2);
+}
+
+/* 受阻原因 */
+.blocked_list { display: flex; flex-direction: column; gap: var(--space-2); }
+.blocked_item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-error-50);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--color-error-400);
+  font-size: var(--text-body-s);
+  color: var(--color-error-700);
+}
+
+/* 明细表 */
+.items_table { width: 100%; border-collapse: collapse; font-size: var(--text-body-s); }
+.items_table th {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-gray-100);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.items_table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-primary);
+}
+.items_table tr:last-child td { border-bottom: none; }
+
+/* 审批表单 */
+.approve_form { display: flex; flex-direction: column; gap: var(--space-3); }
+.approve_label { font-size: var(--text-label); font-weight: 500; color: var(--text-secondary); }
+.approve_textarea {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-family-base);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  resize: vertical;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.approve_textarea:focus { border-color: var(--border-focus); }
+
+/* 加急分析 Drawer */
+.urgent_section { display: flex; flex-direction: column; gap: var(--space-4); }
+.urgent_form { display: flex; flex-direction: column; gap: var(--space-3); }
+.urgent_label { font-size: var(--text-label); font-weight: 500; color: var(--text-secondary); }
+.urgent_input {
+  height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.urgent_input:focus { border-color: var(--border-focus); }
+
+/* 加急分析报告 */
+.report_header { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+.report_title { font-size: var(--text-body-l); font-weight: 700; color: var(--text-primary); }
+.report_feasibility {
+  padding: var(--space-1) var(--space-3);
+  border-radius: 20px;
+  font-size: var(--text-body-s);
+  font-weight: 600;
+}
+.report_feasibility--yes { background: var(--color-success-50); color: var(--color-success-700); }
+.report_feasibility--no { background: var(--color-error-50); color: var(--color-error-700); }
+.report_feasibility--partial { background: var(--color-warning-50); color: var(--color-warning-700); }
+
+.report_checks { display: flex; flex-direction: column; gap: var(--space-3); }
+.report_check_item {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: var(--bg-card);
+}
+.report_check_header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+.report_check_name {
+  font-size: var(--text-body-m);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.report_check_detail {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.report_suggestion {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-accent-50);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-accent-500);
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.report_suggestion strong {
+  color: var(--color-accent-700);
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-body-m);
+}
+
+/* ——— T215: 响应式断点 ——— */
+@media (max-width: 1200px) {
+  .detail_info_grid { gap: var(--space-2) var(--space-3); }
+}
+
+@media (max-width: 768px) {
+  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab { white-space: nowrap; padding: var(--space-2) var(--space-3); font-size: var(--text-body-s); }
+  .detail_info_grid { grid-template-columns: 1fr; }
+  .items_table { font-size: 12px; }
+  .items_table th,
+  .items_table td { padding: var(--space-1) var(--space-2); }
+  .report_checks { gap: var(--space-2); }
+  .report_check_item { padding: var(--space-2) var(--space-3); }
+}

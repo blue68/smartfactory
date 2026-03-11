@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>智造管家 — 工人任务</title>
+  <style>
+    /* ===== Design Tokens ===== */
+    :root {
+      --color-primary-50: #EFF6FF;
+      --color-primary-100: #DBEAFE;
+      --color-primary-500: #3B82F6;
+      --color-primary-600: #2563EB;
+      --color-primary-700: #1D4ED8;
+      --color-accent-50: #FFF7ED;
+      --color-accent-500: #F97316;
+      --color-accent-600: #EA580C;
+      --color-success-50: #F0FDF4;
+      --color-success-500: #22C55E;
+      --color-success-600: #16A34A;
+      --color-success-700: #15803D;
+      --color-warning-50: #FFFBEB;
+      --color-warning-100: #FEF3C7;
+      --color-warning-500: #F59E0B;
+      --color-warning-600: #D97706;
+      --color-error-50: #FEF2F2;
+      --color-error-500: #EF4444;
+      --color-error-600: #DC2626;
+      --color-gray-0: #FFFFFF;
+      --color-gray-50: #F8FAFC;
+      --color-gray-100: #F1F5F9;
+      --color-gray-200: #E2E8F0;
+      --color-gray-300: #CBD5E1;
+      --color-gray-400: #94A3B8;
+      --color-gray-500: #64748B;
+      --color-gray-600: #475569;
+      --color-gray-700: #334155;
+      --color-gray-800: #1E293B;
+      --color-gray-900: #0F172A;
+      --bg-page: #F1F5F9;
+      --bg-card: #FFFFFF;
+      --text-primary: #1E293B;
+      --text-secondary: #64748B;
+      --text-disabled: #94A3B8;
+      --border-default: #E2E8F0;
+      --font-family-base: "PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --font-family-number: "DIN Alternate","Roboto Mono",var(--font-family-base);
+      --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
+      --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem;
+      --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+      --radius-xl: 16px; --radius-2xl: 24px; --radius-full: 9999px;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.1),0 1px 2px rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -1px rgba(0,0,0,0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1),0 4px 6px -2px rgba(0,0,0,0.05);
+      --transition-fast: 150ms ease; --transition-base: 200ms ease; --transition-slow: 300ms ease;
+      --mp-nav-h: 44px;
+      --mp-tab-h: 60px;
+      --mp-btn-h: 54px;
+      --mp-touch-min: 48px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: var(--font-family-base);
+      background: #D1D5DB;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    /* ===== Phone Shell ===== */
+    .mp-shell {
+      width: 375px;
+      min-height: 812px;
+      background: var(--bg-page);
+      border-radius: 2.5rem;
+      box-shadow: 0 30px 80px rgba(0,0,0,0.35), 0 0 0 8px #1a1a1a, 0 0 0 10px #333;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ===== Status Bar ===== */
+    .mp-status {
+      height: 44px;
+      background: linear-gradient(135deg, var(--color-primary-600) 0%, var(--color-primary-700) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 var(--space-5);
+      flex-shrink: 0;
+    }
+    .mp-status__time { font-size: 0.875rem; font-weight: 600; color: #fff; }
+    .mp-status__icons { display: flex; gap: var(--space-2); align-items: center; }
+    .mp-status__icons span { font-size: 0.75rem; color: rgba(255,255,255,0.9); }
+
+    /* ===== Navbar ===== */
+    .mp-nav {
+      height: var(--mp-nav-h);
+      background: linear-gradient(135deg, var(--color-primary-600) 0%, var(--color-primary-700) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 var(--space-4);
+      flex-shrink: 0;
+    }
+    .mp-nav__left { display: flex; flex-direction: column; }
+    .mp-nav__title { font-size: 1.125rem; font-weight: 700; color: #fff; }
+    .mp-nav__sub { font-size: 0.75rem; color: rgba(255,255,255,0.75); margin-top: 1px; }
+    .mp-nav__right { display: flex; align-items: center; gap: var(--space-2); }
+    .nav-badge {
+      background: var(--color-error-500);
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      line-height: 1.4;
+    }
+    .nav-badge__label { font-size: 0.6875rem; color: rgba(255,255,255,0.8); }
+
+    /* ===== Scroll Content ===== */
+    .mp-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--space-4);
+      padding-bottom: calc(var(--mp-tab-h) + var(--space-4));
+      -webkit-overflow-scrolling: touch;
+    }
+    .mp-scroll::-webkit-scrollbar { display: none; }
+
+    /* ===== Section Header ===== */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-3);
+    }
+    .section-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .section-count {
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+    }
+
+    /* ===== Task Card ===== */
+    .task-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: var(--space-3);
+      overflow: hidden;
+      transition: box-shadow var(--transition-base);
+    }
+    .task-card--urgent .task-card__priority-bar { background: var(--color-error-500); }
+    .task-card--high .task-card__priority-bar { background: var(--color-accent-500); }
+    .task-card--normal .task-card__priority-bar { background: var(--color-primary-500); }
+
+    .task-card__header {
+      display: flex;
+      align-items: stretch;
+      min-height: 80px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .task-card__header:active { background: var(--color-gray-50); }
+
+    .task-card__priority-bar {
+      width: 4px;
+      flex-shrink: 0;
+    }
+    .task-card__body {
+      flex: 1;
+      padding: var(--space-3) var(--space-4);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+    .task-card__top {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .task-card__priority-tag {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      white-space: nowrap;
+    }
+    .task-card--urgent .task-card__priority-tag { background: var(--color-error-50); color: var(--color-error-600); }
+    .task-card--high .task-card__priority-tag { background: var(--color-accent-50); color: var(--color-accent-600); }
+    .task-card--normal .task-card__priority-tag { background: var(--color-primary-50); color: var(--color-primary-600); }
+
+    .task-card__process {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      flex: 1;
+    }
+    .task-card__status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .task-card__status-dot--pending { background: var(--color-gray-400); }
+    .task-card__status-dot--running { background: var(--color-success-500); animation: pulse-dot 1.5s ease-in-out infinite; }
+
+    @keyframes pulse-dot {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.75); }
+    }
+
+    .task-card__meta {
+      display: flex;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .task-card__meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .task-card__meta-label {
+      font-size: 0.6875rem;
+      color: var(--text-disabled);
+    }
+    .task-card__meta-value {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: var(--font-family-number);
+    }
+
+    .task-card__timer {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--color-success-600);
+      font-family: var(--font-family-number);
+      padding: var(--space-1) var(--space-3);
+      background: var(--color-success-50);
+      border-radius: var(--radius-full);
+      white-space: nowrap;
+    }
+    .task-card__expand-icon {
+      font-size: 0.75rem;
+      color: var(--text-disabled);
+      margin-left: var(--space-2);
+      transition: transform var(--transition-base);
+    }
+    .task-card--expanded .task-card__expand-icon { transform: rotate(180deg); }
+
+    /* ===== Task Detail Panel ===== */
+    .task-detail {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.35s ease;
+    }
+    .task-detail--open { max-height: 600px; }
+
+    .task-detail__inner {
+      padding: 0 var(--space-4) var(--space-4);
+      border-top: 1px solid var(--border-default);
+      margin-top: 0;
+    }
+
+    .task-detail__section-title {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin: var(--space-3) 0 var(--space-2);
+    }
+
+    /* ===== Material List ===== */
+    .material-list { display: flex; flex-direction: column; gap: var(--space-2); }
+    .material-item {
+      background: var(--color-gray-50);
+      border-radius: var(--radius-md);
+      padding: var(--space-3);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+    }
+    .material-item__top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .material-item__name {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .material-item__qty {
+      font-size: 0.9375rem;
+      font-weight: 700;
+      color: var(--color-primary-600);
+      font-family: var(--font-family-number);
+    }
+    .material-item__code {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+    .material-item__tags {
+      display: flex;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+      margin-top: var(--space-1);
+    }
+
+    /* ===== Tags ===== */
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      white-space: nowrap;
+    }
+    .tag--dye-lot { background: var(--color-warning-100); color: var(--color-warning-700); }
+    .tag--location { background: var(--color-primary-50); color: var(--color-primary-700); }
+    .tag--shortage { background: var(--color-error-50); color: var(--color-error-600); border: 1px solid var(--color-error-500); }
+    .tag--ready { background: var(--color-success-50); color: var(--color-success-700); }
+
+    /* ===== Action Button Area ===== */
+    .task-actions {
+      display: flex;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4) var(--space-4);
+    }
+
+    .btn {
+      flex: 1;
+      height: var(--mp-btn-h);
+      border: none;
+      border-radius: var(--radius-lg);
+      font-family: var(--font-family-base);
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-2);
+      transition: opacity var(--transition-fast), transform var(--transition-fast);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active { opacity: 0.85; transform: scale(0.97); }
+    .btn--primary { background: var(--color-primary-500); color: #fff; }
+    .btn--success { background: var(--color-success-600); color: #fff; }
+    .btn--warning {
+      background: transparent;
+      color: var(--color-accent-600);
+      border: 2px solid var(--color-accent-500);
+      flex: 0 0 auto;
+      padding: 0 var(--space-4);
+    }
+    .btn--icon { font-size: 1.125rem; }
+    .btn--full { width: 100%; flex: none; }
+
+    /* ===== TabBar ===== */
+    .mp-tab {
+      height: var(--mp-tab-h);
+      background: var(--bg-card);
+      border-top: 1px solid var(--border-default);
+      display: flex;
+      align-items: stretch;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 10;
+    }
+    .mp-tab__item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      position: relative;
+    }
+    .mp-tab__item:active { background: var(--color-gray-50); }
+    .mp-tab__icon { font-size: 1.375rem; color: var(--color-gray-400); }
+    .mp-tab__label { font-size: 0.6875rem; color: var(--color-gray-400); }
+    .mp-tab__item--active .mp-tab__icon { color: var(--color-primary-500); }
+    .mp-tab__item--active .mp-tab__label { color: var(--color-primary-500); font-weight: 600; }
+    .mp-tab__badge {
+      position: absolute;
+      top: 6px;
+      right: 50%;
+      transform: translateX(12px);
+      background: var(--color-error-500);
+      color: #fff;
+      font-size: 0.5625rem;
+      font-weight: 700;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: var(--radius-full);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid #fff;
+    }
+
+    /* ===== Bottom Sheet Overlay ===== */
+    .sheet-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--transition-slow);
+    }
+    .sheet-overlay--on { opacity: 1; pointer-events: auto; }
+
+    .bottom-sheet {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--bg-card);
+      border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+      padding: var(--space-4);
+      z-index: 101;
+      transform: translateY(100%);
+      transition: transform 0.35s cubic-bezier(0.32,0.72,0,1);
+      max-height: 85%;
+      overflow-y: auto;
+    }
+    .bottom-sheet--on { transform: translateY(0); }
+    .bottom-sheet::-webkit-scrollbar { display: none; }
+
+    .sheet-handle {
+      width: 40px;
+      height: 4px;
+      background: var(--color-gray-300);
+      border-radius: var(--radius-full);
+      margin: 0 auto var(--space-4);
+    }
+    .sheet-title {
+      font-size: 1.0625rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      text-align: center;
+      margin-bottom: var(--space-5);
+    }
+    .sheet-title__sub {
+      font-size: 0.8125rem;
+      font-weight: 400;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    /* ===== Form Controls (in sheets) ===== */
+    .form-group { margin-bottom: var(--space-4); }
+    .form-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: var(--space-2);
+    }
+    .form-label--required::after { content: " *"; color: var(--color-error-500); }
+
+    .form-input {
+      width: 100%;
+      height: 52px;
+      border: 1.5px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 0 var(--space-4);
+      font-size: 1.0625rem;
+      font-family: var(--font-family-base);
+      color: var(--text-primary);
+      background: var(--bg-card);
+      transition: border-color var(--transition-fast);
+      -webkit-appearance: none;
+    }
+    .form-input:focus { outline: none; border-color: var(--color-primary-500); }
+    .form-input--number { font-family: var(--font-family-number); font-size: 1.25rem; font-weight: 700; text-align: center; }
+
+    .form-select {
+      width: 100%;
+      height: 52px;
+      border: 1.5px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 0 var(--space-4);
+      font-size: 1rem;
+      font-family: var(--font-family-base);
+      color: var(--text-primary);
+      background: var(--bg-card);
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 1rem center;
+    }
+    .form-select:focus { outline: none; border-color: var(--color-primary-500); }
+
+    .form-textarea {
+      width: 100%;
+      min-height: 80px;
+      border: 1.5px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: var(--space-3) var(--space-4);
+      font-size: 1rem;
+      font-family: var(--font-family-base);
+      color: var(--text-primary);
+      background: var(--bg-card);
+      resize: none;
+      line-height: 1.5;
+    }
+    .form-textarea:focus { outline: none; border-color: var(--color-primary-500); }
+
+    /* ===== Qty Row ===== */
+    .qty-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+    }
+    .qty-row__label { font-size: 0.8125rem; color: var(--text-secondary); white-space: nowrap; }
+    .qty-row__input-wrap { flex: 1; position: relative; }
+
+    /* ===== Anomaly Type Grid ===== */
+    .anomaly-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-3);
+    }
+    .anomaly-btn {
+      height: 56px;
+      border: 2px solid var(--border-default);
+      border-radius: var(--radius-md);
+      background: var(--bg-card);
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-2);
+      transition: all var(--transition-fast);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .anomaly-btn:active,
+    .anomaly-btn--selected {
+      border-color: var(--color-primary-500);
+      background: var(--color-primary-50);
+      color: var(--color-primary-600);
+    }
+
+    /* ===== Photo Upload ===== */
+    .photo-row {
+      display: flex;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+    }
+    .photo-slot {
+      width: 72px;
+      height: 72px;
+      border: 1.5px dashed var(--color-gray-300);
+      border-radius: var(--radius-md);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      cursor: pointer;
+      color: var(--text-disabled);
+      font-size: 0.625rem;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .photo-slot__icon { font-size: 1.5rem; }
+    .photo-slot:active { background: var(--color-gray-50); }
+
+    /* ===== Sheet Action ===== */
+    .sheet-actions {
+      display: flex;
+      gap: var(--space-3);
+      margin-top: var(--space-5);
+      padding-bottom: var(--space-2);
+    }
+    .btn-cancel {
+      flex: 1;
+      height: var(--mp-btn-h);
+      border: 1.5px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      background: var(--bg-card);
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-cancel:active { background: var(--color-gray-50); }
+    .btn-submit {
+      flex: 2;
+      height: var(--mp-btn-h);
+      border: none;
+      border-radius: var(--radius-lg);
+      background: var(--color-success-600);
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 700;
+      font-family: var(--font-family-base);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: opacity var(--transition-fast);
+    }
+    .btn-submit:active { opacity: 0.85; }
+    .btn-submit--warning { background: var(--color-accent-500); }
+
+    /* ===== Empty State ===== */
+    .empty-state {
+      text-align: center;
+      padding: var(--space-8) var(--space-4);
+      color: var(--text-disabled);
+    }
+    .empty-state__icon { font-size: 3rem; margin-bottom: var(--space-3); }
+    .empty-state__text { font-size: 1rem; }
+
+    /* ===== Info Banner ===== */
+    .info-banner {
+      background: var(--color-primary-50);
+      border: 1px solid var(--color-primary-500);
+      border-radius: var(--radius-md);
+      padding: var(--space-3) var(--space-4);
+      margin-bottom: var(--space-4);
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-2);
+    }
+    .info-banner__icon { color: var(--color-primary-500); font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+    .info-banner__text { font-size: 0.875rem; color: var(--color-primary-700); line-height: 1.5; }
+
+    /* ===== Toast ===== */
+    .toast {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.8);
+      background: rgba(15,23,42,0.88);
+      color: #fff;
+      padding: var(--space-4) var(--space-6);
+      border-radius: var(--radius-xl);
+      text-align: center;
+      z-index: 200;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    .toast--on { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+    .toast__icon { font-size: 2rem; display: block; margin-bottom: var(--space-2); }
+    .toast__text { font-size: 0.9375rem; font-weight: 600; }
+
+    /* ===== Spinner ===== */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2.5px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+
+<div class="mp-shell" id="shell">
+
+  <!-- Status Bar -->
+  <div class="mp-status">
+    <span class="mp-status__time">09:32</span>
+    <div class="mp-status__icons">
+      <span>WiFi</span>
+      <span>100%</span>
+    </div>
+  </div>
+
+  <!-- Navbar -->
+  <div class="mp-nav">
+    <div class="mp-nav__left">
+      <span class="mp-nav__title">我的任务</span>
+      <span class="mp-nav__sub">2026年3月11日 &nbsp;|&nbsp; 赵师傅</span>
+    </div>
+    <div class="mp-nav__right">
+      <div style="text-align:right;">
+        <div class="nav-badge">4</div>
+        <div class="nav-badge__label">待完成</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scrollable Content -->
+  <div class="mp-scroll" id="scroll">
+
+    <div class="info-banner">
+      <span class="info-banner__icon">&#9432;</span>
+      <span class="info-banner__text">今日共 <strong>4</strong> 个任务，点击卡片展开物料详情，完成后请及时上报。</span>
+    </div>
+
+    <!-- Section: 紧急任务 -->
+    <div class="section-header">
+      <span class="section-title">紧急</span>
+      <span class="section-count">1 个</span>
+    </div>
+
+    <!-- Task Card 1: Urgent, Running -->
+    <div class="task-card task-card--urgent task-card--expanded" id="card1">
+      <div class="task-card__header" onclick="toggleCard('card1')">
+        <div class="task-card__priority-bar"></div>
+        <div class="task-card__body">
+          <div class="task-card__top">
+            <span class="task-card__priority-tag">紧急</span>
+            <span class="task-card__process">布料裁剪</span>
+            <div class="task-card__status-dot task-card__status-dot--running" title="进行中"></div>
+            <span class="task-card__expand-icon">&#9660;</span>
+          </div>
+          <div class="task-card__meta">
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">订单号</span>
+              <span class="task-card__meta-value">ORD-2026031102</span>
+            </div>
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">产品</span>
+              <span class="task-card__meta-value">欧式双人沙发</span>
+            </div>
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">计划数量</span>
+              <span class="task-card__meta-value">12 件</span>
+            </div>
+            <span class="task-card__timer" id="timer1">00:47:23</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detail Panel -->
+      <div class="task-detail task-detail--open" id="detail1">
+        <div class="task-detail__inner">
+          <div class="task-detail__section-title">所需物料</div>
+          <div class="material-list">
+            <div class="material-item">
+              <div class="material-item__top">
+                <span class="material-item__name">亚麻面料（米白色）</span>
+                <span class="material-item__qty">8.4 m</span>
+              </div>
+              <span class="material-item__code">SKU: FAB-LN-002</span>
+              <div class="material-item__tags">
+                <span class="tag tag--dye-lot">&#x25CF; 缸号 GH-2026-047</span>
+                <span class="tag tag--location">库位 A-03-2</span>
+                <span class="tag tag--ready">已备料</span>
+              </div>
+            </div>
+            <div class="material-item">
+              <div class="material-item__top">
+                <span class="material-item__name">海绵垫（高密度）</span>
+                <span class="material-item__qty">3 块</span>
+              </div>
+              <span class="material-item__code">SKU: SPG-HD-010</span>
+              <div class="material-item__tags">
+                <span class="tag tag--location">库位 B-02-1</span>
+                <span class="tag tag--ready">已备料</span>
+              </div>
+            </div>
+            <div class="material-item" style="border: 1px solid var(--color-error-200); background: var(--color-error-50);">
+              <div class="material-item__top">
+                <span class="material-item__name">拉链（80cm）</span>
+                <span class="material-item__qty" style="color:var(--color-error-600);">缺料</span>
+              </div>
+              <span class="material-item__code">SKU: ZIP-80-A</span>
+              <div class="material-item__tags">
+                <span class="tag tag--shortage">&#9888; 库存不足</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons: Running state -->
+      <div class="task-actions" id="actions1">
+        <button class="btn btn--success" onclick="openCompleteSheet('card1', '布料裁剪', '12 件')">
+          &#10003; 完工上报
+        </button>
+        <button class="btn btn--warning" onclick="openAnomalySheet('card1', '布料裁剪')">
+          &#9888; 异常上报
+        </button>
+      </div>
+    </div>
+
+    <!-- Section: 高优先级 -->
+    <div class="section-header">
+      <span class="section-title">高优先级</span>
+      <span class="section-count">1 个</span>
+    </div>
+
+    <!-- Task Card 2: High, Pending -->
+    <div class="task-card task-card--high" id="card2">
+      <div class="task-card__header" onclick="toggleCard('card2')">
+        <div class="task-card__priority-bar"></div>
+        <div class="task-card__body">
+          <div class="task-card__top">
+            <span class="task-card__priority-tag">高</span>
+            <span class="task-card__process">沙发组装</span>
+            <div class="task-card__status-dot task-card__status-dot--pending" title="未开始"></div>
+            <span class="task-card__expand-icon">&#9660;</span>
+          </div>
+          <div class="task-card__meta">
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">订单号</span>
+              <span class="task-card__meta-value">ORD-2026031101</span>
+            </div>
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">产品</span>
+              <span class="task-card__meta-value">布艺三人沙发</span>
+            </div>
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">计划数量</span>
+              <span class="task-card__meta-value">6 件</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="task-detail" id="detail2">
+        <div class="task-detail__inner">
+          <div class="task-detail__section-title">所需物料</div>
+          <div class="material-list">
+            <div class="material-item">
+              <div class="material-item__top">
+                <span class="material-item__name">实木框架（橡木）</span>
+                <span class="material-item__qty">6 套</span>
+              </div>
+              <span class="material-item__code">SKU: WDF-OAK-L</span>
+              <div class="material-item__tags">
+                <span class="tag tag--location">库位 C-01-3</span>
+                <span class="tag tag--ready">已备料</span>
+              </div>
+            </div>
+            <div class="material-item">
+              <div class="material-item__top">
+                <span class="material-item__name">皮革（深棕色）</span>
+                <span class="material-item__qty">5.2 m</span>
+              </div>
+              <span class="material-item__code">SKU: LTH-DB-003</span>
+              <div class="material-item__tags">
+                <span class="tag tag--dye-lot">&#x25CF; 缸号 PL-2026-021</span>
+                <span class="tag tag--location">库位 A-05-1</span>
+                <span class="tag tag--ready">已备料</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons: Pending state -->
+      <div class="task-actions" id="actions2">
+        <button class="btn btn--primary btn--full" onclick="startTask('card2')">
+          &#9654; 开始生产
+        </button>
+      </div>
+    </div>
+
+    <!-- Section: 普通任务 -->
+    <div class="section-header">
+      <span class="section-title">普通</span>
+      <span class="section-count">2 个</span>
+    </div>
+
+    <!-- Task Card 3: Normal, Pending -->
+    <div class="task-card task-card--normal" id="card3">
+      <div class="task-card__header" onclick="toggleCard('card3')">
+        <div class="task-card__priority-bar"></div>
+        <div class="task-card__body">
+          <div class="task-card__top">
+            <span class="task-card__priority-tag">普通</span>
+            <span class="task-card__process">缝纫拼接</span>
+            <div class="task-card__status-dot task-card__status-dot--pending" title="未开始"></div>
+            <span class="task-card__expand-icon">&#9660;</span>
+          </div>
+          <div class="task-card__meta">
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">订单号</span>
+              <span class="task-card__meta-value">ORD-2026031103</span>
+            </div>
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">产品</span>
+              <span class="task-card__meta-value">单人休闲椅</span>
+            </div>
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">计划数量</span>
+              <span class="task-card__meta-value">10 件</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="task-detail" id="detail3">
+        <div class="task-detail__inner">
+          <div class="task-detail__section-title">所需物料</div>
+          <div class="material-list">
+            <div class="material-item">
+              <div class="material-item__top">
+                <span class="material-item__name">棉麻混纺布料（灰色）</span>
+                <span class="material-item__qty">4.8 m</span>
+              </div>
+              <span class="material-item__code">SKU: FAB-CM-007</span>
+              <div class="material-item__tags">
+                <span class="tag tag--dye-lot">&#x25CF; 缸号 GH-2026-039</span>
+                <span class="tag tag--location">库位 A-04-2</span>
+                <span class="tag tag--ready">已备料</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="task-actions" id="actions3">
+        <button class="btn btn--primary btn--full" onclick="startTask('card3')">
+          &#9654; 开始生产
+        </button>
+      </div>
+    </div>
+
+    <!-- Task Card 4: Normal, Pending -->
+    <div class="task-card task-card--normal" id="card4">
+      <div class="task-card__header" onclick="toggleCard('card4')">
+        <div class="task-card__priority-bar"></div>
+        <div class="task-card__body">
+          <div class="task-card__top">
+            <span class="task-card__priority-tag">普通</span>
+            <span class="task-card__process">质检包装</span>
+            <div class="task-card__status-dot task-card__status-dot--pending" title="未开始"></div>
+            <span class="task-card__expand-icon">&#9660;</span>
+          </div>
+          <div class="task-card__meta">
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">订单号</span>
+              <span class="task-card__meta-value">ORD-2026031104</span>
+            </div>
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">产品</span>
+              <span class="task-card__meta-value">脚凳（皮革）</span>
+            </div>
+            <div class="task-card__meta-item">
+              <span class="task-card__meta-label">计划数量</span>
+              <span class="task-card__meta-value">20 件</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="task-detail" id="detail4">
+        <div class="task-detail__inner">
+          <div class="task-detail__section-title">所需物料</div>
+          <div class="material-list">
+            <div class="material-item">
+              <div class="material-item__top">
+                <span class="material-item__name">皮革（黑色）</span>
+                <span class="material-item__qty">3.6 m</span>
+              </div>
+              <span class="material-item__code">SKU: LTH-BK-001</span>
+              <div class="material-item__tags">
+                <span class="tag tag--dye-lot">&#x25CF; 缸号 PL-2026-018</span>
+                <span class="tag tag--location">库位 A-05-3</span>
+                <span class="tag tag--ready">已备料</span>
+              </div>
+            </div>
+            <div class="material-item">
+              <div class="material-item__top">
+                <span class="material-item__name">包装纸箱（大号）</span>
+                <span class="material-item__qty">20 个</span>
+              </div>
+              <span class="material-item__code">SKU: PKG-BX-L</span>
+              <div class="material-item__tags">
+                <span class="tag tag--location">库位 D-01-1</span>
+                <span class="tag tag--ready">已备料</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="task-actions" id="actions4">
+        <button class="btn btn--primary btn--full" onclick="startTask('card4')">
+          &#9654; 开始生产
+        </button>
+      </div>
+    </div>
+
+  </div><!-- /mp-scroll -->
+
+  <!-- TabBar -->
+  <div class="mp-tab">
+    <div class="mp-tab__item mp-tab__item--active">
+      <span class="mp-tab__icon">&#128203;</span>
+      <span class="mp-tab__label">任务</span>
+      <div class="mp-tab__badge">4</div>
+    </div>
+    <div class="mp-tab__item">
+      <span class="mp-tab__icon">&#128276;</span>
+      <span class="mp-tab__label">消息</span>
+      <div class="mp-tab__badge">2</div>
+    </div>
+    <div class="mp-tab__item">
+      <span class="mp-tab__icon">&#128100;</span>
+      <span class="mp-tab__label">我的</span>
+    </div>
+  </div>
+
+  <!-- ===== Complete Sheet Overlay ===== -->
+  <div class="sheet-overlay" id="completeOverlay" onclick="closeCompleteSheet()"></div>
+  <div class="bottom-sheet" id="completeSheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      完工上报
+      <div class="sheet-title__sub" id="completeSheetSub">布料裁剪 · 计划 12 件</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label form-label--required">实际完成数量</label>
+      <div class="qty-row">
+        <input type="number" class="form-input form-input--number" id="completedQty" placeholder="0" min="0" style="width:100%;">
+        <span class="qty-row__label">件</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">损耗数量（可选）</label>
+      <div class="qty-row">
+        <input type="number" class="form-input form-input--number" id="lossQty" placeholder="0" min="0" style="width:100%;">
+        <span class="qty-row__label">件</span>
+      </div>
+    </div>
+
+    <div class="form-group" id="lossReasonGroup" style="display:none;">
+      <label class="form-label form-label--required">损耗原因</label>
+      <select class="form-select" id="lossReason">
+        <option value="">请选择损耗原因</option>
+        <option value="material">物料缺陷</option>
+        <option value="process">工艺误差</option>
+        <option value="equipment">设备故障</option>
+        <option value="operator">操作失误</option>
+        <option value="other">其他原因</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">补充说明</label>
+      <textarea class="form-textarea" placeholder="可填写完工备注，如实际用料情况、工时等…"></textarea>
+    </div>
+
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="closeCompleteSheet()">取消</button>
+      <button class="btn-submit" onclick="submitComplete()">确认完工</button>
+    </div>
+  </div>
+
+  <!-- ===== Anomaly Sheet Overlay ===== -->
+  <div class="sheet-overlay" id="anomalyOverlay" onclick="closeAnomalySheet()"></div>
+  <div class="bottom-sheet" id="anomalySheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">
+      异常上报
+      <div class="sheet-title__sub" id="anomalySheetSub">布料裁剪</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label form-label--required">异常类型</label>
+      <div class="anomaly-grid">
+        <button class="anomaly-btn" onclick="selectAnomaly(this, 'shortage')">&#128230; 缺料</button>
+        <button class="anomaly-btn" onclick="selectAnomaly(this, 'quality')">&#10060; 质量问题</button>
+        <button class="anomaly-btn" onclick="selectAnomaly(this, 'equipment')">&#128295; 设备故障</button>
+        <button class="anomaly-btn" onclick="selectAnomaly(this, 'other')">&#8230; 其他</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">现场拍照（最多3张）</label>
+      <div class="photo-row">
+        <div class="photo-slot">
+          <span class="photo-slot__icon">&#128247;</span>
+          <span>拍照</span>
+        </div>
+        <div class="photo-slot">
+          <span class="photo-slot__icon">+</span>
+          <span>上传</span>
+        </div>
+        <div class="photo-slot">
+          <span class="photo-slot__icon">+</span>
+          <span>上传</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label form-label--required">异常描述</label>
+      <textarea class="form-textarea" id="anomalyDesc" placeholder="请描述异常情况，如：缸号不一致、布料有破损、设备卡机…"></textarea>
+    </div>
+
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="closeAnomalySheet()">取消</button>
+      <button class="btn-submit btn-submit--warning" onclick="submitAnomaly()">立即上报</button>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast">
+    <span class="toast__icon" id="toastIcon">&#10003;</span>
+    <span class="toast__text" id="toastText">操作成功</span>
+  </div>
+
+</div><!-- /mp-shell -->
+
+<script>
+  /* ===== Card Toggle ===== */
+  function toggleCard(cardId) {
+    const card = document.getElementById(cardId);
+    const num = cardId.replace('card', '');
+    const detail = document.getElementById('detail' + num);
+    const isExpanded = card.classList.contains('task-card--expanded');
+    if (isExpanded) {
+      card.classList.remove('task-card--expanded');
+      detail.classList.remove('task-detail--open');
+    } else {
+      card.classList.add('task-card--expanded');
+      detail.classList.add('task-detail--open');
+    }
+  }
+
+  /* ===== Start Task ===== */
+  function startTask(cardId) {
+    const num = cardId.replace('card', '');
+    const actionsEl = document.getElementById('actions' + num);
+    const card = document.getElementById(cardId);
+
+    // Change status dot to running
+    const dot = card.querySelector('.task-card__status-dot');
+    dot.classList.remove('task-card__status-dot--pending');
+    dot.classList.add('task-card__status-dot--running');
+
+    // Read process name and plan qty
+    const processName = card.querySelector('.task-card__process').textContent;
+    const planQty = card.querySelector('.task-card__meta-value:last-child')?.textContent || '';
+
+    // Replace action buttons
+    actionsEl.innerHTML = `
+      <button class="btn btn--success" onclick="openCompleteSheet('${cardId}', '${processName}', '${planQty}')">
+        &#10003; 完工上报
+      </button>
+      <button class="btn btn--warning" onclick="openAnomalySheet('${cardId}', '${processName}')">
+        &#9888; 异常上报
+      </button>
+    `;
+
+    // Add live timer
+    const meta = card.querySelector('.task-card__meta');
+    const timerEl = document.createElement('span');
+    timerEl.className = 'task-card__timer';
+    timerEl.id = 'timer_' + num;
+    timerEl.textContent = '00:00:00';
+    meta.appendChild(timerEl);
+    startTimer('timer_' + num);
+
+    showToast('&#9654;', '开始生产，加油！');
+  }
+
+  /* ===== Timer ===== */
+  const timerIntervals = {};
+  function startTimer(timerId) {
+    let seconds = 0;
+    timerIntervals[timerId] = setInterval(() => {
+      seconds++;
+      const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
+      const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+      const s = String(seconds % 60).padStart(2, '0');
+      const el = document.getElementById(timerId);
+      if (el) el.textContent = `${h}:${m}:${s}`;
+    }, 1000);
+  }
+
+  // Card 1 running timer
+  let c1Seconds = 47 * 60 + 23;
+  const t1 = document.getElementById('timer1');
+  setInterval(() => {
+    c1Seconds++;
+    const h = String(Math.floor(c1Seconds / 3600)).padStart(2, '0');
+    const m = String(Math.floor((c1Seconds % 3600) / 60)).padStart(2, '0');
+    const s = String(c1Seconds % 60).padStart(2, '0');
+    if (t1) t1.textContent = `${h}:${m}:${s}`;
+  }, 1000);
+
+  /* ===== Loss Qty Trigger ===== */
+  document.getElementById('lossQty').addEventListener('input', function() {
+    const v = parseFloat(this.value) || 0;
+    document.getElementById('lossReasonGroup').style.display = v > 0 ? 'block' : 'none';
+  });
+
+  /* ===== Complete Sheet ===== */
+  let currentCompleteCard = null;
+  function openCompleteSheet(cardId, processName, planQty) {
+    currentCompleteCard = cardId;
+    document.getElementById('completeSheetSub').textContent = `${processName} · 计划 ${planQty}`;
+    document.getElementById('completedQty').value = '';
+    document.getElementById('lossQty').value = '';
+    document.getElementById('lossReasonGroup').style.display = 'none';
+    const overlay = document.getElementById('completeOverlay');
+    const sheet = document.getElementById('completeSheet');
+    overlay.classList.add('sheet-overlay--on');
+    sheet.classList.add('bottom-sheet--on');
+  }
+  function closeCompleteSheet() {
+    document.getElementById('completeOverlay').classList.remove('sheet-overlay--on');
+    document.getElementById('completeSheet').classList.remove('bottom-sheet--on');
+  }
+  function submitComplete() {
+    const qty = document.getElementById('completedQty').value;
+    if (!qty || parseFloat(qty) <= 0) {
+      document.getElementById('completedQty').style.borderColor = 'var(--color-error-500)';
+      document.getElementById('completedQty').style.animation = 'shake 0.4s ease';
+      setTimeout(() => {
+        document.getElementById('completedQty').style.animation = '';
+        document.getElementById('completedQty').style.borderColor = '';
+      }, 500);
+      return;
+    }
+    closeCompleteSheet();
+    showToast('&#10003;', '完工上报成功！');
+  }
+
+  /* ===== Anomaly Sheet ===== */
+  let currentAnomalyCard = null;
+  let selectedAnomalyType = null;
+  function openAnomalySheet(cardId, processName) {
+    currentAnomalyCard = cardId;
+    document.getElementById('anomalySheetSub').textContent = processName;
+    document.getElementById('anomalyDesc').value = '';
+    selectedAnomalyType = null;
+    document.querySelectorAll('.anomaly-btn').forEach(b => b.classList.remove('anomaly-btn--selected'));
+    const overlay = document.getElementById('anomalyOverlay');
+    const sheet = document.getElementById('anomalySheet');
+    overlay.classList.add('sheet-overlay--on');
+    sheet.classList.add('bottom-sheet--on');
+  }
+  function closeAnomalySheet() {
+    document.getElementById('anomalyOverlay').classList.remove('sheet-overlay--on');
+    document.getElementById('anomalySheet').classList.remove('bottom-sheet--on');
+  }
+  function selectAnomaly(btn, type) {
+    selectedAnomalyType = type;
+    document.querySelectorAll('.anomaly-btn').forEach(b => b.classList.remove('anomaly-btn--selected'));
+    btn.classList.add('anomaly-btn--selected');
+  }
+  function submitAnomaly() {
+    const desc = document.getElementById('anomalyDesc').value.trim();
+    if (!selectedAnomalyType) {
+      document.querySelector('.anomaly-grid').style.animation = 'shake 0.4s ease';
+      setTimeout(() => { document.querySelector('.anomaly-grid').style.animation = ''; }, 500);
+      return;
+    }
+    if (!desc) {
+      document.getElementById('anomalyDesc').style.borderColor = 'var(--color-error-500)';
+      setTimeout(() => { document.getElementById('anomalyDesc').style.borderColor = ''; }, 1500);
+      return;
+    }
+    closeAnomalySheet();
+    showToast('&#9888;', '异常已上报，请等待处理');
+  }
+
+  /* ===== Toast ===== */
+  let toastTimer = null;
+  function showToast(icon, text) {
+    const el = document.getElementById('toast');
+    document.getElementById('toastIcon').innerHTML = icon;
+    document.getElementById('toastText').textContent = text;
+    el.classList.add('toast--on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('toast--on'), 2200);
+  }
+
+  /* ===== Shake keyframe injected ===== */
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes shake {
+      0%,100%{transform:translateX(0);}
+      20%{transform:translateX(-8px);}
+      60%{transform:translateX(8px);}
+      80%{transform:translateX(-4px);}
+    }
+  `;
+  document.head.appendChild(style);
+</script>
+</body>
+</html>

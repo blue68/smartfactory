@@ -1,0 +1,52 @@
+/**
+ * [artifact:前端代码] — AI 浮动按钮样式
+ */
+
+.ai_float {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: var(--z-sticky);
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: linear-gradient(135deg, var(--color-primary-500), var(--color-accent-500));
+  color: var(--text-on-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.ai_float:hover {
+  transform: scale(1.08);
+  box-shadow: var(--shadow-xl);
+}
+
+.ai_float:active {
+  transform: scale(0.96);
+}
+
+.ai_float__icon {
+  font-family: var(--font-family-number);
+  font-size: var(--text-body-m);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.ai_float__pulse {
+  position: absolute;
+  inset: -3px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--color-primary-400);
+  animation: ai-float-pulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes ai-float-pulse {
+  0%, 100% { opacity: 0; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(1.1); }
+}

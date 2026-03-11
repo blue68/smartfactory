@@ -1,0 +1,44 @@
+/**
+ * [artifact:API接口代码] — 统一单号生成器
+ * 使用 Redis INCR 原子递增，避免并发竞态
+ */
+
+import { getRedisClient } from '../config/redis';
+
+const PREFIX_MAP: Record<string, string> = {
+  purchase_order: 'PO',
+  sales_order: 'SO',
+  work_order: 'WO',
+  suggestion: 'SG',
+  inspection: 'QC',
+  delivery_note: 'DN',
+  receipt: 'RC',
+  transaction: 'TX',
+};
+
+/**
+ * 生成业务单号
+ * 格式: {PREFIX}{YYMMDD}{5位序号}，例如 PO250311-00001
+ * @param type 业务类型 key（对应 PREFIX_MAP）
+ * @param tenantId 租户 ID（隔离计数器）
+ */
+export async function generateNo(type: keyof typeof PREFIX_MAP, tenantId: number): Promise<string> {
+  const prefix = PREFIX_MAP[type] ?? type.toUpperCase().slice(0, 2);
+  const today = new Date();
+  const dateStr = [
+    String(today.getFullYear()).slice(2),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0'),
+  ].join('');
+
+  const redisKey = `no:${tenantId}:${type}:${dateStr}`;
+  const redis = getRedisClient();
+  const seq = await redis.incr(redisKey);
+
+  // 首次创建时设置 48 小时过期（跨日安全）
+  if (seq === 1) {
+    await redis.expire(redisKey, 48 * 3600);
+  }
+
+  return `${prefix}${dateStr}-${String(seq).padStart(5, '0')}`;
+}

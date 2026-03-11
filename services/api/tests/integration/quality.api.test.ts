@@ -1,0 +1,506 @@
+/**
+ * 集成测试 — 质量溯源模块 API
+ *
+ * 覆盖测试用例：
+ * - TC-QC-001  qc角色创建验货单
+ * - TC-QC-002  supervisor角色创建验货单
+ * - TC-QC-003  缺少必填字段 productionOrderId → 1001
+ * - TC-QC-004  worker角色无权创建验货单 → 1003
+ * - TC-QC-005  录入质量问题（外观缺陷）
+ * - TC-QC-006  severity传非法枚举 → 1001
+ * - TC-QC-007  issueTypes为空数组 → 1001
+ * - TC-QC-008  完成验货（qtyPassed <= qtyInspected）
+ * - TC-QC-009  溯源链查询包含完整字段
+ * - TC-QC-010  溯源链查询工单不存在 → 7001
+ * - TC-QC-011  质量统计分析 periodDays=30
+ * - TC-QC-012  验货单按状态筛选
+ */
+
+import request from 'supertest';
+import { authHeader } from '../helpers/testAuth';
+import { buildQualityIssueData } from '../helpers/testData';
+
+const BASE_URL = process.env.TEST_API_URL ?? 'http://localhost:3000';
+
+// 测试环境预置数据（需测试 DB seed 中存在）
+const PRODUCTION_ORDER_ID  = 80010; // 预置：进行中的生产工单
+const PRESET_INSPECTION_ID = 95001; // 预置：已创建的验货单（pending状态）
+
+describe('质量溯源模块 API 集成测试', () => {
+
+  // ─── 创建验货单 ──────────────────────────────────────────────
+
+  describe('创建验货单 — POST /api/quality/inspections', () => {
+    test('TC-QC-001: qc角色创建验货单成功', async () => {
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections')
+        .set(authHeader('qc'))
+        .send({
+          productionOrderId: PRODUCTION_ORDER_ID,
+          inspectionDate: '2026-03-11',
+          qtyInspected: '5',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.code).toBe(0);
+      expect(res.body.data.id).toBeGreaterThan(0);
+      expect(res.body.data.inspectionNo).toMatch(/^QC\d+/);
+    });
+
+    test('TC-QC-002: supervisor角色创建验货单成功', async () => {
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections')
+        .set(authHeader('supervisor'))
+        .send({
+          productionOrderId: PRODUCTION_ORDER_ID,
+          inspectionDate: '2026-03-11',
+          qtyInspected: '3',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.code).toBe(0);
+    });
+
+    test('TC-QC-003: 缺少必填字段 productionOrderId → 1001', async () => {
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections')
+        .set(authHeader('qc'))
+        .send({
+          inspectionDate: '2026-03-11',
+          qtyInspected: '5',
+        });
+
+      expect(res.body.code).toBe(1001);
+      expect(res.body.message).toMatch(/productionOrderId|工单/i);
+    });
+
+    test('缺少必填字段 qtyInspected → 1001', async () => {
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections')
+        .set(authHeader('qc'))
+        .send({
+          productionOrderId: PRODUCTION_ORDER_ID,
+          inspectionDate: '2026-03-11',
+        });
+
+      expect(res.body.code).toBe(1001);
+    });
+
+    test('TC-QC-004: worker角色无权创建验货单 → 1003', async () => {
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections')
+        .set(authHeader('worker'))
+        .send({
+          productionOrderId: PRODUCTION_ORDER_ID,
+          inspectionDate: '2026-03-11',
+          qtyInspected: '5',
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe(1003);
+    });
+
+    test('未认证请求 → 1002', async () => {
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections')
+        .send({
+          productionOrderId: PRODUCTION_ORDER_ID,
+          inspectionDate: '2026-03-11',
+          qtyInspected: '5',
+        });
+
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe(1002);
+    });
+  });
+
+  // ─── 验货单列表 ──────────────────────────────────────────────
+
+  describe('验货单列表 — GET /api/quality/inspections', () => {
+    test('TC-QC-012: 按状态筛选返回对应验货单', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/inspections?status=pending')
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.code).toBe(0);
+      const list: any[] = res.body.data?.list ?? [];
+      list.forEach((item) => expect(item.status).toBe('pending'));
+    });
+
+    test('按 productionOrderId 筛选', async () => {
+      const res = await request(BASE_URL)
+        .get(`/api/quality/inspections?productionOrderId=${PRODUCTION_ORDER_ID}`)
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveProperty('list');
+      expect(res.body.data).toHaveProperty('total');
+    });
+
+    test('分页参数限制返回条数', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/inspections?page=1&pageSize=5')
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(200);
+      const list: any[] = res.body.data?.list ?? [];
+      expect(list.length).toBeLessThanOrEqual(5);
+    });
+  });
+
+  // ─── 录入质量问题 ────────────────────────────────────────────
+
+  describe('录入质量问题 — POST /api/quality/inspections/issues', () => {
+    let inspectionId: number;
+
+    beforeAll(async () => {
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections')
+        .set(authHeader('qc'))
+        .send({
+          productionOrderId: PRODUCTION_ORDER_ID,
+          inspectionDate: '2026-03-11',
+          qtyInspected: '10',
+        });
+      inspectionId = res.body.data?.id;
+    });
+
+    test('TC-QC-005: qc录入外观缺陷质量问题成功', async () => {
+      if (!inspectionId) return;
+
+      const payload = buildQualityIssueData(inspectionId, {
+        componentName: '沙发左扶手',
+        issueTypes: ['appearance'],
+        severity: 'minor',
+        description: '表面轻微划痕，长度约3cm',
+      });
+
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections/issues')
+        .set(authHeader('qc'))
+        .send(payload);
+
+      expect(res.status).toBe(201);
+      expect(res.body.code).toBe(0);
+      expect(res.body.data.issueId).toBeGreaterThan(0);
+    });
+
+    test('录入多类型问题（外观+尺寸）成功', async () => {
+      if (!inspectionId) return;
+
+      const payload = buildQualityIssueData(inspectionId, {
+        componentName: '沙发靠背',
+        issueTypes: ['appearance', 'dimension'],
+        severity: 'normal',
+        description: '表面划痕且尺寸偏差2mm',
+        images: ['https://storage.example.com/qc/img001.jpg'],
+      });
+
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections/issues')
+        .set(authHeader('qc'))
+        .send(payload);
+
+      expect(res.status).toBe(201);
+      expect(res.body.code).toBe(0);
+    });
+
+    test('TC-QC-006: severity传非法枚举值 → 1001', async () => {
+      if (!inspectionId) return;
+
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections/issues')
+        .set(authHeader('qc'))
+        .send(buildQualityIssueData(inspectionId, {
+          severity: 'critical' as any, // 合法值: minor/normal/severe
+        }));
+
+      expect(res.body.code).toBe(1001);
+      expect(res.body.message).toMatch(/severity/i);
+    });
+
+    test('TC-QC-007: issueTypes为空数组 → 1001', async () => {
+      if (!inspectionId) return;
+
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections/issues')
+        .set(authHeader('qc'))
+        .send(buildQualityIssueData(inspectionId, {
+          issueTypes: [],
+        }));
+
+      expect(res.body.code).toBe(1001);
+    });
+
+    test('issueTypes包含非法枚举值 → 1001', async () => {
+      if (!inspectionId) return;
+
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections/issues')
+        .set(authHeader('qc'))
+        .send(buildQualityIssueData(inspectionId, {
+          issueTypes: ['invalid_type'],
+        }));
+
+      expect(res.body.code).toBe(1001);
+    });
+
+    test('description超500字符 → 1001', async () => {
+      if (!inspectionId) return;
+
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections/issues')
+        .set(authHeader('qc'))
+        .send(buildQualityIssueData(inspectionId, {
+          description: 'X'.repeat(501),
+        }));
+
+      expect(res.body.code).toBe(1001);
+    });
+
+    test('worker角色无权录入质量问题 → 1003', async () => {
+      if (!inspectionId) return;
+
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections/issues')
+        .set(authHeader('worker'))
+        .send(buildQualityIssueData(inspectionId));
+
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe(1003);
+    });
+  });
+
+  // ─── 完成验货 ────────────────────────────────────────────────
+
+  describe('完成验货 — POST /api/quality/inspections/:id/complete', () => {
+    let inspectionId: number;
+
+    beforeAll(async () => {
+      const res = await request(BASE_URL)
+        .post('/api/quality/inspections')
+        .set(authHeader('qc'))
+        .send({
+          productionOrderId: PRODUCTION_ORDER_ID,
+          inspectionDate: '2026-03-11',
+          qtyInspected: '10',
+        });
+      inspectionId = res.body.data?.id;
+    });
+
+    test('TC-QC-008: qc完成验货成功，qtyPassed < qtyInspected', async () => {
+      if (!inspectionId) return;
+
+      const res = await request(BASE_URL)
+        .post(`/api/quality/inspections/${inspectionId}/complete`)
+        .set(authHeader('qc'))
+        .send({ qtyPassed: '9' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.code).toBe(0);
+      expect(res.body.message).toMatch(/完成/);
+    });
+
+    test('qtyPassed等于qtyInspected时合法（全部通过）', async () => {
+      const createRes = await request(BASE_URL)
+        .post('/api/quality/inspections')
+        .set(authHeader('qc'))
+        .send({
+          productionOrderId: PRODUCTION_ORDER_ID,
+          inspectionDate: '2026-03-11',
+          qtyInspected: '5',
+        });
+      const newId = createRes.body.data?.id;
+      if (!newId) return;
+
+      const res = await request(BASE_URL)
+        .post(`/api/quality/inspections/${newId}/complete`)
+        .set(authHeader('qc'))
+        .send({ qtyPassed: '5' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.code).toBe(0);
+    });
+
+    test('qtyPassed超过qtyInspected → 1001', async () => {
+      const createRes = await request(BASE_URL)
+        .post('/api/quality/inspections')
+        .set(authHeader('qc'))
+        .send({
+          productionOrderId: PRODUCTION_ORDER_ID,
+          inspectionDate: '2026-03-11',
+          qtyInspected: '5',
+        });
+      const newId = createRes.body.data?.id;
+      if (!newId) return;
+
+      const res = await request(BASE_URL)
+        .post(`/api/quality/inspections/${newId}/complete`)
+        .set(authHeader('qc'))
+        .send({ qtyPassed: '6' }); // 超过 qtyInspected=5
+
+      expect(res.body.code).toBe(1001);
+    });
+
+    test('已完成验货单不可重复完成', async () => {
+      if (!inspectionId) return;
+
+      // inspectionId 已在第一个 test 中 complete 过
+      const res = await request(BASE_URL)
+        .post(`/api/quality/inspections/${inspectionId}/complete`)
+        .set(authHeader('qc'))
+        .send({ qtyPassed: '8' });
+
+      expect(res.body.code).not.toBe(0);
+    });
+
+    test('worker角色无权完成验货 → 1003', async () => {
+      const res = await request(BASE_URL)
+        .post(`/api/quality/inspections/${PRESET_INSPECTION_ID}/complete`)
+        .set(authHeader('worker'))
+        .send({ qtyPassed: '5' });
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  // ─── 溯源链查询 ──────────────────────────────────────────────
+
+  describe('溯源链查询 — GET /api/quality/traceability/:productionOrderId', () => {
+    test('TC-QC-009: 溯源链包含 components 和 summary 必要字段', async () => {
+      const res = await request(BASE_URL)
+        .get(`/api/quality/traceability/${PRODUCTION_ORDER_ID}`)
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.code).toBe(0);
+
+      const data = res.body.data;
+      expect(data).toHaveProperty('productionOrderId');
+      expect(data).toHaveProperty('workOrderNo');
+      expect(data).toHaveProperty('skuName');
+      expect(data).toHaveProperty('components');
+      expect(Array.isArray(data.components)).toBe(true);
+      expect(data).toHaveProperty('summary');
+      expect(data.summary).toHaveProperty('totalComponents');
+      expect(data.summary).toHaveProperty('withScanRecord');
+      expect(Array.isArray(data.summary.dyeLots)).toBe(true);
+    });
+
+    test('TC-QC-010: 工单不存在 → 7001', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/traceability/999999999')
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe(7001);
+    });
+
+    test('溯源链 components 每个元素含必要字段', async () => {
+      const res = await request(BASE_URL)
+        .get(`/api/quality/traceability/${PRODUCTION_ORDER_ID}`)
+        .set(authHeader('qc'));
+
+      const components: any[] = res.body.data?.components ?? [];
+      if (components.length === 0) return;
+
+      const first = components[0];
+      expect(first).toHaveProperty('componentName');
+      expect(first).toHaveProperty('processStepName');
+      expect(first).toHaveProperty('workerName');
+      expect(first).toHaveProperty('hasScanRecord');
+      expect(typeof first.hasScanRecord).toBe('boolean');
+    });
+
+    test('boss角色可查询溯源链', async () => {
+      const res = await request(BASE_URL)
+        .get(`/api/quality/traceability/${PRODUCTION_ORDER_ID}`)
+        .set(authHeader('boss'));
+
+      expect(res.status).toBe(200);
+    });
+
+    test('销售员可查询溯源链（只读权限）', async () => {
+      const res = await request(BASE_URL)
+        .get(`/api/quality/traceability/${PRODUCTION_ORDER_ID}`)
+        .set(authHeader('sales'));
+
+      // 视接口权限设计，200或403均可；关键是不返回500
+      expect([200, 403]).toContain(res.status);
+    });
+  });
+
+  // ─── 质量统计分析 ────────────────────────────────────────────
+
+  describe('质量统计分析 — GET /api/quality/stats', () => {
+    test('TC-QC-011: periodDays=30 统计包含所有必要字段', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/stats?periodDays=30')
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.code).toBe(0);
+
+      const data = res.body.data;
+      expect(data).toHaveProperty('periodDays', 30);
+      expect(data).toHaveProperty('totalInspected');
+      expect(data).toHaveProperty('totalFailed');
+      expect(data).toHaveProperty('failRate');
+      expect(data).toHaveProperty('trendData');
+      expect(data).toHaveProperty('issueTypeBreakdown');
+      expect(data).toHaveProperty('top5Issues');
+      expect(Array.isArray(data.trendData)).toBe(true);
+      expect(Array.isArray(data.issueTypeBreakdown)).toBe(true);
+    });
+
+    test('periodDays=7 短周期统计正常返回', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/stats?periodDays=7')
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.periodDays).toBe(7);
+    });
+
+    test('periodDays=90 长周期统计正常返回', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/stats?periodDays=90')
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.periodDays).toBe(90);
+    });
+
+    test('issueTypeBreakdown 每项含 type / count / pct', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/stats?periodDays=30')
+        .set(authHeader('qc'));
+
+      const breakdown: any[] = res.body.data?.issueTypeBreakdown ?? [];
+      if (breakdown.length === 0) return;
+
+      const first = breakdown[0];
+      expect(first).toHaveProperty('type');
+      expect(first).toHaveProperty('count');
+      expect(first).toHaveProperty('pct');
+      expect(typeof first.count).toBe('number');
+    });
+
+    test('boss角色可查看质量统计', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/stats')
+        .set(authHeader('boss'));
+
+      expect(res.status).toBe(200);
+    });
+
+    test('worker角色无权查看质量统计 → 403', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/stats')
+        .set(authHeader('worker'));
+
+      expect(res.status).toBe(403);
+    });
+  });
+});

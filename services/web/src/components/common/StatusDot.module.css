@@ -1,0 +1,42 @@
+/**
+ * [artifact:前端代码] — StatusDot 状态圆点样式
+ */
+
+.status_dot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.status_dot__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.status_dot__dot--success {
+  background: var(--color-success-500);
+}
+
+.status_dot__dot--warning {
+  background: var(--color-warning-500);
+}
+
+.status_dot__dot--danger {
+  background: var(--color-error-500);
+}
+
+.status_dot__dot--info {
+  background: var(--color-info-500);
+}
+
+.status_dot__dot--stagnant {
+  background: var(--color-stagnant-500);
+}
+
+.status_dot__label {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}

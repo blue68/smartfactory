@@ -1,0 +1,153 @@
+/**
+ * [artifact:前端代码] — ErrorBoundary 错误边界样式
+ * T219: 网络异常统一提示
+ */
+
+/* ── 错误页容器 ─────────────────────────────── */
+.error-boundary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  padding: var(--space-16) var(--space-8);
+  text-align: center;
+  gap: var(--space-4);
+  background: var(--bg-page);
+}
+
+/* ── 图标区 ─────────────────────────────────── */
+.error-boundary__icon-wrap {
+  position: relative;
+  width: 5rem;
+  height: 5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--color-error-50);
+  margin-bottom: var(--space-2);
+}
+
+.error-boundary__icon {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+/* 脉冲装饰圈 */
+.error-boundary__icon-wrap::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--color-error-100);
+}
+
+/* ── 文字区 ─────────────────────────────────── */
+.error-boundary__title {
+  font-size: var(--text-h3);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.error-boundary__desc {
+  font-size: var(--text-body-m);
+  color: var(--text-secondary);
+  max-width: 360px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ── 操作区 ─────────────────────────────────── */
+.error-boundary__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* 重试按钮（内联样式兜底，避免 Button 组件依赖） */
+.error-boundary__retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 40px;
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--color-primary-500);
+  color: var(--text-on-primary);
+  font-family: var(--font-family-base);
+  font-size: var(--text-body-m);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    transform var(--transition-fast);
+  user-select: none;
+}
+
+.error-boundary__retry-btn:hover {
+  background: var(--color-primary-600);
+}
+
+.error-boundary__retry-btn:active {
+  transform: scale(0.98);
+  background: var(--color-primary-700);
+}
+
+.error-boundary__retry-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* ── 错误详情（可选展开） ───────────────────── */
+.error-boundary__detail {
+  margin-top: var(--space-4);
+  width: 100%;
+  max-width: 480px;
+}
+
+.error-boundary__detail summary {
+  font-size: var(--text-body-s);
+  color: var(--text-disabled);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.error-boundary__detail summary::-webkit-details-marker {
+  display: none;
+}
+
+.error-boundary__stack {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-gray-50);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-family-mono);
+  font-size: var(--text-body-s);
+  color: var(--color-error-700);
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+@media (prefers-color-scheme: dark) {
+  .error-boundary__icon-wrap {
+    background: rgba(239, 68, 68, 0.1);
+  }
+  .error-boundary__stack {
+    background: var(--color-gray-800);
+    color: var(--color-error-400, #f87171);
+  }
+}

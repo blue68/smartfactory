@@ -1,0 +1,156 @@
+.page { display: flex; flex-direction: column; gap: var(--space-5); }
+
+/* 状态 Tabs */
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 2px solid var(--border-default);
+}
+
+.tab {
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-body-m);
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+  cursor: pointer;
+}
+.tab:hover { color: var(--text-primary); }
+.tab--active {
+  color: var(--color-primary-600);
+  border-bottom-color: var(--color-primary-500);
+  font-weight: 600;
+}
+
+/* 卡片网格 */
+.card_grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--layout-card-gap);
+}
+
+.loading_grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--layout-card-gap);
+}
+
+.card_skeleton { height: 260px; }
+
+/* 建议卡片 — AI 橙线 */
+.suggestion_card {
+  border-left: 3px solid var(--color-accent-500);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+}
+
+.card_header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.card_sku {
+  font-size: var(--text-body-l);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.card_code {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  font-family: var(--font-family-mono);
+  margin-top: -var(--space-2);
+}
+
+/* 金额块 */
+.card_amounts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  background: var(--color-gray-50);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.card_amount_item { display: flex; flex-direction: column; gap: 4px; }
+.card_amount_label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+.card_amount_value { font-weight: 600; font-size: var(--text-body-m); color: var(--text-primary); font-family: var(--font-family-number); }
+.card_amount_unit  { font-weight: 400; font-size: var(--text-body-s); color: var(--text-secondary); }
+
+/* 推理折叠 */
+.card_reason_toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: var(--text-body-s);
+  color: var(--color-primary-600);
+  padding: var(--space-2) 0;
+  border-top: 1px dashed var(--border-default);
+  cursor: pointer;
+}
+.card_reason_toggle:hover { color: var(--color-primary-700); }
+
+.card_reason_body {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-accent-50);
+  border-radius: var(--radius-md);
+  animation: fade-in 0.15s ease;
+}
+
+/* 操作按钮 */
+.card_actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* 分页 */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+/* 驳回表单 */
+.reject_form { display: flex; flex-direction: column; gap: var(--space-3); }
+.reject_label { font-size: var(--text-label); font-weight: 500; color: var(--text-secondary); }
+.reject_textarea {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-family-base);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  resize: vertical;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.reject_textarea:focus { border-color: var(--border-focus); }
+
+/* ——— T215: 响应式断点 ——— */
+@media (max-width: 1200px) {
+  .card_grid,
+  .loading_grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+}
+
+@media (max-width: 768px) {
+  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab { white-space: nowrap; padding: var(--space-2) var(--space-3); font-size: var(--text-body-s); }
+  .card_grid,
+  .loading_grid { grid-template-columns: 1fr; }
+  .card_amounts { grid-template-columns: 1fr; }
+  .suggestion_card { padding: var(--space-4); }
+  .pagination { flex-wrap: wrap; gap: var(--space-2); }
+}

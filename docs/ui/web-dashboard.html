@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智造管家 — 老板驾驶舱</title>
+  <style>
+    /* ===== Design Tokens ===== */
+    :root {
+      --color-primary-50: #EFF6FF;
+      --color-primary-100: #DBEAFE;
+      --color-primary-500: #3B82F6;
+      --color-primary-600: #2563EB;
+      --color-primary-700: #1D4ED8;
+      --color-accent-50: #FFF7ED;
+      --color-accent-500: #F97316;
+      --color-accent-600: #EA580C;
+      --color-success-50: #F0FDF4;
+      --color-success-100: #DCFCE7;
+      --color-success-500: #22C55E;
+      --color-success-600: #16A34A;
+      --color-success-700: #15803D;
+      --color-warning-50: #FFFBEB;
+      --color-warning-100: #FEF3C7;
+      --color-warning-500: #F59E0B;
+      --color-warning-600: #D97706;
+      --color-warning-700: #B45309;
+      --color-error-50: #FEF2F2;
+      --color-error-100: #FEE2E2;
+      --color-error-500: #EF4444;
+      --color-error-600: #DC2626;
+      --color-error-700: #B91C1C;
+      --color-info-50: #F0F9FF;
+      --color-info-500: #0EA5E9;
+      --color-stagnant-100: #EDE9FE;
+      --color-stagnant-500: #8B5CF6;
+      --color-stagnant-600: #7C3AED;
+      --color-gray-0: #FFFFFF;
+      --color-gray-50: #F8FAFC;
+      --color-gray-100: #F1F5F9;
+      --color-gray-200: #E2E8F0;
+      --color-gray-300: #CBD5E1;
+      --color-gray-400: #94A3B8;
+      --color-gray-500: #64748B;
+      --color-gray-600: #475569;
+      --color-gray-700: #334155;
+      --color-gray-800: #1E293B;
+      --color-gray-900: #0F172A;
+      --bg-page: #F8FAFC;
+      --bg-card: #FFFFFF;
+      --bg-sidebar: #1E293B;
+      --text-sidebar: #CBD5E1;
+      --bg-sidebar-active: #2563EB;
+      --text-primary: #1E293B;
+      --text-secondary: #64748B;
+      --text-disabled: #94A3B8;
+      --border-default: #E2E8F0;
+      --border-strong: #CBD5E1;
+      --font-family-base: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", -apple-system, sans-serif;
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.25rem;
+      --space-6: 1.5rem;
+      --space-8: 2rem;
+      --layout-sidebar-width: 240px;
+      --layout-header-height: 64px;
+      --layout-page-padding: 24px;
+      --layout-card-gap: 16px;
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      --radius-full: 9999px;
+      --shadow-xs: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+      --transition-fast: 150ms ease;
+      --transition-base: 200ms ease;
+    }
+
+    /* ===== Reset ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
+    body {
+      font-family: var(--font-family-base);
+      background: var(--bg-page);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* ===== Sidebar ===== */
+    .sidebar {
+      width: var(--layout-sidebar-width);
+      background: var(--bg-sidebar);
+      min-height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      display: flex;
+      flex-direction: column;
+      z-index: 200;
+      transition: width var(--transition-base);
+    }
+    .sidebar__logo {
+      height: var(--layout-header-height);
+      display: flex;
+      align-items: center;
+      padding: 0 var(--space-4);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .sidebar__logo-icon {
+      width: 32px;
+      height: 32px;
+      background: var(--color-accent-500);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .sidebar__logo-text {
+      margin-left: var(--space-3);
+      color: #FFFFFF;
+      font-size: 1.0625rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .sidebar__nav { flex: 1; padding: var(--space-4) 0; overflow-y: auto; }
+    .sidebar__group { margin-bottom: var(--space-6); }
+    .sidebar__group-label {
+      padding: 0 var(--space-4) var(--space-2);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: var(--color-gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .sidebar__item {
+      display: flex;
+      align-items: center;
+      padding: 0.6875rem var(--space-4);
+      color: var(--text-sidebar);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 400;
+      cursor: pointer;
+      border-radius: 0;
+      transition: background var(--transition-fast);
+      position: relative;
+    }
+    .sidebar__item:hover { background: rgba(255,255,255,0.08); }
+    .sidebar__item--active {
+      background: var(--bg-sidebar-active);
+      color: #FFFFFF;
+      font-weight: 500;
+    }
+    .sidebar__item--active::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: #FFFFFF;
+      border-radius: 0 2px 2px 0;
+    }
+    .sidebar__item-icon {
+      width: 20px;
+      height: 20px;
+      margin-right: var(--space-3);
+      opacity: 0.8;
+      flex-shrink: 0;
+    }
+    .sidebar__item--active .sidebar__item-icon { opacity: 1; }
+
+    /* ===== Main Layout ===== */
+    .layout {
+      margin-left: var(--layout-sidebar-width);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    /* ===== Topbar ===== */
+    .topbar {
+      height: var(--layout-header-height);
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      padding: 0 var(--layout-page-padding);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow-xs);
+      gap: var(--space-4);
+    }
+    .topbar__search {
+      flex: 1;
+      max-width: 480px;
+      margin: 0 auto;
+      position: relative;
+    }
+    .topbar__search-input {
+      width: 100%;
+      height: 40px;
+      background: var(--bg-page);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-full);
+      padding: 0 var(--space-4) 0 2.75rem;
+      font-size: 0.875rem;
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+      font-family: var(--font-family-base);
+    }
+    .topbar__search-input:focus {
+      border-color: var(--color-primary-500);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+    }
+    .topbar__search-icon {
+      position: absolute;
+      left: var(--space-4);
+      top: 50%;
+      transform: translateY(-50%);
+      width: 16px;
+      height: 16px;
+      color: var(--color-accent-500);
+    }
+    .topbar__actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin-left: auto;
+    }
+    .topbar__btn {
+      position: relative;
+      width: 40px;
+      height: 40px;
+      border: none;
+      background: transparent;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      transition: background var(--transition-fast), color var(--transition-fast);
+    }
+    .topbar__btn:hover { background: var(--color-gray-100); color: var(--text-primary); }
+    .topbar__badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      min-width: 18px;
+      height: 18px;
+      background: var(--color-error-500);
+      color: #FFFFFF;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: var(--radius-full);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 3px;
+    }
+    .topbar__avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-full);
+      background: var(--color-primary-600);
+      color: #FFFFFF;
+      font-size: 0.875rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    /* ===== Page Content ===== */
+    .page {
+      padding: var(--layout-page-padding);
+      flex: 1;
+    }
+    .page__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-6);
+    }
+    .page__title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .page__subtitle {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      margin-top: var(--space-1);
+    }
+    .page__meta {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .page__meta-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--color-success-500);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ===== KPI Cards Grid ===== */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: var(--layout-card-gap);
+      margin-bottom: var(--space-6);
+    }
+
+    /* ===== Card ===== */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+    }
+    .card:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+    }
+
+    /* ===== KPI Card ===== */
+    .card--kpi {
+      padding: var(--space-5);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+    .card--kpi::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: transparent;
+      transition: background var(--transition-fast);
+    }
+    .card--kpi--warning::before { background: var(--color-warning-500); }
+    .card--kpi--error::before { background: var(--color-error-500); }
+    .card--kpi--success::before { background: var(--color-success-500); }
+    .card__kpi-label {
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+      margin-bottom: var(--space-2);
+    }
+    .card__kpi-value {
+      font-size: 2.25rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1;
+      font-family: "DIN Alternate", "Roboto Mono", var(--font-family-base);
+      margin-bottom: var(--space-2);
+    }
+    .card__kpi-unit {
+      font-size: 1rem;
+      font-weight: 400;
+      color: var(--text-secondary);
+      margin-left: var(--space-1);
+    }
+    .card__kpi-delta {
+      font-size: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      margin-bottom: var(--space-3);
+    }
+    .card__kpi-delta--up { color: var(--color-success-600); }
+    .card__kpi-delta--down { color: var(--color-error-600); }
+    .card__kpi-delta--warning { color: var(--color-warning-600); }
+    .card__kpi-progress {
+      height: 4px;
+      background: var(--color-gray-100);
+      border-radius: var(--radius-full);
+      overflow: hidden;
+    }
+    .card__kpi-progress-bar {
+      height: 100%;
+      border-radius: var(--radius-full);
+      background: var(--color-primary-500);
+      transition: width 0.8s ease;
+    }
+    .card__kpi-action {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      font-size: 0.75rem;
+      color: var(--color-primary-600);
+      text-decoration: none;
+      margin-top: var(--space-3);
+      font-weight: 500;
+    }
+    .card__kpi-action:hover { text-decoration: underline; }
+    .card__kpi-icon {
+      position: absolute;
+      right: var(--space-5);
+      top: var(--space-5);
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+
+    /* ===== Content Grid ===== */
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--layout-card-gap);
+      margin-bottom: var(--space-6);
+    }
+
+    /* ===== Section Card ===== */
+    .card--section { padding: var(--space-5); }
+    .card__section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-4);
+    }
+    .card__section-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .card__section-link {
+      font-size: 0.8125rem;
+      color: var(--color-primary-600);
+      text-decoration: none;
+    }
+    .card__section-link:hover { text-decoration: underline; }
+
+    /* ===== Progress List ===== */
+    .progress-list { display: flex; flex-direction: column; gap: var(--space-3); }
+    .progress-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: var(--space-2);
+      align-items: center;
+    }
+    .progress-item__info { min-width: 0; }
+    .progress-item__name {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .progress-item__bar-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      margin-top: var(--space-1);
+    }
+    .progress-item__bar {
+      flex: 1;
+      height: 6px;
+      background: var(--color-gray-100);
+      border-radius: var(--radius-full);
+      overflow: hidden;
+    }
+    .progress-item__bar-fill {
+      height: 100%;
+      border-radius: var(--radius-full);
+      transition: width 0.8s ease;
+    }
+    .progress-item__bar-fill--normal { background: var(--color-primary-500); }
+    .progress-item__bar-fill--warning { background: var(--color-warning-500); }
+    .progress-item__bar-fill--danger { background: var(--color-error-500); }
+    .progress-item__pct {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      min-width: 30px;
+      text-align: right;
+    }
+    .progress-item__status { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
+    .progress-item__date { font-size: 0.6875rem; color: var(--text-secondary); }
+
+    /* ===== Tag / Badge ===== */
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.1875rem 0.5rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .tag--success { background: var(--color-success-100); color: var(--color-success-700); }
+    .tag--warning { background: var(--color-warning-100); color: var(--color-warning-700); }
+    .tag--error { background: var(--color-error-100); color: var(--color-error-700); }
+    .tag--info { background: var(--color-info-50); color: var(--color-info-500); border: 1px solid #BAE6FD; }
+    .tag--neutral { background: var(--color-gray-100); color: var(--color-gray-600); }
+    .tag--confidence-high { background: var(--color-success-100); color: var(--color-success-700); }
+    .tag--confidence-medium { background: var(--color-warning-100); color: var(--color-warning-700); }
+    .tag--confidence-low { background: var(--color-error-100); color: var(--color-error-700); }
+    .tag--priority-urgent {
+      background: var(--color-error-100);
+      color: var(--color-error-700);
+      border: 1px solid var(--color-error-300, #FCA5A5);
+      font-weight: 700;
+    }
+
+    /* ===== Alert / Warning Banner ===== */
+    .alert {
+      display: flex;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+    }
+    .alert--warning {
+      background: var(--color-warning-50);
+      border-left: 4px solid var(--color-warning-500);
+      color: var(--color-warning-700);
+    }
+    .alert--error {
+      background: var(--color-error-50);
+      border-left: 4px solid var(--color-error-500);
+      color: var(--color-error-700);
+    }
+    .alert--ai {
+      background: var(--color-accent-50);
+      border-left: 4px solid var(--color-accent-500);
+      color: var(--color-accent-600);
+    }
+    .alert__icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .alert__content { flex: 1; }
+    .alert__title { font-weight: 600; margin-bottom: var(--space-1); }
+
+    /* ===== Inventory Warning List ===== */
+    .warning-list { display: flex; flex-direction: column; gap: var(--space-3); }
+    .warning-item {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-3);
+      padding: var(--space-3);
+      border-radius: var(--radius-md);
+      background: var(--bg-page);
+    }
+    .warning-item--red { background: var(--color-error-50); }
+    .warning-item--yellow { background: var(--color-warning-50); }
+    .warning-item__dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-top: 3px;
+      flex-shrink: 0;
+    }
+    .warning-item__dot--red { background: var(--color-error-500); }
+    .warning-item__dot--yellow { background: var(--color-warning-500); }
+    .warning-item__name {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+    .warning-item__detail {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+    .warning-item__detail strong { color: var(--color-error-600); font-weight: 600; }
+
+    /* ===== AI Suggestion Card ===== */
+    .ai-suggestion-list { display: flex; flex-direction: column; gap: var(--space-4); }
+    .ai-suggestion-item {
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      padding: var(--space-4);
+      position: relative;
+      border-left: 3px solid var(--color-accent-500);
+    }
+    .ai-suggestion-item__header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-3);
+      margin-bottom: var(--space-3);
+    }
+    .ai-suggestion-item__title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .ai-suggestion-item__meta {
+      display: flex;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+      margin-top: var(--space-1);
+    }
+    .ai-suggestion-item__info {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-3);
+      margin-bottom: var(--space-3);
+      padding: var(--space-3);
+      background: var(--bg-page);
+      border-radius: var(--radius-md);
+    }
+    .ai-suggestion-item__info-kv {}
+    .ai-suggestion-item__info-key { font-size: 0.6875rem; color: var(--text-secondary); }
+    .ai-suggestion-item__info-val { font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); }
+    .ai-suggestion-item__info-val--money { color: var(--color-error-600); }
+    .ai-suggestion-item__reason {
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: var(--space-3);
+    }
+    .ai-suggestion-item__reason-toggle {
+      background: none;
+      border: none;
+      color: var(--color-primary-600);
+      font-size: 0.8125rem;
+      cursor: pointer;
+      padding: 0;
+      font-family: inherit;
+    }
+    .ai-suggestion-item__actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+    }
+    .ai-suggestion-item__status {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+    }
+
+    /* ===== Buttons ===== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      border: none;
+      border-radius: var(--radius-md);
+      font-family: var(--font-family-base);
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+      white-space: nowrap;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn:focus-visible { outline: 2px solid var(--color-primary-500); outline-offset: 2px; }
+    .btn--sm { height: 32px; padding: 0 0.75rem; font-size: 0.8125rem; }
+    .btn--md { height: 40px; padding: 0 1rem; font-size: 0.875rem; }
+    .btn--lg { height: 48px; padding: 0 1.25rem; font-size: 1rem; }
+    .btn--primary {
+      background: var(--color-primary-500);
+      color: #FFFFFF;
+    }
+    .btn--primary:hover { background: var(--color-primary-600); }
+    .btn--success {
+      background: var(--color-success-600);
+      color: #FFFFFF;
+    }
+    .btn--success:hover { background: var(--color-success-700); }
+    .btn--danger {
+      background: var(--color-error-600);
+      color: #FFFFFF;
+    }
+    .btn--danger:hover { background: var(--color-error-700); }
+    .btn--secondary {
+      background: transparent;
+      color: var(--color-primary-600);
+      border: 1px solid var(--color-primary-600);
+    }
+    .btn--secondary:hover { background: var(--color-primary-50); }
+    .btn--ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-default);
+    }
+    .btn--ghost:hover { background: var(--color-gray-100); color: var(--text-primary); }
+
+    /* ===== AI Floating Button ===== */
+    .ai-float-btn {
+      position: fixed;
+      bottom: 32px;
+      right: 32px;
+      width: 56px;
+      height: 56px;
+      border-radius: var(--radius-full);
+      background: linear-gradient(135deg, var(--color-accent-500), var(--color-accent-600));
+      color: #FFFFFF;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(249,115,22,0.4);
+      font-size: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+      z-index: 100;
+    }
+    .ai-float-btn:hover {
+      transform: scale(1.08);
+      box-shadow: 0 12px 32px rgba(249,115,22,0.5);
+    }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 1199px) {
+      .sidebar { width: 60px; }
+      .sidebar__logo-text, .sidebar__item-icon + span, .sidebar__group-label { display: none; }
+      .layout { margin-left: 60px; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 1024px) {
+      .content-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 767px) {
+      .sidebar { transform: translateX(-100%); }
+      .layout { margin-left: 0; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .page { padding: 16px; }
+    }
+    @media (max-width: 480px) {
+      .kpi-grid { grid-template-columns: 1fr; }
+    }
+
+    /* SVG Icons (inline) */
+    .icon { display: inline-block; vertical-align: middle; }
+  </style>
+</head>
+<body>
+
+<!-- ===== Sidebar ===== -->
+<aside class="sidebar" role="navigation" aria-label="主导航">
+  <div class="sidebar__logo">
+    <div class="sidebar__logo-icon" aria-hidden="true">🏭</div>
+    <span class="sidebar__logo-text">智造管家</span>
+  </div>
+  <nav class="sidebar__nav">
+    <div class="sidebar__group">
+      <div class="sidebar__group-label">总览</div>
+      <a href="#" class="sidebar__item sidebar__item--active" aria-current="page">
+        <svg class="sidebar__item-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/></svg>
+        <span>驾驶舱</span>
+      </a>
+    </div>
+    <div class="sidebar__group">
+      <div class="sidebar__group-label">生产管理</div>
+      <a href="#" class="sidebar__item">
+        <svg class="sidebar__item-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/></svg>
+        <span>订单管理</span>
+      </a>
+      <a href="#" class="sidebar__item">
+        <svg class="sidebar__item-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM14 11a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1h-1a1 1 0 110-2h1v-1a1 1 0 011-1z"/></svg>
+        <span>排产计划</span>
+      </a>
+      <a href="#" class="sidebar__item">
+        <svg class="sidebar__item-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+        <span>生产进度</span>
+      </a>
+    </div>
+    <div class="sidebar__group">
+      <div class="sidebar__group-label">物料采购</div>
+      <a href="#" class="sidebar__item">
+        <svg class="sidebar__item-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z"/><path fill-rule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+        <span>库存总览</span>
+      </a>
+      <a href="#" class="sidebar__item">
+        <svg class="sidebar__item-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clip-rule="evenodd"/></svg>
+        <span>AI采购建议</span>
+      </a>
+    </div>
+  </nav>
+</aside>
+
+<!-- ===== Main Layout ===== -->
+<div class="layout">
+
+  <!-- Topbar -->
+  <header class="topbar" role="banner">
+    <div class="topbar__search">
+      <svg class="topbar__search-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 12a5 5 0 11-10 0 5 5 0 0110 0z"/>
+      </svg>
+      <input
+        type="search"
+        class="topbar__search-input"
+        placeholder="问 AI 任何问题..."
+        aria-label="全局AI搜索"
+      />
+    </div>
+    <div class="topbar__actions">
+      <button class="topbar__btn" aria-label="消息通知，3条未读">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zm0 16a2 2 0 01-2-2h4a2 2 0 01-2 2z"/></svg>
+        <span class="topbar__badge" aria-label="3条未读消息">3</span>
+      </button>
+      <div class="topbar__avatar" role="button" aria-label="用户菜单：老板" tabindex="0">老</div>
+    </div>
+  </header>
+
+  <!-- Page Content -->
+  <main class="page" role="main">
+    <div class="page__header">
+      <div>
+        <h1 class="page__title">今日概览</h1>
+        <p class="page__subtitle">2026年3月10日 周二</p>
+      </div>
+      <div class="page__meta">
+        <span class="page__meta-dot" aria-hidden="true"></span>
+        <span>数据已同步 <time datetime="2026-03-10T08:31">08:31</time></span>
+      </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <section aria-label="核心指标">
+      <div class="kpi-grid">
+        <!-- KPI 1: 在产订单 -->
+        <article class="card card--kpi" role="button" tabindex="0" aria-label="在产订单：12单，点击查看详情">
+          <div class="card__kpi-icon" style="background: var(--color-primary-50); color: var(--color-primary-600);" aria-hidden="true">📋</div>
+          <div class="card__kpi-label">在产订单</div>
+          <div class="card__kpi-value">12<span class="card__kpi-unit">单</span></div>
+          <div class="card__kpi-delta card__kpi-delta--up">
+            <span aria-hidden="true">▲</span>
+            <span>较昨日 +2 单</span>
+          </div>
+          <a href="#" class="card__kpi-action" aria-label="查看全部订单">查看全部 →</a>
+        </article>
+
+        <!-- KPI 2: 本月完工产值 -->
+        <article class="card card--kpi" role="button" tabindex="0" aria-label="本月完工产值：86,400元">
+          <div class="card__kpi-icon" style="background: var(--color-success-50); color: var(--color-success-600);" aria-hidden="true">💰</div>
+          <div class="card__kpi-label">本月完工产值</div>
+          <div class="card__kpi-value">¥86,400</div>
+          <div class="card__kpi-delta card__kpi-delta--up">
+            <span aria-hidden="true">▲</span>
+            <span>目标 ¥120,000（完成 72%）</span>
+          </div>
+          <div class="card__kpi-progress">
+            <div class="card__kpi-progress-bar" style="width: 72%; background: var(--color-success-500);" role="progressbar" aria-valuenow="72" aria-valuemin="0" aria-valuemax="100" aria-label="本月产值完成进度72%"></div>
+          </div>
+        </article>
+
+        <!-- KPI 3: 当前库存金额 -->
+        <article class="card card--kpi card--kpi--warning" role="button" tabindex="0" aria-label="当前库存金额：142,000元，高于历史均值">
+          <div class="card__kpi-icon" style="background: var(--color-warning-100); color: var(--color-warning-700);" aria-hidden="true">📦</div>
+          <div class="card__kpi-label">当前库存金额</div>
+          <div class="card__kpi-value" style="color: var(--color-warning-700);">¥142,000</div>
+          <div class="card__kpi-delta card__kpi-delta--warning">
+            <span aria-hidden="true">⚠</span>
+            <span>高于历史均值 31%</span>
+          </div>
+          <a href="#" class="card__kpi-action" aria-label="查看库存积压分析">查看积压分析 →</a>
+        </article>
+
+        <!-- KPI 4: 待审批事项 -->
+        <article class="card card--kpi card--kpi--error" role="button" tabindex="0" aria-label="待审批事项：3项，点击处理">
+          <div class="card__kpi-icon" style="background: var(--color-error-100); color: var(--color-error-700);" aria-hidden="true">⏳</div>
+          <div class="card__kpi-label">待审批事项</div>
+          <div class="card__kpi-value" style="color: var(--color-error-600);">3<span class="card__kpi-unit">项</span></div>
+          <div class="card__kpi-delta card__kpi-delta--down">
+            <span aria-hidden="true">●</span>
+            <span>其中 2 项需今日处理</span>
+          </div>
+          <a href="#" class="card__kpi-action" style="color: var(--color-error-600);" aria-label="去处理待审批事项">去处理 →</a>
+        </article>
+      </div>
+    </section>
+
+    <!-- Content Grid -->
+    <div class="content-grid">
+      <!-- Left: Production Progress -->
+      <section aria-label="生产进度总览">
+        <div class="card card--section">
+          <div class="card__section-header">
+            <h2 class="card__section-title">生产进度总览</h2>
+            <a href="#" class="card__section-link">查看全部 →</a>
+          </div>
+          <div class="progress-list">
+            <!-- Order A23 -->
+            <div class="progress-item">
+              <div class="progress-item__info">
+                <div class="progress-item__name">
+                  订单A23 — 红橡实木书柜 × 2套
+                </div>
+                <div class="progress-item__bar-row">
+                  <div class="progress-item__bar">
+                    <div class="progress-item__bar-fill progress-item__bar-fill--normal" style="width: 75%;" role="progressbar" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100"></div>
+                  </div>
+                  <span class="progress-item__pct">75%</span>
+                </div>
+              </div>
+              <div class="progress-item__status">
+                <span class="tag tag--success">正常</span>
+                <span class="progress-item__date">预计 3/12 完工</span>
+              </div>
+            </div>
+            <!-- Order B19 -->
+            <div class="progress-item">
+              <div class="progress-item__info">
+                <div class="progress-item__name">
+                  订单B19 — 白色烤漆衣柜 × 1套
+                </div>
+                <div class="progress-item__bar-row">
+                  <div class="progress-item__bar">
+                    <div class="progress-item__bar-fill progress-item__bar-fill--warning" style="width: 50%;" role="progressbar" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100"></div>
+                  </div>
+                  <span class="progress-item__pct">50%</span>
+                </div>
+              </div>
+              <div class="progress-item__status">
+                <span class="tag tag--warning">延误风险</span>
+                <span class="progress-item__date" style="color: var(--color-warning-600);">预计 3/15 完工</span>
+              </div>
+            </div>
+            <!-- Order C31 -->
+            <div class="progress-item">
+              <div class="progress-item__info">
+                <div class="progress-item__name">
+                  订单C31 — 红橡实木餐桌 × 1套
+                </div>
+                <div class="progress-item__bar-row">
+                  <div class="progress-item__bar">
+                    <div class="progress-item__bar-fill progress-item__bar-fill--normal" style="width: 25%;" role="progressbar" aria-valuenow="25" aria-valuemin="0" aria-valuemax="100"></div>
+                  </div>
+                  <span class="progress-item__pct">25%</span>
+                </div>
+              </div>
+              <div class="progress-item__status">
+                <span class="tag tag--success">正常</span>
+                <span class="progress-item__date">预计 3/18 完工</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Inventory Warnings -->
+      <section aria-label="库存预警">
+        <div class="card card--section">
+          <div class="card__section-header">
+            <h2 class="card__section-title">库存预警（今日）</h2>
+            <a href="#" class="card__section-link">查看全部 →</a>
+          </div>
+          <div class="warning-list">
+            <div class="warning-item warning-item--red">
+              <span class="warning-item__dot warning-item__dot--red" aria-label="严重预警" role="img"></span>
+              <div>
+                <div class="warning-item__name">红橡木板 200×2400</div>
+                <div class="warning-item__detail">
+                  库存：8张 / 安全线：20张 / <strong>缺口：12张</strong>
+                </div>
+              </div>
+            </div>
+            <div class="warning-item warning-item--yellow">
+              <span class="warning-item__dot warning-item__dot--yellow" aria-label="临近预警" role="img"></span>
+              <div>
+                <div class="warning-item__name">白色烤漆板 1220×2440</div>
+                <div class="warning-item__detail">
+                  库存：15张 / 安全线：20张 / <strong style="color: var(--color-warning-600);">临近预警</strong>
+                </div>
+              </div>
+            </div>
+            <div class="warning-item warning-item--red">
+              <span class="warning-item__dot warning-item__dot--red" aria-label="严重预警" role="img"></span>
+              <div>
+                <div class="warning-item__name">牛皮 棕色 1.2mm（面料）</div>
+                <div class="warning-item__detail">
+                  DY-2025-088：<strong>5平方米</strong>（即将耗尽） / 其余缸号：50平方米
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- AI Purchase Suggestion Section -->
+    <section aria-label="待审批：AI采购建议">
+      <div class="card card--section">
+        <div class="card__section-header">
+          <h2 class="card__section-title">
+            <span aria-hidden="true">🤖</span>
+            待审批：AI采购建议
+          </h2>
+          <a href="#" class="card__section-link">查看全部建议 →</a>
+        </div>
+
+        <!-- AI Alert Banner -->
+        <div class="alert alert--ai" role="note" style="margin-bottom: var(--space-4);">
+          <span class="alert__icon" aria-hidden="true">✨</span>
+          <div class="alert__content">
+            AI 已基于 12 个在产订单 + 当前库存数据生成采购建议。上次分析：今日 07:30
+          </div>
+        </div>
+
+        <div class="ai-suggestion-list">
+          <!-- Suggestion 1 -->
+          <article class="ai-suggestion-item" aria-label="AI采购建议：红橡木板">
+            <div class="ai-suggestion-item__header">
+              <div>
+                <div class="ai-suggestion-item__title">红橡木板 200×2400</div>
+                <div class="ai-suggestion-item__meta">
+                  <span class="tag tag--priority-urgent">紧急</span>
+                  <span class="tag tag--confidence-high">●&nbsp;高置信度</span>
+                </div>
+              </div>
+            </div>
+            <div class="ai-suggestion-item__info">
+              <div class="ai-suggestion-item__info-kv">
+                <div class="ai-suggestion-item__info-key">建议采购数量</div>
+                <div class="ai-suggestion-item__info-val">12 张</div>
+              </div>
+              <div class="ai-suggestion-item__info-kv">
+                <div class="ai-suggestion-item__info-key">推荐供应商</div>
+                <div class="ai-suggestion-item__info-val">华森木业</div>
+              </div>
+              <div class="ai-suggestion-item__info-kv">
+                <div class="ai-suggestion-item__info-key">预估金额</div>
+                <div class="ai-suggestion-item__info-val ai-suggestion-item__info-val--money">¥2,160</div>
+              </div>
+            </div>
+            <details class="ai-suggestion-item__reason">
+              <summary class="ai-suggestion-item__reason-toggle">▼ 查看AI推理依据</summary>
+              <div style="margin-top: var(--space-2); padding: var(--space-3); background: var(--bg-page); border-radius: var(--radius-md);">
+                <p style="margin-bottom: 6px;">· 订单A23需要8张（3/12交货），订单C31需要4张（3/18交货）</p>
+                <p style="margin-bottom: 6px;">· 当前库存8张，已被订单A23占用，可用量：0张</p>
+                <p>· 华森木业历史准时率：92%，交货周期：2-3天 → 建议今日下单</p>
+              </div>
+            </details>
+            <div class="ai-suggestion-item__actions">
+              <div class="ai-suggestion-item__status">
+                <span class="tag tag--neutral">待老板审批</span>
+              </div>
+              <div style="display: flex; gap: var(--space-2);">
+                <button class="btn btn--ghost btn--sm">采购员反馈</button>
+                <button class="btn btn--success btn--md" aria-label="批准红橡木板采购建议，金额2160元">批准</button>
+                <button class="btn btn--danger btn--md" aria-label="驳回红橡木板采购建议">驳回</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- Suggestion 2 -->
+          <article class="ai-suggestion-item" aria-label="AI采购建议：五金铰链">
+            <div class="ai-suggestion-item__header">
+              <div>
+                <div class="ai-suggestion-item__title">五金铰链 全盖 一批</div>
+                <div class="ai-suggestion-item__meta">
+                  <span class="tag tag--neutral">正常</span>
+                  <span class="tag tag--confidence-medium">●&nbsp;中置信度</span>
+                </div>
+              </div>
+            </div>
+            <div class="ai-suggestion-item__info">
+              <div class="ai-suggestion-item__info-kv">
+                <div class="ai-suggestion-item__info-key">建议采购数量</div>
+                <div class="ai-suggestion-item__info-val">200 个</div>
+              </div>
+              <div class="ai-suggestion-item__info-kv">
+                <div class="ai-suggestion-item__info-key">推荐供应商</div>
+                <div class="ai-suggestion-item__info-val">明辉五金</div>
+              </div>
+              <div class="ai-suggestion-item__info-kv">
+                <div class="ai-suggestion-item__info-key">预估金额</div>
+                <div class="ai-suggestion-item__info-val ai-suggestion-item__info-val--money">¥640</div>
+              </div>
+            </div>
+            <div class="ai-suggestion-item__actions">
+              <div class="ai-suggestion-item__status">
+                <span class="tag tag--neutral">待老板审批</span>
+              </div>
+              <div style="display: flex; gap: var(--space-2);">
+                <button class="btn btn--ghost btn--sm">查看详情</button>
+                <button class="btn btn--success btn--md" aria-label="批准五金铰链采购建议">批准</button>
+                <button class="btn btn--danger btn--md" aria-label="驳回五金铰链采购建议">驳回</button>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- AI Float Button -->
+<button class="ai-float-btn" aria-label="打开AI助手对话">🤖</button>
+
+</body>
+</html>

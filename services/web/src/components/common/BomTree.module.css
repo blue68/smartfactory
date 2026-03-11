@@ -1,0 +1,222 @@
+/**
+ * [artifact:前端代码] — BomTree 递归树形组件样式
+ * BEM 命名，使用 Design Tokens
+ */
+
+/* ── 树容器 ─────────────────────────────────── */
+.bom-tree {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-body-s);
+  color: var(--text-primary);
+  user-select: none;
+}
+
+/* ── 节点行 ─────────────────────────────────── */
+.bom-tree__node {
+  display: flex;
+  flex-direction: column;
+}
+
+.bom-tree__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  min-height: 36px;
+  position: relative;
+}
+
+.bom-tree__row:hover {
+  background: var(--color-gray-50);
+}
+
+.bom-tree__row--selected {
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+}
+
+.bom-tree__row--selected:hover {
+  background: var(--color-primary-100);
+}
+
+/* ── 展开/收起按钮 ───────────────────────────── */
+.bom-tree__toggle {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color var(--transition-fast), transform var(--transition-fast);
+}
+
+.bom-tree__toggle:hover {
+  color: var(--color-primary-600);
+  background: var(--color-primary-50);
+}
+
+.bom-tree__toggle--expanded {
+  color: var(--color-primary-600);
+}
+
+/* 无子节点时占位，保持对齐 */
+.bom-tree__toggle-placeholder {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+}
+
+/* ── 节点内容区（物料信息列） ──────────────────── */
+.bom-tree__content {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(120px, 2fr) minmax(80px, 1.2fr) 64px 48px 72px;
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+/* 物料名称列 */
+.bom-tree__name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bom-tree__sku-name {
+  font-weight: 500;
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-body-s);
+}
+
+.bom-tree__sku-code {
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.bom-tree__row--selected .bom-tree__sku-code {
+  color: var(--color-primary-500);
+}
+
+/* 规格列 */
+.bom-tree__spec {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 数量列 */
+.bom-tree__quantity {
+  font-family: var(--font-family-mono);
+  font-size: var(--text-body-s);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* 单位列 */
+.bom-tree__unit {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 损耗率列 */
+.bom-tree__scrap-rate {
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+  text-align: right;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.bom-tree__scrap-rate--nonzero {
+  color: var(--color-warning-600);
+}
+
+/* ── 表头行 ──────────────────────────────────── */
+.bom-tree__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+  margin-bottom: var(--space-1);
+}
+
+.bom-tree__header-spacer {
+  flex-shrink: 0;
+  width: 18px;
+}
+
+.bom-tree__header-cols {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(120px, 2fr) minmax(80px, 1.2fr) 64px 48px 72px;
+  gap: var(--space-2);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bom-tree__header-cols span:nth-child(3),
+.bom-tree__header-cols span:nth-child(4),
+.bom-tree__header-cols span:nth-child(5) {
+  text-align: right;
+}
+
+/* ── 子节点容器 ──────────────────────────────── */
+.bom-tree__children {
+  display: flex;
+  flex-direction: column;
+  /* 子树左侧缩进线 */
+  border-left: 1px dashed var(--border-default);
+  margin-left: 20px;
+}
+
+/* ── 空状态 ──────────────────────────────────── */
+.bom-tree__empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--text-body-s);
+}
+
+/* ── 层级深度背景（最多 4 层） ─────────────────── */
+.bom-tree__row[data-level="0"] { background-color: transparent; }
+.bom-tree__row[data-level="1"] { background-color: transparent; }
+.bom-tree__row[data-level="2"] { background-color: transparent; }
+.bom-tree__row[data-level="3"] { background-color: transparent; }
+
+/* ── 响应式：窄屏隐藏规格和损耗率 ───────────────── */
+@media (max-width: 560px) {
+  .bom-tree__content {
+    grid-template-columns: 1fr 56px 36px;
+  }
+  .bom-tree__spec,
+  .bom-tree__scrap-rate {
+    display: none;
+  }
+}

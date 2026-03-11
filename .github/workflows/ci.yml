@@ -1,0 +1,311 @@
+name: SmartFactory API CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+      - 'hotfix/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  # ─── 单元测试 ──────────────────────────────────────────────────────
+  unit-test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: services/api
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 18.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+          cache-dependency-path: services/api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+      - name: Run unit tests with coverage
+        run: npx jest tests/unit/ --coverage --coverageDirectory=coverage/unit --coverageReporters=lcov --coverageReporters=text --forceExit
+        env:
+          NODE_ENV: test
+          JWT_SECRET: test-jwt-secret-32chars-for-testing!!
+
+      - name: Upload unit test coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage-report
+          path: services/api/coverage/unit/
+          retention-days: 14
+
+  # ─── 集成测试（依赖 MySQL + Redis）────────────────────────────────
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-test
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_root_password
+          MYSQL_DATABASE: smart_factory_test
+          MYSQL_USER: sf_test
+          MYSQL_PASSWORD: sf_test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -ptest_root_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=30s
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+
+    defaults:
+      run:
+        working-directory: services/api
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 18.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+          cache-dependency-path: services/api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for MySQL to be ready
+        run: |
+          until mysqladmin ping -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password --silent; do
+            echo "Waiting for MySQL..."
+            sleep 2
+          done
+          echo "MySQL is ready."
+
+      - name: Apply database schema
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password smart_factory_test \
+            < ../../infra/db/schema.sql || echo "schema.sql not found, skipping"
+
+      - name: Apply test seed data
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password smart_factory_test \
+            < ../../infra/db/test-seed.sql || echo "test-seed.sql not found, skipping"
+
+      - name: Build API service
+        run: npx tsc
+
+      - name: Start API service in background
+        run: |
+          node dist/index.js &
+          echo "API_PID=$!" >> $GITHUB_ENV
+          # 等待服务启动就绪（最多30秒）
+          timeout 30 bash -c 'until curl -sf http://localhost:3000/health; do sleep 1; done' \
+            || echo "Health check endpoint not available, proceeding anyway"
+        env:
+          NODE_ENV: test
+          PORT: 3000
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: smart_factory_test
+          DB_USER: sf_test
+          DB_PASSWORD: sf_test_password
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+          JWT_SECRET: test-jwt-secret-32chars-for-testing!!
+          LOG_LEVEL: error
+
+      - name: Run integration tests
+        run: npx jest tests/integration/ --coverage --coverageDirectory=coverage/integration --coverageReporters=lcov --coverageReporters=text --forceExit --testTimeout=30000
+        env:
+          NODE_ENV: test
+          TEST_API_URL: http://localhost:3000
+          JWT_SECRET: test-jwt-secret-32chars-for-testing!!
+
+      - name: Upload integration test coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-coverage-report
+          path: services/api/coverage/integration/
+          retention-days: 14
+
+      - name: Stop API service
+        if: always()
+        run: |
+          if [ -n "$API_PID" ]; then
+            kill $API_PID || true
+          fi
+
+  # ─── E2E 端到端测试 ───────────────────────────────────────────────
+  e2e-test:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: integration-test
+    # E2E 测试仅在合并到 main/develop 的 PR 上执行，避免 feature branch 频繁触发
+    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'develop')
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_root_password
+          MYSQL_DATABASE: smart_factory_test
+          MYSQL_USER: sf_test
+          MYSQL_PASSWORD: sf_test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -ptest_root_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=30s
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+
+    defaults:
+      run:
+        working-directory: services/api
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 18.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+          cache-dependency-path: services/api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for MySQL to be ready
+        run: |
+          until mysqladmin ping -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password --silent; do
+            echo "Waiting for MySQL..."
+            sleep 2
+          done
+
+      - name: Apply database schema and seed data
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password smart_factory_test \
+            < ../../infra/db/schema.sql || echo "schema.sql not found, skipping"
+          mysql -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password smart_factory_test \
+            < ../../infra/db/test-seed.sql || echo "test-seed.sql not found, skipping"
+
+      - name: Build API service
+        run: npx tsc
+
+      - name: Start API service in background
+        run: |
+          node dist/index.js &
+          echo "API_PID=$!" >> $GITHUB_ENV
+          timeout 30 bash -c 'until curl -sf http://localhost:3000/health; do sleep 1; done' \
+            || echo "Proceeding without health check"
+        env:
+          NODE_ENV: test
+          PORT: 3000
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: smart_factory_test
+          DB_USER: sf_test
+          DB_PASSWORD: sf_test_password
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+          JWT_SECRET: test-jwt-secret-32chars-for-testing!!
+          LOG_LEVEL: error
+
+      - name: Run E2E tests
+        run: npx jest tests/e2e/ --forceExit --testTimeout=60000 --runInBand
+        env:
+          NODE_ENV: test
+          TEST_API_URL: http://localhost:3000
+          JWT_SECRET: test-jwt-secret-32chars-for-testing!!
+
+      - name: Stop API service
+        if: always()
+        run: |
+          if [ -n "$API_PID" ]; then
+            kill $API_PID || true
+          fi
+
+  # ─── 覆盖率聚合报告 ───────────────────────────────────────────────
+  coverage-report:
+    name: Aggregate Coverage Report
+    runs-on: ubuntu-latest
+    needs:
+      - unit-test
+      - integration-test
+    if: always() && (needs.unit-test.result == 'success' || needs.integration-test.result == 'success')
+
+    steps:
+      - name: Download unit coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-coverage-report
+          path: coverage/unit/
+        continue-on-error: true
+
+      - name: Download integration coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-coverage-report
+          path: coverage/integration/
+        continue-on-error: true
+
+      - name: Print coverage summary
+        run: |
+          echo "========================================"
+          echo "SmartFactory API - Test Coverage Summary"
+          echo "========================================"
+          echo ""
+          if [ -f coverage/unit/lcov-report/index.html ]; then
+            echo "Unit test coverage report available at: coverage/unit/lcov-report/index.html"
+          fi
+          if [ -f coverage/integration/lcov-report/index.html ]; then
+            echo "Integration test coverage report available at: coverage/integration/lcov-report/index.html"
+          fi
+          echo ""
+          echo "Test jobs status:"
+          echo "  - Unit Tests:        ${{ needs.unit-test.result }}"
+          echo "  - Integration Tests: ${{ needs.integration-test.result }}"

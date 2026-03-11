@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智造管家 — 供应商管理</title>
+  <style>
+    /* ===================================================================
+       Design Tokens
+    =================================================================== */
+    :root {
+      --color-primary-50:#EFF6FF; --color-primary-100:#DBEAFE;
+      --color-primary-500:#3B82F6; --color-primary-600:#2563EB; --color-primary-700:#1D4ED8;
+      --color-accent-50:#FFF7ED; --color-accent-200:#FED7AA;
+      --color-accent-500:#F97316; --color-accent-600:#EA580C;
+      --color-success-50:#F0FDF4; --color-success-100:#DCFCE7;
+      --color-success-500:#22C55E; --color-success-600:#16A34A; --color-success-700:#15803D;
+      --color-warning-50:#FFFBEB; --color-warning-100:#FEF3C7;
+      --color-warning-300:#FCD34D; --color-warning-500:#F59E0B;
+      --color-warning-600:#D97706; --color-warning-700:#B45309;
+      --color-error-50:#FEF2F2; --color-error-100:#FEE2E2;
+      --color-error-200:#FECACA; --color-error-500:#EF4444;
+      --color-error-600:#DC2626; --color-error-700:#B91C1C;
+      --color-stagnant-100:#EDE9FE; --color-stagnant-500:#8B5CF6; --color-stagnant-600:#7C3AED;
+      --color-gray-0:#FFFFFF; --color-gray-50:#F8FAFC; --color-gray-100:#F1F5F9;
+      --color-gray-200:#E2E8F0; --color-gray-300:#CBD5E1; --color-gray-400:#94A3B8;
+      --color-gray-500:#64748B; --color-gray-600:#475569; --color-gray-700:#334155;
+      --color-gray-800:#1E293B; --color-gray-900:#0F172A;
+      --bg-page:#F8FAFC; --bg-card:#FFFFFF; --bg-sidebar:#1E293B;
+      --text-sidebar:#CBD5E1;
+      --text-primary:#1E293B; --text-secondary:#64748B; --text-disabled:#94A3B8;
+      --border-default:#E2E8F0; --border-strong:#CBD5E1;
+      --font-family-base:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --font-family-number:"DIN Alternate","Roboto Mono",var(--font-family-base);
+      --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem;
+      --space-5:1.25rem; --space-6:1.5rem; --space-8:2rem;
+      --layout-sidebar-width:240px; --layout-header-height:64px;
+      --layout-page-padding:24px; --layout-card-gap:16px;
+      --radius-sm:4px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px; --radius-full:9999px;
+      --shadow-xs:0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --transition-fast:150ms ease; --transition-base:200ms ease; --transition-slow:300ms ease;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{font-size:16px;}
+    body{font-family:var(--font-family-base);background:var(--bg-page);color:var(--text-primary);min-height:100vh;display:flex;}
+
+    /* ===== Sidebar ===== */
+    .sidebar{width:var(--layout-sidebar-width);background:var(--bg-sidebar);min-height:100vh;position:fixed;top:0;left:0;display:flex;flex-direction:column;z-index:100;}
+    .sidebar__logo{height:var(--layout-header-height);display:flex;align-items:center;padding:0 var(--space-6);border-bottom:1px solid rgba(255,255,255,.08);}
+    .sidebar__logo-mark{width:32px;height:32px;background:var(--color-primary-500);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:1rem;color:#fff;font-weight:800;margin-right:var(--space-3);flex-shrink:0;}
+    .sidebar__logo-text{font-size:1rem;font-weight:700;color:#fff;}
+    .sidebar__logo-sub{font-size:.6875rem;color:rgba(255,255,255,.45);}
+    .sidebar__nav{padding:var(--space-4) 0;flex:1;}
+    .sidebar__section-label{font-size:.625rem;font-weight:600;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.1em;padding:var(--space-3) var(--space-6) var(--space-2);}
+    .sidebar__item{display:flex;align-items:center;gap:var(--space-3);padding:.65rem var(--space-6);color:var(--text-sidebar);font-size:.9375rem;cursor:pointer;transition:background var(--transition-fast);text-decoration:none;border-left:3px solid transparent;}
+    .sidebar__item:hover{background:rgba(255,255,255,.06);color:#fff;}
+    .sidebar__item--active{background:rgba(37,99,235,.25);color:#fff;border-left-color:var(--color-primary-500);}
+    .sidebar__item-icon{font-size:1rem;width:20px;text-align:center;flex-shrink:0;}
+
+    /* ===== Main Layout ===== */
+    .main-wrapper{margin-left:var(--layout-sidebar-width);flex:1;display:flex;flex-direction:column;min-height:100vh;}
+    .top-header{height:var(--layout-header-height);background:var(--bg-card);border-bottom:1px solid var(--border-default);display:flex;align-items:center;padding:0 var(--layout-page-padding);gap:var(--space-4);position:sticky;top:0;z-index:50;}
+    .breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:.875rem;color:var(--text-secondary);}
+    .breadcrumb__sep{color:var(--color-gray-300);}
+    .breadcrumb__current{color:var(--text-primary);font-weight:600;}
+    .breadcrumb__link{cursor:pointer;}
+    .breadcrumb__link:hover{color:var(--color-primary-600);text-decoration:underline;}
+    .header-actions{margin-left:auto;display:flex;gap:var(--space-3);align-items:center;}
+    .page-content{padding:var(--layout-page-padding);flex:1;display:flex;flex-direction:column;gap:var(--layout-card-gap);}
+
+    /* ===== Buttons ===== */
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:36px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:.875rem;font-weight:600;font-family:var(--font-family-base);cursor:pointer;border:none;transition:background var(--transition-fast),transform var(--transition-fast);white-space:nowrap;}
+    .btn:active{transform:scale(.97);}
+    .btn--primary{background:var(--color-primary-500);color:#fff;}
+    .btn--primary:hover{background:var(--color-primary-600);}
+    .btn--ghost{background:transparent;color:var(--text-secondary);border:1.5px solid var(--border-default);}
+    .btn--ghost:hover{border-color:var(--border-strong);color:var(--text-primary);}
+    .btn--danger{background:var(--color-error-500);color:#fff;}
+    .btn--danger:hover{background:var(--color-error-600);}
+    .btn--sm{height:28px;padding:0 var(--space-3);font-size:.8125rem;}
+    .btn--warning{background:var(--color-warning-500);color:#fff;}
+    .btn--warning:hover{background:var(--color-warning-600);}
+
+    /* ===== Card ===== */
+    .card{background:var(--bg-card);border-radius:var(--radius-lg);border:1px solid var(--border-default);box-shadow:var(--shadow-xs);}
+    .card__header{padding:var(--space-4) var(--space-6);border-bottom:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-3);}
+    .card__title{font-size:1rem;font-weight:700;color:var(--text-primary);}
+    .card__subtitle{font-size:.8125rem;color:var(--text-secondary);}
+    .card__actions{margin-left:auto;display:flex;gap:var(--space-2);}
+    .card__body{padding:var(--space-6);}
+
+    /* ===== Toolbar ===== */
+    .toolbar{display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap;}
+    .toolbar__search{display:flex;align-items:center;gap:var(--space-2);height:36px;background:var(--bg-card);border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3);font-size:.875rem;color:var(--text-secondary);transition:border-color var(--transition-fast);width:240px;}
+    .toolbar__search:focus-within{border-color:var(--color-primary-500);}
+    .toolbar__search input{border:none;outline:none;background:transparent;font-size:.875rem;color:var(--text-primary);width:100%;font-family:var(--font-family-base);}
+    .toolbar__search input::placeholder{color:var(--text-disabled);}
+    .toolbar__select{height:36px;padding:0 var(--space-3);border:1.5px solid var(--border-default);border-radius:var(--radius-md);font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);background:var(--bg-card);cursor:pointer;outline:none;appearance:none;padding-right:var(--space-6);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394A3B8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;}
+    .toolbar__select:focus{border-color:var(--color-primary-500);}
+
+    /* ===== Stats Strip ===== */
+    .stats-strip{display:flex;gap:var(--space-4);align-items:center;background:var(--bg-card);border-radius:var(--radius-lg);border:1px solid var(--border-default);padding:var(--space-4) var(--space-6);}
+    .stats-strip__label{font-size:.8125rem;color:var(--text-secondary);margin-right:var(--space-6);}
+    .stats-strip__item{display:flex;align-items:center;gap:var(--space-2);}
+    .stats-strip__icon{font-size:1.125rem;}
+    .stats-strip__count{font-family:var(--font-family-number);font-size:1.25rem;font-weight:700;color:var(--text-primary);}
+    .stats-strip__name{font-size:.8125rem;color:var(--text-secondary);}
+    .stats-strip__divider{width:1px;height:28px;background:var(--border-default);margin:0 var(--space-2);}
+
+    /* ===== Grade Badge ===== */
+    .grade-badge{display:inline-flex;align-items:center;justify-content:center;width:28px;height:20px;border-radius:var(--radius-sm);font-size:.75rem;font-weight:700;letter-spacing:.02em;}
+    .grade-badge--a{background:#FEF9C3;color:#A16207;border:1px solid #FCD34D;}
+    .grade-badge--b{background:var(--color-gray-100);color:var(--color-gray-600);border:1px solid var(--color-gray-300);}
+    .grade-badge--c{background:#FEF3E2;color:#9A3412;border:1px solid #FED7AA;}
+
+    /* ===== Tags ===== */
+    .tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:var(--radius-full);font-size:.75rem;font-weight:500;}
+    .tag--category{background:var(--color-primary-50);color:var(--color-primary-700);}
+    .tag--warning{background:var(--color-warning-100);color:var(--color-warning-700);}
+    .tag--error{background:var(--color-error-100);color:var(--color-error-700);}
+    .tag--success{background:var(--color-success-100);color:var(--color-success-700);}
+
+    /* ===== Table ===== */
+    .data-table{width:100%;border-collapse:collapse;}
+    .data-table th{padding:var(--space-3) var(--space-4);text-align:left;font-size:.8125rem;font-weight:600;color:var(--text-secondary);border-bottom:2px solid var(--border-default);white-space:nowrap;background:var(--color-gray-50);}
+    .data-table td{padding:var(--space-3) var(--space-4);font-size:.875rem;color:var(--text-primary);border-bottom:1px solid var(--border-default);vertical-align:middle;}
+    .data-table tr:last-child td{border-bottom:none;}
+    .data-table tr:hover td{background:var(--color-gray-50);}
+    .data-table tr.row--warning-bg td{background:#FFFBEB;}
+    .data-table tr.row--warning-bg:hover td{background:#FEF3C7;}
+
+    /* ===== On-time Rate Progress ===== */
+    .rate-bar{display:flex;align-items:center;gap:var(--space-2);}
+    .rate-bar__track{height:8px;width:100px;background:var(--color-gray-100);border-radius:var(--radius-full);overflow:hidden;flex-shrink:0;}
+    .rate-bar__fill{height:100%;border-radius:var(--radius-full);transition:width var(--transition-slow);}
+    .rate-bar__fill--high{background:var(--color-success-500);}
+    .rate-bar__fill--mid{background:var(--color-warning-500);}
+    .rate-bar__fill--low{background:var(--color-error-500);}
+    .rate-bar__value{font-family:var(--font-family-number);font-size:.875rem;font-weight:600;white-space:nowrap;}
+    .rate-bar__value--high{color:var(--color-success-600);}
+    .rate-bar__value--mid{color:var(--color-warning-600);}
+    .rate-bar__value--low{color:var(--color-error-600);}
+
+    /* ===== Pagination ===== */
+    .pagination{display:flex;align-items:center;gap:var(--space-2);justify-content:flex-end;padding-top:var(--space-4);}
+    .pagination__info{font-size:.8125rem;color:var(--text-secondary);margin-right:var(--space-3);}
+    .pagination__btn{width:32px;height:32px;border-radius:var(--radius-md);border:1.5px solid var(--border-default);background:var(--bg-card);font-size:.875rem;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);transition:all var(--transition-fast);}
+    .pagination__btn:hover{border-color:var(--color-primary-500);color:var(--color-primary-600);}
+    .pagination__btn--active{background:var(--color-primary-500);border-color:var(--color-primary-500);color:#fff;}
+
+    /* ===== Supplier Detail View ===== */
+    .detail-view{display:none;flex-direction:column;gap:var(--layout-card-gap);}
+    .detail-view--active{display:flex;}
+
+    /* ===== Tab Group ===== */
+    .tab-group{display:flex;gap:0;border-bottom:2px solid var(--border-default);}
+    .tab-group__item{padding:var(--space-3) var(--space-5);font-size:.9375rem;font-weight:500;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color var(--transition-fast),border-color var(--transition-fast);}
+    .tab-group__item:hover{color:var(--text-primary);}
+    .tab-group__item--active{color:var(--color-primary-600);border-bottom-color:var(--color-primary-600);font-weight:600;}
+
+    /* ===== Tab Panel ===== */
+    .tab-panel{display:none;}
+    .tab-panel--active{display:block;}
+
+    /* ===== Info Grid ===== */
+    .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4) var(--space-8);}
+    .info-grid__item{}
+    .info-grid__label{font-size:.8125rem;color:var(--text-secondary);margin-bottom:var(--space-1);}
+    .info-grid__value{font-size:.9375rem;color:var(--text-primary);font-weight:500;}
+    .info-grid__value--note{font-size:.875rem;color:var(--text-secondary);font-weight:400;font-style:italic;}
+
+    /* ===== KPI Cards ===== */
+    .kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--layout-card-gap);}
+    .kpi-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-5);display:flex;flex-direction:column;gap:var(--space-2);}
+    .kpi-card__label{font-size:.8125rem;color:var(--text-secondary);}
+    .kpi-card__value{font-family:var(--font-family-number);font-size:2rem;font-weight:800;line-height:1;}
+    .kpi-card__value--good{color:var(--color-success-600);}
+    .kpi-card__value--warn{color:var(--color-warning-600);}
+    .kpi-card__value--bad{color:var(--color-error-600);}
+    .kpi-card__sub{font-size:.8125rem;color:var(--text-secondary);}
+    .kpi-card__status{display:flex;align-items:center;gap:var(--space-1);font-size:.8125rem;font-weight:600;}
+    .kpi-card__status--ok{color:var(--color-success-600);}
+    .kpi-card__status--warn{color:var(--color-warning-600);}
+    .kpi-card__bar{height:10px;background:var(--color-gray-100);border-radius:var(--radius-full);overflow:hidden;margin-top:var(--space-1);}
+    .kpi-card__bar-fill{height:100%;border-radius:var(--radius-full);}
+    .kpi-card__bar-fill--ok{background:var(--color-success-500);}
+    .kpi-card__bar-fill--warn{background:var(--color-warning-500);}
+    .kpi-card__bar-fill--bad{background:var(--color-error-500);}
+
+    /* ===== Delivery Record Table ===== */
+    .record-status--ok{color:var(--color-success-600);font-weight:500;}
+    .record-status--warn{color:var(--color-warning-600);font-weight:500;}
+
+    /* ===== Performance Dashboard (Modal) ===== */
+    .perf-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity var(--transition-base);}
+    .perf-overlay--open{opacity:1;pointer-events:all;}
+    .perf-modal{background:var(--bg-card);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:min(860px,calc(100vw - 48px));max-height:calc(100vh - 48px);overflow-y:auto;transform:scale(.97);transition:transform var(--transition-slow) cubic-bezier(.32,.72,0,1);display:flex;flex-direction:column;}
+    .perf-overlay--open .perf-modal{transform:scale(1);}
+    .perf-modal__header{padding:var(--space-5) var(--space-6);border-bottom:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-4);position:sticky;top:0;background:var(--bg-card);border-radius:var(--radius-xl) var(--radius-xl) 0 0;z-index:1;}
+    .perf-modal__title{font-size:1.0625rem;font-weight:700;}
+    .perf-modal__body{padding:var(--space-6);display:flex;flex-direction:column;gap:var(--space-6);}
+    .perf-section__title{font-size:.9375rem;font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);}
+
+    /* ===== Horizontal Bar Chart ===== */
+    .hbar-chart{display:flex;flex-direction:column;gap:var(--space-3);}
+    .hbar-row{display:flex;align-items:center;gap:var(--space-3);}
+    .hbar-row__label{width:120px;font-size:.875rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
+    .hbar-row__track{flex:1;height:28px;background:var(--color-gray-100);border-radius:var(--radius-sm);overflow:visible;position:relative;}
+    .hbar-row__fill{height:100%;border-radius:var(--radius-sm);position:relative;display:flex;align-items:center;justify-content:flex-end;padding-right:var(--space-2);transition:width 600ms cubic-bezier(.4,0,.2,1);}
+    .hbar-row__fill--good{background:var(--color-success-500);}
+    .hbar-row__fill--mid{background:var(--color-warning-400, #FBBF24);}
+    .hbar-row__fill--warn{background:var(--color-error-400, #F87171);}
+    .hbar-row__fill-val{font-size:.8125rem;font-weight:700;color:#fff;white-space:nowrap;}
+    .hbar-row__tag{font-size:.75rem;font-weight:600;margin-left:var(--space-2);white-space:nowrap;}
+    .hbar-row__tag--warn{color:var(--color-error-600);}
+    .hbar-warning-line{position:absolute;top:0;bottom:0;width:2px;background:var(--color-error-500);z-index:2;}
+    .hbar-warning-label{position:absolute;top:-20px;font-size:.6875rem;color:var(--color-error-600);font-weight:600;white-space:nowrap;transform:translateX(-50%);}
+
+    /* ===== AI Suggestion Block ===== */
+    .ai-suggestion{background:var(--color-accent-50);border:1.5px solid var(--color-accent-200);border-radius:var(--radius-lg);padding:var(--space-4) var(--space-5);}
+    .ai-suggestion__header{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);}
+    .ai-suggestion__icon{font-size:1rem;}
+    .ai-suggestion__title{font-size:.875rem;font-weight:700;color:var(--color-accent-600);}
+    .ai-suggestion__body{font-size:.875rem;color:var(--text-primary);line-height:1.6;}
+    .ai-suggestion__link{color:var(--color-primary-600);text-decoration:underline;cursor:pointer;font-weight:500;}
+
+    /* ===== Drawer ===== */
+    .drawer-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:150;opacity:0;pointer-events:none;transition:opacity var(--transition-base);}
+    .drawer-overlay--open{opacity:1;pointer-events:all;}
+    .drawer{position:fixed;top:0;right:0;bottom:0;width:480px;background:var(--bg-card);box-shadow:var(--shadow-lg);z-index:151;transform:translateX(100%);transition:transform 300ms cubic-bezier(.32,.72,0,1);display:flex;flex-direction:column;}
+    .drawer--open{transform:translateX(0);}
+    .drawer__header{height:var(--layout-header-height);display:flex;align-items:center;padding:0 var(--space-6);border-bottom:1px solid var(--border-default);gap:var(--space-3);flex-shrink:0;}
+    .drawer__title{font-size:1rem;font-weight:700;flex:1;}
+    .drawer__body{flex:1;overflow-y:auto;padding:var(--space-6);}
+    .drawer__footer{padding:var(--space-4) var(--space-6);border-top:1px solid var(--border-default);display:flex;gap:var(--space-3);justify-content:flex-end;flex-shrink:0;}
+
+    /* ===== Form ===== */
+    .form-section{margin-bottom:var(--space-6);}
+    .form-section__title{font-size:.8125rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:var(--space-4);padding-bottom:var(--space-2);border-bottom:1px solid var(--border-default);}
+    .form-group{margin-bottom:var(--space-4);}
+    .form-group:last-child{margin-bottom:0;}
+    .form-label{display:block;font-size:.875rem;font-weight:500;color:var(--text-primary);margin-bottom:var(--space-2);}
+    .form-label--required::after{content:" *";color:var(--color-error-500);}
+    .form-input{width:100%;height:36px;padding:0 var(--space-3);border:1.5px solid var(--border-default);border-radius:var(--radius-md);font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);background:var(--bg-card);outline:none;transition:border-color var(--transition-fast);}
+    .form-input:focus{border-color:var(--color-primary-500);}
+    .form-input::placeholder{color:var(--text-disabled);}
+    .form-textarea{width:100%;padding:var(--space-3);border:1.5px solid var(--border-default);border-radius:var(--radius-md);font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);background:var(--bg-card);outline:none;resize:vertical;min-height:72px;transition:border-color var(--transition-fast);}
+    .form-textarea:focus{border-color:var(--color-primary-500);}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);}
+    .form-hint{font-size:.8125rem;color:var(--text-secondary);margin-top:var(--space-1);}
+
+    /* ===== Radio Group ===== */
+    .radio-group{display:flex;gap:var(--space-4);}
+    .radio-item{display:flex;align-items:center;gap:var(--space-2);cursor:pointer;font-size:.875rem;}
+    .radio-item input[type=radio]{accent-color:var(--color-primary-500);}
+
+    /* ===== Payment Radio ===== */
+    .payment-group{display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap;}
+    .payment-group .radio-item{margin:0;}
+    .payment-days{display:flex;align-items:center;gap:var(--space-2);}
+    .payment-days input{width:56px;height:32px;padding:0 var(--space-2);border:1.5px solid var(--border-default);border-radius:var(--radius-md);font-size:.875rem;font-family:var(--font-family-number);text-align:center;outline:none;}
+    .payment-days input:focus{border-color:var(--color-primary-500);}
+
+    /* ===== Notification Toast ===== */
+    .toast{position:fixed;bottom:var(--space-6);left:50%;transform:translateX(-50%) translateY(12px);background:var(--color-gray-800);color:#fff;padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);font-size:.875rem;font-weight:500;box-shadow:var(--shadow-lg);z-index:400;opacity:0;transition:opacity var(--transition-base),transform var(--transition-base);pointer-events:none;white-space:nowrap;}
+    .toast--show{opacity:1;transform:translateX(-50%) translateY(0);}
+    .toast--info{background:var(--color-primary-600);}
+    .toast--success{background:var(--color-success-600);}
+    .toast--warning{background:var(--color-warning-600);}
+
+    /* ===== Approve Note ===== */
+    .approve-note{background:var(--color-warning-50);border:1px solid var(--color-warning-300);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:.8125rem;color:var(--color-warning-700);display:flex;gap:var(--space-2);align-items:flex-start;}
+
+    /* ===== Demo bar ===== */
+    .demo-bar{background:linear-gradient(90deg,#6366F1,#8B5CF6);color:#fff;font-size:.8125rem;font-weight:500;text-align:center;padding:var(--space-2);position:fixed;bottom:0;left:var(--layout-sidebar-width);right:0;z-index:500;letter-spacing:.03em;}
+  </style>
+</head>
+<body>
+
+<!-- ===== Sidebar ===== -->
+<nav class="sidebar" aria-label="主导航">
+  <div class="sidebar__logo">
+    <div class="sidebar__logo-mark" aria-hidden="true">智</div>
+    <div>
+      <div class="sidebar__logo-text">智造管家</div>
+      <div class="sidebar__logo-sub">智能工厂管理系统</div>
+    </div>
+  </div>
+  <div class="sidebar__nav">
+    <div class="sidebar__section-label">核心功能</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">📊</span>数据看板</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">📦</span>库存管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🏭</span>生产排程</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🛒</span>销售订单</a>
+    <div class="sidebar__section-label">采购管理</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">💡</span>采购建议</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🔄</span>三单匹配</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">💰</span>价格管理</a>
+    <a class="sidebar__item sidebar__item--active" href="#"><span class="sidebar__item-icon">🏢</span>供应商管理</a>
+    <div class="sidebar__section-label">基础数据</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🗂</span>SKU主数据</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">📐</span>BOM管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">⚙️</span>工序配置</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">✅</span>质量追溯</a>
+    <div class="sidebar__section-label">AI助手</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🤖</span>AI对话</a>
+  </div>
+</nav>
+
+<!-- ===== Main Wrapper ===== -->
+<div class="main-wrapper">
+
+  <!-- Top Header -->
+  <header class="top-header" id="page-header">
+    <div class="breadcrumb">
+      <span class="breadcrumb__link" onclick="showListView()">采购管理</span>
+      <span class="breadcrumb__sep">›</span>
+      <span class="breadcrumb__current" id="breadcrumb-current">供应商管理</span>
+    </div>
+    <div class="header-actions" id="header-actions-list">
+      <button class="btn btn--ghost" onclick="openPerfModal()">📊 绩效对比</button>
+      <button class="btn btn--ghost">导出</button>
+      <button class="btn btn--primary" onclick="openDrawer()">+ 新增供应商</button>
+    </div>
+    <div class="header-actions" id="header-actions-detail" style="display:none;">
+      <button class="btn btn--ghost" onclick="showListView()">← 返回列表</button>
+      <button class="btn btn--primary" onclick="showToast('编辑功能演示', 'info')">编辑基础信息</button>
+    </div>
+  </header>
+
+  <!-- Page Content -->
+  <main class="page-content">
+
+    <!-- ========================================
+         LIST VIEW
+    ======================================== -->
+    <div id="list-view">
+
+      <!-- Toolbar -->
+      <div class="card" style="padding:var(--space-4) var(--space-6);">
+        <div class="toolbar">
+          <label class="toolbar__search">
+            <span>🔍</span>
+            <input type="text" id="search-input" placeholder="搜索供应商名称、联系人…" oninput="filterList()">
+          </label>
+          <select class="toolbar__select" id="grade-filter" onchange="filterList()">
+            <option value="">全部级别</option>
+            <option value="A">A级</option>
+            <option value="B">B级</option>
+            <option value="C">C级</option>
+          </select>
+          <select class="toolbar__select" id="category-filter" onchange="filterList()">
+            <option value="">全部主供品类</option>
+            <option value="木板类">木板类</option>
+            <option value="五金类">五金类</option>
+            <option value="板材类">板材类</option>
+            <option value="辅料类">辅料类</option>
+            <option value="包装类">包装类</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Stats Strip -->
+      <div class="stats-strip">
+        <span class="stats-strip__label">汇总：共 <strong>35</strong> 家</span>
+        <div class="stats-strip__item">
+          <span class="stats-strip__icon">🥇</span>
+          <span class="stats-strip__count">5</span>
+          <span class="stats-strip__name">A级</span>
+        </div>
+        <div class="stats-strip__divider"></div>
+        <div class="stats-strip__item">
+          <span class="stats-strip__icon">🥈</span>
+          <span class="stats-strip__count">20</span>
+          <span class="stats-strip__name">B级</span>
+        </div>
+        <div class="stats-strip__divider"></div>
+        <div class="stats-strip__item">
+          <span class="stats-strip__icon">🥉</span>
+          <span class="stats-strip__count">10</span>
+          <span class="stats-strip__name">C级</span>
+        </div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:var(--space-2);">
+          <span style="font-size:.75rem;color:var(--color-error-600);font-weight:600;">⚠ 1家供应商准时率低于预警线</span>
+        </div>
+      </div>
+
+      <!-- Supplier Table -->
+      <div class="card">
+        <div class="card__body" style="padding:0;">
+          <div style="overflow-x:auto;">
+            <table class="data-table" id="supplier-table">
+              <thead>
+                <tr>
+                  <th>级别</th>
+                  <th>供应商名称</th>
+                  <th>主供品类</th>
+                  <th>准时交货率（近3M）</th>
+                  <th>质量异常率</th>
+                  <th>账期</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="supplier-tbody">
+                <!-- Row 1: A 华森木业 -->
+                <tr data-grade="A" data-category="木板类" data-name="华森木业">
+                  <td><span class="grade-badge grade-badge--a">A</span></td>
+                  <td>
+                    <div style="font-weight:600;">华森木业有限公司</div>
+                    <div style="font-size:.75rem;color:var(--text-secondary);">李经理 138-xxxx-xxxx</div>
+                  </td>
+                  <td><span class="tag tag--category">木板类</span></td>
+                  <td>
+                    <div class="rate-bar">
+                      <div class="rate-bar__track"><div class="rate-bar__fill rate-bar__fill--high" style="width:96%;"></div></div>
+                      <span class="rate-bar__value rate-bar__value--high">96%</span>
+                    </div>
+                  </td>
+                  <td><span style="color:var(--color-success-600);font-weight:600;font-size:.875rem;">1.2%</span></td>
+                  <td style="white-space:nowrap;color:var(--text-secondary);font-size:.875rem;">月结 30 天</td>
+                  <td><button class="btn btn--sm btn--ghost" onclick="showDetailView('huasen')">查看</button></td>
+                </tr>
+                <!-- Row 2: A 明辉五金 -->
+                <tr data-grade="A" data-category="五金类" data-name="明辉五金">
+                  <td><span class="grade-badge grade-badge--a">A</span></td>
+                  <td>
+                    <div style="font-weight:600;">明辉五金配件有限公司</div>
+                    <div style="font-size:.75rem;color:var(--text-secondary);">王总 139-xxxx-xxxx</div>
+                  </td>
+                  <td><span class="tag tag--category">五金类</span></td>
+                  <td>
+                    <div class="rate-bar">
+                      <div class="rate-bar__track"><div class="rate-bar__fill rate-bar__fill--high" style="width:94%;"></div></div>
+                      <span class="rate-bar__value rate-bar__value--high">94%</span>
+                    </div>
+                  </td>
+                  <td><span style="color:var(--color-success-600);font-weight:600;font-size:.875rem;">0.8%</span></td>
+                  <td style="white-space:nowrap;color:var(--text-secondary);font-size:.875rem;">月结 30 天</td>
+                  <td><button class="btn btn--sm btn--ghost" onclick="showToast('跳转明辉五金详情', 'info')">查看</button></td>
+                </tr>
+                <!-- Row 3: B 广州板材 -->
+                <tr data-grade="B" data-category="板材类" data-name="广州板材">
+                  <td><span class="grade-badge grade-badge--b">B</span></td>
+                  <td>
+                    <div style="font-weight:600;">广州板材供应有限公司</div>
+                    <div style="font-size:.75rem;color:var(--text-secondary);">陈先生 135-xxxx-xxxx</div>
+                  </td>
+                  <td><span class="tag tag--category">板材类</span></td>
+                  <td>
+                    <div class="rate-bar">
+                      <div class="rate-bar__track"><div class="rate-bar__fill rate-bar__fill--mid" style="width:82%;"></div></div>
+                      <span class="rate-bar__value rate-bar__value--mid">82%</span>
+                    </div>
+                  </td>
+                  <td><span style="color:var(--color-warning-600);font-weight:600;font-size:.875rem;">3.5%</span></td>
+                  <td style="white-space:nowrap;color:var(--text-secondary);font-size:.875rem;">月结 60 天</td>
+                  <td><button class="btn btn--sm btn--ghost" onclick="showToast('跳转广州板材详情', 'info')">查看</button></td>
+                </tr>
+                <!-- Row 4: B 联鑫材料 -->
+                <tr data-grade="B" data-category="辅料类" data-name="联鑫材料">
+                  <td><span class="grade-badge grade-badge--b">B</span></td>
+                  <td>
+                    <div style="font-weight:600;">联鑫材料贸易有限公司</div>
+                    <div style="font-size:.75rem;color:var(--text-secondary);">刘经理 136-xxxx-xxxx</div>
+                  </td>
+                  <td><span class="tag tag--category">辅料类</span></td>
+                  <td>
+                    <div class="rate-bar">
+                      <div class="rate-bar__track"><div class="rate-bar__fill rate-bar__fill--mid" style="width:78%;"></div></div>
+                      <span class="rate-bar__value rate-bar__value--mid">78%</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span style="color:var(--color-error-600);font-weight:600;font-size:.875rem;">6.2%</span>
+                    <span class="tag tag--error" style="margin-left:4px;font-size:.6875rem;">超预警</span>
+                  </td>
+                  <td style="white-space:nowrap;color:var(--text-secondary);font-size:.875rem;">货到付款</td>
+                  <td><button class="btn btn--sm btn--ghost" onclick="showToast('跳转联鑫材料详情', 'info')">查看</button></td>
+                </tr>
+                <!-- Row 5: C 顺达包材 — 准时率低于60%预警 -->
+                <tr class="row--warning-bg" data-grade="C" data-category="包装类" data-name="顺达包材">
+                  <td><span class="grade-badge grade-badge--c">C</span></td>
+                  <td>
+                    <div style="font-weight:600;">顺达包材实业有限公司</div>
+                    <div style="font-size:.75rem;color:var(--text-secondary);">赵总 137-xxxx-xxxx</div>
+                    <span class="tag tag--warning" style="font-size:.6875rem;margin-top:4px;display:inline-flex;">⚠ 准时率预警</span>
+                  </td>
+                  <td><span class="tag tag--category">包装类</span></td>
+                  <td>
+                    <div class="rate-bar">
+                      <div class="rate-bar__track"><div class="rate-bar__fill rate-bar__fill--low" style="width:65%;"></div></div>
+                      <span class="rate-bar__value rate-bar__value--low">65%</span>
+                    </div>
+                  </td>
+                  <td><span style="color:var(--text-secondary);font-size:.875rem;">2.8%</span></td>
+                  <td style="white-space:nowrap;color:var(--text-secondary);font-size:.875rem;">货到付款</td>
+                  <td><button class="btn btn--sm btn--ghost" onclick="showToast('跳转顺达包材详情', 'info')">查看</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="padding:var(--space-4) var(--space-6);border-top:1px solid var(--border-default);">
+            <div class="pagination">
+              <span class="pagination__info">共 35 条</span>
+              <button class="pagination__btn pagination__btn--active">1</button>
+              <button class="pagination__btn">2</button>
+              <button class="pagination__btn">›</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <!-- / list-view -->
+
+    <!-- ========================================
+         DETAIL VIEW: 华森木业
+    ======================================== -->
+    <div id="detail-view" class="detail-view">
+
+      <!-- Detail Header Card -->
+      <div class="card">
+        <div class="card__body" style="display:flex;align-items:center;gap:var(--space-4);">
+          <div style="width:56px;height:56px;background:var(--color-primary-50);border-radius:var(--radius-lg);display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;">🏢</div>
+          <div>
+            <div style="display:flex;align-items:center;gap:var(--space-3);">
+              <h2 style="font-size:1.125rem;font-weight:800;">华森木业有限公司</h2>
+              <span class="grade-badge grade-badge--a" style="width:36px;height:24px;font-size:.875rem;">A级</span>
+            </div>
+            <div style="font-size:.875rem;color:var(--text-secondary);margin-top:4px;">主供品类：木板类 · 合作起始：2021-06-01 · 账期：月结 30 天</div>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:var(--space-3);">
+            <button class="btn btn--ghost btn--sm" onclick="showAdjustGrade()">调整级别</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab Group -->
+      <div class="card">
+        <div style="padding:0 var(--space-6);">
+          <div class="tab-group" role="tablist">
+            <button class="tab-group__item tab-group__item--active" role="tab" onclick="switchTab('basic', this)">基础信息</button>
+            <button class="tab-group__item" role="tab" onclick="switchTab('sku', this)">关联SKU</button>
+            <button class="tab-group__item" role="tab" onclick="switchTab('price', this)">价格协议</button>
+            <button class="tab-group__item" role="tab" onclick="switchTab('perf', this)">绩效数据</button>
+          </div>
+        </div>
+
+        <!-- Tab 1: Basic Info -->
+        <div id="tab-basic" class="tab-panel tab-panel--active" style="padding:var(--space-6);">
+          <div class="info-grid">
+            <div class="info-grid__item">
+              <div class="info-grid__label">供应商名称</div>
+              <div class="info-grid__value">华森木业有限公司</div>
+            </div>
+            <div class="info-grid__item">
+              <div class="info-grid__label">供应商级别</div>
+              <div class="info-grid__value" style="display:flex;align-items:center;gap:var(--space-2);">
+                <span class="grade-badge grade-badge--a">A</span> A级（优质供应商）
+              </div>
+            </div>
+            <div class="info-grid__item">
+              <div class="info-grid__label">主要联系人</div>
+              <div class="info-grid__value">李经理</div>
+            </div>
+            <div class="info-grid__item">
+              <div class="info-grid__label">联系电话</div>
+              <div class="info-grid__value">138-xxxx-xxxx</div>
+            </div>
+            <div class="info-grid__item" style="grid-column:1/-1;">
+              <div class="info-grid__label">主供品类</div>
+              <div class="info-grid__value">木板类（实木板、工程板、装饰板）</div>
+            </div>
+            <div class="info-grid__item">
+              <div class="info-grid__label">账期</div>
+              <div class="info-grid__value">月结 30 天</div>
+            </div>
+            <div class="info-grid__item">
+              <div class="info-grid__label">平均交货周期</div>
+              <div class="info-grid__value">3 天</div>
+            </div>
+            <div class="info-grid__item">
+              <div class="info-grid__label">合作起始时间</div>
+              <div class="info-grid__value">2021-06-01</div>
+            </div>
+            <div class="info-grid__item">
+              <div class="info-grid__label">最近采购时间</div>
+              <div class="info-grid__value">2026-03-05</div>
+            </div>
+            <div class="info-grid__item" style="grid-column:1/-1;">
+              <div class="info-grid__label">备注</div>
+              <div class="info-grid__value info-grid__value--note">主要供货板材，质量稳定，价格中等，偶有节假日延货情况，需提前备货。</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Related SKU -->
+        <div id="tab-sku" class="tab-panel" style="padding:var(--space-4) 0;">
+          <div style="padding:var(--space-3) var(--space-6) var(--space-4);display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:.875rem;color:var(--text-secondary);">共 3 个关联SKU</span>
+            <button class="btn btn--sm btn--ghost" onclick="showToast('新增关联SKU功能演示', 'info')">+ 新增关联SKU</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>物料名称</th>
+                <th>物料编码</th>
+                <th>是否主供</th>
+                <th>当前价格</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>红橡木板 200×2400</td>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">RM-W-001</td>
+                <td><span class="tag tag--success">是</span></td>
+                <td style="font-family:var(--font-family-number);font-weight:700;">¥180.00 / 张</td>
+                <td><button class="btn btn--sm btn--ghost" onclick="showToast('查看价格历史演示', 'info')">查看价格历史</button></td>
+              </tr>
+              <tr>
+                <td>实木脚线 L型 2.4m</td>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">RM-W-008</td>
+                <td><span class="tag tag--success">是</span></td>
+                <td style="font-family:var(--font-family-number);font-weight:700;">¥22.50 / 根</td>
+                <td><button class="btn btn--sm btn--ghost" onclick="showToast('查看价格历史演示', 'info')">查看价格历史</button></td>
+              </tr>
+              <tr>
+                <td>木工板 1220×2440 15mm</td>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">RM-W-012</td>
+                <td><span class="tag tag--success">是</span></td>
+                <td style="font-family:var(--font-family-number);font-weight:700;">¥95.00 / 张</td>
+                <td><button class="btn btn--sm btn--ghost" onclick="showToast('查看价格历史演示', 'info')">查看价格历史</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Tab 3: Price Agreements -->
+        <div id="tab-price" class="tab-panel" style="padding:var(--space-4) 0;">
+          <div style="padding:var(--space-3) var(--space-6) var(--space-4);display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:.875rem;color:var(--text-secondary);">共 3 份有效协议</span>
+            <button class="btn btn--sm btn--ghost" onclick="showToast('前往价格管理录入协议', 'info')">前往价格管理</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>物料名称</th>
+                <th>协议价格</th>
+                <th>最小起订量</th>
+                <th>有效期</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>红橡木板 200×2400</td>
+                <td style="font-family:var(--font-family-number);font-weight:700;">¥180.00</td>
+                <td>10 张</td>
+                <td>2026-06-30</td>
+                <td><span class="tag tag--success">有效</span></td>
+              </tr>
+              <tr>
+                <td>实木脚线 L型 2.4m</td>
+                <td style="font-family:var(--font-family-number);font-weight:700;">¥22.50</td>
+                <td>50 根</td>
+                <td>2026-04-15</td>
+                <td><span class="tag tag--warning">即将到期</span></td>
+              </tr>
+              <tr>
+                <td>木工板 1220×2440 15mm</td>
+                <td style="font-family:var(--font-family-number);font-weight:700;">¥95.00</td>
+                <td>5 张</td>
+                <td>2026-09-01</td>
+                <td><span class="tag tag--success">有效</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Tab 4: Performance Data -->
+        <div id="tab-perf" class="tab-panel" style="padding:var(--space-6);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-5);">
+            <span style="font-size:.9375rem;font-weight:700;">核心绩效指标</span>
+            <select class="toolbar__select" style="height:32px;font-size:.8125rem;">
+              <option>近3个月</option>
+              <option>近6个月</option>
+              <option>近12个月</option>
+            </select>
+          </div>
+          <div class="kpi-grid" style="margin-bottom:var(--space-6);">
+            <div class="kpi-card">
+              <div class="kpi-card__label">准时交货率</div>
+              <div class="kpi-card__value kpi-card__value--good">96%</div>
+              <div class="kpi-card__bar"><div class="kpi-card__bar-fill kpi-card__bar-fill--ok" style="width:96%;"></div></div>
+              <div class="kpi-card__sub">近3月: 96%</div>
+              <div class="kpi-card__status kpi-card__status--ok">✓ 优秀（A级达标）</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-card__label">质量异常率</div>
+              <div class="kpi-card__value kpi-card__value--good" style="font-size:1.75rem;">1.2%</div>
+              <div class="kpi-card__bar"><div class="kpi-card__bar-fill kpi-card__bar-fill--ok" style="width:12%;"></div></div>
+              <div class="kpi-card__sub">近3月: 1.2%（越低越好）</div>
+              <div class="kpi-card__status kpi-card__status--ok">✓ 正常（低于5%）</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-card__label">平均交货周期</div>
+              <div class="kpi-card__value kpi-card__value--good" style="font-size:1.75rem;">2.8 天</div>
+              <div class="kpi-card__bar"><div class="kpi-card__bar-fill kpi-card__bar-fill--ok" style="width:56%;"></div></div>
+              <div class="kpi-card__sub">近3月: 2.8天 / 承诺：3天</div>
+              <div class="kpi-card__status kpi-card__status--ok">✓ 优于承诺交期</div>
+            </div>
+          </div>
+
+          <div style="font-size:.9375rem;font-weight:700;margin-bottom:var(--space-4);">近期交货记录（近10笔）</div>
+          <div style="overflow-x:auto;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>采购单号</th>
+                  <th>物料名称</th>
+                  <th>约定日期</th>
+                  <th>实际日期</th>
+                  <th>备注</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="font-family:var(--font-family-number);font-size:.8125rem;">PO-2601</td>
+                  <td>红橡木板 200×2400</td>
+                  <td>2026-03-05</td>
+                  <td>2026-03-05</td>
+                  <td><span class="record-status--ok">✓ 准时</span></td>
+                </tr>
+                <tr>
+                  <td style="font-family:var(--font-family-number);font-size:.8125rem;">PO-2589</td>
+                  <td>木工板 1220×2440</td>
+                  <td>2026-02-20</td>
+                  <td>2026-02-20</td>
+                  <td><span class="record-status--ok">✓ 准时</span></td>
+                </tr>
+                <tr>
+                  <td style="font-family:var(--font-family-number);font-size:.8125rem;">PO-2544</td>
+                  <td>木工板 1220×2440</td>
+                  <td>2026-02-10</td>
+                  <td>2026-02-12</td>
+                  <td><span class="record-status--warn">⚠ 延迟2天（供应商缺货）</span></td>
+                </tr>
+                <tr>
+                  <td style="font-family:var(--font-family-number);font-size:.8125rem;">PO-2510</td>
+                  <td>实木脚线 L型 2.4m</td>
+                  <td>2026-01-28</td>
+                  <td>2026-01-28</td>
+                  <td><span class="record-status--ok">✓ 准时</span></td>
+                </tr>
+                <tr>
+                  <td style="font-family:var(--font-family-number);font-size:.8125rem;">PO-2487</td>
+                  <td>红橡木板 200×2400</td>
+                  <td>2026-01-15</td>
+                  <td>2026-01-15</td>
+                  <td><span class="record-status--ok">✓ 准时</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+      <!-- /Tab Card -->
+
+    </div>
+    <!-- /detail-view -->
+
+  </main>
+</div>
+<!-- /main-wrapper -->
+
+<!-- ===================================================================
+     Performance Comparison Modal
+=================================================================== -->
+<div class="perf-overlay" id="perf-overlay" role="dialog" aria-modal="true" aria-label="供应商绩效对比">
+  <div class="perf-modal">
+    <div class="perf-modal__header">
+      <div style="font-size:1.0625rem;font-weight:700;flex:1;">供应商绩效对比</div>
+      <select class="toolbar__select" style="height:32px;font-size:.8125rem;">
+        <option>近3个月</option>
+        <option>近6个月</option>
+        <option>近12个月</option>
+      </select>
+      <button class="btn btn--ghost btn--sm" onclick="closePerfModal()">关闭</button>
+    </div>
+    <div class="perf-modal__body">
+
+      <!-- On-time Rate Chart -->
+      <div>
+        <div class="perf-section__title">准时交货率对比（A/B级供应商）</div>
+        <div class="hbar-chart">
+          <!-- 96% — good -->
+          <div class="hbar-row">
+            <div class="hbar-row__label">华森木业 (A)</div>
+            <div class="hbar-row__track" style="position:relative;">
+              <div class="hbar-row__fill hbar-row__fill--good" style="width:96%;">
+                <span class="hbar-row__fill-val">96%</span>
+              </div>
+            </div>
+          </div>
+          <!-- 94% — good -->
+          <div class="hbar-row">
+            <div class="hbar-row__label">明辉五金 (A)</div>
+            <div class="hbar-row__track">
+              <div class="hbar-row__fill hbar-row__fill--good" style="width:94%;">
+                <span class="hbar-row__fill-val">94%</span>
+              </div>
+            </div>
+          </div>
+          <!-- 82% — mid -->
+          <div class="hbar-row">
+            <div class="hbar-row__label">广州板材 (B)</div>
+            <div class="hbar-row__track">
+              <div class="hbar-row__fill hbar-row__fill--mid" style="width:82%;">
+                <span class="hbar-row__fill-val">82%</span>
+              </div>
+            </div>
+          </div>
+          <!-- 78% — mid -->
+          <div class="hbar-row">
+            <div class="hbar-row__label">联鑫材料 (B)</div>
+            <div class="hbar-row__track">
+              <div class="hbar-row__fill hbar-row__fill--mid" style="width:78%;">
+                <span class="hbar-row__fill-val">78%</span>
+              </div>
+            </div>
+          </div>
+          <!-- 65% — warn: below 60% line, still above, just labeled -->
+          <div class="hbar-row">
+            <div class="hbar-row__label">顺达包材 (C)</div>
+            <div class="hbar-row__track" style="position:relative;">
+              <!-- Warning line at 60% -->
+              <div class="hbar-warning-line" style="left:60%;">
+                <div class="hbar-warning-label">60% 预警线</div>
+              </div>
+              <div class="hbar-row__fill hbar-row__fill--warn" style="width:65%;">
+                <span class="hbar-row__fill-val">65%</span>
+              </div>
+            </div>
+            <span class="hbar-row__tag hbar-row__tag--warn">← 低于60%预警线</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quality Anomaly Rate Chart -->
+      <div>
+        <div class="perf-section__title">质量异常率对比（越低越好）</div>
+        <div class="hbar-chart">
+          <!-- 1.2% — good (scale: 0-10%, so 1.2% = 12%) -->
+          <div class="hbar-row">
+            <div class="hbar-row__label">华森木业 (A)</div>
+            <div class="hbar-row__track" style="position:relative;">
+              <div class="hbar-row__fill hbar-row__fill--good" style="width:12%;">
+                <span class="hbar-row__fill-val" style="position:absolute;left:calc(12% + 8px);color:var(--text-primary);font-size:.8125rem;white-space:nowrap;">1.2%</span>
+              </div>
+            </div>
+          </div>
+          <!-- 0.8% -->
+          <div class="hbar-row">
+            <div class="hbar-row__label">明辉五金 (A)</div>
+            <div class="hbar-row__track" style="position:relative;">
+              <div class="hbar-row__fill hbar-row__fill--good" style="width:8%;">
+                <span class="hbar-row__fill-val" style="position:absolute;left:calc(8% + 8px);color:var(--text-primary);font-size:.8125rem;white-space:nowrap;">0.8%</span>
+              </div>
+            </div>
+          </div>
+          <!-- 3.5% -->
+          <div class="hbar-row">
+            <div class="hbar-row__label">广州板材 (B)</div>
+            <div class="hbar-row__track" style="position:relative;">
+              <div class="hbar-row__fill hbar-row__fill--mid" style="width:35%;">
+                <span class="hbar-row__fill-val">3.5%</span>
+              </div>
+            </div>
+          </div>
+          <!-- 6.2% — warn: exceeds 5% line -->
+          <div class="hbar-row">
+            <div class="hbar-row__label">联鑫材料 (B)</div>
+            <div class="hbar-row__track" style="position:relative;">
+              <!-- Warning line at 5% = 50% of track -->
+              <div class="hbar-warning-line" style="left:50%;">
+                <div class="hbar-warning-label">5% 预警线</div>
+              </div>
+              <div class="hbar-row__fill hbar-row__fill--warn" style="width:62%;">
+                <span class="hbar-row__fill-val">6.2%</span>
+              </div>
+            </div>
+            <span class="hbar-row__tag hbar-row__tag--warn">← 超5%预警</span>
+          </div>
+          <!-- 2.8% -->
+          <div class="hbar-row">
+            <div class="hbar-row__label">顺达包材 (C)</div>
+            <div class="hbar-row__track" style="position:relative;">
+              <div class="hbar-row__fill hbar-row__fill--mid" style="width:28%;">
+                <span class="hbar-row__fill-val">2.8%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Suggestion -->
+      <div class="ai-suggestion">
+        <div class="ai-suggestion__header">
+          <span class="ai-suggestion__icon">🤖</span>
+          <span class="ai-suggestion__title">AI 供应商评估建议</span>
+        </div>
+        <div class="ai-suggestion__body">
+          联鑫材料质量异常率持续偏高（6.2%，超过5%预警阈值），近3个月已触发 2 次到货质检不合格。建议采购员与联鑫材料沟通整改方案，或评估是否调整为 C 级并寻找替代供应商。
+          <br><br>
+          <a class="ai-suggestion__link" onclick="showDetailView('lianksin')">查看联鑫材料详情</a>
+          &nbsp;·&nbsp;
+          <a class="ai-suggestion__link" onclick="showToast('AI完整分析报告演示', 'info')">查看完整分析报告</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ===================================================================
+     Grade Adjustment Modal
+=================================================================== -->
+<div class="perf-overlay" id="grade-overlay" role="dialog" aria-modal="true" aria-label="调整供应商级别">
+  <div class="perf-modal" style="max-width:480px;">
+    <div class="perf-modal__header">
+      <div style="font-size:1rem;font-weight:700;flex:1;">调整供应商级别 — 华森木业</div>
+      <button class="btn btn--ghost btn--sm" onclick="closeGradeModal()">×</button>
+    </div>
+    <div class="perf-modal__body" style="gap:var(--space-4);">
+      <div class="approve-note">
+        ⚠ 调整供应商级别（从 A 级调整）需要工厂老板审批，操作记录将完整留存。请确认调整原因。
+      </div>
+      <div class="form-group">
+        <label class="form-label form-label--required">调整目标级别</label>
+        <div class="radio-group">
+          <label class="radio-item"><input type="radio" name="new-grade" value="A" checked> <span>🥇 A级</span></label>
+          <label class="radio-item"><input type="radio" name="new-grade" value="B"> <span>🥈 B级</span></label>
+          <label class="radio-item"><input type="radio" name="new-grade" value="C"> <span>🥉 C级</span></label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label form-label--required">调整原因</label>
+        <textarea class="form-textarea" rows="3" placeholder="请说明调整原因，将随审批流程提交给工厂老板…"></textarea>
+      </div>
+      <div style="display:flex;gap:var(--space-3);justify-content:flex-end;padding-top:var(--space-2);">
+        <button class="btn btn--ghost" onclick="closeGradeModal()">取消</button>
+        <button class="btn btn--primary" onclick="submitGradeAdjust()">提交审批</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================================================================
+     New Supplier Drawer
+=================================================================== -->
+<div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+<aside class="drawer" id="new-supplier-drawer" aria-label="新增供应商">
+  <div class="drawer__header">
+    <div class="drawer__title">新增供应商</div>
+    <button class="btn btn--ghost btn--sm" onclick="closeDrawer()">取消</button>
+    <button class="btn btn--ghost btn--sm" onclick="closeDrawer()" style="width:32px;height:32px;padding:0;font-size:1rem;">×</button>
+  </div>
+  <div class="drawer__body">
+    <div class="form-section">
+      <div class="form-section__title">基础信息</div>
+      <div class="form-group">
+        <label class="form-label form-label--required">供应商名称</label>
+        <input type="text" class="form-input" placeholder="请输入供应商全称">
+      </div>
+      <div class="form-group">
+        <label class="form-label form-label--required">供应商级别</label>
+        <div class="radio-group">
+          <label class="radio-item"><input type="radio" name="grade" value="A"> <span>🥇 A级</span></label>
+          <label class="radio-item"><input type="radio" name="grade" value="B" checked> <span>🥈 B级</span></label>
+          <label class="radio-item"><input type="radio" name="grade" value="C"> <span>🥉 C级</span></label>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">主要联系人</label>
+          <input type="text" class="form-input" placeholder="联系人姓名">
+        </div>
+        <div class="form-group">
+          <label class="form-label">联系电话</label>
+          <input type="tel" class="form-input" placeholder="手机号码">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">主供品类</label>
+        <input type="text" class="form-input" placeholder="如：木板类、五金类…">
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">合作条款</div>
+      <div class="form-group">
+        <label class="form-label form-label--required">账期</label>
+        <div class="payment-group">
+          <label class="radio-item"><input type="radio" name="payment" value="cod" id="pay-cod"> <span>货到付款</span></label>
+          <label class="radio-item"><input type="radio" name="payment" value="monthly" id="pay-monthly" checked> <span>月结</span></label>
+          <div class="payment-days">
+            <input type="number" id="payment-days" value="30" min="1" max="180">
+            <span style="font-size:.875rem;color:var(--text-secondary);">天</span>
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">平均交货周期（天）</label>
+        <input type="number" class="form-input" placeholder="如：3" min="1" style="width:120px;">
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">其他</div>
+      <div class="form-group">
+        <label class="form-label">合作起始时间</label>
+        <input type="date" class="form-input" value="2026-03-11">
+      </div>
+      <div class="form-group">
+        <label class="form-label">备注</label>
+        <textarea class="form-textarea" placeholder="供应商特殊说明、注意事项…"></textarea>
+      </div>
+    </div>
+
+    <!-- Onboarding hint -->
+    <div style="background:var(--color-primary-50);border:1px solid var(--color-primary-100);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:.8125rem;color:var(--color-primary-700);">
+      ℹ 保存后请及时前往 <strong>价格管理</strong> 录入该供应商的价格协议，否则 AI 采购建议将无法匹配该供应商。
+    </div>
+  </div>
+  <div class="drawer__footer">
+    <button class="btn btn--ghost" onclick="closeDrawer()">取消</button>
+    <button class="btn btn--primary" onclick="saveSupplier()">保存供应商</button>
+  </div>
+</aside>
+
+<!-- ===== Toast ===== -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- ===== Demo Bar ===== -->
+<div class="demo-bar">P-014 供应商管理 — UI原型演示 | 设计规范版本 v1.0 | senior-ui-designer 交付</div>
+
+<script>
+  /* ===================================================================
+     View Switching
+  =================================================================== */
+  function showListView() {
+    document.getElementById('list-view').style.display = 'block';
+    document.getElementById('detail-view').classList.remove('detail-view--active');
+    document.getElementById('breadcrumb-current').textContent = '供应商管理';
+    document.getElementById('header-actions-list').style.display = 'flex';
+    document.getElementById('header-actions-detail').style.display = 'none';
+  }
+
+  function showDetailView(supplierId) {
+    document.getElementById('list-view').style.display = 'none';
+    document.getElementById('detail-view').classList.add('detail-view--active');
+    document.getElementById('breadcrumb-current').textContent = '华森木业有限公司';
+    document.getElementById('header-actions-list').style.display = 'none';
+    document.getElementById('header-actions-detail').style.display = 'flex';
+    // Reset to first tab
+    switchTab('basic', document.querySelector('.tab-group__item'));
+  }
+
+  /* ===================================================================
+     Tab Switching
+  =================================================================== */
+  function switchTab(tabId, el) {
+    // Deactivate all tabs and panels
+    document.querySelectorAll('.tab-group__item').forEach(t => t.classList.remove('tab-group__item--active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('tab-panel--active'));
+    // Activate target
+    if (el) el.classList.add('tab-group__item--active');
+    const panel = document.getElementById('tab-' + tabId);
+    if (panel) panel.classList.add('tab-panel--active');
+  }
+
+  /* ===================================================================
+     Filter
+  =================================================================== */
+  function filterList() {
+    const search = document.getElementById('search-input').value.toLowerCase();
+    const grade  = document.getElementById('grade-filter').value;
+    const cat    = document.getElementById('category-filter').value;
+    document.querySelectorAll('#supplier-tbody tr').forEach(row => {
+      const name     = (row.dataset.name || '').toLowerCase();
+      const rowGrade = row.dataset.grade || '';
+      const rowCat   = row.dataset.category || '';
+      const matchS = !search || name.includes(search);
+      const matchG = !grade  || rowGrade === grade;
+      const matchC = !cat    || rowCat === cat;
+      row.style.display = (matchS && matchG && matchC) ? '' : 'none';
+    });
+  }
+
+  /* ===================================================================
+     Performance Modal
+  =================================================================== */
+  function openPerfModal() {
+    const overlay = document.getElementById('perf-overlay');
+    overlay.classList.add('perf-overlay--open');
+    document.addEventListener('keydown', handlePerfEsc);
+  }
+  function closePerfModal() {
+    document.getElementById('perf-overlay').classList.remove('perf-overlay--open');
+    document.removeEventListener('keydown', handlePerfEsc);
+  }
+  function handlePerfEsc(e) { if (e.key === 'Escape') closePerfModal(); }
+
+  /* ===================================================================
+     Grade Modal
+  =================================================================== */
+  function showAdjustGrade() {
+    document.getElementById('grade-overlay').classList.add('perf-overlay--open');
+  }
+  function closeGradeModal() {
+    document.getElementById('grade-overlay').classList.remove('perf-overlay--open');
+  }
+  function submitGradeAdjust() {
+    closeGradeModal();
+    showToast('级别调整申请已提交，等待工厂老板审批', 'success');
+  }
+
+  /* ===================================================================
+     Drawer
+  =================================================================== */
+  function openDrawer() {
+    document.getElementById('new-supplier-drawer').classList.add('drawer--open');
+    document.getElementById('drawer-overlay').classList.add('drawer-overlay--open');
+    document.addEventListener('keydown', handleDrawerEsc);
+  }
+  function closeDrawer() {
+    document.getElementById('new-supplier-drawer').classList.remove('drawer--open');
+    document.getElementById('drawer-overlay').classList.remove('drawer-overlay--open');
+    document.removeEventListener('keydown', handleDrawerEsc);
+  }
+  function handleDrawerEsc(e) { if (e.key === 'Escape') closeDrawer(); }
+  function saveSupplier() {
+    closeDrawer();
+    showToast('供应商已保存。请及时前往价格管理录入价格协议', 'info');
+  }
+
+  /* ===================================================================
+     Toast
+  =================================================================== */
+  let toastTimer = null;
+  function showToast(msg, type = 'success') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast toast--' + type;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => el.classList.add('toast--show'));
+    });
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('toast--show'), 2800);
+  }
+
+  /* ===================================================================
+     Click outside perf modal to close
+  =================================================================== */
+  document.getElementById('perf-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closePerfModal();
+  });
+  document.getElementById('grade-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeGradeModal();
+  });
+</script>
+</body>
+</html>

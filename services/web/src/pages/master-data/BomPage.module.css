@@ -1,0 +1,167 @@
+.page { display: flex; flex-direction: column; gap: var(--space-5); }
+
+/* 筛选栏 */
+.filter_bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.filter_search {
+  flex: 1;
+  min-width: 220px;
+  max-width: 340px;
+  height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.filter_search:focus { border-color: var(--border-focus); }
+.filter_select {
+  height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+.filter_select:focus { border-color: var(--border-focus); }
+
+/* Drawer 加载状态 */
+.drawer_loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-10) var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--text-body-s);
+}
+
+/* 物料清单 / 需求分析表格 */
+.detail_table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-body-s);
+}
+.detail_table th {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-gray-100);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.detail_table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+.detail_table tr:last-child td { border-bottom: none; }
+.detail_table tr:hover td { background: var(--color-gray-50); }
+
+/* 激活确认 */
+.activate_body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+/* 新建 BOM 表单 */
+.create_form { display: flex; flex-direction: column; gap: var(--space-4); }
+.form_row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.form_field { display: flex; flex-direction: column; gap: var(--space-2); }
+.form_label { font-size: var(--text-label); font-weight: 500; color: var(--text-secondary); }
+.required { color: var(--color-error-500); }
+.form_input {
+  height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  width: 100%;
+  transition: border-color var(--transition-fast);
+}
+.form_input:focus { border-color: var(--border-focus); }
+
+/* 物料明细区 */
+.items_section { display: flex; flex-direction: column; gap: var(--space-2); }
+.items_title {
+  font-size: var(--text-body-m);
+  font-weight: 600;
+  color: var(--text-primary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
+}
+.items_header {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 32px;
+  gap: var(--space-2);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 var(--space-1);
+}
+.items_row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 32px;
+  gap: var(--space-2);
+  align-items: center;
+}
+.item_remove {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+.item_remove:hover:not(:disabled) {
+  background: var(--color-error-50);
+  color: var(--color-error-600);
+  border-color: var(--color-error-300);
+}
+.item_remove:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* BomTree 容器 */
+.bom_tree_wrapper {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-card);
+}
+
+@media (max-width: 640px) {
+  .form_row { grid-template-columns: 1fr; }
+  .items_header,
+  .items_row { grid-template-columns: 2fr 1fr 1fr 32px; }
+  .items_header span:nth-child(4),
+  .items_row input:nth-child(4) { display: none; }
+}

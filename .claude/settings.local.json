@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"=== 测试文件 ===\" && find /Users/kongwen/claude_wk/ai-software-company/services/api/tests -type f | sort && echo \"\" && echo \"=== 文档文件 ===\" && ls /Users/kongwen/claude_wk/ai-software-company/docs/*.md | sort)"
+    ]
+  }
+}

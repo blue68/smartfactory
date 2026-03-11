@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智造管家 — 新建销售订单</title>
+  <style>
+    /* ===================================================================
+       Design Tokens
+    =================================================================== */
+    :root {
+      --color-primary-50:  #EFF6FF;
+      --color-primary-100: #DBEAFE;
+      --color-primary-500: #3B82F6;
+      --color-primary-600: #2563EB;
+      --color-primary-700: #1D4ED8;
+      --color-accent-50:   #FFF7ED;
+      --color-accent-500:  #F97316;
+      --color-accent-600:  #EA580C;
+      --color-success-50:  #F0FDF4;
+      --color-success-100: #DCFCE7;
+      --color-success-500: #22C55E;
+      --color-success-600: #16A34A;
+      --color-success-700: #15803D;
+      --color-warning-50:  #FFFBEB;
+      --color-warning-100: #FEF3C7;
+      --color-warning-300: #FCD34D;
+      --color-warning-500: #F59E0B;
+      --color-warning-600: #D97706;
+      --color-warning-700: #B45309;
+      --color-error-50:    #FEF2F2;
+      --color-error-100:   #FEE2E2;
+      --color-error-500:   #EF4444;
+      --color-error-600:   #DC2626;
+      --color-error-700:   #B91C1C;
+      --color-info-50:     #F0F9FF;
+      --color-info-500:    #0EA5E9;
+      --color-stagnant-100:#EDE9FE;
+      --color-stagnant-500:#8B5CF6;
+      --color-stagnant-600:#7C3AED;
+      --color-gray-0:   #FFFFFF;
+      --color-gray-50:  #F8FAFC;
+      --color-gray-100: #F1F5F9;
+      --color-gray-200: #E2E8F0;
+      --color-gray-300: #CBD5E1;
+      --color-gray-400: #94A3B8;
+      --color-gray-500: #64748B;
+      --color-gray-600: #475569;
+      --color-gray-700: #334155;
+      --color-gray-800: #1E293B;
+      --color-gray-900: #0F172A;
+      --bg-page:       #F8FAFC;
+      --bg-card:       #FFFFFF;
+      --bg-sidebar:    #1E293B;
+      --text-sidebar:  #CBD5E1;
+      --bg-sidebar-active: #2563EB;
+      --text-primary:  #1E293B;
+      --text-secondary:#64748B;
+      --text-disabled: #94A3B8;
+      --border-default:#E2E8F0;
+      --border-strong: #CBD5E1;
+      --font-family-base: "PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --font-family-number: "DIN Alternate","Roboto Mono",var(--font-family-base);
+      --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
+      --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem;
+      --layout-sidebar-width: 240px;
+      --layout-header-height: 64px;
+      --layout-page-padding: 24px;
+      --layout-card-gap: 16px;
+      --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+      --radius-xl: 16px; --radius-full: 9999px;
+      --shadow-xs: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.1),0 1px 2px rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -1px rgba(0,0,0,0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1),0 4px 6px -2px rgba(0,0,0,0.05);
+      --transition-fast: 150ms ease;
+      --transition-base: 200ms ease;
+      --transition-slow: 300ms ease;
+    }
+
+    /* ===================================================================
+       Reset
+    =================================================================== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
+    body {
+      font-family: var(--font-family-base);
+      background: var(--bg-page);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* ===================================================================
+       Sidebar
+    =================================================================== */
+    .sidebar {
+      width: var(--layout-sidebar-width);
+      background: var(--bg-sidebar);
+      min-height: 100vh;
+      position: fixed;
+      top: 0; left: 0;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+    }
+    .sidebar__logo {
+      height: var(--layout-header-height);
+      display: flex;
+      align-items: center;
+      padding: 0 var(--space-6);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .sidebar__logo-mark {
+      width: 32px; height: 32px;
+      background: var(--color-primary-500);
+      border-radius: var(--radius-md);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; color: #fff; font-weight: 800;
+      margin-right: var(--space-3);
+      flex-shrink: 0;
+    }
+    .sidebar__logo-text { font-size: 1rem; font-weight: 700; color: #fff; }
+    .sidebar__logo-sub  { font-size: 0.6875rem; color: rgba(255,255,255,0.45); }
+    .sidebar__nav { padding: var(--space-4) 0; flex: 1; }
+    .sidebar__section-label {
+      font-size: 0.625rem; font-weight: 600;
+      color: rgba(255,255,255,0.35);
+      text-transform: uppercase; letter-spacing: 0.1em;
+      padding: var(--space-3) var(--space-6) var(--space-2);
+    }
+    .sidebar__item {
+      display: flex; align-items: center; gap: var(--space-3);
+      padding: 0.65rem var(--space-6);
+      color: var(--text-sidebar);
+      font-size: 0.9375rem;
+      cursor: pointer;
+      transition: background var(--transition-fast), color var(--transition-fast);
+      text-decoration: none;
+      border-left: 3px solid transparent;
+    }
+    .sidebar__item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+    .sidebar__item--active {
+      background: rgba(37,99,235,0.25);
+      color: #fff;
+      border-left-color: var(--color-primary-500);
+    }
+    .sidebar__item-icon { font-size: 1rem; width: 20px; text-align: center; flex-shrink: 0; }
+
+    /* ===================================================================
+       Main Layout
+    =================================================================== */
+    .main-wrapper {
+      margin-left: var(--layout-sidebar-width);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* Top header */
+    .top-header {
+      height: var(--layout-header-height);
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      padding: 0 var(--layout-page-padding);
+      gap: var(--space-4);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .breadcrumb {
+      display: flex; align-items: center; gap: var(--space-2);
+      font-size: 0.875rem; color: var(--text-secondary);
+    }
+    .breadcrumb__sep { color: var(--color-gray-300); }
+    .breadcrumb__current { color: var(--text-primary); font-weight: 600; }
+    .breadcrumb__link { color: var(--text-secondary); cursor: pointer; }
+    .breadcrumb__link:hover { color: var(--color-primary-600); text-decoration: underline; }
+    .header-actions { margin-left: auto; display: flex; gap: var(--space-3); align-items: center; }
+
+    /* ===================================================================
+       Page Content
+    =================================================================== */
+    .page-content {
+      padding: var(--layout-page-padding);
+      max-width: 900px;
+      margin: 0 auto;
+      width: 100%;
+      padding-bottom: 6rem; /* space for sticky footer */
+    }
+
+    /* ===================================================================
+       Card
+    =================================================================== */
+    .card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-default);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: var(--layout-card-gap);
+    }
+    .card__header {
+      padding: var(--space-4) var(--space-6);
+      border-bottom: 1px solid var(--border-default);
+      display: flex; align-items: center; gap: var(--space-3);
+    }
+    .card__title {
+      font-size: 1rem; font-weight: 700; color: var(--text-primary);
+    }
+    .card__subtitle {
+      font-size: 0.8125rem; color: var(--text-secondary);
+      margin-left: auto;
+    }
+    .card__body { padding: var(--space-6); }
+
+    /* ===================================================================
+       Form
+    =================================================================== */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-5) var(--space-6);
+    }
+    .form-grid--3 { grid-template-columns: 1fr 1fr 1fr; }
+    .form-group { display: flex; flex-direction: column; gap: var(--space-2); }
+    .form-group--full { grid-column: 1 / -1; }
+
+    .form-label {
+      font-size: 0.875rem; font-weight: 600; color: var(--text-secondary);
+    }
+    .form-label--required::after { content: " *"; color: var(--color-error-500); }
+
+    .form-input, .form-select, .form-textarea {
+      height: 40px;
+      border: 1.5px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 0 var(--space-3);
+      font-size: 0.9375rem;
+      font-family: var(--font-family-base);
+      color: var(--text-primary);
+      background: var(--bg-card);
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+      width: 100%;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      outline: none;
+      border-color: var(--color-primary-500);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+    }
+    .form-select {
+      -webkit-appearance: none; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.75rem center;
+      padding-right: 2rem;
+    }
+    .form-textarea { height: auto; min-height: 80px; padding: var(--space-3); resize: vertical; line-height: 1.5; }
+
+    /* ===================================================================
+       Radio group (order type)
+    =================================================================== */
+    .radio-group {
+      display: flex; gap: var(--space-4); align-items: center; height: 40px;
+    }
+    .radio-option {
+      display: flex; align-items: center; gap: var(--space-2);
+      cursor: pointer; font-size: 0.9375rem; color: var(--text-primary);
+    }
+    .radio-option input[type="radio"] { display: none; }
+    .radio-option__circle {
+      width: 18px; height: 18px;
+      border: 2px solid var(--border-strong);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color var(--transition-fast);
+      flex-shrink: 0;
+    }
+    .radio-option__circle::after {
+      content: ""; width: 8px; height: 8px;
+      border-radius: 50%; background: var(--color-primary-500);
+      opacity: 0; transform: scale(0);
+      transition: opacity var(--transition-fast), transform var(--transition-fast);
+    }
+    .radio-option input[type="radio"]:checked ~ .radio-option__circle {
+      border-color: var(--color-primary-500);
+    }
+    .radio-option input[type="radio"]:checked ~ .radio-option__circle::after {
+      opacity: 1; transform: scale(1);
+    }
+    .radio-option--urgent input[type="radio"]:checked ~ .radio-option__circle {
+      border-color: var(--color-error-500);
+    }
+    .radio-option--urgent input[type="radio"]:checked ~ .radio-option__circle::after {
+      background: var(--color-error-500);
+    }
+    .radio-option--urgent-label {
+      color: var(--color-error-600); font-weight: 600;
+    }
+    .urgent-tag {
+      font-size: 0.6875rem; font-weight: 700; padding: 1px 6px;
+      background: var(--color-error-50); color: var(--color-error-600);
+      border: 1px solid var(--color-error-200); border-radius: var(--radius-full);
+    }
+
+    /* ===================================================================
+       Delivery Estimate Card
+    =================================================================== */
+    .estimate-card {
+      background: var(--color-gray-50);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .estimate-row {
+      display: flex; align-items: center; gap: var(--space-3);
+      padding: var(--space-3) var(--space-5);
+      border-bottom: 1px solid var(--border-default);
+      font-size: 0.9375rem;
+    }
+    .estimate-row:last-child { border-bottom: none; }
+    .estimate-row__icon {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .estimate-row__icon--green { background: var(--color-success-500); }
+    .estimate-row__icon--yellow { background: var(--color-warning-500); }
+    .estimate-row__icon--red { background: var(--color-error-500); }
+    .estimate-row__label { color: var(--text-secondary); white-space: nowrap; }
+    .estimate-row__value { color: var(--text-primary); font-weight: 600; }
+    .estimate-row__value--warning { color: var(--color-warning-700); }
+    .estimate-row__value--error   { color: var(--color-error-600); }
+
+    .estimate-warning {
+      background: var(--color-warning-50);
+      border: 1px solid var(--color-warning-300);
+      border-radius: var(--radius-md);
+      padding: var(--space-3) var(--space-4);
+      margin-top: var(--space-4);
+      display: flex; gap: var(--space-3); align-items: flex-start;
+    }
+    .estimate-warning__icon { color: var(--color-warning-600); font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+    .estimate-warning__text { font-size: 0.875rem; color: var(--color-warning-700); line-height: 1.5; }
+    .estimate-warning__date { font-weight: 700; color: var(--color-warning-700); }
+
+    /* ===================================================================
+       Constraint Check Results
+    =================================================================== */
+    .constraint-list { display: flex; flex-direction: column; gap: var(--space-3); }
+    .constraint-item {
+      display: flex; align-items: flex-start; gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      border-radius: var(--radius-md);
+      background: var(--color-gray-50);
+      border: 1px solid var(--border-default);
+      font-size: 0.9375rem;
+      transition: background var(--transition-fast);
+    }
+    .constraint-item--pass { background: var(--color-success-50); border-color: var(--color-success-100); }
+    .constraint-item--fail { background: var(--color-error-50); border-color: var(--color-error-100); }
+    .constraint-item--pending { background: var(--color-gray-50); border-color: var(--border-default); }
+
+    .constraint-icon {
+      width: 20px; height: 20px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.6875rem; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+    }
+    .constraint-icon--pass { background: var(--color-success-100); color: var(--color-success-700); }
+    .constraint-icon--fail { background: var(--color-error-100); color: var(--color-error-600); }
+    .constraint-icon--pending { background: var(--color-gray-200); color: var(--text-disabled); }
+
+    .constraint-text { flex: 1; line-height: 1.5; }
+    .constraint-label { font-weight: 600; color: var(--text-primary); }
+    .constraint-label--pass { color: var(--color-success-700); }
+    .constraint-label--fail { color: var(--color-error-600); }
+    .constraint-detail { font-size: 0.8125rem; color: var(--text-secondary); margin-top: 2px; }
+
+    /* ===================================================================
+       Sticky Footer
+    =================================================================== */
+    .page-footer {
+      position: fixed;
+      bottom: 0;
+      left: var(--layout-sidebar-width);
+      right: 0;
+      height: 72px;
+      background: var(--bg-card);
+      border-top: 1px solid var(--border-default);
+      box-shadow: 0 -4px 12px rgba(0,0,0,0.06);
+      display: flex; align-items: center;
+      padding: 0 var(--layout-page-padding);
+      gap: var(--space-3);
+      z-index: 50;
+    }
+    .page-footer__spacer { flex: 1; }
+
+    /* ===================================================================
+       Buttons
+    =================================================================== */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: var(--space-2);
+      height: 40px; padding: 0 var(--space-5);
+      border-radius: var(--radius-md);
+      font-size: 0.9375rem; font-weight: 600;
+      font-family: var(--font-family-base);
+      cursor: pointer; border: none;
+      transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+      white-space: nowrap;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn--ghost {
+      background: transparent; color: var(--text-secondary);
+      border: 1.5px solid var(--border-default);
+    }
+    .btn--ghost:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .btn--secondary {
+      background: var(--color-gray-100); color: var(--text-primary);
+      border: 1.5px solid var(--border-default);
+    }
+    .btn--secondary:hover { background: var(--color-gray-200); }
+    .btn--primary { background: var(--color-primary-500); color: #fff; }
+    .btn--primary:hover { background: var(--color-primary-600); box-shadow: var(--shadow-sm); }
+    .btn--primary:active { background: var(--color-primary-700); }
+    .btn--danger-outline {
+      background: transparent; color: var(--color-error-600);
+      border: 1.5px solid var(--color-error-500);
+    }
+    .btn--danger-outline:hover { background: var(--color-error-50); }
+    .btn--warning { background: var(--color-accent-500); color: #fff; }
+    .btn--warning:hover { background: var(--color-accent-600); }
+    .btn--lg { height: 44px; padding: 0 var(--space-6); font-size: 1rem; }
+
+    /* ===================================================================
+       Modal Overlay
+    =================================================================== */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(15,23,42,0.55);
+      z-index: 200;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity var(--transition-slow);
+    }
+    .modal-overlay--on { opacity: 1; pointer-events: auto; }
+
+    .modal {
+      background: var(--bg-card);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-lg);
+      width: 520px;
+      max-width: calc(100vw - 2rem);
+      transform: translateY(16px) scale(0.97);
+      transition: transform var(--transition-slow);
+    }
+    .modal-overlay--on .modal { transform: translateY(0) scale(1); }
+
+    .modal__header {
+      padding: var(--space-5) var(--space-6) var(--space-4);
+      border-bottom: 1px solid var(--border-default);
+      display: flex; align-items: flex-start; gap: var(--space-3);
+    }
+    .modal__header-icon {
+      width: 40px; height: 40px; border-radius: var(--radius-lg);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.25rem; flex-shrink: 0;
+    }
+    .modal__header-icon--error { background: var(--color-error-50); }
+    .modal__header-icon--ai { background: var(--color-accent-50); }
+    .modal__header-title { font-size: 1.0625rem; font-weight: 700; color: var(--text-primary); }
+    .modal__header-sub { font-size: 0.8125rem; color: var(--text-secondary); margin-top: 2px; }
+    .modal__body { padding: var(--space-5) var(--space-6); }
+    .modal__footer {
+      padding: var(--space-4) var(--space-6);
+      border-top: 1px solid var(--border-default);
+      display: flex; justify-content: flex-end; gap: var(--space-3);
+    }
+
+    /* ===================================================================
+       Constraint Error Modal content
+    =================================================================== */
+    .modal-error-item {
+      display: flex; align-items: flex-start; gap: var(--space-3);
+      background: var(--color-error-50);
+      border: 1px solid var(--color-error-100);
+      border-radius: var(--radius-md);
+      padding: var(--space-3) var(--space-4);
+      margin-bottom: var(--space-4);
+    }
+    .modal-error-item__icon { color: var(--color-error-500); font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+    .modal-error-item__text { font-size: 0.9375rem; line-height: 1.5; color: var(--color-error-700); }
+
+    .modal-ai-block {
+      background: var(--color-accent-50);
+      border: 1px solid var(--color-accent-200);
+      border-radius: var(--radius-md);
+      padding: var(--space-4);
+      margin-bottom: var(--space-4);
+    }
+    .modal-ai-block__title {
+      font-size: 0.8125rem; font-weight: 700;
+      color: var(--color-accent-600);
+      margin-bottom: var(--space-2);
+      display: flex; align-items: center; gap: var(--space-2);
+    }
+    .modal-ai-block__list {
+      list-style: none; display: flex; flex-direction: column; gap: var(--space-2);
+    }
+    .modal-ai-block__item {
+      font-size: 0.875rem; color: var(--text-secondary); line-height: 1.5;
+      padding-left: var(--space-4); position: relative;
+    }
+    .modal-ai-block__item::before {
+      content: "·"; position: absolute; left: var(--space-2);
+      color: var(--color-accent-500); font-weight: 700;
+    }
+
+    .modal-pending-notice {
+      display: flex; align-items: center; gap: var(--space-3);
+      background: var(--color-primary-50);
+      border: 1px solid var(--color-primary-100);
+      border-radius: var(--radius-md);
+      padding: var(--space-3) var(--space-4);
+      font-size: 0.875rem; color: var(--color-primary-700);
+    }
+    .modal-pending-notice__icon { color: var(--color-primary-500); font-size: 1rem; flex-shrink: 0; }
+
+    /* ===================================================================
+       AI Analysis Modal (urgent order)
+    =================================================================== */
+    .ai-step-list { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4); }
+    .ai-step {
+      display: flex; align-items: center; gap: var(--space-3);
+      font-size: 0.9375rem;
+    }
+    .ai-step__icon {
+      width: 22px; height: 22px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.6875rem; font-weight: 700; flex-shrink: 0;
+    }
+    .ai-step--done   .ai-step__icon { background: var(--color-success-100); color: var(--color-success-700); }
+    .ai-step--current .ai-step__icon { background: var(--color-warning-100); color: var(--color-warning-700); }
+    .ai-step--pending .ai-step__icon { background: var(--color-gray-100); color: var(--text-disabled); }
+
+    .ai-step--done    .ai-step__label { color: var(--text-secondary); }
+    .ai-step--current .ai-step__label { color: var(--color-warning-700); font-weight: 600; }
+    .ai-step--pending .ai-step__label { color: var(--text-disabled); }
+
+    /* Spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .step-spinner {
+      width: 12px; height: 12px;
+      border: 2px solid var(--color-warning-300);
+      border-top-color: var(--color-warning-600);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+
+    .ai-countdown {
+      font-size: 0.875rem; color: var(--text-secondary);
+      display: flex; align-items: center; gap: var(--space-2);
+      padding: var(--space-3) var(--space-4);
+      background: var(--color-gray-50);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-default);
+    }
+    .ai-countdown__timer {
+      font-weight: 700; color: var(--color-accent-500);
+      font-family: var(--font-family-number);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Section divider inside modals */
+    .modal-section-label {
+      font-size: 0.75rem; font-weight: 700; color: var(--text-disabled);
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin-bottom: var(--space-3);
+    }
+
+    /* ===================================================================
+       Status badge
+    =================================================================== */
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 0.75rem; font-weight: 600;
+      padding: 3px 10px; border-radius: var(--radius-full);
+    }
+    .status-badge--draft  { background: var(--color-gray-100); color: var(--color-gray-600); }
+    .status-badge--urgent { background: var(--color-error-50); color: var(--color-error-600); border: 1px solid var(--color-error-200); }
+
+    /* ===================================================================
+       Animations
+    =================================================================== */
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideDown { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
+
+    .animate-fadein   { animation: fadeIn 0.25s ease both; }
+    .animate-slidedown { animation: slideDown 0.25s ease both; }
+
+    /* ===================================================================
+       Urgent notice strip
+    =================================================================== */
+    .urgent-notice {
+      background: var(--color-error-50);
+      border: 1px solid var(--color-error-200);
+      border-radius: var(--radius-md);
+      padding: var(--space-3) var(--space-4);
+      display: flex; align-items: center; gap: var(--space-3);
+      font-size: 0.875rem; color: var(--color-error-700);
+      margin-bottom: var(--space-4);
+    }
+    .urgent-notice__icon { font-size: 1rem; flex-shrink: 0; }
+    .urgent-notice strong { font-weight: 700; }
+
+    /* ===================================================================
+       Inline form hint
+    =================================================================== */
+    .form-hint { font-size: 0.8125rem; color: var(--text-secondary); margin-top: var(--space-1); }
+    .form-hint--warn { color: var(--color-warning-600); }
+
+    /* ===================================================================
+       Input with unit suffix
+    =================================================================== */
+    .input-with-unit { position: relative; display: flex; align-items: center; }
+    .input-with-unit .form-input { padding-right: 3rem; }
+    .input-with-unit__unit {
+      position: absolute; right: var(--space-3);
+      font-size: 0.875rem; color: var(--text-secondary);
+      pointer-events: none;
+    }
+
+    /* ===================================================================
+       Divider
+    =================================================================== */
+    .divider { border: none; border-top: 1px solid var(--border-default); margin: var(--space-2) 0; }
+  </style>
+</head>
+<body>
+
+<!-- ===================================================================
+     Sidebar
+=================================================================== -->
+<aside class="sidebar" role="navigation" aria-label="主导航">
+  <div class="sidebar__logo">
+    <div class="sidebar__logo-mark">智</div>
+    <div>
+      <div class="sidebar__logo-text">智造管家</div>
+      <div class="sidebar__logo-sub">SmartFactory Agent</div>
+    </div>
+  </div>
+  <nav class="sidebar__nav">
+    <div class="sidebar__section-label">核心功能</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128200;</span>驾驶舱</a>
+    <a class="sidebar__item sidebar__item--active" href="#"><span class="sidebar__item-icon">&#128203;</span>销售订单</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128230;</span>采购管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#127981;</span>生产排产</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128447;</span>库存管理</a>
+    <div class="sidebar__section-label" style="margin-top:var(--space-4);">质量与AI</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#10003;</span>质量追溯</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#129302;</span>AI 助手</a>
+  </nav>
+</aside>
+
+<!-- ===================================================================
+     Main
+=================================================================== -->
+<div class="main-wrapper">
+  <!-- Top Header -->
+  <header class="top-header">
+    <nav class="breadcrumb" aria-label="面包屑">
+      <span class="breadcrumb__link">销售管理</span>
+      <span class="breadcrumb__sep">›</span>
+      <span class="breadcrumb__link">订单管理</span>
+      <span class="breadcrumb__sep">›</span>
+      <span class="breadcrumb__current">新建订单</span>
+    </nav>
+    <div class="header-actions">
+      <span class="status-badge status-badge--draft">草稿</span>
+      <span style="font-size:0.8125rem;color:var(--text-secondary);">自动保存 10 秒前</span>
+    </div>
+  </header>
+
+  <!-- Page Content -->
+  <main class="page-content">
+
+    <!-- ----------------------------------------------------------------
+         Card 1: 基本信息
+    ---------------------------------------------------------------- -->
+    <div class="card">
+      <div class="card__header">
+        <span style="font-size:1.125rem;">&#128203;</span>
+        <h2 class="card__title">基本信息</h2>
+      </div>
+      <div class="card__body">
+        <div class="form-grid">
+
+          <!-- 客户 -->
+          <div class="form-group">
+            <label class="form-label form-label--required" for="customer">客户名称</label>
+            <select class="form-select" id="customer" onchange="onFormChange()">
+              <option value="">请选择客户</option>
+              <option value="c1">南京美家装饰有限公司</option>
+              <option value="c2">上海博艺家具设计工作室</option>
+              <option value="c3">杭州绿筑室内装饰</option>
+              <option value="c4" selected>成都雅居装饰工程</option>
+            </select>
+          </div>
+
+          <!-- 订单类型 -->
+          <div class="form-group">
+            <label class="form-label form-label--required">订单类型</label>
+            <div class="radio-group">
+              <label class="radio-option">
+                <input type="radio" name="orderType" value="normal" checked onchange="onOrderTypeChange()">
+                <span class="radio-option__circle"></span>
+                <span>常规订单</span>
+              </label>
+              <label class="radio-option radio-option--urgent">
+                <input type="radio" name="orderType" value="urgent" onchange="onOrderTypeChange()">
+                <span class="radio-option__circle"></span>
+                <span class="radio-option--urgent-label">紧急插单</span>
+                <span class="urgent-tag">优先</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 产品/BOM -->
+          <div class="form-group">
+            <label class="form-label form-label--required" for="product">产品 / BOM</label>
+            <select class="form-select" id="product" onchange="onFormChange()">
+              <option value="">请选择产品</option>
+              <option value="p1">欧式双人沙发（BOM-021）</option>
+              <option value="p2" selected>布艺三人沙发（BOM-018）</option>
+              <option value="p3">单人休闲椅（BOM-009）</option>
+              <option value="p4">皮革脚凳（BOM-031）</option>
+            </select>
+          </div>
+
+          <!-- 数量 -->
+          <div class="form-group">
+            <label class="form-label form-label--required" for="qty">数量</label>
+            <div class="input-with-unit">
+              <input type="number" class="form-input" id="qty" value="8" min="1" onchange="onFormChange()" oninput="onFormChange()">
+              <span class="input-with-unit__unit">套</span>
+            </div>
+          </div>
+
+          <!-- 期望交期 -->
+          <div class="form-group">
+            <label class="form-label form-label--required" for="deadline">期望交期</label>
+            <input type="date" class="form-input" id="deadline" value="2026-03-25" onchange="onFormChange()">
+            <span class="form-hint">当前日期：2026-03-11</span>
+          </div>
+
+          <!-- 备注 -->
+          <div class="form-group">
+            <label class="form-label" for="remark">备注</label>
+            <input type="text" class="form-input" id="remark" placeholder="特殊要求、面料颜色偏好等…">
+          </div>
+
+        </div><!-- /form-grid -->
+      </div>
+    </div>
+
+    <!-- ----------------------------------------------------------------
+         Card 2: 交期与产能预估
+    ---------------------------------------------------------------- -->
+    <div class="card" id="estimateCard">
+      <div class="card__header">
+        <span style="font-size:1.125rem;">&#9201;</span>
+        <h2 class="card__title">交期与产能预估</h2>
+        <span class="card__subtitle">实时计算 · 自动更新</span>
+      </div>
+      <div class="card__body">
+
+        <div class="estimate-card">
+          <!-- 库存可用性 -->
+          <div class="estimate-row">
+            <span class="estimate-row__icon estimate-row__icon--green"></span>
+            <span class="estimate-row__label">库存可用性</span>
+            <span class="estimate-row__value">原材料充足，成品库存 0 套</span>
+          </div>
+          <!-- 产能负荷 -->
+          <div class="estimate-row">
+            <span class="estimate-row__icon estimate-row__icon--green"></span>
+            <span class="estimate-row__label">产能负荷</span>
+            <span class="estimate-row__value">当前利用率 <strong>72%</strong>，可接单</span>
+          </div>
+          <!-- 预估交期 -->
+          <div class="estimate-row" id="estimateDeadlineRow">
+            <span class="estimate-row__icon estimate-row__icon--yellow"></span>
+            <span class="estimate-row__label">预估最早交期</span>
+            <span class="estimate-row__value estimate-row__value--warning" id="estimateDeadlineVal">
+              2026-03-28（您期望：2026-03-25）
+            </span>
+          </div>
+        </div>
+
+        <!-- Warning notice (visible when estimated > expected) -->
+        <div class="estimate-warning animate-slidedown" id="estimateWarning">
+          <span class="estimate-warning__icon">&#9888;</span>
+          <span class="estimate-warning__text">
+            预估交期晚于期望 <strong>3 天</strong>，建议与客户确认是否可接受。<br>
+            最早可承诺交期：<span class="estimate-warning__date">2026-03-28</span>
+          </span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ----------------------------------------------------------------
+         Card 3: 约束检查结果（默认隐藏，提交时显示）
+    ---------------------------------------------------------------- -->
+    <div class="card animate-fadein" id="constraintCard" style="display:none;">
+      <div class="card__header">
+        <span style="font-size:1.125rem;">&#128270;</span>
+        <h2 class="card__title">约束检查结果</h2>
+        <span class="card__subtitle" id="constraintStatus">检查完成</span>
+      </div>
+      <div class="card__body">
+        <div class="constraint-list">
+
+          <div class="constraint-item constraint-item--pass">
+            <div class="constraint-icon constraint-icon--pass">&#10003;</div>
+            <div class="constraint-text">
+              <div class="constraint-label constraint-label--pass">SKU 库存周转天数</div>
+              <div class="constraint-detail">当前 38 天（阈值 60 天）— 正常</div>
+            </div>
+          </div>
+
+          <div class="constraint-item constraint-item--pass">
+            <div class="constraint-icon constraint-icon--pass">&#10003;</div>
+            <div class="constraint-text">
+              <div class="constraint-label constraint-label--pass">资金占用</div>
+              <div class="constraint-detail">新增 ¥18,000，当前总占用 ¥142,000 / 预算上限 ¥180,000 — 正常</div>
+            </div>
+          </div>
+
+          <div class="constraint-item constraint-item--pass">
+            <div class="constraint-icon constraint-icon--pass">&#10003;</div>
+            <div class="constraint-text">
+              <div class="constraint-label constraint-label--pass">产能负荷</div>
+              <div class="constraint-detail">本单完成后利用率 81%，未超载</div>
+            </div>
+          </div>
+
+          <div class="constraint-item constraint-item--pass">
+            <div class="constraint-icon constraint-icon--pass">&#10003;</div>
+            <div class="constraint-text">
+              <div class="constraint-label constraint-label--pass">生产成本估算</div>
+              <div class="constraint-detail">预估成本 ¥9,600 / 套，毛利率约 34% — 符合目标</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </main><!-- /page-content -->
+
+  <!-- Sticky Footer -->
+  <footer class="page-footer">
+    <button class="btn btn--ghost" onclick="handleCancel()">取消</button>
+    <div class="page-footer__spacer"></div>
+    <button class="btn btn--secondary" onclick="handleSaveDraft()">保存草稿</button>
+    <button class="btn btn--primary btn--lg" id="submitBtn" onclick="handleSubmit()">
+      提交订单
+    </button>
+  </footer>
+</div><!-- /main-wrapper -->
+
+<!-- ===================================================================
+     Modal 1: 约束拦截弹窗
+=================================================================== -->
+<div class="modal-overlay" id="constraintModal" role="dialog" aria-modal="true" aria-labelledby="constraintModalTitle">
+  <div class="modal">
+    <div class="modal__header">
+      <div class="modal__header-icon modal__header-icon--error">&#10060;</div>
+      <div>
+        <div class="modal__header-title" id="constraintModalTitle">约束检查未通过，需老板审批</div>
+        <div class="modal__header-sub">以下约束超出阈值，订单已暂存等待审批</div>
+      </div>
+    </div>
+    <div class="modal__body">
+
+      <div class="modal-section-label">触发原因</div>
+      <div class="modal-error-item">
+        <span class="modal-error-item__icon">&#10060;</span>
+        <span class="modal-error-item__text">
+          <strong>资金占用超标：</strong>新增后总占用 ¥192,000，超出预算上限 ¥180,000（超出 6.7%）
+        </span>
+      </div>
+
+      <div class="modal-section-label">AI 影响分析</div>
+      <div class="modal-ai-block">
+        <div class="modal-ai-block__title">
+          <span>&#129302;</span> AI 智能分析
+        </div>
+        <ul class="modal-ai-block__list">
+          <li class="modal-ai-block__item">受影响订单：现有 3 单（ORD-031101/031102/031103）交期可能延后 1-2 天</li>
+          <li class="modal-ai-block__item">库存周转天数将从 38 天增至 44 天，仍在安全阈值内</li>
+          <li class="modal-ai-block__item">建议与客户协商将交期延后至 2026-04-02，可完全规避资金超标风险</li>
+        </ul>
+      </div>
+
+      <div class="modal-pending-notice">
+        <span class="modal-pending-notice__icon">&#8987;</span>
+        <span>订单已暂存，等待老板审批（预计 4 小时内处理）</span>
+      </div>
+
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('constraintModal')">关闭</button>
+      <button class="btn btn--primary" onclick="closeModal('constraintModal')">查看订单详情</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================================================================
+     Modal 2: 紧急插单 AI 分析弹窗
+=================================================================== -->
+<div class="modal-overlay" id="urgentModal" role="dialog" aria-modal="true" aria-labelledby="urgentModalTitle">
+  <div class="modal">
+    <div class="modal__header">
+      <div class="modal__header-icon modal__header-icon--ai">&#129302;</div>
+      <div>
+        <div class="modal__header-title" id="urgentModalTitle">AI 正在评估插单影响…</div>
+        <div class="modal__header-sub">正在模拟对现有排产计划的影响</div>
+      </div>
+    </div>
+    <div class="modal__body">
+
+      <div class="ai-step-list" role="list">
+        <div class="ai-step ai-step--done" role="listitem">
+          <div class="ai-step__icon" aria-label="已完成">&#10003;</div>
+          <span class="ai-step__label">读取当前排产计划（12 单）</span>
+        </div>
+        <div class="ai-step ai-step--done" role="listitem">
+          <div class="ai-step__icon" aria-label="已完成">&#10003;</div>
+          <span class="ai-step__label">计算产能占用变化</span>
+        </div>
+        <div class="ai-step ai-step--current" role="listitem" aria-current="step">
+          <div class="ai-step__icon" aria-label="进行中"><span class="step-spinner"></span></div>
+          <span class="ai-step__label">模拟插入后各订单交期变化…</span>
+        </div>
+        <div class="ai-step ai-step--pending" role="listitem">
+          <div class="ai-step__icon" aria-label="待执行">○</div>
+          <span class="ai-step__label">计算资金占用与库存周转变化</span>
+        </div>
+      </div>
+
+      <div class="ai-countdown" role="status" aria-live="polite">
+        <span>&#9201;</span>
+        <span>预计还需约</span>
+        <span class="ai-countdown__timer" id="urgentCountdown">18</span>
+        <span>秒</span>
+      </div>
+
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--danger-outline" onclick="cancelUrgentEval()">取消插单</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ===================================================================
+     Order type change
+  =================================================================== */
+  function onOrderTypeChange() {
+    const isUrgent = document.querySelector('input[name="orderType"]:checked').value === 'urgent';
+    const submitBtn = document.getElementById('submitBtn');
+    if (isUrgent) {
+      submitBtn.textContent = '发起影响评估';
+      submitBtn.classList.remove('btn--primary');
+      submitBtn.classList.add('btn--warning');
+      // Show urgent notice if not already shown
+      if (!document.getElementById('urgentNotice')) {
+        const notice = document.createElement('div');
+        notice.id = 'urgentNotice';
+        notice.className = 'urgent-notice animate-slidein';
+        notice.innerHTML = `
+          <span class="urgent-notice__icon">&#9888;</span>
+          <span>
+            <strong>紧急插单模式已启用</strong> — 提交前需完成 AI 影响评估。
+            评估完成后，系统将展示对现有订单交期的具体影响，由您决定是否继续插单。
+          </span>`;
+        const card = document.querySelector('.card__body');
+        card.parentNode.insertBefore(notice, card);
+      }
+    } else {
+      submitBtn.textContent = '提交订单';
+      submitBtn.classList.add('btn--primary');
+      submitBtn.classList.remove('btn--warning');
+      const notice = document.getElementById('urgentNotice');
+      if (notice) notice.remove();
+    }
+  }
+
+  /* ===================================================================
+     Form change → update estimate (demo: static)
+  =================================================================== */
+  function onFormChange() {
+    /* In production this would call the backend estimate API.
+       For demo we keep values static but show the card is "updated". */
+  }
+
+  /* ===================================================================
+     Submit handler
+  =================================================================== */
+  function handleSubmit() {
+    const isUrgent = document.querySelector('input[name="orderType"]:checked').value === 'urgent';
+
+    if (isUrgent) {
+      openModal('urgentModal');
+      startUrgentCountdown();
+    } else {
+      // Show constraint check card
+      const card = document.getElementById('constraintCard');
+      card.style.display = 'block';
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // For demo: after 1.2s simulate "failure" to show constraint modal
+      // (Comment this out or change to true to demo success path)
+      const simulateFail = false;
+      if (simulateFail) {
+        setTimeout(() => openModal('constraintModal'), 1200);
+      }
+    }
+  }
+
+  function handleSaveDraft() {
+    const badge = document.querySelector('.status-badge--draft');
+    if (badge) badge.textContent = '草稿（已保存）';
+    const sub = document.querySelector('.header-actions span:last-child');
+    if (sub) sub.textContent = '刚刚已保存';
+  }
+
+  function handleCancel() {
+    if (confirm('确定放弃本次编辑？未保存的内容将丢失。')) {
+      window.history.back();
+    }
+  }
+
+  /* ===================================================================
+     Urgent countdown
+  =================================================================== */
+  let urgentCountVal = 18;
+  let urgentTimer = null;
+
+  function startUrgentCountdown() {
+    urgentCountVal = 18;
+    const el = document.getElementById('urgentCountdown');
+    if (el) el.textContent = urgentCountVal;
+
+    clearInterval(urgentTimer);
+    urgentTimer = setInterval(() => {
+      urgentCountVal--;
+      if (el) el.textContent = urgentCountVal;
+
+      // Step 3 completes at 10s, step 4 starts
+      if (urgentCountVal === 10) {
+        const steps = document.querySelectorAll('#urgentModal .ai-step');
+        if (steps[2]) {
+          steps[2].classList.replace('ai-step--current', 'ai-step--done');
+          steps[2].querySelector('.ai-step__icon').innerHTML = '&#10003;';
+          steps[2].querySelector('.ai-step__label').textContent = '各订单交期变化模拟完成';
+        }
+        if (steps[3]) {
+          steps[3].classList.replace('ai-step--pending', 'ai-step--current');
+          steps[3].querySelector('.ai-step__icon').innerHTML = '<span class="step-spinner"></span>';
+        }
+      }
+
+      // Analysis complete at 0
+      if (urgentCountVal <= 0) {
+        clearInterval(urgentTimer);
+        closeModal('urgentModal');
+        // Show constraint results
+        const card = document.getElementById('constraintCard');
+        card.style.display = 'block';
+        const header = document.getElementById('urgentModal').querySelector('.modal__header-title');
+        if (header) header.textContent = 'AI 评估完成';
+        setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+      }
+    }, 1000);
+  }
+
+  function cancelUrgentEval() {
+    clearInterval(urgentTimer);
+    closeModal('urgentModal');
+    // Reset button
+    document.getElementById('submitBtn').textContent = '发起影响评估';
+  }
+
+  /* ===================================================================
+     Modal helpers
+  =================================================================== */
+  function openModal(id) {
+    document.getElementById(id).classList.add('modal-overlay--on');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('modal-overlay--on');
+    document.body.style.overflow = '';
+  }
+
+  // Demo: open constraint modal on click for review
+  // Uncomment to auto-trigger:
+  // setTimeout(() => openModal('constraintModal'), 500);
+
+  /* ===================================================================
+     Keyboard: Escape closes modals
+  =================================================================== */
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal-overlay--on').forEach(m => {
+        closeModal(m.id);
+        clearInterval(urgentTimer);
+      });
+    }
+  });
+
+  /* ===================================================================
+     Demo buttons in page for easy interaction testing
+  =================================================================== */
+  // Inject demo helper bar
+  const demoBar = document.createElement('div');
+  demoBar.style.cssText = `
+    position:fixed; top:0; left:var(--layout-sidebar-width); right:0;
+    height:36px; background:var(--color-stagnant-100);
+    display:flex; align-items:center; gap:12px;
+    padding:0 24px; font-size:0.8125rem; color:var(--color-stagnant-600);
+    z-index:999; border-bottom:1px solid var(--color-stagnant-200);
+  `;
+  demoBar.innerHTML = `
+    <strong>演示模式</strong>
+    <button onclick="openModal('constraintModal')" style="font-size:0.75rem;padding:2px 10px;border-radius:4px;border:1px solid var(--color-stagnant-500);background:transparent;cursor:pointer;color:var(--color-stagnant-600);">预览：约束拦截弹窗</button>
+    <button onclick="openModal('urgentModal');startUrgentCountdown()" style="font-size:0.75rem;padding:2px 10px;border-radius:4px;border:1px solid var(--color-stagnant-500);background:transparent;cursor:pointer;color:var(--color-stagnant-600);">预览：紧急插单AI分析</button>
+    <button onclick="document.getElementById('constraintCard').style.display='block'" style="font-size:0.75rem;padding:2px 10px;border-radius:4px;border:1px solid var(--color-stagnant-500);background:transparent;cursor:pointer;color:var(--color-stagnant-600);">预览：约束检查结果</button>
+  `;
+  document.body.appendChild(demoBar);
+  // Offset header for demo bar
+  document.querySelector('.top-header').style.top = '36px';
+  document.querySelector('.page-footer').style.bottom = '0';
+  document.querySelector('.main-wrapper').style.paddingTop = '36px';
+</script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+/**
+ * [artifact:UI代码] — 面包屑导航样式
+ * T128: BEM 命名，小号字体，灰色链接，当前页加深不可点
+ */
+
+.breadcrumb {
+  display: inline-flex;
+  align-items: center;
+}
+
+.breadcrumb__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+}
+
+.breadcrumb__item {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.breadcrumb__separator {
+  padding: 0 var(--space-2);
+  color: var(--text-disabled);
+  font-size: var(--text-body-s);
+  user-select: none;
+}
+
+.breadcrumb__link {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.breadcrumb__link:hover {
+  color: var(--color-primary-600);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.breadcrumb__text {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 当前页：深色，不可点击 */
+.breadcrumb__text--current {
+  color: var(--text-primary);
+  font-weight: 500;
+  cursor: default;
+}

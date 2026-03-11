@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智造管家 — 采购价格管理</title>
+  <style>
+    /* ===================================================================
+       Design Tokens
+    =================================================================== */
+    :root {
+      --color-primary-50:#EFF6FF; --color-primary-100:#DBEAFE;
+      --color-primary-500:#3B82F6; --color-primary-600:#2563EB; --color-primary-700:#1D4ED8;
+      --color-accent-50:#FFF7ED; --color-accent-200:#FED7AA;
+      --color-accent-500:#F97316; --color-accent-600:#EA580C;
+      --color-success-50:#F0FDF4; --color-success-100:#DCFCE7;
+      --color-success-500:#22C55E; --color-success-600:#16A34A; --color-success-700:#15803D;
+      --color-warning-50:#FFFBEB; --color-warning-100:#FEF3C7;
+      --color-warning-300:#FCD34D; --color-warning-500:#F59E0B;
+      --color-warning-600:#D97706; --color-warning-700:#B45309;
+      --color-error-50:#FEF2F2; --color-error-100:#FEE2E2;
+      --color-error-200:#FECACA; --color-error-500:#EF4444;
+      --color-error-600:#DC2626; --color-error-700:#B91C1C;
+      --color-stagnant-100:#EDE9FE; --color-stagnant-500:#8B5CF6; --color-stagnant-600:#7C3AED;
+      --color-gray-0:#FFFFFF; --color-gray-50:#F8FAFC; --color-gray-100:#F1F5F9;
+      --color-gray-200:#E2E8F0; --color-gray-300:#CBD5E1; --color-gray-400:#94A3B8;
+      --color-gray-500:#64748B; --color-gray-600:#475569; --color-gray-700:#334155;
+      --color-gray-800:#1E293B; --color-gray-900:#0F172A;
+      --bg-page:#F8FAFC; --bg-card:#FFFFFF; --bg-sidebar:#1E293B;
+      --text-sidebar:#CBD5E1;
+      --text-primary:#1E293B; --text-secondary:#64748B; --text-disabled:#94A3B8;
+      --border-default:#E2E8F0; --border-strong:#CBD5E1;
+      --font-family-base:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --font-family-number:"DIN Alternate","Roboto Mono",var(--font-family-base);
+      --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem;
+      --space-5:1.25rem; --space-6:1.5rem; --space-8:2rem;
+      --layout-sidebar-width:240px; --layout-header-height:64px;
+      --layout-page-padding:24px; --layout-card-gap:16px;
+      --radius-sm:4px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px; --radius-full:9999px;
+      --shadow-xs:0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --transition-fast:150ms ease; --transition-base:200ms ease; --transition-slow:300ms ease;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{font-size:16px;}
+    body{font-family:var(--font-family-base);background:var(--bg-page);color:var(--text-primary);min-height:100vh;display:flex;}
+
+    /* ===== Sidebar ===== */
+    .sidebar{width:var(--layout-sidebar-width);background:var(--bg-sidebar);min-height:100vh;position:fixed;top:0;left:0;display:flex;flex-direction:column;z-index:100;}
+    .sidebar__logo{height:var(--layout-header-height);display:flex;align-items:center;padding:0 var(--space-6);border-bottom:1px solid rgba(255,255,255,.08);}
+    .sidebar__logo-mark{width:32px;height:32px;background:var(--color-primary-500);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:1rem;color:#fff;font-weight:800;margin-right:var(--space-3);flex-shrink:0;}
+    .sidebar__logo-text{font-size:1rem;font-weight:700;color:#fff;}
+    .sidebar__logo-sub{font-size:.6875rem;color:rgba(255,255,255,.45);}
+    .sidebar__nav{padding:var(--space-4) 0;flex:1;}
+    .sidebar__section-label{font-size:.625rem;font-weight:600;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.1em;padding:var(--space-3) var(--space-6) var(--space-2);}
+    .sidebar__item{display:flex;align-items:center;gap:var(--space-3);padding:.65rem var(--space-6);color:var(--text-sidebar);font-size:.9375rem;cursor:pointer;transition:background var(--transition-fast);text-decoration:none;border-left:3px solid transparent;}
+    .sidebar__item:hover{background:rgba(255,255,255,.06);color:#fff;}
+    .sidebar__item--active{background:rgba(37,99,235,.25);color:#fff;border-left-color:var(--color-primary-500);}
+    .sidebar__item-icon{font-size:1rem;width:20px;text-align:center;flex-shrink:0;}
+
+    /* ===== Main Layout ===== */
+    .main-wrapper{margin-left:var(--layout-sidebar-width);flex:1;display:flex;flex-direction:column;min-height:100vh;}
+    .top-header{height:var(--layout-header-height);background:var(--bg-card);border-bottom:1px solid var(--border-default);display:flex;align-items:center;padding:0 var(--layout-page-padding);gap:var(--space-4);position:sticky;top:0;z-index:50;}
+    .breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:.875rem;color:var(--text-secondary);}
+    .breadcrumb__sep{color:var(--color-gray-300);}
+    .breadcrumb__current{color:var(--text-primary);font-weight:600;}
+    .breadcrumb__link{cursor:pointer;}
+    .breadcrumb__link:hover{color:var(--color-primary-600);text-decoration:underline;}
+    .header-actions{margin-left:auto;display:flex;gap:var(--space-3);align-items:center;}
+    .page-content{padding:var(--layout-page-padding);flex:1;display:flex;flex-direction:column;gap:var(--layout-card-gap);}
+
+    /* ===== Buttons ===== */
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:36px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:.875rem;font-weight:600;font-family:var(--font-family-base);cursor:pointer;border:none;transition:background var(--transition-fast),transform var(--transition-fast);white-space:nowrap;}
+    .btn:active{transform:scale(.97);}
+    .btn--primary{background:var(--color-primary-500);color:#fff;}
+    .btn--primary:hover{background:var(--color-primary-600);}
+    .btn--ghost{background:transparent;color:var(--text-secondary);border:1.5px solid var(--border-default);}
+    .btn--ghost:hover{border-color:var(--border-strong);color:var(--text-primary);}
+    .btn--secondary{background:var(--color-gray-100);color:var(--text-primary);border:1.5px solid var(--border-default);}
+    .btn--secondary:hover{background:var(--color-gray-200);}
+    .btn--sm{height:28px;padding:0 var(--space-3);font-size:.8125rem;}
+    .btn--danger{background:var(--color-error-500);color:#fff;}
+    .btn--danger:hover{background:var(--color-error-600);}
+    .btn--danger-outline{background:transparent;color:var(--color-error-600);border:1.5px solid var(--color-error-400,#f87171);}
+    .btn--danger-outline:hover{background:var(--color-error-50);}
+
+    /* ===== View Toggle (按供应商 / 按物料) ===== */
+    .view-toggle-bar{display:flex;align-items:center;gap:var(--space-4);flex-wrap:wrap;margin-bottom:var(--layout-card-gap);}
+    .view-toggle{display:flex;align-items:center;gap:var(--space-4);}
+    .view-toggle__label{font-size:.875rem;font-weight:600;color:var(--text-secondary);}
+    .radio-group{display:flex;gap:var(--space-4);align-items:center;}
+    .radio-option{display:flex;align-items:center;gap:var(--space-2);cursor:pointer;font-size:.9375rem;color:var(--text-primary);}
+    .radio-option input[type="radio"]{display:none;}
+    .radio-option__circle{width:18px;height:18px;border:2px solid var(--border-strong);border-radius:50%;display:flex;align-items:center;justify-content:center;transition:border-color var(--transition-fast);flex-shrink:0;}
+    .radio-option__circle::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--color-primary-500);opacity:0;transform:scale(0);transition:opacity var(--transition-fast),transform var(--transition-fast);}
+    .radio-option input[type="radio"]:checked~.radio-option__circle{border-color:var(--color-primary-500);}
+    .radio-option input[type="radio"]:checked~.radio-option__circle::after{opacity:1;transform:scale(1);}
+    .search-box{position:relative;}
+    .search-box__input{width:240px;height:36px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3) 0 2.25rem;font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);background:var(--bg-card);}
+    .search-box__input:focus{outline:none;border-color:var(--color-primary-500);}
+    .search-box__icon{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);color:var(--text-disabled);pointer-events:none;}
+    .filter-select{height:36px;padding:0 2rem 0 var(--space-3);border:1.5px solid var(--border-default);border-radius:var(--radius-md);background:var(--bg-card);font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;}
+    .toolbar__spacer{flex:1;}
+
+    /* ===== Stats Strip ===== */
+    .stats-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--layout-card-gap);}
+    .stat-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-4) var(--space-5);box-shadow:var(--shadow-xs);display:flex;flex-direction:column;gap:4px;}
+    .stat-card__label{font-size:.8125rem;color:var(--text-secondary);display:flex;align-items:center;gap:var(--space-2);}
+    .stat-card__dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+    .stat-card__value{font-size:1.875rem;font-weight:800;font-family:var(--font-family-number);}
+    .stat-card__sub{font-size:.8125rem;color:var(--text-disabled);}
+
+    /* ===== Alert Banner ===== */
+    .alert-banner{display:flex;align-items:center;gap:var(--space-3);background:var(--color-error-50);border:1px solid var(--color-error-200);border-radius:var(--radius-lg);padding:var(--space-3) var(--space-5);font-size:.9375rem;color:var(--color-error-700);}
+    .alert-banner__icon{font-size:1.125rem;flex-shrink:0;}
+    .alert-banner__spacer{flex:1;}
+
+    /* ===== Supplier Group ===== */
+    .supplier-group{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+    .supplier-group__header{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-4) var(--space-5);cursor:pointer;user-select:none;transition:background var(--transition-fast);}
+    .supplier-group__header:hover{background:var(--color-gray-50);}
+    .supplier-group__toggle{font-size:.75rem;color:var(--text-disabled);transition:transform var(--transition-base);}
+    .supplier-group__toggle--open{transform:rotate(90deg);}
+    .supplier-group__name{font-size:1rem;font-weight:700;color:var(--text-primary);}
+    .supplier-group__badge{font-size:.75rem;font-weight:700;padding:2px 8px;border-radius:var(--radius-full);}
+    .supplier-group__actions{margin-left:auto;display:flex;gap:var(--space-3);align-items:center;}
+    .supplier-group__count{font-size:.8125rem;color:var(--text-secondary);}
+    .supplier-group__body{border-top:1px solid var(--border-default);overflow:hidden;max-height:0;transition:max-height .35s ease;}
+    .supplier-group__body--open{max-height:500px;}
+
+    /* Grade badges */
+    .grade-A{background:#FEF9C3;color:#A16207;border:1px solid #FDE68A;}
+    .grade-B{background:var(--color-gray-100);color:var(--color-gray-600);border:1px solid var(--color-gray-200);}
+    .grade-C{background:#FEF3E2;color:#C2410C;border:1px solid #FED7AA;}
+
+    /* ===== Price Table ===== */
+    .price-table{width:100%;border-collapse:collapse;}
+    .price-table thead tr{background:var(--color-gray-50);border-bottom:1px solid var(--border-default);}
+    .price-table th{padding:var(--space-3) var(--space-4);font-size:.8125rem;font-weight:600;color:var(--text-secondary);text-align:left;white-space:nowrap;}
+    .price-table td{padding:var(--space-3) var(--space-4);font-size:.9375rem;border-bottom:1px solid var(--border-default);vertical-align:middle;}
+    .price-table tbody tr:last-child td{border-bottom:none;}
+    .price-table tbody tr{cursor:pointer;transition:background var(--transition-fast);}
+    .price-table tbody tr:hover{background:var(--color-primary-50);}
+    .price-table tbody tr.row--selected{background:var(--color-primary-50);outline:2px solid var(--color-primary-200);outline-offset:-2px;}
+
+    .price-value{font-family:var(--font-family-number);font-weight:700;font-size:1rem;color:var(--text-primary);}
+    .price-diff{display:inline-flex;align-items:center;gap:3px;font-size:.8125rem;font-weight:600;padding:2px 8px;border-radius:var(--radius-full);}
+    .price-diff--ok{background:var(--color-success-50);color:var(--color-success-700);}
+    .price-diff--warn{background:var(--color-error-50);color:var(--color-error-600);border:1px solid var(--color-error-200);}
+
+    .status-tag{display:inline-flex;align-items:center;gap:4px;font-size:.6875rem;font-weight:600;padding:2px 8px;border-radius:var(--radius-full);white-space:nowrap;}
+    .status-tag--valid{background:var(--color-success-50);color:var(--color-success-700);}
+    .status-tag--expiring{background:var(--color-warning-50);color:var(--color-warning-700);border:1px solid var(--color-warning-300);}
+    .status-tag--expired{background:var(--color-gray-100);color:var(--text-disabled);}
+
+    /* ===== Price Trend Chart (SVG inline) ===== */
+    .chart-panel{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+    .chart-panel__header{padding:var(--space-4) var(--space-5);border-bottom:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-3);}
+    .chart-panel__title{font-size:1rem;font-weight:700;color:var(--text-primary);}
+    .chart-panel__sub{font-size:.8125rem;color:var(--text-secondary);}
+    .chart-panel__body{padding:var(--space-5);}
+
+    /* Supplier compare table above chart */
+    .compare-table{width:100%;border-collapse:collapse;margin-bottom:var(--space-5);}
+    .compare-table th{padding:var(--space-2) var(--space-4);font-size:.8125rem;font-weight:600;color:var(--text-secondary);background:var(--color-gray-50);border-bottom:1px solid var(--border-default);text-align:left;}
+    .compare-table td{padding:var(--space-3) var(--space-4);font-size:.9375rem;border-bottom:1px solid var(--border-default);vertical-align:middle;}
+    .compare-table tr:last-child td{border-bottom:none;}
+    .preferred-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-primary-500);margin-right:var(--space-2);}
+    .expiring-label{font-size:.75rem;font-weight:600;color:var(--color-warning-700);background:var(--color-warning-100);padding:1px 6px;border-radius:var(--radius-full);margin-left:var(--space-2);}
+
+    /* Chart summary row */
+    .chart-meta{display:flex;gap:var(--space-6);align-items:center;margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--border-default);}
+    .chart-meta__item{display:flex;flex-direction:column;gap:2px;}
+    .chart-meta__label{font-size:.75rem;color:var(--text-secondary);}
+    .chart-meta__value{font-size:1rem;font-weight:700;font-family:var(--font-family-number);color:var(--text-primary);}
+    .chart-meta__value--ok{color:var(--color-success-600);}
+    .chart-meta__value--warn{color:var(--color-error-600);}
+
+    /* ===== Alert Detail Panel ===== */
+    .alert-panel{background:var(--bg-card);border:1px solid var(--color-error-200);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+    .alert-panel__header{padding:var(--space-4) var(--space-5);background:var(--color-error-50);border-bottom:1px solid var(--color-error-200);display:flex;align-items:center;gap:var(--space-3);}
+    .alert-panel__title{font-size:1rem;font-weight:700;color:var(--color-error-700);}
+    .alert-row{display:flex;align-items:stretch;border-bottom:1px solid var(--color-error-100);transition:background var(--transition-fast);}
+    .alert-row:last-child{border-bottom:none;}
+    .alert-row:hover{background:var(--color-error-50);}
+    .alert-row__icon{width:52px;display:flex;align-items:center;justify-content:center;font-size:1.25rem;background:var(--color-error-100);flex-shrink:0;}
+    .alert-row__body{flex:1;padding:var(--space-4);}
+    .alert-row__top{display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-2);}
+    .alert-row__supplier{font-size:.875rem;font-weight:700;color:var(--color-error-700);}
+    .alert-row__material{font-size:.9375rem;font-weight:700;color:var(--text-primary);}
+    .alert-row__spec{font-size:.8125rem;color:var(--text-secondary);}
+    .alert-row__prices{display:flex;gap:var(--space-6);align-items:center;flex-wrap:wrap;}
+    .alert-price-item{display:flex;flex-direction:column;gap:2px;}
+    .alert-price-item__label{font-size:.75rem;color:var(--text-secondary);}
+    .alert-price-item__value{font-size:1rem;font-weight:700;font-family:var(--font-family-number);}
+    .alert-price-item__value--current{color:var(--color-error-600);}
+    .alert-price-item__value--avg{color:var(--text-secondary);}
+    .alert-exceed{display:inline-flex;align-items:center;font-size:.875rem;font-weight:700;color:var(--color-error-600);background:var(--color-error-100);padding:2px 10px;border-radius:var(--radius-full);}
+    .alert-row__actions{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:var(--space-2);padding:var(--space-4);flex-shrink:0;}
+    .alert-threshold{font-size:.8125rem;color:var(--text-secondary);padding:var(--space-3) var(--space-5);background:var(--color-gray-50);border-top:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-2);}
+
+    /* ===== Right Drawer ===== */
+    .drawer-overlay{position:fixed;inset:0;background:rgba(15,23,42,.4);z-index:200;opacity:0;pointer-events:none;transition:opacity var(--transition-slow);}
+    .drawer-overlay--on{opacity:1;pointer-events:auto;}
+    .drawer{position:fixed;top:0;right:0;width:480px;height:100vh;background:var(--bg-card);box-shadow:var(--shadow-lg);z-index:201;transform:translateX(100%);transition:transform .32s cubic-bezier(.32,.72,0,1);display:flex;flex-direction:column;}
+    .drawer--on{transform:translateX(0);}
+    .drawer__header{height:56px;border-bottom:1px solid var(--border-default);display:flex;align-items:center;padding:0 var(--space-6);gap:var(--space-3);flex-shrink:0;}
+    .drawer__title{font-size:1rem;font-weight:700;color:var(--text-primary);flex:1;}
+    .drawer__close{width:28px;height:28px;border:none;background:transparent;cursor:pointer;color:var(--text-secondary);font-size:1.125rem;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-md);transition:background var(--transition-fast);}
+    .drawer__close:hover{background:var(--color-gray-100);}
+    .drawer__body{flex:1;overflow-y:auto;padding:var(--space-6);}
+    .drawer__body::-webkit-scrollbar{width:4px;}
+    .drawer__body::-webkit-scrollbar-thumb{background:var(--color-gray-300);border-radius:var(--radius-full);}
+    .drawer__footer{border-top:1px solid var(--border-default);padding:var(--space-4) var(--space-6);display:flex;justify-content:flex-end;gap:var(--space-3);flex-shrink:0;}
+
+    /* ===== Form ===== */
+    .form-section{margin-bottom:var(--space-6);}
+    .form-section__title{font-size:.875rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:var(--space-4);padding-bottom:var(--space-2);border-bottom:1px solid var(--border-default);}
+    .form-group{margin-bottom:var(--space-4);}
+    .form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);}
+    .form-label{display:block;font-size:.875rem;font-weight:600;color:var(--text-secondary);margin-bottom:var(--space-2);}
+    .form-label--required::after{content:" *";color:var(--color-error-500);}
+    .form-input,.form-select{width:100%;height:40px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3);font-size:.9375rem;font-family:var(--font-family-base);color:var(--text-primary);background:var(--bg-card);transition:border-color var(--transition-fast),box-shadow var(--transition-fast);}
+    .form-input:focus,.form-select:focus{outline:none;border-color:var(--color-primary-500);box-shadow:0 0 0 3px rgba(59,130,246,.12);}
+    .form-select{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .75rem center;padding-right:2rem;}
+    .form-hint{font-size:.8125rem;color:var(--text-secondary);margin-top:var(--space-1);}
+    .selected-material{background:var(--color-primary-50);border:1px solid var(--color-primary-200);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-size:.875rem;color:var(--color-primary-700);font-weight:600;margin-top:var(--space-2);}
+    .input-with-suffix{position:relative;display:flex;align-items:center;}
+    .input-with-suffix .form-input{padding-right:3rem;}
+    .input-with-suffix__unit{position:absolute;right:var(--space-3);color:var(--text-secondary);font-size:.875rem;pointer-events:none;}
+    .checkbox-option{display:flex;align-items:center;gap:var(--space-2);cursor:pointer;font-size:.9375rem;margin-bottom:var(--space-3);}
+    .checkbox-option input[type="checkbox"]{width:16px;height:16px;accent-color:var(--color-primary-500);}
+    .upload-btn{display:inline-flex;align-items:center;gap:var(--space-2);height:36px;padding:0 var(--space-4);border:1.5px dashed var(--border-strong);border-radius:var(--radius-md);background:var(--color-gray-50);color:var(--text-secondary);font-size:.875rem;cursor:pointer;}
+    .upload-btn:hover{border-color:var(--color-primary-500);color:var(--color-primary-600);}
+
+    /* Price warning modal */
+    .modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:300;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity var(--transition-slow);}
+    .modal-overlay--on{opacity:1;pointer-events:auto;}
+    .modal{background:var(--bg-card);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:440px;max-width:calc(100vw - 2rem);transform:translateY(16px) scale(.97);transition:transform var(--transition-slow);}
+    .modal-overlay--on .modal{transform:translateY(0) scale(1);}
+    .modal__header{padding:var(--space-5) var(--space-6) var(--space-4);border-bottom:1px solid var(--border-default);display:flex;align-items:flex-start;gap:var(--space-3);}
+    .modal__header-icon{width:40px;height:40px;border-radius:var(--radius-lg);background:var(--color-warning-50);display:flex;align-items:center;justify-content:center;font-size:1.25rem;flex-shrink:0;}
+    .modal__title{font-size:1.0625rem;font-weight:700;color:var(--text-primary);}
+    .modal__sub{font-size:.8125rem;color:var(--text-secondary);margin-top:2px;}
+    .modal__body{padding:var(--space-5) var(--space-6);}
+    .modal__footer{padding:var(--space-4) var(--space-6);border-top:1px solid var(--border-default);display:flex;justify-content:flex-end;gap:var(--space-3);}
+
+    /* Toast */
+    .toast{position:fixed;bottom:2rem;left:50%;transform:translateX(-50%) translateY(10px);background:var(--color-gray-800);color:#fff;padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);font-size:.9375rem;font-weight:500;box-shadow:var(--shadow-md);z-index:400;opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;white-space:nowrap;}
+    .toast--on{opacity:1;transform:translateX(-50%) translateY(0);}
+
+    @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+    .animate-fadein{animation:fadeIn .2s ease both;}
+  </style>
+</head>
+<body>
+
+<!-- ===== Sidebar ===== -->
+<aside class="sidebar" role="navigation" aria-label="主导航">
+  <div class="sidebar__logo">
+    <div class="sidebar__logo-mark">智</div>
+    <div><div class="sidebar__logo-text">智造管家</div><div class="sidebar__logo-sub">SmartFactory Agent</div></div>
+  </div>
+  <nav class="sidebar__nav">
+    <div class="sidebar__section-label">核心功能</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128200;</span>驾驶舱</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128203;</span>销售订单</a>
+    <a class="sidebar__item sidebar__item--active" href="#"><span class="sidebar__item-icon">&#128230;</span>采购管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#127981;</span>生产排产</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128447;</span>库存管理</a>
+    <div class="sidebar__section-label" style="margin-top:var(--space-4);">基础数据</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128193;</span>SKU主数据</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#129302;</span>AI 助手</a>
+  </nav>
+</aside>
+
+<!-- ===== Main ===== -->
+<div class="main-wrapper">
+  <header class="top-header">
+    <nav class="breadcrumb" aria-label="面包屑">
+      <span class="breadcrumb__link">采购管理</span>
+      <span class="breadcrumb__sep">›</span>
+      <span class="breadcrumb__current">价格管理</span>
+    </nav>
+    <div class="header-actions">
+      <button class="btn btn--primary" onclick="openDrawer()">&#65291; 新增价格协议</button>
+      <button class="btn btn--ghost">&#8679; 批量导入</button>
+    </div>
+  </header>
+
+  <main class="page-content">
+
+    <!-- Stats -->
+    <div class="stats-strip">
+      <div class="stat-card">
+        <div class="stat-card__label"><span class="stat-card__dot" style="background:var(--color-success-500);"></span>有效协议</div>
+        <div class="stat-card__value" style="color:var(--color-success-600);">127</div>
+        <div class="stat-card__sub">当前在有效期内</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label"><span class="stat-card__dot" style="background:var(--color-warning-500);"></span>即将到期</div>
+        <div class="stat-card__value" style="color:var(--color-warning-600);">8</div>
+        <div class="stat-card__sub">≤ 30 天内到期</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label"><span class="stat-card__dot" style="background:var(--color-error-500);"></span>价格预警</div>
+        <div class="stat-card__value" style="color:var(--color-error-600);">2</div>
+        <div class="stat-card__sub">超历史均价 20%</div>
+      </div>
+    </div>
+
+    <!-- Alert Banner -->
+    <div class="alert-banner" role="alert">
+      <span class="alert-banner__icon">&#9888;</span>
+      <span><strong>价格异常预警：</strong>本月发现 2 条超历史均值 20% 的采购价格，请及时核查</span>
+      <div class="alert-banner__spacer"></div>
+      <button class="btn btn--danger btn--sm" onclick="toggleAlertPanel()">查看预警详情</button>
+    </div>
+
+    <!-- Alert Panel (collapsible) -->
+    <div class="alert-panel animate-fadein" id="alertPanel" style="display:none;">
+      <div class="alert-panel__header">
+        <span class="alert-panel__icon" style="font-size:1.125rem;">&#33;</span>
+        <span class="alert-panel__title">价格异常预警</span>
+        <button class="btn btn--ghost btn--sm" style="margin-left:auto;" onclick="showToast('已全部标记处理')">全部标记处理</button>
+        <button class="btn btn--ghost btn--sm" onclick="toggleAlertPanel()">收起 &#8593;</button>
+      </div>
+
+      <!-- Alert row 1 -->
+      <div class="alert-row">
+        <div class="alert-row__icon">&#33;</div>
+        <div class="alert-row__body">
+          <div class="alert-row__top">
+            <span class="alert-row__supplier">广州板材（B级）</span>
+            <span class="alert-exceed">&#8679; +28.8% 超限</span>
+          </div>
+          <div style="font-weight:700;font-size:.9375rem;margin-bottom:var(--space-2);">烤漆板（双面）1220×2440</div>
+          <div class="alert-row__prices">
+            <div class="alert-price-item">
+              <span class="alert-price-item__label">本次价格</span>
+              <span class="alert-price-item__value alert-price-item__value--current">¥38.00 / 张</span>
+            </div>
+            <div class="alert-price-item">
+              <span class="alert-price-item__label">历史12月均价</span>
+              <span class="alert-price-item__value alert-price-item__value--avg">¥29.50 / 张</span>
+            </div>
+            <div class="alert-price-item">
+              <span class="alert-price-item__label">超出金额</span>
+              <span class="alert-price-item__value alert-price-item__value--current">+¥8.50</span>
+            </div>
+          </div>
+        </div>
+        <div class="alert-row__actions">
+          <button class="btn btn--secondary btn--sm" onclick="showToast('&#10003; 已标记核实')">标记已核实</button>
+          <button class="btn btn--danger-outline btn--sm" onclick="showToast('已拒绝此价格，协议状态已置为已驳回')">拒绝此价格</button>
+        </div>
+      </div>
+
+      <!-- Alert row 2 -->
+      <div class="alert-row">
+        <div class="alert-row__icon">&#33;</div>
+        <div class="alert-row__body">
+          <div class="alert-row__top">
+            <span class="alert-row__supplier">联鑫材料（C级）</span>
+            <span class="alert-exceed">&#8679; +35.4% 超限</span>
+          </div>
+          <div style="font-weight:700;font-size:.9375rem;margin-bottom:var(--space-2);">木工胶 25kg / 桶</div>
+          <div class="alert-row__prices">
+            <div class="alert-price-item">
+              <span class="alert-price-item__label">本次价格</span>
+              <span class="alert-price-item__value alert-price-item__value--current">¥88.00 / 桶</span>
+            </div>
+            <div class="alert-price-item">
+              <span class="alert-price-item__label">历史12月均价</span>
+              <span class="alert-price-item__value alert-price-item__value--avg">¥65.00 / 桶</span>
+            </div>
+            <div class="alert-price-item">
+              <span class="alert-price-item__label">超出金额</span>
+              <span class="alert-price-item__value alert-price-item__value--current">+¥23.00</span>
+            </div>
+          </div>
+        </div>
+        <div class="alert-row__actions">
+          <button class="btn btn--secondary btn--sm" onclick="showToast('&#10003; 已标记核实')">标记已核实</button>
+          <button class="btn btn--danger-outline btn--sm" onclick="showToast('已拒绝此价格，协议状态已置为已驳回')">拒绝此价格</button>
+        </div>
+      </div>
+
+      <div class="alert-threshold">
+        <span>&#9432;</span>
+        <span>价格异常预警阈值：超历史 12 个月均价 <strong>20%</strong> 触发</span>
+        <button class="btn btn--ghost btn--sm" style="margin-left:auto;" onclick="showToast('请设置新的预警阈值')">修改阈值</button>
+      </div>
+    </div>
+
+    <!-- View Toggle -->
+    <div class="view-toggle-bar">
+      <div class="view-toggle">
+        <span class="view-toggle__label">查看方式：</span>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="viewMode" value="supplier" checked onchange="switchView('supplier')">
+            <span class="radio-option__circle"></span>按供应商
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="viewMode" value="material" onchange="switchView('material')">
+            <span class="radio-option__circle"></span>按物料
+          </label>
+        </div>
+      </div>
+      <div class="search-box">
+        <span class="search-box__icon">&#128269;</span>
+        <input class="search-box__input" type="text" placeholder="搜索供应商 / 物料名称…">
+      </div>
+      <select class="filter-select">
+        <option>当前有效</option>
+        <option>全部</option>
+        <option>即将到期</option>
+        <option>已过期</option>
+      </select>
+    </div>
+
+    <!-- ===== Supplier View ===== -->
+    <div id="viewSupplier">
+
+      <!-- Group: 华森木业 -->
+      <div class="supplier-group" style="margin-bottom:var(--layout-card-gap);">
+        <div class="supplier-group__header" onclick="toggleGroup('g1')">
+          <span class="supplier-group__toggle supplier-group__toggle--open" id="toggle-g1">&#9654;</span>
+          <span class="supplier-group__name">华森木业</span>
+          <span class="supplier-group__badge grade-A">A级</span>
+          <div class="supplier-group__actions">
+            <span class="supplier-group__count">2 条协议</span>
+            <button class="btn btn--ghost btn--sm" onclick="event.stopPropagation();openDrawer()">&#65291; 新增该供应商协议</button>
+          </div>
+        </div>
+        <div class="supplier-group__body supplier-group__body--open" id="body-g1">
+          <table class="price-table">
+            <thead>
+              <tr>
+                <th>物料名称</th>
+                <th>单位</th>
+                <th style="text-align:right;">含税单价</th>
+                <th>vs 历史均价</th>
+                <th>有效期</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr onclick="selectRow(this,'red-oak','华森木业')" id="row-red-oak">
+                <td><div style="font-weight:600;">红橡木板 200×2400</div><div style="font-size:.8125rem;color:var(--text-secondary);">RM-00012</div></td>
+                <td>张</td>
+                <td style="text-align:right;"><span class="price-value">¥180.00</span></td>
+                <td><span class="price-diff price-diff--ok">&#9660; -2.4%</span></td>
+                <td>2026-01-01 ~ 2026-06-30</td>
+                <td><span class="status-tag status-tag--valid">&#10003; 有效</span></td>
+                <td><button class="btn btn--ghost btn--sm" onclick="event.stopPropagation();openDrawer()">编辑</button></td>
+              </tr>
+              <tr onclick="selectRow(this,'wood-line','华森木业')">
+                <td><div style="font-weight:600;">实木脚线 L型 2.4m</div><div style="font-size:.8125rem;color:var(--text-secondary);">RM-00187</div></td>
+                <td>根</td>
+                <td style="text-align:right;"><span class="price-value">¥22.50</span></td>
+                <td><span class="price-diff price-diff--ok">&#9650; +0.9%</span></td>
+                <td>2026-01-01 ~ 2026-06-30</td>
+                <td><span class="status-tag status-tag--valid">&#10003; 有效</span></td>
+                <td><button class="btn btn--ghost btn--sm" onclick="event.stopPropagation();openDrawer()">编辑</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Group: 明辉五金 -->
+      <div class="supplier-group" style="margin-bottom:var(--layout-card-gap);">
+        <div class="supplier-group__header" onclick="toggleGroup('g2')">
+          <span class="supplier-group__toggle supplier-group__toggle--open" id="toggle-g2">&#9654;</span>
+          <span class="supplier-group__name">明辉五金</span>
+          <span class="supplier-group__badge grade-B">B级</span>
+          <div class="supplier-group__actions">
+            <span class="supplier-group__count">2 条协议</span>
+            <button class="btn btn--ghost btn--sm" onclick="event.stopPropagation();openDrawer()">&#65291; 新增该供应商协议</button>
+          </div>
+        </div>
+        <div class="supplier-group__body supplier-group__body--open" id="body-g2">
+          <table class="price-table">
+            <thead>
+              <tr>
+                <th>物料名称</th><th>单位</th><th style="text-align:right;">含税单价</th>
+                <th>vs 历史均价</th><th>有效期</th><th>状态</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr onclick="selectRow(this,'hinge','明辉五金')">
+                <td><div style="font-weight:600;">铰链全盖 标准型</div><div style="font-size:.8125rem;color:var(--text-secondary);">RM-00089</div></td>
+                <td>个</td>
+                <td style="text-align:right;"><span class="price-value">¥3.20</span></td>
+                <td><span class="price-diff price-diff--ok">&#9660; -1.5%</span></td>
+                <td>2026-01-01 ~ 2026-04-30</td>
+                <td><span class="status-tag status-tag--expiring">&#9201; 即将到期</span></td>
+                <td><button class="btn btn--ghost btn--sm" onclick="event.stopPropagation();openDrawer()">续签</button></td>
+              </tr>
+              <tr onclick="selectRow(this,'slide','明辉五金')">
+                <td><div style="font-weight:600;">抽屉滑轨 500mm 全拉</div><div style="font-size:.8125rem;color:var(--text-secondary);">RM-00156</div></td>
+                <td>副</td>
+                <td style="text-align:right;"><span class="price-value">¥28.00</span></td>
+                <td><span class="price-diff price-diff--ok">+0.0%</span></td>
+                <td>2026-01-01 ~ 2026-04-30</td>
+                <td><span class="status-tag status-tag--expiring">&#9201; 即将到期</span></td>
+                <td><button class="btn btn--ghost btn--sm" onclick="event.stopPropagation();openDrawer()">续签</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Group: 广州板材 (collapsed) -->
+      <div class="supplier-group" style="margin-bottom:var(--layout-card-gap);">
+        <div class="supplier-group__header" onclick="toggleGroup('g3')">
+          <span class="supplier-group__toggle" id="toggle-g3">&#9654;</span>
+          <span class="supplier-group__name">广州板材</span>
+          <span class="supplier-group__badge grade-B">B级</span>
+          <div class="supplier-group__actions">
+            <span class="supplier-group__count" style="color:var(--color-error-600);">&#33; 1 条价格预警</span>
+            <span class="supplier-group__count">共 3 条协议</span>
+          </div>
+        </div>
+        <div class="supplier-group__body" id="body-g3"></div>
+      </div>
+
+      <!-- Group: 联鑫材料 (collapsed) -->
+      <div class="supplier-group">
+        <div class="supplier-group__header" onclick="toggleGroup('g4')">
+          <span class="supplier-group__toggle" id="toggle-g4">&#9654;</span>
+          <span class="supplier-group__name">联鑫材料</span>
+          <span class="supplier-group__badge grade-C">C级</span>
+          <div class="supplier-group__actions">
+            <span class="supplier-group__count" style="color:var(--color-error-600);">&#33; 1 条价格预警</span>
+            <span class="supplier-group__count">共 5 条协议</span>
+          </div>
+        </div>
+        <div class="supplier-group__body" id="body-g4"></div>
+      </div>
+
+    </div><!-- /viewSupplier -->
+
+    <!-- Material View (hidden by default) -->
+    <div id="viewMaterial" style="display:none;">
+      <div style="background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-8);text-align:center;color:var(--text-secondary);">
+        <div style="font-size:2rem;margin-bottom:var(--space-3);">&#128196;</div>
+        <div style="font-weight:600;">按物料查看模式</div>
+        <div style="font-size:.875rem;margin-top:var(--space-2);">搜索或选择物料，横向对比不同供应商的当前有效价格</div>
+      </div>
+    </div>
+
+    <!-- ===== Price Trend Chart ===== -->
+    <div class="chart-panel" id="chartPanel" style="display:none;">
+      <div class="chart-panel__header">
+        <span style="font-size:1.125rem;">&#128200;</span>
+        <div>
+          <div class="chart-panel__title" id="chartTitle">价格详情 — 红橡木板 200×2400</div>
+          <div class="chart-panel__sub" id="chartSub">华森木业 · 过去12个月价格趋势</div>
+        </div>
+        <button class="btn btn--ghost btn--sm" style="margin-left:auto;" onclick="closeChart()">收起 &#8593;</button>
+      </div>
+      <div class="chart-panel__body">
+
+        <!-- Supplier compare -->
+        <div style="margin-bottom:var(--space-4);">
+          <div style="font-size:.875rem;font-weight:700;color:var(--text-secondary);margin-bottom:var(--space-3);text-transform:uppercase;letter-spacing:.05em;">当前有效价格（供应商对比）</div>
+          <table class="compare-table">
+            <thead><tr><th>供应商</th><th>单价</th><th>级别</th><th>有效期</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="preferred-dot"></span><strong>华森木业</strong><span style="font-size:.75rem;color:var(--color-primary-600);margin-left:var(--space-2);">当前主供</span></td>
+                <td style="font-family:var(--font-family-number);font-weight:700;">¥180.00</td>
+                <td><span class="supplier-group__badge grade-A" style="display:inline-block;padding:2px 8px;border-radius:var(--radius-full);font-size:.75rem;font-weight:700;">A级</span></td>
+                <td>至 2026-06-30</td>
+              </tr>
+              <tr>
+                <td>广州板材</td>
+                <td style="font-family:var(--font-family-number);font-weight:700;color:var(--color-error-600);">¥195.00</td>
+                <td><span class="supplier-group__badge grade-B" style="display:inline-block;padding:2px 8px;border-radius:var(--radius-full);font-size:.75rem;font-weight:700;">B级</span></td>
+                <td>至 2026-05-31</td>
+              </tr>
+              <tr>
+                <td>联鑫材料</td>
+                <td style="font-family:var(--font-family-number);font-weight:700;color:var(--color-success-700);">¥172.00</td>
+                <td><span class="supplier-group__badge grade-C" style="display:inline-block;padding:2px 8px;border-radius:var(--radius-full);font-size:.75rem;font-weight:700;">C级</span></td>
+                <td>至 2026-03-31<span class="expiring-label">即将到期</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- SVG Line Chart -->
+        <div style="font-size:.875rem;font-weight:700;color:var(--text-secondary);margin-bottom:var(--space-3);text-transform:uppercase;letter-spacing:.05em;">价格趋势（过去12个月 · 华森木业）</div>
+        <div style="overflow-x:auto;">
+          <svg viewBox="0 0 760 200" width="100%" style="min-width:560px;display:block;" aria-label="红橡木板12个月价格趋势折线图" role="img">
+            <!-- Y-axis labels -->
+            <text x="36" y="20" font-size="11" fill="#94A3B8" text-anchor="end">¥200</text>
+            <text x="36" y="58" font-size="11" fill="#94A3B8" text-anchor="end">¥190</text>
+            <text x="36" y="96" font-size="11" fill="#94A3B8" text-anchor="end">¥185</text>
+            <text x="36" y="134" font-size="11" fill="#94A3B8" text-anchor="end">¥180</text>
+            <text x="36" y="172" font-size="11" fill="#94A3B8" text-anchor="end">¥170</text>
+
+            <!-- Grid lines -->
+            <line x1="44" y1="16" x2="740" y2="16" stroke="#E2E8F0" stroke-width="1"/>
+            <line x1="44" y1="54" x2="740" y2="54" stroke="#E2E8F0" stroke-width="1"/>
+            <line x1="44" y1="92" x2="740" y2="92" stroke="#E2E8F0" stroke-width="1"/>
+            <line x1="44" y1="130" x2="740" y2="130" stroke="#E2E8F0" stroke-width="1"/>
+            <line x1="44" y1="168" x2="740" y2="168" stroke="#E2E8F0" stroke-width="1"/>
+
+            <!-- Y axis -->
+            <line x1="44" y1="10" x2="44" y2="175" stroke="#CBD5E1" stroke-width="1.5"/>
+
+            <!-- Historical avg dashed line at ¥184.50 → y ≈ 101 -->
+            <line x1="44" y1="101" x2="740" y2="101" stroke="#F59E0B" stroke-width="1.5" stroke-dasharray="6,4"/>
+            <text x="748" y="105" font-size="10" fill="#D97706" font-weight="600">均价</text>
+
+            <!-- Price line: months Mar'25 to Feb'26
+                 Values (approx scaled): 180,180,188,192,192,188,185,183,181,180,180,180
+                 Y mapping: min=170(y=168) max=200(y=16), range=30px per 30 = 1px/unit
+                 Actually scale: (200-v)/30 * (168-16) + 16  -->
+            <!-- Points computed: 180→130, 180→130, 188→89, 192→68, 192→68, 188→89, 185→104, 183→113, 181→122, 180→130, 180→130, 180→130 -->
+            <defs>
+              <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#3B82F6" stop-opacity=".15"/>
+                <stop offset="100%" stop-color="#3B82F6" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <!-- Fill area -->
+            <path d="M100,130 L160,130 L220,89 L280,68 L340,68 L400,89 L460,104 L520,113 L580,122 L640,130 L700,130 L740,130 L740,175 L100,175 Z" fill="url(#lineGrad)"/>
+            <!-- Line -->
+            <polyline points="100,130 160,130 220,89 280,68 340,68 400,89 460,104 520,113 580,122 640,130 700,130 740,130"
+              fill="none" stroke="#3B82F6" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+            <!-- Data points -->
+            <circle cx="100" cy="130" r="4" fill="#3B82F6"/>
+            <circle cx="160" cy="130" r="4" fill="#3B82F6"/>
+            <circle cx="220" cy="89" r="4" fill="#3B82F6"/>
+            <circle cx="280" cy="68" r="4" fill="#3B82F6"/>
+            <circle cx="340" cy="68" r="4" fill="#3B82F6"/>
+            <circle cx="400" cy="89" r="4" fill="#3B82F6"/>
+            <circle cx="460" cy="104" r="4" fill="#3B82F6"/>
+            <circle cx="520" cy="113" r="4" fill="#3B82F6"/>
+            <circle cx="580" cy="122" r="4" fill="#3B82F6"/>
+            <circle cx="640" cy="130" r="4" fill="#3B82F6"/>
+            <circle cx="700" cy="130" r="4" fill="#3B82F6"/>
+            <!-- Current point highlighted -->
+            <circle cx="740" cy="130" r="6" fill="#fff" stroke="#3B82F6" stroke-width="2.5"/>
+            <text x="744" y="120" font-size="10" fill="#2563EB" font-weight="700">当前</text>
+
+            <!-- X axis labels -->
+            <line x1="44" y1="175" x2="740" y2="175" stroke="#CBD5E1" stroke-width="1.5"/>
+            <text x="100" y="190" font-size="10" fill="#94A3B8" text-anchor="middle">3月</text>
+            <text x="160" y="190" font-size="10" fill="#94A3B8" text-anchor="middle">4月</text>
+            <text x="220" y="190" font-size="10" fill="#94A3B8" text-anchor="middle">5月</text>
+            <text x="280" y="190" font-size="10" fill="#94A3B8" text-anchor="middle">6月</text>
+            <text x="340" y="190" font-size="10" fill="#94A3B8" text-anchor="middle">7月</text>
+            <text x="400" y="190" font-size="10" fill="#94A3B8" text-anchor="middle">8月</text>
+            <text x="460" y="190" font-size="10" fill="#94A3B8" text-anchor="middle">9月</text>
+            <text x="520" y="190" font-size="10" fill="#94A3B8" text-anchor="middle">10月</text>
+            <text x="580" y="190" font-size="10" fill="#94A3B8" text-anchor="middle">11月</text>
+            <text x="640" y="190" font-size="10" fill="#94A3B8" text-anchor="middle">12月</text>
+            <text x="700" y="190" font-size="10" fill="#94A3B8" text-anchor="middle">1月</text>
+            <text x="740" y="190" font-size="10" fill="#2563EB" font-weight="700" text-anchor="middle">2月</text>
+          </svg>
+        </div>
+
+        <div class="chart-meta">
+          <div class="chart-meta__item">
+            <span class="chart-meta__label">当前价格</span>
+            <span class="chart-meta__value">¥180.00 / 张</span>
+          </div>
+          <div class="chart-meta__item">
+            <span class="chart-meta__label">历史12月均价</span>
+            <span class="chart-meta__value">¥184.50 / 张</span>
+          </div>
+          <div class="chart-meta__item">
+            <span class="chart-meta__label">较均价偏差</span>
+            <span class="chart-meta__value chart-meta__value--ok">&#9660; -2.4%（正常）</span>
+          </div>
+          <div class="chart-meta__item">
+            <span class="chart-meta__label">12月最高价</span>
+            <span class="chart-meta__value">¥192.00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ===== Right Drawer: New/Edit Price Agreement ===== -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="priceDrawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+  <div class="drawer__header">
+    <span id="drawerTitle" class="drawer__title">新增价格协议</span>
+    <button class="btn btn--ghost btn--sm" onclick="closeDrawer()">取消</button>
+    <button class="drawer__close" onclick="closeDrawer()" aria-label="关闭">&#10005;</button>
+  </div>
+  <div class="drawer__body">
+
+    <div class="form-section">
+      <div class="form-section__title">基本信息</div>
+      <div class="form-group">
+        <label class="form-label form-label--required" for="drawerSupplier">供应商</label>
+        <select class="form-select" id="drawerSupplier">
+          <option value="">请选择供应商</option>
+          <option>华森木业（A级）</option>
+          <option>明辉五金（B级）</option>
+          <option>广州板材（B级）</option>
+          <option>联鑫材料（C级）</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label form-label--required">物料</label>
+        <div class="search-box" style="width:100%;">
+          <span class="search-box__icon">&#128269;</span>
+          <input class="search-box__input" style="width:100%;" type="text" placeholder="搜索物料名称或SKU编码…">
+        </div>
+        <div class="selected-material">已选择：红橡木板 200×2400（RM-00012）</div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">价格协议信息</div>
+      <div class="form-group">
+        <label class="form-label form-label--required" for="drawerPrice">含税单价</label>
+        <div class="input-with-suffix">
+          <input class="form-input" type="number" id="drawerPrice" value="180.00" step="0.01" min="0" oninput="checkPriceWarning(this.value)">
+          <span class="input-with-suffix__unit">元 / 张</span>
+        </div>
+        <div class="form-hint" id="priceHint"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label" for="drawerTax">税率</label>
+          <select class="form-select" id="drawerTax">
+            <option>13%</option><option>9%</option><option>6%</option><option>0%</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="drawerMoq">最小起订量（选填）</label>
+          <div class="input-with-suffix">
+            <input class="form-input" type="number" id="drawerMoq" placeholder="0">
+            <span class="input-with-suffix__unit">张</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">有效期</div>
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label form-label--required" for="drawerStart">生效日期</label>
+          <input class="form-input" type="date" id="drawerStart" value="2026-04-01">
+        </div>
+        <div class="form-group">
+          <label class="form-label form-label--required" for="drawerEnd">失效日期</label>
+          <input class="form-input" type="date" id="drawerEnd" value="2026-06-30">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">批次条件（选填）</div>
+      <label class="checkbox-option">
+        <input type="checkbox" id="batchPricing">
+        <span>按批次不同价格</span>
+      </label>
+      <div class="form-group">
+        <label class="form-label" for="batchRule">批次规则说明</label>
+        <input class="form-input" type="text" id="batchRule" placeholder="如：Q1按¥180，Q2按¥175">
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">附件与备注</div>
+      <div class="form-group">
+        <label class="form-label">关联协议文件</label>
+        <label class="upload-btn">
+          &#128206; 上传 PDF / 图片（最大10MB）
+          <input type="file" style="display:none;" accept=".pdf,.jpg,.png">
+        </label>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="drawerRemark">备注</label>
+        <input class="form-input" type="text" id="drawerRemark" placeholder="补充说明…">
+      </div>
+    </div>
+
+  </div>
+  <div class="drawer__footer">
+    <button class="btn btn--ghost" onclick="closeDrawer()">取消</button>
+    <button class="btn btn--primary" onclick="saveAgreement()">保存协议</button>
+  </div>
+</div>
+
+<!-- Price Warning Confirm Modal -->
+<div class="modal-overlay" id="priceWarnModal" role="dialog" aria-modal="true">
+  <div class="modal">
+    <div class="modal__header">
+      <div class="modal__header-icon">&#9888;</div>
+      <div>
+        <div class="modal__title">价格高于历史均价</div>
+        <div class="modal__sub">保存前需确认，超出20%需老板审批</div>
+      </div>
+    </div>
+    <div class="modal__body">
+      <p style="font-size:.9375rem;line-height:1.6;color:var(--text-secondary);">
+        当前录入价格 <strong style="color:var(--color-error-600);" id="modalNewPrice">¥230.00</strong> 高于历史12月均价
+        <strong>¥184.50</strong>，超出 <strong style="color:var(--color-error-600);" id="modalExceed">+24.7%</strong>，
+        已超出预警阈值 20%。
+      </p>
+      <div style="margin-top:var(--space-4);background:var(--color-warning-50);border:1px solid var(--color-warning-300);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:.875rem;color:var(--color-warning-700);">
+        &#9432; 该价格协议保存后将处于「待审批」状态，需老板审批通过后方可生效。
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('priceWarnModal')">返回修改</button>
+      <button class="btn btn--primary" onclick="closeModal('priceWarnModal');closeDrawer();showToast('&#10003; 协议已提交，等待老板审批')">确认提交审批</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  /* Alert panel */
+  function toggleAlertPanel() {
+    const p = document.getElementById('alertPanel');
+    p.style.display = p.style.display === 'none' ? 'block' : 'none';
+  }
+
+  /* Group accordion */
+  function toggleGroup(id) {
+    const body = document.getElementById('body-' + id);
+    const toggle = document.getElementById('toggle-' + id);
+    const isOpen = body.classList.contains('supplier-group__body--open');
+    body.classList.toggle('supplier-group__body--open', !isOpen);
+    toggle.classList.toggle('supplier-group__toggle--open', !isOpen);
+  }
+
+  /* View mode */
+  function switchView(mode) {
+    document.getElementById('viewSupplier').style.display = mode === 'supplier' ? 'block' : 'none';
+    document.getElementById('viewMaterial').style.display = mode === 'material' ? 'block' : 'none';
+  }
+
+  /* Row select + chart */
+  let selectedRow = null;
+  function selectRow(row, id, supplier) {
+    if (selectedRow) selectedRow.classList.remove('row--selected');
+    row.classList.add('row--selected');
+    selectedRow = row;
+    const panel = document.getElementById('chartPanel');
+    panel.style.display = 'block';
+    const names = {
+      'red-oak':'红橡木板 200×2400',
+      'wood-line':'实木脚线 L型 2.4m',
+      'hinge':'铰链全盖 标准型',
+      'slide':'抽屉滑轨 500mm 全拉'
+    };
+    document.getElementById('chartTitle').textContent = '价格详情 — ' + (names[id] || id);
+    document.getElementById('chartSub').textContent = supplier + ' · 过去12个月价格趋势';
+    panel.scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+  function closeChart() {
+    document.getElementById('chartPanel').style.display = 'none';
+    if (selectedRow) { selectedRow.classList.remove('row--selected'); selectedRow = null; }
+  }
+
+  /* Drawer */
+  function openDrawer() {
+    document.getElementById('drawerOverlay').classList.add('drawer-overlay--on');
+    document.getElementById('priceDrawer').classList.add('drawer--on');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeDrawer() {
+    document.getElementById('drawerOverlay').classList.remove('drawer-overlay--on');
+    document.getElementById('priceDrawer').classList.remove('drawer--on');
+    document.body.style.overflow = '';
+    document.getElementById('priceHint').textContent = '';
+    document.getElementById('priceHint').style.color = '';
+  }
+
+  /* Price warning check */
+  const AVG_PRICE = 184.50;
+  function checkPriceWarning(val) {
+    const price = parseFloat(val) || 0;
+    const hint = document.getElementById('priceHint');
+    if (price <= 0) { hint.textContent = ''; return; }
+    const pct = ((price - AVG_PRICE) / AVG_PRICE * 100);
+    if (pct > 20) {
+      hint.textContent = `⚠ 高于历史均价 +${pct.toFixed(1)}%，超出预警阈值，保存前需确认`;
+      hint.style.color = 'var(--color-error-600)';
+    } else if (pct > 0) {
+      hint.textContent = `↑ 较均价高 +${pct.toFixed(1)}%，在正常范围内`;
+      hint.style.color = 'var(--color-warning-600)';
+    } else {
+      hint.textContent = `↓ 较均价低 ${pct.toFixed(1)}%`;
+      hint.style.color = 'var(--color-success-600)';
+    }
+  }
+
+  function saveAgreement() {
+    const price = parseFloat(document.getElementById('drawerPrice').value) || 0;
+    const pct = ((price - AVG_PRICE) / AVG_PRICE * 100);
+    if (pct > 20) {
+      document.getElementById('modalNewPrice').textContent = `¥${price.toFixed(2)}`;
+      document.getElementById('modalExceed').textContent = `+${pct.toFixed(1)}%`;
+      openModal('priceWarnModal');
+    } else {
+      closeDrawer();
+      showToast('&#10003; 价格协议已保存');
+    }
+  }
+
+  /* Modal */
+  function openModal(id) {
+    document.getElementById(id).classList.add('modal-overlay--on');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('modal-overlay--on');
+    document.body.style.overflow = '';
+  }
+
+  /* Toast */
+  let toastTimer;
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerHTML = msg;
+    t.classList.add('toast--on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('toast--on'), 2800);
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      closeDrawer();
+      document.querySelectorAll('.modal-overlay--on').forEach(m => closeModal(m.id));
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智造管家 — AI采购建议</title>
+  <style>
+    :root {
+      --color-primary-50:#EFF6FF;--color-primary-100:#DBEAFE;--color-primary-500:#3B82F6;--color-primary-600:#2563EB;--color-primary-700:#1D4ED8;
+      --color-accent-50:#FFF7ED;--color-accent-200:#FED7AA;--color-accent-500:#F97316;--color-accent-600:#EA580C;
+      --color-success-50:#F0FDF4;--color-success-100:#DCFCE7;--color-success-500:#22C55E;--color-success-600:#16A34A;--color-success-700:#15803D;
+      --color-warning-50:#FFFBEB;--color-warning-100:#FEF3C7;--color-warning-500:#F59E0B;--color-warning-600:#D97706;--color-warning-700:#B45309;
+      --color-error-50:#FEF2F2;--color-error-100:#FEE2E2;--color-error-500:#EF4444;--color-error-600:#DC2626;--color-error-700:#B91C1C;
+      --color-info-50:#F0F9FF;--color-info-100:#E0F2FE;--color-info-500:#0EA5E9;--color-info-600:#0284C7;
+      --color-gray-0:#FFFFFF;--color-gray-50:#F8FAFC;--color-gray-100:#F1F5F9;--color-gray-200:#E2E8F0;--color-gray-300:#CBD5E1;--color-gray-400:#94A3B8;--color-gray-500:#64748B;--color-gray-600:#475569;--color-gray-700:#334155;--color-gray-800:#1E293B;
+      --bg-page:#F8FAFC;--bg-card:#FFFFFF;--bg-sidebar:#1E293B;--text-primary:#1E293B;--text-secondary:#64748B;--border-default:#E2E8F0;
+      --font-family-base:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --space-1:0.25rem;--space-2:0.5rem;--space-3:0.75rem;--space-4:1rem;--space-5:1.25rem;--space-6:1.5rem;--space-8:2rem;
+      --layout-sidebar-width:240px;--layout-header-height:64px;--layout-page-padding:24px;
+      --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:16px;--radius-full:9999px;
+      --shadow-sm:0 1px 3px rgba(0,0,0,0.1),0 1px 2px rgba(0,0,0,0.06);--shadow-md:0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -1px rgba(0,0,0,0.06);--shadow-lg:0 10px 15px -3px rgba(0,0,0,0.1),0 4px 6px -2px rgba(0,0,0,0.05);--shadow-xl:0 20px 25px -5px rgba(0,0,0,0.1),0 10px 10px -5px rgba(0,0,0,0.04);
+      --transition-fast:150ms ease;--transition-base:200ms ease;--transition-slow:300ms ease;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{font-size:16px;}
+    body{font-family:var(--font-family-base);background:var(--bg-page);color:var(--text-primary);min-height:100vh;display:flex;}
+
+    .sidebar{width:var(--layout-sidebar-width);background:var(--bg-sidebar);min-height:100vh;position:fixed;left:0;top:0;z-index:200;}
+    .sidebar__logo{height:var(--layout-header-height);display:flex;align-items:center;padding:0 var(--space-4);border-bottom:1px solid rgba(255,255,255,0.08);}
+    .sidebar__logo-icon{width:32px;height:32px;background:var(--color-accent-500);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:18px;}
+    .sidebar__logo-text{margin-left:var(--space-3);color:#FFF;font-size:1.0625rem;font-weight:700;}
+    .sidebar__nav{padding:var(--space-4) 0;}
+    .sidebar__item{display:flex;align-items:center;padding:0.6875rem var(--space-4);color:#CBD5E1;text-decoration:none;font-size:0.875rem;transition:background var(--transition-fast);position:relative;}
+    .sidebar__item:hover{background:rgba(255,255,255,0.08);}
+    .sidebar__item--active{background:#2563EB;color:#FFF;font-weight:500;}
+    .sidebar__item--active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#FFF;border-radius:0 2px 2px 0;}
+    .sidebar__item-icon{width:20px;height:20px;margin-right:var(--space-3);flex-shrink:0;}
+
+    .layout{margin-left:var(--layout-sidebar-width);flex:1;display:flex;flex-direction:column;}
+    .topbar{height:var(--layout-header-height);background:var(--bg-card);border-bottom:1px solid var(--border-default);display:flex;align-items:center;padding:0 var(--layout-page-padding);position:sticky;top:0;z-index:100;box-shadow:0 1px 2px rgba(0,0,0,0.05);gap:var(--space-4);}
+    .topbar__breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:0.875rem;color:var(--text-secondary);}
+    .topbar__breadcrumb a{color:var(--color-primary-600);text-decoration:none;}
+    .topbar__actions{margin-left:auto;display:flex;gap:var(--space-3);align-items:center;}
+    .topbar__btn{position:relative;width:40px;height:40px;border:none;background:transparent;border-radius:var(--radius-md);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);}
+    .topbar__badge{position:absolute;top:4px;right:4px;min-width:18px;height:18px;background:var(--color-error-500);color:#FFF;font-size:11px;font-weight:700;border-radius:var(--radius-full);display:flex;align-items:center;justify-content:center;padding:0 3px;}
+    .topbar__avatar{width:36px;height:36px;border-radius:var(--radius-full);background:var(--color-primary-600);color:#FFF;font-size:0.875rem;font-weight:600;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+
+    .page{padding:var(--layout-page-padding);flex:1;}
+    .page__header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:var(--space-5);gap:var(--space-4);flex-wrap:wrap;}
+    .page__title{font-size:1.5rem;font-weight:700;}
+
+    /* AI Status Panel */
+    .ai-status-panel{background:var(--bg-card);border:1px solid var(--color-accent-200);border-radius:var(--radius-lg);padding:var(--space-4) var(--space-5);margin-bottom:var(--space-5);display:flex;align-items:center;gap:var(--space-4);flex-wrap:wrap;box-shadow:var(--shadow-sm);}
+    .ai-status-panel__icon{width:40px;height:40px;background:var(--color-accent-500);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+    .ai-status-panel__content{flex:1;}
+    .ai-status-panel__title{font-size:0.9375rem;font-weight:600;color:var(--text-primary);}
+    .ai-status-panel__meta{font-size:0.8125rem;color:var(--text-secondary);margin-top:var(--space-1);}
+
+    /* Filter tabs */
+    .filter-tabs{display:flex;gap:0;border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden;margin-bottom:var(--space-5);width:fit-content;}
+    .filter-tab{padding:0.5rem 1rem;border:none;background:var(--bg-card);font-size:0.8125rem;font-weight:500;cursor:pointer;color:var(--text-secondary);border-right:1px solid var(--border-default);font-family:var(--font-family-base);transition:background var(--transition-fast);}
+    .filter-tab:last-child{border-right:none;}
+    .filter-tab--active{background:var(--color-primary-500);color:#FFF;}
+    .filter-tab:hover:not(.filter-tab--active){background:var(--color-gray-50);}
+
+    /* Suggestion cards */
+    .suggestion-list{display:flex;flex-direction:column;gap:var(--space-4);}
+    .suggestion-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);border-left:4px solid var(--color-accent-500);overflow:hidden;transition:box-shadow var(--transition-fast),transform var(--transition-fast);}
+    .suggestion-card:hover{box-shadow:var(--shadow-md);transform:translateY(-1px);}
+    .suggestion-card__header{padding:var(--space-4) var(--space-5) var(--space-3);display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-4);}
+    .suggestion-card__title-area{}
+    .suggestion-card__name{font-size:1.0625rem;font-weight:700;color:var(--text-primary);}
+    .suggestion-card__tags{display:flex;gap:var(--space-2);margin-top:var(--space-2);flex-wrap:wrap;}
+    .suggestion-card__body{padding:0 var(--space-5) var(--space-4);}
+    .suggestion-card__info-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-4);padding:var(--space-4);background:var(--color-gray-50);border-radius:var(--radius-md);margin-bottom:var(--space-4);}
+    .suggestion-card__kv{}
+    .suggestion-card__kv-key{font-size:0.6875rem;color:var(--text-secondary);font-weight:500;margin-bottom:var(--space-1);}
+    .suggestion-card__kv-val{font-size:1rem;font-weight:700;color:var(--text-primary);}
+    .suggestion-card__kv-val--money{color:var(--color-error-600);}
+    .suggestion-card__kv-val--urgent{color:var(--color-error-600);}
+
+    /* Dye lot notice */
+    .dye-lot-notice{display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--color-accent-50);border:1px dashed var(--color-accent-200);border-radius:var(--radius-md);margin-bottom:var(--space-4);}
+    .dye-lot-notice__icon{font-size:16px;flex-shrink:0;}
+    .dye-lot-notice__text{font-size:0.8125rem;color:var(--color-accent-600);}
+    .dye-lot-notice__text strong{font-weight:700;}
+
+    /* Reason accordion */
+    .reason-accordion{margin-bottom:var(--space-4);}
+    .reason-accordion__trigger{width:100%;padding:var(--space-3) var(--space-4);background:var(--color-gray-50);border:1px solid var(--border-default);border-radius:var(--radius-md);font-size:0.8125rem;font-weight:500;color:var(--text-secondary);cursor:pointer;text-align:left;display:flex;align-items:center;justify-content:space-between;transition:background var(--transition-fast);font-family:var(--font-family-base);}
+    .reason-accordion__trigger:hover{background:var(--color-gray-100);}
+    .reason-accordion__trigger[aria-expanded="true"]{background:var(--color-primary-50);color:var(--color-primary-700);border-color:var(--color-primary-200);}
+    .reason-accordion__arrow{transition:transform var(--transition-base);font-size:12px;}
+    .reason-accordion__trigger[aria-expanded="true"] .reason-accordion__arrow{transform:rotate(180deg);}
+    .reason-accordion__content{display:none;padding:var(--space-4);background:var(--bg-card);border:1px solid var(--border-default);border-top:none;border-radius:0 0 var(--radius-md) var(--radius-md);}
+    .reason-accordion__content--visible{display:block;animation:fadeIn 200ms ease;}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+    .reason-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+    .reason-list li{font-size:0.875rem;color:var(--text-secondary);padding-left:1.25rem;position:relative;line-height:1.5;}
+    .reason-list li::before{content:'·';position:absolute;left:0;color:var(--color-accent-500);font-weight:700;}
+
+    /* Actions bar */
+    .suggestion-card__actions{padding:var(--space-3) var(--space-5);border-top:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between;background:var(--color-gray-50);}
+    .suggestion-card__status{display:flex;align-items:center;gap:var(--space-2);}
+    .suggestion-card__btns{display:flex;gap:var(--space-2);}
+
+    /* Tags */
+    .tag{display:inline-flex;align-items:center;gap:0.25rem;padding:0.1875rem 0.5rem;border-radius:var(--radius-sm);font-size:0.6875rem;font-weight:600;line-height:1;white-space:nowrap;}
+    .tag--error{background:var(--color-error-100);color:var(--color-error-700);}
+    .tag--warning{background:var(--color-warning-100);color:var(--color-warning-700);}
+    .tag--success{background:var(--color-success-100);color:var(--color-success-700);}
+    .tag--neutral{background:var(--color-gray-100);color:var(--color-gray-600);}
+    .tag--info{background:var(--color-info-100,#E0F2FE);color:var(--color-info-600);}
+    .tag--confidence-high{background:var(--color-success-100);color:var(--color-success-700);}
+    .tag--confidence-medium{background:var(--color-warning-100);color:var(--color-warning-700);}
+    .tag--confidence-low{background:var(--color-error-100);color:var(--color-error-700);}
+    .tag--priority-urgent{background:var(--color-error-100);color:var(--color-error-700);border:1px solid #FCA5A5;font-weight:700;}
+    .tag--dye-lot{background:var(--color-accent-50);color:var(--color-accent-600);border:1px dashed #FED7AA;}
+
+    /* Buttons */
+    .btn{display:inline-flex;align-items:center;gap:var(--space-2);border:none;border-radius:var(--radius-md);font-family:var(--font-family-base);font-weight:500;cursor:pointer;transition:background var(--transition-fast),transform var(--transition-fast);}
+    .btn:active{transform:scale(0.97);}
+    .btn:focus-visible{outline:2px solid var(--color-primary-500);outline-offset:2px;}
+    .btn--sm{height:32px;padding:0 0.75rem;font-size:0.8125rem;}
+    .btn--md{height:40px;padding:0 1rem;font-size:0.875rem;}
+    .btn--primary{background:var(--color-primary-500);color:#FFF;}
+    .btn--primary:hover{background:var(--color-primary-600);}
+    .btn--success{background:var(--color-success-600);color:#FFF;}
+    .btn--success:hover{background:var(--color-success-700);}
+    .btn--danger{background:var(--color-error-600);color:#FFF;}
+    .btn--danger:hover{background:var(--color-error-700);}
+    .btn--ghost{background:transparent;color:var(--text-secondary);border:1px solid var(--border-default);}
+    .btn--ghost:hover{background:var(--color-gray-100);}
+    .btn--ai{background:var(--color-accent-500);color:#FFF;}
+    .btn--ai:hover{background:var(--color-accent-600);}
+
+    /* AI Thinking Modal */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center;z-index:400;}
+    .modal-overlay--visible{display:flex;animation:overlayIn 200ms ease;}
+    @keyframes overlayIn{from{opacity:0}to{opacity:1}}
+    .modal{background:var(--bg-card);border-radius:var(--radius-xl);box-shadow:var(--shadow-xl);padding:var(--space-8);min-width:360px;max-width:480px;width:90%;animation:modalIn 300ms cubic-bezier(0.34,1.56,0.64,1);}
+    @keyframes modalIn{from{opacity:0;transform:scale(0.9) translateY(16px)}to{opacity:1;transform:none}}
+    .modal__icon{width:56px;height:56px;border-radius:var(--radius-full);background:linear-gradient(135deg,var(--color-accent-50),var(--color-accent-100,#FED7AA));display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto var(--space-5);}
+    .modal__title{font-size:1.125rem;font-weight:700;text-align:center;margin-bottom:var(--space-2);}
+    .modal__subtitle{font-size:0.875rem;color:var(--text-secondary);text-align:center;margin-bottom:var(--space-6);}
+    .modal__steps{display:flex;flex-direction:column;gap:var(--space-3);margin-bottom:var(--space-6);}
+    .step-item{display:flex;align-items:center;gap:var(--space-3);}
+    .step-item__icon{width:24px;height:24px;border-radius:var(--radius-full);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;}
+    .step-item__icon--done{background:var(--color-success-100);color:var(--color-success-600);}
+    .step-item__icon--current{background:var(--color-primary-100);color:var(--color-primary-600);}
+    .step-item__icon--pending{background:var(--color-gray-100);color:var(--color-gray-400);}
+    .step-item__text{font-size:0.875rem;}
+    .step-item__text--done{color:var(--color-success-600);font-weight:500;}
+    .step-item__text--current{color:var(--text-primary);font-weight:500;}
+    .step-item__text--pending{color:var(--text-secondary);}
+    .step-item__spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--color-primary-200);border-top-color:var(--color-primary-500);border-radius:50%;animation:spin 0.8s linear infinite;margin-left:var(--space-2);}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .modal__countdown{text-align:center;font-size:0.8125rem;color:var(--text-secondary);margin-bottom:var(--space-5);}
+    .modal__countdown strong{color:var(--text-primary);font-size:1rem;}
+    .modal__footer{display:flex;justify-content:center;gap:var(--space-3);}
+
+    /* Error state in modal */
+    .modal--error .modal__icon{background:var(--color-error-50);}
+    .modal--error .modal__title{color:var(--color-error-700);}
+
+    @media(max-width:1199px){.layout{margin-left:60px;}.sidebar{width:60px;}.sidebar__logo-text,.sidebar__item span{display:none;}}
+    @media(max-width:767px){.layout{margin-left:0;}.sidebar{display:none;}.page{padding:16px;}.suggestion-card__info-grid{grid-template-columns:repeat(2,1fr);}.suggestion-card__header{flex-direction:column;}}
+  </style>
+</head>
+<body>
+
+<aside class="sidebar" role="navigation" aria-label="主导航">
+  <div class="sidebar__logo">
+    <div class="sidebar__logo-icon" aria-hidden="true">🏭</div>
+    <span class="sidebar__logo-text">智造管家</span>
+  </div>
+  <nav class="sidebar__nav">
+    <a href="#" class="sidebar__item">
+      <svg class="sidebar__item-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4z"/></svg>
+      <span>驾驶舱</span>
+    </a>
+    <a href="#" class="sidebar__item sidebar__item--active" aria-current="page">
+      <svg class="sidebar__item-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clip-rule="evenodd"/></svg>
+      <span>AI采购建议</span>
+    </a>
+    <a href="#" class="sidebar__item">
+      <svg class="sidebar__item-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z"/></svg>
+      <span>库存总览</span>
+    </a>
+  </nav>
+</aside>
+
+<div class="layout">
+  <header class="topbar" role="banner">
+    <nav class="topbar__breadcrumb" aria-label="面包屑导航">
+      <a href="#">采购管理</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">AI采购建议</span>
+    </nav>
+    <div class="topbar__actions">
+      <button class="topbar__btn" aria-label="消息通知">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zm0 16a2 2 0 01-2-2h4a2 2 0 01-2 2z"/></svg>
+        <span class="topbar__badge">3</span>
+      </button>
+      <div class="topbar__avatar" role="button" tabindex="0">采</div>
+    </div>
+  </header>
+
+  <main class="page" role="main">
+    <div class="page__header">
+      <div>
+        <h1 class="page__title">AI 采购建议</h1>
+      </div>
+      <button class="btn btn--ai btn--md" onclick="showThinkingModal()" aria-label="手动发起AI采购需求分析">
+        <span aria-hidden="true">✨</span>
+        手动发起采购需求分析
+      </button>
+    </div>
+
+    <!-- AI Status Panel -->
+    <div class="ai-status-panel" role="region" aria-label="AI分析状态">
+      <div class="ai-status-panel__icon" aria-hidden="true">🤖</div>
+      <div class="ai-status-panel__content">
+        <div class="ai-status-panel__title">AI 分析已完成</div>
+        <div class="ai-status-panel__meta">
+          上次分析时间：今日 07:30 · 下次自动分析：明日 07:00 · 分析基于：12个在产订单 + 当前库存 + 8家供应商历史数据
+        </div>
+      </div>
+      <div style="display:flex; gap: var(--space-3); align-items: center;">
+        <span class="tag tag--success">✓ 分析完成</span>
+        <span style="font-size:0.8125rem; color: var(--text-secondary);">共生成 5 条建议</span>
+      </div>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div role="tablist" aria-label="按审批状态筛选">
+      <div class="filter-tabs">
+        <button class="filter-tab filter-tab--active" role="tab" aria-selected="true" aria-controls="suggestion-list">全部（5）</button>
+        <button class="filter-tab" role="tab" aria-selected="false">待审批（3）</button>
+        <button class="filter-tab" role="tab" aria-selected="false">已批准待执行（1）</button>
+        <button class="filter-tab" role="tab" aria-selected="false">已执行（1）</button>
+        <button class="filter-tab" role="tab" aria-selected="false">已驳回（0）</button>
+      </div>
+    </div>
+
+    <!-- Suggestion List -->
+    <div class="suggestion-list" id="suggestion-list" role="region" aria-label="采购建议列表">
+
+      <!-- Card 1: Urgent, High confidence, Fabric with dye lot -->
+      <article class="suggestion-card" aria-label="采购建议：进口牛皮棕色">
+        <div class="suggestion-card__header">
+          <div class="suggestion-card__title-area">
+            <div class="suggestion-card__name">进口牛皮 1.2mm 棕色</div>
+            <div class="suggestion-card__tags">
+              <span class="tag tag--priority-urgent">紧急</span>
+              <span class="tag tag--confidence-high">● 高置信度</span>
+              <span class="tag tag--dye-lot">🎨 面料·含缸号要求</span>
+            </div>
+          </div>
+        </div>
+        <div class="suggestion-card__body">
+          <div class="suggestion-card__info-grid">
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">建议采购数量</div>
+              <div class="suggestion-card__kv-val">50 <span style="font-size:0.75rem;font-weight:400;color:var(--text-secondary);">平方米</span></div>
+            </div>
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">推荐供应商</div>
+              <div class="suggestion-card__kv-val" style="font-size:0.875rem;">广州皮革城</div>
+            </div>
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">预估金额</div>
+              <div class="suggestion-card__kv-val suggestion-card__kv-val--money">¥3,500</div>
+            </div>
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">建议到货日期</div>
+              <div class="suggestion-card__kv-val suggestion-card__kv-val--urgent" style="font-size:0.875rem;">3/12（今日需下单）</div>
+            </div>
+          </div>
+
+          <!-- Dye lot notice -->
+          <div class="dye-lot-notice" role="note" aria-label="缸号要求说明">
+            <span class="dye-lot-notice__icon" aria-hidden="true">🎨</span>
+            <div class="dye-lot-notice__text">
+              <strong>缸号要求：</strong>订单B19已领用缸号 <code style="background:rgba(249,115,22,0.15);padding:1px 5px;border-radius:3px;">DY-2026-001</code>，
+              本次采购须向供应商指定相同批次（缸号一致），避免色差风险。如无法保证缸号，需与客户提前沟通。
+            </div>
+          </div>
+
+          <!-- Reason accordion -->
+          <div class="reason-accordion">
+            <button class="reason-accordion__trigger" aria-expanded="false" onclick="toggleAccordion(this)" aria-controls="reason-1">
+              <span>▼ AI 推理依据（点击展开）</span>
+              <span class="reason-accordion__arrow" aria-hidden="true">▼</span>
+            </button>
+            <div class="reason-accordion__content" id="reason-1" role="region">
+              <ul class="reason-list">
+                <li>订单B19（白色烤漆衣柜）皮料需求：60平方米（3/15交货），当前可用库存：55平方米（均来自不同缸号批次），严格匹配缸号后有效可用：32平方米，缺口：28平方米</li>
+                <li>考虑5%生产损耗率，建议采购50平方米（安全缓冲5平方米）</li>
+                <li>广州皮革城历史合格率：98%，交货周期：2-3天，准时率：89%</li>
+                <li>当前DY-2025-088批次（5平方米）即将耗尽，避免混用，建议直接启用新缸号</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="suggestion-card__actions">
+          <div class="suggestion-card__status">
+            <span class="tag tag--warning">● 待老板审批</span>
+          </div>
+          <div class="suggestion-card__btns">
+            <button class="btn btn--ghost btn--sm">采购员反馈问题</button>
+            <button class="btn btn--success btn--md" aria-label="批准进口牛皮采购建议，金额3500元">✓ 批准</button>
+            <button class="btn btn--danger btn--sm" aria-label="驳回进口牛皮采购建议">✕ 驳回</button>
+          </div>
+        </div>
+      </article>
+
+      <!-- Card 2: Urgent, High confidence, Wood -->
+      <article class="suggestion-card" aria-label="采购建议：红橡木板">
+        <div class="suggestion-card__header">
+          <div class="suggestion-card__title-area">
+            <div class="suggestion-card__name">红橡木板 200×2400</div>
+            <div class="suggestion-card__tags">
+              <span class="tag tag--priority-urgent">紧急</span>
+              <span class="tag tag--confidence-high">● 高置信度</span>
+            </div>
+          </div>
+        </div>
+        <div class="suggestion-card__body">
+          <div class="suggestion-card__info-grid">
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">建议采购数量</div>
+              <div class="suggestion-card__kv-val">12 <span style="font-size:0.75rem;font-weight:400;color:var(--text-secondary);">张</span></div>
+            </div>
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">推荐供应商</div>
+              <div class="suggestion-card__kv-val" style="font-size:0.875rem;">华森木业</div>
+            </div>
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">预估金额</div>
+              <div class="suggestion-card__kv-val suggestion-card__kv-val--money">¥2,160</div>
+            </div>
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">建议到货日期</div>
+              <div class="suggestion-card__kv-val suggestion-card__kv-val--urgent" style="font-size:0.875rem;">3/13（今日需下单）</div>
+            </div>
+          </div>
+          <div class="reason-accordion">
+            <button class="reason-accordion__trigger" aria-expanded="false" onclick="toggleAccordion(this)" aria-controls="reason-2">
+              <span>▼ AI 推理依据（点击展开）</span>
+              <span class="reason-accordion__arrow" aria-hidden="true">▼</span>
+            </button>
+            <div class="reason-accordion__content" id="reason-2" role="region">
+              <ul class="reason-list">
+                <li>订单A23需要8张（3/12交货），订单C31需要4张（3/18交货），合计12张</li>
+                <li>当前库存8张，已被占用8张（订单A23），可用量：0张</li>
+                <li>华森木业历史准时率：92%，交货周期：2-3天 → 需今日下单保障供应</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="suggestion-card__actions">
+          <div class="suggestion-card__status">
+            <span class="tag tag--warning">● 待老板审批</span>
+          </div>
+          <div class="suggestion-card__btns">
+            <button class="btn btn--ghost btn--sm">采购员反馈问题</button>
+            <button class="btn btn--success btn--md">✓ 批准</button>
+            <button class="btn btn--danger btn--sm">✕ 驳回</button>
+          </div>
+        </div>
+      </article>
+
+      <!-- Card 3: Normal, Medium confidence, approved -->
+      <article class="suggestion-card" style="border-left-color: var(--color-success-500);" aria-label="采购建议：白色烤漆板，已批准">
+        <div class="suggestion-card__header">
+          <div class="suggestion-card__title-area">
+            <div class="suggestion-card__name">白色烤漆板 1220×2440</div>
+            <div class="suggestion-card__tags">
+              <span class="tag tag--neutral">正常</span>
+              <span class="tag tag--confidence-medium">● 中置信度</span>
+            </div>
+          </div>
+        </div>
+        <div class="suggestion-card__body">
+          <div class="suggestion-card__info-grid">
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">建议采购数量</div>
+              <div class="suggestion-card__kv-val">10 <span style="font-size:0.75rem;font-weight:400;color:var(--text-secondary);">张</span></div>
+            </div>
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">推荐供应商</div>
+              <div class="suggestion-card__kv-val" style="font-size:0.875rem;">广州板材</div>
+            </div>
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">预估金额</div>
+              <div class="suggestion-card__kv-val suggestion-card__kv-val--money">¥3,200</div>
+            </div>
+            <div class="suggestion-card__kv">
+              <div class="suggestion-card__kv-key">建议到货日期</div>
+              <div class="suggestion-card__kv-val" style="font-size:0.875rem;">3/16</div>
+            </div>
+          </div>
+          <div style="padding:var(--space-3) var(--space-4);background:var(--color-success-50);border-radius:var(--radius-md);font-size:0.8125rem;color:var(--color-success-700);">
+            ✓ 老板已批准（3/10 09:15）· 采购员请联系广州板材下单
+          </div>
+        </div>
+        <div class="suggestion-card__actions">
+          <div class="suggestion-card__status">
+            <span class="tag tag--success">✓ 已批准</span>
+          </div>
+          <div class="suggestion-card__btns">
+            <button class="btn btn--ghost btn--sm">查看详情</button>
+            <button class="btn btn--primary btn--md">标记已下单</button>
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </main>
+</div>
+
+<!-- AI Thinking Modal -->
+<div class="modal-overlay" id="thinking-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-live="polite">
+  <div class="modal" id="thinking-modal-content">
+    <div class="modal__icon" aria-hidden="true">🤖</div>
+    <h2 class="modal__title" id="modal-title">AI 正在分析采购需求...</h2>
+    <p class="modal__subtitle">请稍候，AI 正在为您计算物料缺口并匹配最优供应方案</p>
+    <div class="modal__steps" role="list" aria-label="AI分析步骤">
+      <div class="step-item" role="listitem" id="step-1">
+        <div class="step-item__icon step-item__icon--done" aria-label="已完成">✓</div>
+        <span class="step-item__text step-item__text--done">读取 12 个在产订单</span>
+      </div>
+      <div class="step-item" role="listitem" id="step-2">
+        <div class="step-item__icon step-item__icon--done" aria-label="已完成">✓</div>
+        <span class="step-item__text step-item__text--done">展开 BOM 计算物料需求</span>
+      </div>
+      <div class="step-item" role="listitem" id="step-3">
+        <div class="step-item__icon step-item__icon--current" aria-label="进行中">⟳</div>
+        <span class="step-item__text step-item__text--current">
+          匹配供应商库存与交期
+          <span class="step-item__spinner" aria-hidden="true"></span>
+        </span>
+      </div>
+      <div class="step-item" role="listitem" id="step-4">
+        <div class="step-item__icon step-item__icon--pending" aria-label="待处理">○</div>
+        <span class="step-item__text step-item__text--pending">校验面料缸号匹配规则</span>
+      </div>
+      <div class="step-item" role="listitem" id="step-5">
+        <div class="step-item__icon step-item__icon--pending" aria-label="待处理">○</div>
+        <span class="step-item__text step-item__text--pending">生成采购建议报告</span>
+      </div>
+    </div>
+    <div class="modal__countdown">
+      预计还需 <strong id="countdown">12</strong> 秒
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost btn--md" onclick="hideModal()" aria-label="取消AI分析">取消</button>
+    </div>
+  </div>
+</div>
+
+<button style="position:fixed;bottom:32px;right:32px;width:56px;height:56px;border-radius:9999px;background:linear-gradient(135deg,#F97316,#EA580C);color:#fff;border:none;cursor:pointer;box-shadow:0 8px 24px rgba(249,115,22,0.4);font-size:24px;display:flex;align-items:center;justify-content:center;z-index:100;" aria-label="打开AI助手">🤖</button>
+
+<script>
+  // Accordion
+  function toggleAccordion(trigger) {
+    var expanded = trigger.getAttribute('aria-expanded') === 'true';
+    var contentId = trigger.getAttribute('aria-controls');
+    var content = document.getElementById(contentId);
+    trigger.setAttribute('aria-expanded', !expanded);
+    content.classList.toggle('reason-accordion__content--visible');
+  }
+
+  // Thinking modal
+  var countdownInterval;
+  function showThinkingModal() {
+    document.getElementById('thinking-modal').classList.add('modal-overlay--visible');
+    var count = 12;
+    countdownInterval = setInterval(function() {
+      count--;
+      document.getElementById('countdown').textContent = count;
+      if (count <= 0) {
+        clearInterval(countdownInterval);
+        hideModal();
+        // Simulate success
+        alert('分析完成！已更新采购建议列表。');
+      }
+    }, 1000);
+  }
+
+  function hideModal() {
+    clearInterval(countdownInterval);
+    document.getElementById('thinking-modal').classList.remove('modal-overlay--visible');
+  }
+
+  // Filter tabs
+  document.querySelectorAll('.filter-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.filter-tab').forEach(function(t) {
+        t.classList.remove('filter-tab--active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      tab.classList.add('filter-tab--active');
+      tab.setAttribute('aria-selected', 'true');
+    });
+  });
+</script>
+</body>
+</html>

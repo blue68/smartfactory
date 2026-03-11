@@ -1,0 +1,43 @@
+.page { display: flex; flex-direction: column; gap: var(--space-5); }
+
+.tabs { display: flex; gap: var(--space-1); border-bottom: 2px solid var(--border-default); }
+.tab { padding: var(--space-3) var(--space-4); font-size: var(--text-body-m); color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all var(--transition-fast); cursor: pointer; }
+.tab:hover { color: var(--text-primary); }
+.tab--active { color: var(--color-primary-600); border-bottom-color: var(--color-primary-500); font-weight: 600; }
+
+.diff_expand { padding: var(--space-4); }
+.diff_title { font-size: var(--text-body-s); font-weight: 600; color: var(--text-secondary); margin-bottom: var(--space-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.diff_table { width: 100%; border-collapse: collapse; font-size: var(--text-body-s); }
+.diff_table th { text-align: left; padding: var(--space-2) var(--space-3); background: var(--color-gray-100); color: var(--text-secondary); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+.diff_table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-default); }
+.diff_table tr:last-child td { border-bottom: none; }
+.diff_note { margin-top: var(--space-3); font-size: var(--text-body-s); color: var(--text-secondary); padding: var(--space-2) var(--space-3); background: var(--color-warning-50); border-radius: var(--radius-sm); }
+
+.exec_form { display: flex; flex-direction: column; gap: var(--space-4); }
+.exec_field { display: flex; flex-direction: column; gap: var(--space-2); }
+.exec_label { font-size: var(--text-label); font-weight: 500; color: var(--text-secondary); }
+.exec_input {
+  height: 40px; padding: 0 var(--space-3);
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  font-size: var(--text-body-m); color: var(--text-primary); background: var(--bg-card);
+  outline: none; width: 100%;
+  transition: border-color var(--transition-fast);
+}
+.exec_input:focus { border-color: var(--border-focus); }
+.exec_textarea {
+  width: 100%; padding: var(--space-3);
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  font-family: var(--font-family-base); font-size: var(--text-body-m); color: var(--text-primary);
+  resize: vertical; outline: none;
+  transition: border-color var(--transition-fast);
+}
+.exec_textarea:focus { border-color: var(--border-focus); }
+
+/* ——— T215: 响应式断点 ——— */
+@media (max-width: 768px) {
+  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab { white-space: nowrap; padding: var(--space-2) var(--space-3); font-size: var(--text-body-s); }
+  .diff_table { font-size: 12px; }
+  .diff_table th,
+  .diff_table td { padding: var(--space-1) var(--space-2); }
+}

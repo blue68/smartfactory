@@ -1,0 +1,201 @@
+/**
+ * [artifact:前端代码] — Skeleton 骨架屏样式
+ * T217: 全局 Loading Skeleton
+ *
+ * shimmer 动画引用 variables.css 中已定义的 @keyframes shimmer
+ */
+
+/* ── 基础骨架条 ─────────────────────────────── */
+.skeleton {
+  display: block;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-100) 25%,
+    var(--color-gray-200) 50%,
+    var(--color-gray-100) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* 暗色模式适配 */
+@media (prefers-color-scheme: dark) {
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--color-gray-700) 25%,
+      var(--color-gray-600) 50%,
+      var(--color-gray-700) 75%
+    );
+    background-size: 200% 100%;
+  }
+}
+
+/* ── text variant：多行文字骨架 ─────────────── */
+.skeleton--text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.skeleton__line {
+  height: 0.875rem;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-100) 25%,
+    var(--color-gray-200) 50%,
+    var(--color-gray-100) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@media (prefers-color-scheme: dark) {
+  .skeleton__line {
+    background: linear-gradient(
+      90deg,
+      var(--color-gray-700) 25%,
+      var(--color-gray-600) 50%,
+      var(--color-gray-700) 75%
+    );
+    background-size: 200% 100%;
+  }
+}
+
+/* 最后一行缩短，更像真实段落 */
+.skeleton__line:last-child:not(:first-child) {
+  width: 65%;
+}
+
+/* ── card variant：卡片骨架 ─────────────────── */
+.skeleton--card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  box-shadow: var(--shadow-xs);
+}
+
+/* 卡片顶部 header 区域（头像 + 标题行） */
+.skeleton__card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.skeleton__avatar {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-100) 25%,
+    var(--color-gray-200) 50%,
+    var(--color-gray-100) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton__card-title-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* 卡片内容区 */
+.skeleton__card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ── table variant：表格骨架 ────────────────── */
+.skeleton--table {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-card);
+}
+
+/* 表头行 */
+.skeleton__thead {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-gray-50);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.skeleton__th {
+  height: 0.75rem;
+  flex: 1;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-200) 25%,
+    var(--color-gray-300) 50%,
+    var(--color-gray-200) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* 表格数据行 */
+.skeleton__tr {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.skeleton__tr:last-child {
+  border-bottom: none;
+}
+
+.skeleton__td {
+  height: 0.875rem;
+  flex: 1;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-100) 25%,
+    var(--color-gray-200) 50%,
+    var(--color-gray-100) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* 奇数行 td 偏淡，增加层次感 */
+.skeleton__tr:nth-child(even) .skeleton__td {
+  opacity: 0.7;
+}
+
+@media (prefers-color-scheme: dark) {
+  .skeleton--card { background: var(--bg-card); }
+  .skeleton--table { background: var(--bg-card); }
+  .skeleton__thead { background: var(--color-gray-800); }
+
+  .skeleton__avatar,
+  .skeleton__th,
+  .skeleton__td {
+    background: linear-gradient(
+      90deg,
+      var(--color-gray-700) 25%,
+      var(--color-gray-600) 50%,
+      var(--color-gray-700) 75%
+    );
+    background-size: 200% 100%;
+  }
+}

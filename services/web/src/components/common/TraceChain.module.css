@@ -1,0 +1,207 @@
+/**
+ * [artifact:前端代码] — 溯源链组件 CSS Module
+ * BEM 命名规范：trace-chain
+ */
+
+/* ─── 容器：水平滚动区域 ─── */
+.trace-chain {
+  width: 100%;
+  overflow: hidden;
+}
+
+.trace-chain__scroll {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0;
+  overflow-x: auto;
+  padding: var(--space-4) var(--space-2) var(--space-4) var(--space-4);
+  /* 滚动条样式（WebKit） */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-gray-300) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+.trace-chain__scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.trace-chain__scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.trace-chain__scroll::-webkit-scrollbar-thumb {
+  background: var(--color-gray-300);
+  border-radius: var(--radius-full);
+}
+
+/* ─── 单个节点+箭头组合 ─── */
+.trace-chain__item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* ─── 节点间箭头 ─── */
+.trace-chain__arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  flex-shrink: 0;
+  color: var(--color-gray-400);
+}
+
+/* ─── 节点卡片（基础） ─── */
+.trace-chain__node-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-card);
+  border: 2px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  min-width: 140px;
+  max-width: 180px;
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+  position: relative;
+}
+
+.trace-chain__node-card:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+/* 状态变体：ok = 绿色实线边框 */
+.trace-chain__node-card--ok {
+  border-color: var(--color-success-500);
+  background: var(--color-success-50);
+}
+
+/* 状态变体：warning = 黄色实线边框 */
+.trace-chain__node-card--warning {
+  border-color: var(--color-warning-500);
+  background: var(--color-warning-50);
+}
+
+/* 状态变体：error = 红色实线边框 */
+.trace-chain__node-card--error {
+  border-color: var(--color-error-500);
+  background: var(--color-error-50);
+}
+
+/* 缺失节点：灰色虚线边框 */
+.trace-chain__node-card--missing {
+  border-style: dashed;
+  border-color: var(--color-gray-300);
+  background: var(--color-gray-50);
+  opacity: 0.7;
+}
+
+/* ─── 节点头部（图标 + 类型标签） ─── */
+.trace-chain__node-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.trace-chain__node-icon {
+  font-size: 1.125rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.trace-chain__node-type {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* ─── 节点主标签 ─── */
+.trace-chain__node-label {
+  font-size: var(--text-body-m);
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+/* ─── 节点详情 ─── */
+.trace-chain__node-detail {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+/* ─── 时间戳 ─── */
+.trace-chain__node-time {
+  font-size: var(--text-caption);
+  color: var(--text-disabled);
+  font-family: var(--font-family-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── 状态徽标 ─── */
+.trace-chain__status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  align-self: flex-start;
+  line-height: 1.4;
+}
+
+.trace-chain__status-badge--ok {
+  background: var(--color-success-100);
+  color: var(--color-success-700);
+}
+
+.trace-chain__status-badge--warning {
+  background: var(--color-warning-100);
+  color: var(--color-warning-700);
+}
+
+.trace-chain__status-badge--error {
+  background: var(--color-error-100);
+  color: var(--color-error-700);
+}
+
+/* ─── 空状态 ─── */
+.trace-chain--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8);
+}
+
+.trace-chain__empty-text {
+  font-size: var(--text-body-m);
+  color: var(--text-disabled);
+}
+
+/* ─── 响应式：小屏幕不强制最小宽度 ─── */
+@media (max-width: 640px) {
+  .trace-chain__node-card {
+    min-width: 120px;
+    max-width: 150px;
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .trace-chain__arrow {
+    width: 24px;
+  }
+
+  .trace-chain__scroll {
+    padding: var(--space-3) var(--space-2) var(--space-3) var(--space-2);
+  }
+}

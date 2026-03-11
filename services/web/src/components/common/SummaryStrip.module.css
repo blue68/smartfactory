@@ -1,0 +1,64 @@
+/**
+ * [artifact:前端代码] — SummaryStrip 水平统计摘要栏样式
+ */
+
+.summary_strip {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-0);
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  box-shadow: var(--shadow-xs);
+}
+
+.summary_strip__item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  position: relative;
+}
+
+/* 分隔线 */
+.summary_strip__item + .summary_strip__item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 20%;
+  height: 60%;
+  width: 1px;
+  background: var(--border-default);
+}
+
+.summary_strip__item--highlight .summary_strip__value {
+  color: var(--color-primary-600);
+}
+
+.summary_strip__label {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.summary_strip__value_row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.summary_strip__value {
+  font-family: var(--font-family-number);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-number-m);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.summary_strip__unit {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+}

@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智造管家 — SKU主数据管理</title>
+  <style>
+    /* ===== Design Tokens ===== */
+    :root {
+      --color-primary-50: #EFF6FF; --color-primary-100: #DBEAFE;
+      --color-primary-500: #3B82F6; --color-primary-600: #2563EB; --color-primary-700: #1D4ED8;
+      --color-accent-50: #FFF7ED; --color-accent-500: #F97316; --color-accent-600: #EA580C;
+      --color-success-50: #F0FDF4; --color-success-100: #DCFCE7;
+      --color-success-500: #22C55E; --color-success-600: #16A34A; --color-success-700: #15803D;
+      --color-warning-50: #FFFBEB; --color-warning-100: #FEF3C7;
+      --color-warning-500: #F59E0B; --color-warning-600: #D97706; --color-warning-700: #B45309;
+      --color-error-50: #FEF2F2; --color-error-100: #FEE2E2;
+      --color-error-500: #EF4444; --color-error-600: #DC2626; --color-error-700: #B91C1C;
+      --color-stagnant-100: #EDE9FE; --color-stagnant-500: #8B5CF6; --color-stagnant-600: #7C3AED;
+      --color-gray-0: #FFFFFF; --color-gray-50: #F8FAFC; --color-gray-100: #F1F5F9;
+      --color-gray-200: #E2E8F0; --color-gray-300: #CBD5E1; --color-gray-400: #94A3B8;
+      --color-gray-500: #64748B; --color-gray-600: #475569; --color-gray-700: #334155;
+      --color-gray-800: #1E293B; --color-gray-900: #0F172A;
+      --bg-page: #F8FAFC; --bg-card: #FFFFFF; --bg-sidebar: #1E293B;
+      --text-sidebar: #CBD5E1; --bg-sidebar-active: #2563EB;
+      --text-primary: #1E293B; --text-secondary: #64748B; --text-disabled: #94A3B8;
+      --border-default: #E2E8F0; --border-strong: #CBD5E1;
+      --font-family-base: "PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --font-family-number: "DIN Alternate","Roboto Mono",var(--font-family-base);
+      --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;
+      --space-5:1.25rem;--space-6:1.5rem;--space-8:2rem;
+      --layout-sidebar-width:240px;--layout-header-height:64px;
+      --layout-page-padding:24px;--layout-card-gap:16px;
+      --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:16px;--radius-full:9999px;
+      --shadow-xs:0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --transition-fast:150ms ease;--transition-base:200ms ease;--transition-slow:300ms ease;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{font-size:16px;}
+    body{font-family:var(--font-family-base);background:var(--bg-page);color:var(--text-primary);min-height:100vh;display:flex;}
+
+    /* ===== Sidebar ===== */
+    .sidebar{width:var(--layout-sidebar-width);background:var(--bg-sidebar);min-height:100vh;position:fixed;top:0;left:0;display:flex;flex-direction:column;z-index:100;}
+    .sidebar__logo{height:var(--layout-header-height);display:flex;align-items:center;padding:0 var(--space-6);border-bottom:1px solid rgba(255,255,255,.08);}
+    .sidebar__logo-mark{width:32px;height:32px;background:var(--color-primary-500);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:1rem;color:#fff;font-weight:800;margin-right:var(--space-3);flex-shrink:0;}
+    .sidebar__logo-text{font-size:1rem;font-weight:700;color:#fff;}
+    .sidebar__logo-sub{font-size:.6875rem;color:rgba(255,255,255,.45);}
+    .sidebar__nav{padding:var(--space-4) 0;flex:1;}
+    .sidebar__section-label{font-size:.625rem;font-weight:600;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.1em;padding:var(--space-3) var(--space-6) var(--space-2);}
+    .sidebar__item{display:flex;align-items:center;gap:var(--space-3);padding:.65rem var(--space-6);color:var(--text-sidebar);font-size:.9375rem;cursor:pointer;transition:background var(--transition-fast),color var(--transition-fast);text-decoration:none;border-left:3px solid transparent;}
+    .sidebar__item:hover{background:rgba(255,255,255,.06);color:#fff;}
+    .sidebar__item--active{background:rgba(37,99,235,.25);color:#fff;border-left-color:var(--color-primary-500);}
+    .sidebar__item-icon{font-size:1rem;width:20px;text-align:center;flex-shrink:0;}
+
+    /* ===== Main ===== */
+    .main-wrapper{margin-left:var(--layout-sidebar-width);flex:1;display:flex;flex-direction:column;min-height:100vh;}
+    .top-header{height:var(--layout-header-height);background:var(--bg-card);border-bottom:1px solid var(--border-default);display:flex;align-items:center;padding:0 var(--layout-page-padding);gap:var(--space-4);position:sticky;top:0;z-index:50;}
+    .breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:.875rem;color:var(--text-secondary);}
+    .breadcrumb__sep{color:var(--color-gray-300);}
+    .breadcrumb__current{color:var(--text-primary);font-weight:600;}
+    .breadcrumb__link{cursor:pointer;}
+    .breadcrumb__link:hover{color:var(--color-primary-600);text-decoration:underline;}
+    .header-actions{margin-left:auto;display:flex;gap:var(--space-3);align-items:center;}
+    .page-content{padding:var(--layout-page-padding);flex:1;}
+
+    /* ===== Buttons ===== */
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:36px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:.875rem;font-weight:600;font-family:var(--font-family-base);cursor:pointer;border:none;transition:background var(--transition-fast),transform var(--transition-fast);white-space:nowrap;}
+    .btn:active{transform:scale(.97);}
+    .btn--primary{background:var(--color-primary-500);color:#fff;}
+    .btn--primary:hover{background:var(--color-primary-600);}
+    .btn--ghost{background:transparent;color:var(--text-secondary);border:1.5px solid var(--border-default);}
+    .btn--ghost:hover{border-color:var(--border-strong);color:var(--text-primary);}
+    .btn--secondary{background:var(--color-gray-100);color:var(--text-primary);border:1.5px solid var(--border-default);}
+    .btn--secondary:hover{background:var(--color-gray-200);}
+    .btn--sm{height:28px;padding:0 var(--space-3);font-size:.8125rem;}
+    .btn--danger{background:var(--color-error-500);color:#fff;}
+    .btn--danger:hover{background:var(--color-error-600);}
+
+    /* ===== Toolbar ===== */
+    .toolbar{display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);flex-wrap:wrap;}
+    .search-box{position:relative;flex:0 0 280px;}
+    .search-box__input{width:100%;height:36px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3) 0 2.25rem;font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);background:var(--bg-card);}
+    .search-box__input:focus{outline:none;border-color:var(--color-primary-500);box-shadow:0 0 0 3px rgba(59,130,246,.12);}
+    .search-box__icon{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);color:var(--text-disabled);font-size:.9375rem;pointer-events:none;}
+    .filter-select{height:36px;padding:0 2rem 0 var(--space-3);border:1.5px solid var(--border-default);border-radius:var(--radius-md);background:var(--bg-card);font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;}
+    .toolbar__spacer{flex:1;}
+
+    /* ===== Summary Strip ===== */
+    .summary-strip{display:flex;align-items:center;gap:var(--space-6);background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-4) var(--space-5);margin-bottom:var(--layout-card-gap);box-shadow:var(--shadow-xs);}
+    .summary-item{display:flex;flex-direction:column;gap:2px;}
+    .summary-item__label{font-size:.75rem;color:var(--text-secondary);}
+    .summary-item__value{font-size:1.25rem;font-weight:800;font-family:var(--font-family-number);color:var(--text-primary);}
+    .summary-item__value--rm{color:var(--color-primary-600);}
+    .summary-item__value--wip{color:var(--color-accent-600);}
+    .summary-item__value--fg{color:var(--color-success-600);}
+    .summary-divider{width:1px;height:36px;background:var(--border-default);}
+    .summary-alert{margin-left:auto;display:flex;gap:var(--space-4);align-items:center;}
+    .summary-alert__item{display:flex;align-items:center;gap:var(--space-2);font-size:.8125rem;padding:var(--space-2) var(--space-3);border-radius:var(--radius-md);}
+    .summary-alert__item--warn{background:var(--color-warning-50);color:var(--color-warning-700);}
+    .summary-alert__item--error{background:var(--color-error-50);color:var(--color-error-600);}
+
+    /* ===== Table Card ===== */
+    .table-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+    .data-table{width:100%;border-collapse:collapse;}
+    .data-table thead tr{background:var(--color-gray-50);border-bottom:1px solid var(--border-default);}
+    .data-table th{padding:var(--space-3) var(--space-4);font-size:.8125rem;font-weight:600;color:var(--text-secondary);text-align:left;white-space:nowrap;}
+    .data-table th:first-child{width:44px;text-align:center;}
+    .data-table td{padding:var(--space-4);font-size:.9375rem;color:var(--text-primary);border-bottom:1px solid var(--border-default);vertical-align:middle;}
+    .data-table tbody tr:last-child td{border-bottom:none;}
+    .data-table tbody tr{transition:background var(--transition-fast);}
+    .data-table tbody tr:hover{background:var(--color-gray-50);}
+    .data-table td:first-child{text-align:center;}
+    input[type="checkbox"]{width:16px;height:16px;cursor:pointer;accent-color:var(--color-primary-500);}
+
+    /* ===== SKU Code ===== */
+    .sku-code{font-family:var(--font-family-number);font-size:.875rem;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);display:inline-block;}
+    .sku-code--rm{background:var(--color-primary-50);color:var(--color-primary-700);}
+    .sku-code--wip{background:var(--color-accent-50);color:var(--color-accent-600);}
+    .sku-code--fg{background:var(--color-success-50);color:var(--color-success-700);}
+
+    /* ===== Tags ===== */
+    .tag{display:inline-flex;align-items:center;gap:4px;font-size:.6875rem;font-weight:600;padding:2px 8px;border-radius:var(--radius-full);white-space:nowrap;}
+    .tag--rm{background:var(--color-primary-50);color:var(--color-primary-700);}
+    .tag--wip{background:var(--color-accent-50);color:var(--color-accent-600);}
+    .tag--fg{background:var(--color-success-50);color:var(--color-success-700);}
+    .tag--dye-lot{background:var(--color-warning-100);color:var(--color-warning-700);border:1px solid var(--color-warning-300);}
+    .tag--warn{background:var(--color-warning-50);color:var(--color-warning-700);}
+    .tag--error{background:var(--color-error-50);color:var(--color-error-600);}
+
+    /* ===== 二级品类标签颜色体系 v1.1 ===== */
+    /* 原材料 8 类 */
+    .tag--sub-board    {background:#FDF3E7;color:#92400E;border:1px solid #F6D5A8;}
+    .tag--sub-hardware {background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;}
+    .tag--sub-fabric   {background:#F5F3FF;color:#5B21B6;border:1px solid #DDD6FE;}
+    .tag--sub-foam     {background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;}
+    .tag--sub-paint    {background:#FEFCE8;color:#854D0E;border:1px solid #FDE68A;}
+    .tag--sub-adhesive {background:#FFF1F2;color:#9F1239;border:1px solid #FECDD3;}
+    .tag--sub-pack     {background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;}
+    .tag--sub-other    {background:#F8FAFC;color:#64748B;border:1px solid #E2E8F0;}
+    /* 半成品 3 类 */
+    .tag--sub-frame    {background:#FFF7ED;color:#C2410C;border:1px solid #FED7AA;}
+    .tag--sub-cover    {background:#FDF4FF;color:#7E22CE;border:1px solid #E9D5FF;}
+    .tag--sub-assembly {background:#F0F9FF;color:#0369A1;border:1px solid #BAE6FD;}
+    /* 成品 5 类 */
+    .tag--sub-sofa     {background:#FFF0F9;color:#9D174D;border:1px solid #FBCFE8;}
+    .tag--sub-cabinet  {background:#F0FDF4;color:#166534;border:1px solid #BBF7D0;}
+    .tag--sub-table    {background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;}
+    .tag--sub-bed      {background:#EFF6FF;color:#1D4ED8;border:1px solid #93C5FD;}
+    .tag--sub-custom   {background:#F8FAFC;color:#334155;border:1px solid #CBD5E1;}
+    /* 未分类 */
+    .tag--sub-none     {background:#FEF2F2;color:#B91C1C;border:1px solid #FECACA;}
+
+    /* ===== 批量补录提示条 ===== */
+    .backfill-banner{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:#FFFBEB;border:1px solid #FDE68A;border-radius:var(--radius-md);margin-bottom:var(--layout-card-gap);font-size:.875rem;color:var(--color-warning-700);}
+    .backfill-banner__icon{font-size:1rem;flex-shrink:0;}
+    .backfill-banner__text{flex:1;}
+    .backfill-banner__text strong{font-weight:700;}
+    .backfill-banner__btn{height:28px;padding:0 var(--space-3);border:1px solid var(--color-warning-500);background:transparent;border-radius:var(--radius-md);font-size:.8125rem;font-weight:600;color:var(--color-warning-700);cursor:pointer;font-family:var(--font-family-base);white-space:nowrap;transition:background var(--transition-fast);}
+    .backfill-banner__btn:hover{background:var(--color-warning-100);}
+
+    .sku-name-cell{display:flex;flex-direction:column;gap:4px;}
+    .sku-name-cell__name{font-weight:600;color:var(--text-primary);}
+    .sku-name-cell__spec{font-size:.8125rem;color:var(--text-secondary);}
+    .sku-name-cell__tags{display:flex;gap:var(--space-2);flex-wrap:wrap;margin-top:2px;}
+
+    .stock-zero{color:var(--text-disabled);}
+
+    /* ===== Batch Actions ===== */
+    .batch-bar{display:flex;align-items:center;gap:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-primary-50);border-top:1px solid var(--color-primary-100);}
+    .batch-bar__check-all{font-size:.875rem;color:var(--color-primary-700);cursor:pointer;}
+    .batch-bar__actions{display:flex;gap:var(--space-2);}
+
+    /* ===== Table Footer ===== */
+    .table-footer{padding:var(--space-4);border-top:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between;font-size:.875rem;color:var(--text-secondary);}
+    .pagination{display:flex;gap:var(--space-1);}
+    .page-btn{width:32px;height:32px;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--bg-card);font-size:.875rem;color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background var(--transition-fast);}
+    .page-btn:hover{background:var(--color-gray-100);}
+    .page-btn--active{background:var(--color-primary-500);color:#fff;border-color:var(--color-primary-500);}
+
+    /* ===== Right Drawer ===== */
+    .drawer-overlay{position:fixed;inset:0;background:rgba(15,23,42,.4);z-index:200;opacity:0;pointer-events:none;transition:opacity var(--transition-slow);}
+    .drawer-overlay--on{opacity:1;pointer-events:auto;}
+    .drawer{position:fixed;top:0;right:0;width:480px;height:100vh;background:var(--bg-card);box-shadow:var(--shadow-lg);z-index:201;transform:translateX(100%);transition:transform .32s cubic-bezier(.32,.72,0,1);display:flex;flex-direction:column;overflow:hidden;}
+    .drawer--on{transform:translateX(0);}
+    .drawer__header{height:56px;border-bottom:1px solid var(--border-default);display:flex;align-items:center;padding:0 var(--space-6);gap:var(--space-3);flex-shrink:0;}
+    .drawer__title{font-size:1rem;font-weight:700;color:var(--text-primary);flex:1;}
+    .drawer__close{width:28px;height:28px;border:none;background:transparent;cursor:pointer;color:var(--text-secondary);font-size:1.125rem;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-md);transition:background var(--transition-fast);}
+    .drawer__close:hover{background:var(--color-gray-100);color:var(--text-primary);}
+    .drawer__body{flex:1;overflow-y:auto;padding:var(--space-6);}
+    .drawer__body::-webkit-scrollbar{width:4px;}
+    .drawer__body::-webkit-scrollbar-thumb{background:var(--color-gray-300);border-radius:var(--radius-full);}
+    .drawer__footer{border-top:1px solid var(--border-default);padding:var(--space-4) var(--space-6);display:flex;justify-content:flex-end;gap:var(--space-3);flex-shrink:0;}
+
+    /* ===== Form ===== */
+    .form-section{margin-bottom:var(--space-6);}
+    .form-section__title{font-size:.875rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:var(--space-4);padding-bottom:var(--space-2);border-bottom:1px solid var(--border-default);}
+    .form-group{margin-bottom:var(--space-4);}
+    .form-label{display:block;font-size:.875rem;font-weight:600;color:var(--text-secondary);margin-bottom:var(--space-2);}
+    .form-label--required::after{content:" *";color:var(--color-error-500);}
+    .form-input,.form-select{width:100%;height:40px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3);font-size:.9375rem;font-family:var(--font-family-base);color:var(--text-primary);background:var(--bg-card);transition:border-color var(--transition-fast),box-shadow var(--transition-fast);}
+    .form-input:focus,.form-select:focus{outline:none;border-color:var(--color-primary-500);box-shadow:0 0 0 3px rgba(59,130,246,.12);}
+    .form-input--readonly{background:var(--color-gray-50);color:var(--text-secondary);cursor:not-allowed;}
+    .form-select{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .75rem center;padding-right:2rem;}
+    .form-hint{font-size:.8125rem;color:var(--text-secondary);margin-top:var(--space-1);}
+    .form-hint--warn{color:var(--color-warning-600);}
+
+    /* Radio group */
+    .radio-group{display:flex;gap:var(--space-4);align-items:center;height:40px;}
+    .radio-option{display:flex;align-items:center;gap:var(--space-2);cursor:pointer;font-size:.9375rem;color:var(--text-primary);}
+    .radio-option input[type="radio"]{display:none;}
+    .radio-option__circle{width:18px;height:18px;border:2px solid var(--border-strong);border-radius:50%;display:flex;align-items:center;justify-content:center;transition:border-color var(--transition-fast);flex-shrink:0;}
+    .radio-option__circle::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--color-primary-500);opacity:0;transform:scale(0);transition:opacity var(--transition-fast),transform var(--transition-fast);}
+    .radio-option input[type="radio"]:checked~.radio-option__circle{border-color:var(--color-primary-500);}
+    .radio-option input[type="radio"]:checked~.radio-option__circle::after{opacity:1;transform:scale(1);}
+
+    /* Multi-unit config box */
+    .unit-config-box{background:var(--color-gray-50);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-4);}
+    .unit-config-row{display:grid;grid-template-columns:80px 1fr 80px 1fr;gap:var(--space-3);align-items:center;margin-bottom:var(--space-3);}
+    .unit-config-row:last-of-type{margin-bottom:0;}
+    .unit-config-row__label{font-size:.8125rem;font-weight:600;color:var(--text-secondary);white-space:nowrap;}
+    .unit-preview{margin-top:var(--space-3);padding:var(--space-3);background:var(--color-primary-50);border:1px solid var(--color-primary-100);border-radius:var(--radius-md);font-size:.875rem;color:var(--color-primary-700);}
+
+    /* Checkbox */
+    .checkbox-option{display:flex;align-items:center;gap:var(--space-2);cursor:pointer;font-size:.9375rem;margin-bottom:var(--space-3);}
+    .checkbox-option input[type="checkbox"]{width:16px;height:16px;accent-color:var(--color-primary-500);cursor:pointer;}
+
+    /* ===== Import Modal ===== */
+    .modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:300;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity var(--transition-slow);}
+    .modal-overlay--on{opacity:1;pointer-events:auto;}
+    .modal{background:var(--bg-card);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:700px;max-width:calc(100vw - 2rem);max-height:calc(100vh - 4rem);overflow-y:auto;transform:translateY(16px) scale(.97);transition:transform var(--transition-slow);}
+    .modal-overlay--on .modal{transform:translateY(0) scale(1);}
+    .modal__header{padding:var(--space-5) var(--space-6) var(--space-4);border-bottom:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-3);}
+    .modal__title{font-size:1.0625rem;font-weight:700;color:var(--text-primary);flex:1;}
+    .modal__close{width:28px;height:28px;border:none;background:transparent;cursor:pointer;color:var(--text-secondary);font-size:1rem;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-md);transition:background var(--transition-fast);}
+    .modal__close:hover{background:var(--color-gray-100);}
+    .modal__body{padding:var(--space-6);}
+    .modal__footer{padding:var(--space-4) var(--space-6);border-top:1px solid var(--border-default);display:flex;justify-content:flex-end;gap:var(--space-3);}
+
+    /* Stepper */
+    .stepper{display:flex;align-items:center;gap:0;margin-bottom:var(--space-6);}
+    .stepper__step{display:flex;align-items:center;gap:var(--space-2);}
+    .stepper__circle{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.8125rem;font-weight:700;flex-shrink:0;}
+    .stepper__circle--done{background:var(--color-success-500);color:#fff;}
+    .stepper__circle--active{background:var(--color-primary-500);color:#fff;}
+    .stepper__circle--pending{background:var(--color-gray-200);color:var(--text-disabled);}
+    .stepper__label{font-size:.875rem;font-weight:600;}
+    .stepper__label--done{color:var(--color-success-600);}
+    .stepper__label--active{color:var(--color-primary-600);}
+    .stepper__label--pending{color:var(--text-disabled);}
+    .stepper__line{flex:1;height:2px;background:var(--border-default);margin:0 var(--space-3);}
+    .stepper__line--done{background:var(--color-success-500);}
+
+    /* Field mapping table */
+    .mapping-table{width:100%;border-collapse:collapse;margin-bottom:var(--space-4);}
+    .mapping-table th{padding:var(--space-3) var(--space-4);font-size:.8125rem;font-weight:600;color:var(--text-secondary);background:var(--color-gray-50);border-bottom:1px solid var(--border-default);text-align:left;}
+    .mapping-table td{padding:var(--space-3) var(--space-4);font-size:.9375rem;border-bottom:1px solid var(--border-default);vertical-align:middle;}
+    .mapping-table tr:last-child td{border-bottom:none;}
+    .mapping-status{display:inline-flex;align-items:center;gap:4px;font-size:.8125rem;font-weight:600;padding:2px 8px;border-radius:var(--radius-full);}
+    .mapping-status--ok{background:var(--color-success-50);color:var(--color-success-700);}
+    .mapping-status--warn{background:var(--color-warning-50);color:var(--color-warning-700);}
+    .mapping-status--none{background:var(--color-gray-100);color:var(--text-disabled);}
+
+    /* Preview row */
+    .import-preview{display:flex;align-items:center;gap:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-gray-50);border:1px solid var(--border-default);border-radius:var(--radius-md);font-size:.875rem;margin-top:var(--space-4);}
+    .import-preview__ok{color:var(--color-success-600);font-weight:600;}
+    .import-preview__warn{color:var(--color-warning-600);}
+
+    /* Toast */
+    .toast{position:fixed;bottom:2rem;left:50%;transform:translateX(-50%) translateY(10px);background:var(--color-gray-800);color:#fff;padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);font-size:.9375rem;font-weight:500;box-shadow:var(--shadow-md);z-index:400;opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;white-space:nowrap;}
+    .toast--on{opacity:1;transform:translateX(-50%) translateY(0);}
+
+    @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+    .animate-fadein{animation:fadeIn .2s ease both;}
+  </style>
+</head>
+<body>
+
+<aside class="sidebar" role="navigation" aria-label="主导航">
+  <div class="sidebar__logo">
+    <div class="sidebar__logo-mark">智</div>
+    <div><div class="sidebar__logo-text">智造管家</div><div class="sidebar__logo-sub">SmartFactory Agent</div></div>
+  </div>
+  <nav class="sidebar__nav">
+    <div class="sidebar__section-label">核心功能</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128200;</span>驾驶舱</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128203;</span>销售订单</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128230;</span>采购管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#127981;</span>生产排产</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128447;</span>库存管理</a>
+    <div class="sidebar__section-label" style="margin-top:var(--space-4);">基础数据</div>
+    <a class="sidebar__item sidebar__item--active" href="#"><span class="sidebar__item-icon">&#128193;</span>SKU主数据</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128196;</span>BOM管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#9881;</span>工序配置</a>
+  </nav>
+</aside>
+
+<div class="main-wrapper">
+  <header class="top-header">
+    <nav class="breadcrumb" aria-label="面包屑">
+      <span class="breadcrumb__link">基础数据</span>
+      <span class="breadcrumb__sep">›</span>
+      <span class="breadcrumb__current">SKU主数据</span>
+    </nav>
+    <div class="header-actions">
+      <span style="font-size:.8125rem;color:var(--text-secondary);">共 1,023 个SKU</span>
+    </div>
+  </header>
+
+  <main class="page-content">
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="search-box">
+        <span class="search-box__icon">&#128269;</span>
+        <input class="search-box__input" type="text" placeholder="搜索SKU编码 / 名称 / 规格…" id="searchInput" oninput="filterTable()">
+      </div>
+      <select class="filter-select" id="catFilter" onchange="filterTable(); syncSubCatFilter(this.value)" aria-label="筛选一级分类">
+        <option value="">全部分类</option>
+        <option value="rm">原材料</option>
+        <option value="wip">半成品</option>
+        <option value="fg">成品</option>
+      </select>
+      <select class="filter-select" id="subCatFilter" onchange="filterTable()" aria-label="筛选二级品类">
+        <option value="">全部二级品类</option>
+        <optgroup label="原材料" id="optgrp-rm">
+          <option value="rm-board">板材类</option>
+          <option value="rm-hardware">五金类</option>
+          <option value="rm-fabric">面料类</option>
+          <option value="rm-foam">海绵类</option>
+          <option value="rm-paint">油漆涂料类</option>
+          <option value="rm-adhesive">胶粘剂类</option>
+          <option value="rm-pack">包装材料类</option>
+          <option value="rm-other">其他辅料</option>
+        </optgroup>
+        <optgroup label="半成品" id="optgrp-wip">
+          <option value="wip-frame">框架类</option>
+          <option value="wip-cover">面套类</option>
+          <option value="wip-assembly">组合件类</option>
+        </optgroup>
+        <optgroup label="成品" id="optgrp-fg">
+          <option value="fg-sofa">沙发类</option>
+          <option value="fg-cabinet">柜类</option>
+          <option value="fg-table">桌类</option>
+          <option value="fg-bed">床类</option>
+          <option value="fg-custom">其他定制品</option>
+        </optgroup>
+        <option value="unclassified">未分类（待补录）</option>
+      </select>
+      <select class="filter-select" aria-label="筛选状态">
+        <option>全部状态</option>
+        <option>正常</option>
+        <option>安全库存未设置</option>
+        <option>已停用</option>
+      </select>
+      <div class="toolbar__spacer"></div>
+      <button class="btn btn--primary" onclick="openDrawer('add')">&#65291; 新增SKU</button>
+      <button class="btn btn--secondary" onclick="openModal('importModal')">&#8679; 批量导入Excel</button>
+      <button class="btn btn--ghost">&#8659; 导出</button>
+    </div>
+
+    <!-- 二级分类批量补录提示条：当存在未补录记录时展示 -->
+    <div class="backfill-banner" role="alert" id="backfillBanner">
+      <span class="backfill-banner__icon" aria-hidden="true">&#9888;</span>
+      <span class="backfill-banner__text">
+        <strong>38 个 SKU</strong> 的二级品类尚未设置（历史导入数据默认"未分类"），建议批量补录以启用品类成本分析功能。
+      </span>
+      <button class="backfill-banner__btn" onclick="showToast('&#10003; 已进入批量补录模式，请在列表中勾选相应SKU')" aria-label="批量补录二级品类">批量补录</button>
+      <button class="backfill-banner__btn" onclick="document.getElementById('backfillBanner').style.display='none'" aria-label="关闭提示" style="border:none;background:transparent;font-size:1rem;color:var(--text-secondary);padding:0 var(--space-2);">&#10005;</button>
+    </div>
+
+    <!-- Summary Strip -->
+    <div class="summary-strip">
+      <div class="summary-item">
+        <span class="summary-item__label">全部SKU</span>
+        <span class="summary-item__value">1,023</span>
+      </div>
+      <div class="summary-divider"></div>
+      <div class="summary-item">
+        <span class="summary-item__label">原材料</span>
+        <span class="summary-item__value summary-item__value--rm">654</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-item__label">半成品</span>
+        <span class="summary-item__value summary-item__value--wip">218</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-item__label">成品</span>
+        <span class="summary-item__value summary-item__value--fg">151</span>
+      </div>
+      <div class="summary-divider"></div>
+      <div class="summary-alert">
+        <div class="summary-alert__item summary-alert__item--error">&#10060; 安全库存未设置：38 个</div>
+        <div class="summary-alert__item summary-alert__item--warn">&#9888; 数据不完整：12 个</div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-card">
+      <div style="overflow-x:auto;">
+        <table class="data-table" id="skuTable">
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="checkAll" onchange="toggleAll(this)"></th>
+              <th>SKU编码</th>
+              <th>物料名称 / 规格</th>
+              <th>一级分类</th>
+              <th>二级品类</th>
+              <th>库存单位</th>
+              <th>采购单位</th>
+              <th>安全库存</th>
+              <th>当前库存</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr data-cat="rm" data-subcat="rm-board">
+              <td><input type="checkbox" class="row-check"></td>
+              <td><span class="sku-code sku-code--rm">RM-00012</span></td>
+              <td><div class="sku-name-cell"><span class="sku-name-cell__name">红橡木板</span><span class="sku-name-cell__spec">200×2400mm，厚18mm</span></div></td>
+              <td><span class="tag tag--rm">原材料</span></td>
+              <td><span class="tag tag--sub-board">板材类</span></td>
+              <td>张</td><td>张</td><td>10 张</td>
+              <td style="font-family:var(--font-family-number);font-weight:600;">8 张</td>
+              <td><div style="display:flex;gap:var(--space-2);">
+                <button class="btn btn--ghost btn--sm" onclick="openDrawer('edit','RM-00012')">编辑</button>
+                <button class="btn btn--ghost btn--sm">详情</button>
+              </div></td>
+            </tr>
+            <tr data-cat="rm" data-subcat="rm-board">
+              <td><input type="checkbox" class="row-check"></td>
+              <td><span class="sku-code sku-code--rm">RM-00013</span></td>
+              <td><div class="sku-name-cell"><span class="sku-name-cell__name">白色烤漆板</span><span class="sku-name-cell__spec">1220×2440mm</span></div></td>
+              <td><span class="tag tag--rm">原材料</span></td>
+              <td><span class="tag tag--sub-board">板材类</span></td>
+              <td>张</td><td>张</td><td>20 张</td>
+              <td style="font-family:var(--font-family-number);font-weight:600;">15 张</td>
+              <td><div style="display:flex;gap:var(--space-2);">
+                <button class="btn btn--ghost btn--sm" onclick="openDrawer('edit','RM-00013')">编辑</button>
+                <button class="btn btn--ghost btn--sm">详情</button>
+              </div></td>
+            </tr>
+            <tr data-cat="rm" data-subcat="rm-fabric">
+              <td><input type="checkbox" class="row-check"></td>
+              <td><span class="sku-code sku-code--rm">RM-00056</span></td>
+              <td><div class="sku-name-cell">
+                <span class="sku-name-cell__name">亚麻面料（米白色）</span>
+                <span class="sku-name-cell__spec">幅宽150cm，进口</span>
+                <div class="sku-name-cell__tags"><span class="tag tag--dye-lot">&#127991; 需缸号管理</span></div>
+              </div></td>
+              <td><span class="tag tag--rm">原材料</span></td>
+              <td><span class="tag tag--sub-fabric">面料类</span></td>
+              <td>m</td><td>卷</td>
+              <td><span class="tag tag--warn">&#9888; 未设置</span></td>
+              <td style="font-family:var(--font-family-number);font-weight:600;">32 m</td>
+              <td><div style="display:flex;gap:var(--space-2);">
+                <button class="btn btn--ghost btn--sm" onclick="openDrawer('edit','RM-00056')">编辑</button>
+                <button class="btn btn--ghost btn--sm">详情</button>
+              </div></td>
+            </tr>
+            <tr data-cat="rm" data-subcat="rm-fabric">
+              <td><input type="checkbox" class="row-check"></td>
+              <td><span class="sku-code sku-code--rm">RM-00089</span></td>
+              <td><div class="sku-name-cell">
+                <span class="sku-name-cell__name">头层牛皮（深棕）</span>
+                <span class="sku-name-cell__spec">幅宽约180cm，厚1.2mm</span>
+                <div class="sku-name-cell__tags"><span class="tag tag--dye-lot">&#127991; 需缸号管理</span></div>
+              </div></td>
+              <td><span class="tag tag--rm">原材料</span></td>
+              <td><span class="tag tag--sub-fabric">面料类</span></td>
+              <td>m²</td><td>张</td><td>50 m²</td>
+              <td style="font-family:var(--font-family-number);font-weight:600;">28 m²</td>
+              <td><div style="display:flex;gap:var(--space-2);">
+                <button class="btn btn--ghost btn--sm" onclick="openDrawer('edit','RM-00089')">编辑</button>
+                <button class="btn btn--ghost btn--sm">详情</button>
+              </div></td>
+            </tr>
+            <tr data-cat="wip" data-subcat="wip-assembly">
+              <td><input type="checkbox" class="row-check"></td>
+              <td><span class="sku-code sku-code--wip">WIP-00021</span></td>
+              <td><div class="sku-name-cell"><span class="sku-name-cell__name">柜体侧板（半成品）</span><span class="sku-name-cell__spec">红橡实木，已开料封边</span></div></td>
+              <td><span class="tag tag--wip">半成品</span></td>
+              <td><span class="tag tag--sub-assembly">组合件类</span></td>
+              <td>套</td><td>—</td><td>5 套</td>
+              <td style="font-family:var(--font-family-number);font-weight:600;">6 套</td>
+              <td><div style="display:flex;gap:var(--space-2);">
+                <button class="btn btn--ghost btn--sm" onclick="openDrawer('edit','WIP-00021')">编辑</button>
+                <button class="btn btn--ghost btn--sm">详情</button>
+              </div></td>
+            </tr>
+            <tr data-cat="fg" data-subcat="fg-cabinet">
+              <td><input type="checkbox" class="row-check"></td>
+              <td><span class="sku-code sku-code--fg">FG-00008</span></td>
+              <td><div class="sku-name-cell"><span class="sku-name-cell__name">红橡实木书柜 1.8m</span><span class="sku-name-cell__spec">W900×D380×H1800</span></div></td>
+              <td><span class="tag tag--fg">成品</span></td>
+              <td><span class="tag tag--sub-cabinet">柜类</span></td>
+              <td>套</td><td>套</td><td>2 套</td>
+              <td class="stock-zero" style="font-family:var(--font-family-number);font-weight:600;">0 套</td>
+              <td><div style="display:flex;gap:var(--space-2);">
+                <button class="btn btn--ghost btn--sm" onclick="openDrawer('edit','FG-00008')">编辑</button>
+                <button class="btn btn--ghost btn--sm">详情</button>
+              </div></td>
+            </tr>
+            <tr data-cat="rm" data-subcat="rm-paint">
+              <td><input type="checkbox" class="row-check"></td>
+              <td><span class="sku-code sku-code--rm">RM-00201</span></td>
+              <td><div class="sku-name-cell"><span class="sku-name-cell__name">木蜡油</span><span class="sku-name-cell__spec">0.5L/瓶，天然木蜡油</span></div></td>
+              <td><span class="tag tag--rm">原材料</span></td>
+              <td><span class="tag tag--sub-paint">油漆涂料类</span></td>
+              <td>瓶</td><td>箱</td>
+              <td><span class="tag tag--warn">&#9888; 未设置</span></td>
+              <td style="font-family:var(--font-family-number);font-weight:600;">24 瓶</td>
+              <td><div style="display:flex;gap:var(--space-2);">
+                <button class="btn btn--ghost btn--sm" onclick="openDrawer('edit','RM-00201')">编辑</button>
+                <button class="btn btn--ghost btn--sm">详情</button>
+              </div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Batch actions bar -->
+      <div class="batch-bar">
+        <span class="batch-bar__check-all" onclick="toggleAll(document.getElementById('checkAll'))">全选本页</span>
+        <span style="font-size:.875rem;color:var(--text-secondary);">批量操作：</span>
+        <div class="batch-bar__actions">
+          <button class="btn btn--secondary btn--sm" onclick="showToast('已批量设置安全库存')">设置安全库存</button>
+          <button class="btn btn--secondary btn--sm" onclick="showToast('已导出所选SKU')">导出所选</button>
+          <button class="btn btn--ghost btn--sm" onclick="showToast('已批量停用所选SKU')">批量停用</button>
+        </div>
+      </div>
+
+      <div class="table-footer">
+        <span>共 1,023 条记录，当前第 1 页</span>
+        <div class="pagination">
+          <button class="page-btn">&#8249;</button>
+          <button class="page-btn page-btn--active">1</button>
+          <button class="page-btn">2</button>
+          <button class="page-btn">3</button>
+          <span style="display:flex;align-items:center;padding:0 var(--space-2);color:var(--text-disabled);">…</span>
+          <button class="page-btn">52</button>
+          <button class="page-btn">&#8250;</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ===== Right Drawer: Add / Edit SKU ===== -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="skuDrawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+  <div class="drawer__header">
+    <span id="drawerTitle" class="drawer__title">新增SKU</span>
+    <button class="btn btn--ghost btn--sm" onclick="closeDrawer()">取消</button>
+    <button class="drawer__close" onclick="closeDrawer()" aria-label="关闭">&#10005;</button>
+  </div>
+  <div class="drawer__body">
+
+    <div class="form-section">
+      <div class="form-section__title">基本信息</div>
+
+      <div class="form-group">
+        <label class="form-label form-label--required" for="skuName">物料名称</label>
+        <input class="form-input" type="text" id="skuName" placeholder="如：红橡木板 200×2400" oninput="updateAutoCode()">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label form-label--required">物料分类（一级）</label>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="skuCat" value="rm" checked onchange="updateAutoCode(); updateSubCatOptions(this.value)">
+            <span class="radio-option__circle"></span>原材料
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="skuCat" value="wip" onchange="updateAutoCode(); updateSubCatOptions(this.value)">
+            <span class="radio-option__circle"></span>半成品
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="skuCat" value="fg" onchange="updateAutoCode(); updateSubCatOptions(this.value)">
+            <span class="radio-option__circle"></span>成品
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group" id="subCatGroup">
+        <label class="form-label form-label--required" for="skuSubCat">二级品类</label>
+        <select class="form-select" id="skuSubCat" aria-describedby="subCatHint">
+          <option value="">请先选择一级分类</option>
+        </select>
+        <span class="form-hint" id="subCatHint">二级品类为必填项，影响成本占比分析和采购建议分组。</span>
+        <div id="subCatPreview" style="display:none;margin-top:var(--space-2);"></div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="skuSpec">规格描述</label>
+        <input class="form-input" type="text" id="skuSpec" placeholder="如：200×2400mm，厚18mm">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">系统编码</label>
+        <input class="form-input form-input--readonly" type="text" id="autoCode" value="RM-01024" readonly>
+        <span class="form-hint">&#9432; 系统自动生成，不可手动修改</span>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">多单位配置</div>
+      <div class="unit-config-box">
+        <div class="unit-config-row">
+          <span class="unit-config-row__label">采购单位</span>
+          <select class="form-select" id="buyUnit" onchange="updateUnitPreview()">
+            <option>张</option><option>卷</option><option>箱</option><option>m</option><option>m²</option><option>kg</option><option>瓶</option><option>个</option><option>副</option><option>套</option>
+          </select>
+          <span></span><span></span>
+        </div>
+        <div class="unit-config-row">
+          <span class="unit-config-row__label">库存单位</span>
+          <select class="form-select" id="stockUnit" onchange="updateUnitPreview()">
+            <option>张</option><option>m</option><option>m²</option><option>kg</option><option>瓶</option><option>个</option><option>副</option><option>套</option>
+          </select>
+          <span class="unit-config-row__label">换算系数</span>
+          <input class="form-input" type="number" id="stockConv" value="1.00" min="0.001" step="0.001" oninput="updateUnitPreview()">
+        </div>
+        <div class="unit-config-row">
+          <span class="unit-config-row__label">生产领用</span>
+          <select class="form-select" id="prodUnit" onchange="updateUnitPreview()">
+            <option>mm²</option><option>张</option><option>m</option><option>m²</option><option>个</option>
+          </select>
+          <span class="unit-config-row__label">换算说明</span>
+          <input class="form-input" type="text" id="prodConvNote" value="200×2400 mm²" placeholder="尺寸或换算说明">
+        </div>
+        <div class="unit-preview" id="unitPreview">示例：1 张（采购）= 1.00 张（库存）= 200×2400 mm²（领用）</div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">安全库存</div>
+      <div class="form-group">
+        <label class="form-label" for="safeStock">安全库存量</label>
+        <div style="display:flex;align-items:center;gap:var(--space-3);">
+          <input class="form-input" type="number" id="safeStock" placeholder="0" min="0" style="width:140px;">
+          <span style="font-size:.9375rem;color:var(--text-secondary);" id="safeStockUnit">张</span>
+          <span style="font-size:.8125rem;color:var(--text-secondary);">低于此数量触发预警</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section__title">特殊属性</div>
+      <label class="checkbox-option">
+        <input type="checkbox" id="needDyeLot">
+        <span>&#127991; 需缸号管理（面料 / 皮料类物料勾选）</span>
+      </label>
+      <label class="checkbox-option">
+        <input type="checkbox" id="useFifo" checked>
+        <span>启用先进先出（FIFO）出库</span>
+      </label>
+      <div class="form-group" style="margin-top:var(--space-2);">
+        <label class="form-label" for="skuRemark">备注</label>
+        <input class="form-input" type="text" id="skuRemark" placeholder="补充说明…">
+      </div>
+    </div>
+
+  </div>
+  <div class="drawer__footer">
+    <button class="btn btn--ghost" onclick="closeDrawer()">取消</button>
+    <button class="btn btn--primary" onclick="saveDrawer()">保存SKU</button>
+  </div>
+</div>
+
+<!-- ===== Import Modal ===== -->
+<div class="modal-overlay" id="importModal" role="dialog" aria-modal="true">
+  <div class="modal">
+    <div class="modal__header">
+      <span class="modal__title">批量导入SKU主数据</span>
+      <span style="font-size:.8125rem;color:var(--text-secondary);">步骤 2 / 3</span>
+      <button class="modal__close" onclick="closeModal('importModal')" aria-label="关闭">&#10005;</button>
+    </div>
+    <div class="modal__body">
+
+      <div class="stepper">
+        <div class="stepper__step">
+          <div class="stepper__circle stepper__circle--done">&#10003;</div>
+          <span class="stepper__label stepper__label--done">下载模板</span>
+        </div>
+        <div class="stepper__line stepper__line--done"></div>
+        <div class="stepper__step">
+          <div class="stepper__circle stepper__circle--active">2</div>
+          <span class="stepper__label stepper__label--active">字段映射</span>
+        </div>
+        <div class="stepper__line"></div>
+        <div class="stepper__step">
+          <div class="stepper__circle stepper__circle--pending">3</div>
+          <span class="stepper__label stepper__label--pending">确认导入</span>
+        </div>
+      </div>
+
+      <p style="font-size:.9375rem;color:var(--text-secondary);margin-bottom:var(--space-4);">AI 已自动识别您的 Excel 字段，请确认映射关系：</p>
+
+      <table class="mapping-table">
+        <thead>
+          <tr>
+            <th>您的 Excel 列名</th>
+            <th>系统字段</th>
+            <th>匹配状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>品名</td>
+            <td>→ 物料名称</td>
+            <td><span class="mapping-status mapping-status--ok">&#10003; 已匹配</span></td>
+          </tr>
+          <tr>
+            <td>规格型号</td>
+            <td>→ 规格描述</td>
+            <td><span class="mapping-status mapping-status--ok">&#10003; 已匹配</span></td>
+          </tr>
+          <tr>
+            <td>单位</td>
+            <td>→ 采购单位</td>
+            <td><span class="mapping-status mapping-status--ok">&#10003; 已匹配</span></td>
+          </tr>
+          <tr>
+            <td>库存单位</td>
+            <td>→ 库存单位</td>
+            <td><span class="mapping-status mapping-status--ok">&#10003; 已匹配</span></td>
+          </tr>
+          <tr>
+            <td>类别</td>
+            <td>→ 物料分类</td>
+            <td><span class="mapping-status mapping-status--warn">&#9888; 请确认</span></td>
+          </tr>
+          <tr>
+            <td>最低库存</td>
+            <td>→ 安全库存量</td>
+            <td><span class="mapping-status mapping-status--ok">&#10003; 已匹配</span></td>
+          </tr>
+          <tr>
+            <td>备注</td>
+            <td>
+              <select class="form-select" style="height:32px;font-size:.8125rem;">
+                <option value="">请选择系统字段</option>
+                <option>备注</option>
+                <option>规格描述</option>
+              </select>
+            </td>
+            <td><span class="mapping-status mapping-status--none">○ 未映射</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="import-preview">
+        <span>共检测到 <strong>524</strong> 行数据</span>
+        <span class="import-preview__ok">&#10003; 无错误行</span>
+        <span class="import-preview__warn">&#9888; 12 行分类值需确认</span>
+        <button class="btn btn--ghost btn--sm" style="margin-left:auto;">查看详细预览</button>
+      </div>
+
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('importModal')">上一步</button>
+      <button class="btn btn--primary" onclick="importConfirm()">下一步：确认导入</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  /* Drawer */
+  function openDrawer(mode, code) {
+    const title = document.getElementById('drawerTitle');
+    title.textContent = mode === 'add' ? '新增SKU' : `编辑SKU — ${code}`;
+    document.getElementById('drawerOverlay').classList.add('drawer-overlay--on');
+    document.getElementById('skuDrawer').classList.add('drawer--on');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeDrawer() {
+    document.getElementById('drawerOverlay').classList.remove('drawer-overlay--on');
+    document.getElementById('skuDrawer').classList.remove('drawer--on');
+    document.body.style.overflow = '';
+  }
+  function saveDrawer() {
+    closeDrawer();
+    showToast('&#10003; SKU已保存成功');
+  }
+
+  /* Auto code generation */
+  const codeMap = {rm:'RM',wip:'WIP',fg:'FG'};
+  const countMap = {rm:1024,wip:22,fg:9};
+  function updateAutoCode() {
+    const cat = document.querySelector('input[name="skuCat"]:checked').value;
+    const prefix = codeMap[cat];
+    const num = String(countMap[cat]).padStart(prefix === 'WIP' ? 5 : 5,'0');
+    document.getElementById('autoCode').value = `${prefix}-${num}`;
+    document.getElementById('safeStockUnit').textContent = document.getElementById('stockUnit').value || '张';
+  }
+
+  /* Unit preview */
+  function updateUnitPreview() {
+    const buy = document.getElementById('buyUnit').value;
+    const stock = document.getElementById('stockUnit').value;
+    const conv = parseFloat(document.getElementById('stockConv').value) || 1;
+    const prod = document.getElementById('prodUnit').value;
+    const note = document.getElementById('prodConvNote').value;
+    document.getElementById('unitPreview').textContent =
+      `示例：1 ${buy}（采购）= ${conv.toFixed(2)} ${stock}（库存）= ${note}（${prod} 领用）`;
+    document.getElementById('safeStockUnit').textContent = stock;
+  }
+
+  /* ===== 二级品类联动数据 ===== */
+  var SUB_CAT_OPTIONS = {
+    rm: [
+      {value:'rm-board',    label:'板材类',    cls:'tag--sub-board'},
+      {value:'rm-hardware', label:'五金类',    cls:'tag--sub-hardware'},
+      {value:'rm-fabric',   label:'面料类',    cls:'tag--sub-fabric'},
+      {value:'rm-foam',     label:'海绵类',    cls:'tag--sub-foam'},
+      {value:'rm-paint',    label:'油漆涂料类', cls:'tag--sub-paint'},
+      {value:'rm-adhesive', label:'胶粘剂类',  cls:'tag--sub-adhesive'},
+      {value:'rm-pack',     label:'包装材料类', cls:'tag--sub-pack'},
+      {value:'rm-other',    label:'其他辅料',  cls:'tag--sub-other'}
+    ],
+    wip: [
+      {value:'wip-frame',    label:'框架类',  cls:'tag--sub-frame'},
+      {value:'wip-cover',    label:'面套类',  cls:'tag--sub-cover'},
+      {value:'wip-assembly', label:'组合件类', cls:'tag--sub-assembly'}
+    ],
+    fg: [
+      {value:'fg-sofa',    label:'沙发类',   cls:'tag--sub-sofa'},
+      {value:'fg-cabinet', label:'柜类',     cls:'tag--sub-cabinet'},
+      {value:'fg-table',   label:'桌类',     cls:'tag--sub-table'},
+      {value:'fg-bed',     label:'床类',     cls:'tag--sub-bed'},
+      {value:'fg-custom',  label:'其他定制品', cls:'tag--sub-custom'}
+    ]
+  };
+
+  /* 抽屉表单：一级分类切换时联动更新二级品类下拉 */
+  function updateSubCatOptions(cat) {
+    var sel = document.getElementById('skuSubCat');
+    var opts = SUB_CAT_OPTIONS[cat] || [];
+    sel.innerHTML = '<option value="">请选择二级品类</option>';
+    opts.forEach(function(o) {
+      var opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.label;
+      sel.appendChild(opt);
+    });
+    // 选中时预览标签色
+    sel.onchange = function() {
+      var preview = document.getElementById('subCatPreview');
+      var found = opts.find(function(o){ return o.value === sel.value; });
+      if (found) {
+        preview.innerHTML = '预览：<span class="tag ' + found.cls + '">' + found.label + '</span>';
+        preview.style.display = 'block';
+      } else {
+        preview.style.display = 'none';
+      }
+    };
+  }
+
+  /* 筛选器：一级分类切换时联动过滤二级品类选项 */
+  function syncSubCatFilter(cat1Val) {
+    var sel2 = document.getElementById('subCatFilter');
+    var allOpts = sel2.querySelectorAll('option, optgroup');
+    // 重置：全部显示
+    allOpts.forEach(function(el) { el.style.display = ''; });
+    sel2.value = '';
+    if (!cat1Val) return;
+    // 隐藏不属于当前一级的 optgroup
+    var grpMap = {rm:'optgrp-rm', wip:'optgrp-wip', fg:'optgrp-fg'};
+    ['rm','wip','fg'].forEach(function(k) {
+      var grp = document.getElementById('optgrp-' + k);
+      if (grp) grp.style.display = (k === cat1Val) ? '' : 'none';
+    });
+  }
+
+  /* Table filter — 支持一级 + 二级品类双重筛选 */
+  function filterTable() {
+    var q      = document.getElementById('searchInput').value.toLowerCase();
+    var cat    = document.getElementById('catFilter').value;
+    var subcat = document.getElementById('subCatFilter').value;
+    document.querySelectorAll('#skuTable tbody tr').forEach(function(tr) {
+      var text    = tr.textContent.toLowerCase();
+      var trCat   = tr.dataset.cat    || '';
+      var trSub   = tr.dataset.subcat || '';
+      var matchQ      = !q      || text.includes(q);
+      var matchCat    = !cat    || trCat  === cat;
+      var matchSubcat = !subcat || trSub  === subcat || subcat === 'unclassified' && !trSub;
+      tr.style.display = (matchQ && matchCat && matchSubcat) ? '' : 'none';
+    });
+  }
+
+  /* 初始化：页面加载后触发一次二级下拉填充（默认原材料） */
+  document.addEventListener('DOMContentLoaded', function() {
+    updateSubCatOptions('rm');
+  });
+
+  /* Check all */
+  function toggleAll(cb) {
+    document.querySelectorAll('.row-check').forEach(c => c.checked = cb.checked);
+    document.getElementById('checkAll').checked = cb.checked;
+  }
+
+  /* Modal */
+  function openModal(id) {
+    document.getElementById(id).classList.add('modal-overlay--on');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('modal-overlay--on');
+    document.body.style.overflow = '';
+  }
+  function importConfirm() {
+    closeModal('importModal');
+    showToast('&#10003; 成功导入 512 条，跳过重复 8 条，错误 4 条');
+  }
+
+  /* Toast */
+  let toastTimer;
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerHTML = msg;
+    t.classList.add('toast--on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('toast--on'), 2600);
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      closeDrawer();
+      document.querySelectorAll('.modal-overlay--on').forEach(m => closeModal(m.id));
+    }
+  });
+</script>
+</body>
+</html>

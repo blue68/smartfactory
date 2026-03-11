@@ -1,0 +1,122 @@
+.page { display: flex; flex-direction: column; gap: var(--space-5); }
+
+/* 筛选栏 */
+.filter_bar {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.filter_search {
+  flex: 1;
+  min-width: 220px;
+  height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.filter_search:focus { border-color: var(--border-focus); }
+.filter_select {
+  height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+.filter_select:focus { border-color: var(--border-focus); }
+
+/* SKU 表单 */
+.sku_form { display: flex; flex-direction: column; gap: var(--space-4); }
+.form_row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.form_field { display: flex; flex-direction: column; gap: var(--space-2); }
+.form_label { font-size: var(--text-label); font-weight: 500; color: var(--text-secondary); }
+.required { color: var(--color-error-500); }
+.form_input {
+  height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  width: 100%;
+  transition: border-color var(--transition-fast);
+}
+.form_input:focus { border-color: var(--border-focus); }
+.form_input:disabled { background: var(--color-gray-100); color: var(--text-secondary); cursor: not-allowed; }
+
+/* 单位换算表单 */
+.conversion_form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.conversion_hint {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-gray-50);
+  border-radius: var(--radius-sm);
+  line-height: 1.6;
+}
+.conversion_header {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 32px;
+  gap: var(--space-2);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  padding: 0 var(--space-1);
+}
+.conversion_row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 32px;
+  gap: var(--space-2);
+  align-items: center;
+}
+.conversion_input {
+  height: 36px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  width: 100%;
+  transition: border-color var(--transition-fast);
+}
+.conversion_input:focus { border-color: var(--border-focus); }
+.conversion_remove {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+.conversion_remove:hover:not(:disabled) { background: var(--color-error-50); color: var(--color-error-600); border-color: var(--color-error-300); }
+.conversion_remove:disabled { opacity: 0.3; cursor: not-allowed; }
+
+@media (max-width: 640px) {
+  .form_row { grid-template-columns: 1fr; }
+}

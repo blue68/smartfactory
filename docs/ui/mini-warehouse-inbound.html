@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>智造管家 — 小程序入库</title>
+  <style>
+    /* ===== Design Tokens ===== */
+    :root {
+      --color-primary-50: #EFF6FF;
+      --color-primary-100: #DBEAFE;
+      --color-primary-200: #BFDBFE;
+      --color-primary-500: #3B82F6;
+      --color-primary-600: #2563EB;
+      --color-primary-700: #1D4ED8;
+      --color-accent-50: #FFF7ED;
+      --color-accent-200: #FED7AA;
+      --color-accent-300: #FDBA74;
+      --color-accent-500: #F97316;
+      --color-accent-600: #EA580C;
+      --color-success-50: #F0FDF4;
+      --color-success-100: #DCFCE7;
+      --color-success-500: #22C55E;
+      --color-success-600: #16A34A;
+      --color-success-700: #15803D;
+      --color-warning-50: #FFFBEB;
+      --color-warning-100: #FEF3C7;
+      --color-warning-300: #FCD34D;
+      --color-warning-500: #F59E0B;
+      --color-warning-600: #D97706;
+      --color-warning-700: #B45309;
+      --color-error-50: #FEF2F2;
+      --color-error-100: #FEE2E2;
+      --color-error-500: #EF4444;
+      --color-error-600: #DC2626;
+      --color-error-700: #B91C1C;
+      --color-info-50: #F0F9FF;
+      --color-info-100: #E0F2FE;
+      --color-info-300: #7DD3FC;
+      --color-info-500: #0EA5E9;
+      --color-info-600: #0284C7;
+      --color-gray-0: #FFFFFF;
+      --color-gray-50: #F8FAFC;
+      --color-gray-100: #F1F5F9;
+      --color-gray-200: #E2E8F0;
+      --color-gray-300: #CBD5E1;
+      --color-gray-400: #94A3B8;
+      --color-gray-500: #64748B;
+      --color-gray-600: #475569;
+      --color-gray-700: #334155;
+      --color-gray-800: #1E293B;
+      --color-gray-900: #0F172A;
+      --bg-page: #F1F5F9;
+      --bg-card: #FFFFFF;
+      --text-primary: #1E293B;
+      --text-secondary: #64748B;
+      --text-disabled: #94A3B8;
+      --border-default: #E2E8F0;
+      --border-strong: #CBD5E1;
+      --font-family-base: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", -apple-system, sans-serif;
+      --font-family-number: "DIN Alternate", "Roboto Mono", var(--font-family-base);
+      --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
+      --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem;
+      --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+      --radius-xl: 16px; --radius-2xl: 24px; --radius-full: 9999px;
+      --shadow-xs: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+      --transition-fast: 150ms ease; --transition-base: 200ms ease; --transition-slow: 300ms ease;
+      /* 小程序专属尺寸 */
+      --mp-nav-h: 44px;
+      --mp-tab-h: 60px;
+      --mp-btn-h: 54px;
+      --mp-input-h: 52px;
+      --mp-touch-min: 48px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+
+    body {
+      font-family: var(--font-family-base);
+      background: #C9D1DA;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 2rem 0 4rem;
+    }
+
+    /* ===== 手机外框 ===== */
+    .mp-shell {
+      width: 375px;
+      min-height: 812px;
+      background: var(--bg-page);
+      border-radius: 2.5rem;
+      overflow: hidden;
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.10), 0 32px 80px rgba(0,0,0,0.30);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* 状态栏 */
+    .mp-statusbar {
+      height: 44px; background: var(--color-primary-700);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 1.25rem; flex-shrink: 0;
+    }
+    .mp-statusbar__time { color: #fff; font-size: 0.9375rem; font-weight: 600; }
+    .mp-statusbar__icons { color: #fff; font-size: 0.75rem; display: flex; gap: 0.375rem; }
+
+    /* 导航栏 */
+    .mp-navbar {
+      height: var(--mp-nav-h); background: var(--color-primary-700);
+      display: flex; align-items: center; padding: 0 var(--space-4);
+      gap: var(--space-3); flex-shrink: 0;
+    }
+    .mp-navbar__back {
+      min-width: var(--mp-touch-min); height: var(--mp-touch-min);
+      display: flex; align-items: center; justify-content: flex-start;
+      background: none; border: none; color: #fff; font-size: 1.5rem;
+      cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent;
+    }
+    .mp-navbar__title {
+      flex: 1; text-align: center; color: #fff;
+      font-size: 1.0625rem; font-weight: 700;
+    }
+    .mp-navbar__right { min-width: var(--mp-touch-min); }
+
+    /* 滚动内容区 */
+    .mp-scroll {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: var(--space-4);
+      padding-bottom: calc(var(--mp-tab-h) + var(--mp-btn-h) + var(--space-8));
+      display: flex; flex-direction: column; gap: var(--space-4);
+    }
+
+    /* 卡片 */
+    .card {
+      background: var(--bg-card); border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-sm); overflow: hidden;
+    }
+    .card__header {
+      padding: var(--space-3) var(--space-4);
+      border-bottom: 1px solid var(--border-default);
+    }
+    .card__body { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+
+    /* 字段标签 */
+    .field-label {
+      font-size: 0.875rem; font-weight: 600; color: var(--text-secondary);
+      display: flex; align-items: center; gap: 0.2rem; margin-bottom: var(--space-2);
+    }
+    .field-label__req { color: var(--color-error-500); font-size: 1.1rem; line-height: 1; }
+
+    /* 标签 */
+    .tag {
+      display: inline-flex; align-items: center; gap: 0.2rem;
+      padding: 0.2rem 0.5rem; border-radius: var(--radius-sm);
+      font-size: 0.75rem; font-weight: 600; line-height: 1.2; white-space: nowrap;
+    }
+    .tag--success { background: var(--color-success-100); color: var(--color-success-700); }
+    .tag--warning { background: var(--color-warning-100); color: var(--color-warning-700); }
+    .tag--error   { background: var(--color-error-100);   color: var(--color-error-700);   }
+    .tag--info    { background: var(--color-info-100);    color: var(--color-info-600);     }
+    .tag--neutral { background: var(--color-gray-100);    color: var(--color-gray-600);     }
+    .tag--dye-lot { background: var(--color-accent-50); color: var(--color-accent-600); border: 1px dashed var(--color-accent-300); }
+
+    /* ===== 扫码区 ===== */
+    .scan-zone {
+      background: var(--bg-card); border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-sm); padding: var(--space-6) var(--space-4);
+      display: flex; flex-direction: column; align-items: center; gap: var(--space-4);
+    }
+    .scan-btn {
+      width: 100%; height: 84px;
+      background: var(--color-primary-600); border: none; border-radius: var(--radius-xl);
+      color: #fff; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: var(--space-3);
+      font-size: 1.0625rem; font-weight: 700; font-family: var(--font-family-base);
+      transition: background var(--transition-fast), transform var(--transition-fast);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .scan-btn:active { background: var(--color-primary-700); transform: scale(0.97); }
+    .scan-btn__icon { font-size: 2rem; }
+    .scan-manual {
+      font-size: 0.875rem; color: var(--color-primary-600);
+      background: none; border: none; cursor: pointer;
+      font-family: var(--font-family-base); text-decoration: underline;
+      min-height: var(--mp-touch-min); display: flex; align-items: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .search-wrap { width: 100%; display: none; }
+    .search-wrap--visible { display: block; }
+    .search-input {
+      width: 100%; height: var(--mp-input-h); padding: 0 var(--space-4);
+      border: 2px solid var(--border-default); border-radius: var(--radius-lg);
+      font-size: 1rem; color: var(--text-primary); background: var(--bg-page);
+      font-family: var(--font-family-base); outline: none;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+    .search-input:focus { border-color: var(--color-primary-500); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+    .search-input::placeholder { color: var(--text-disabled); }
+
+    /* ===== 物料信息卡 ===== */
+    .material-card {
+      background: var(--color-primary-50); border: 2px solid var(--color-primary-200);
+      border-radius: var(--radius-xl); padding: var(--space-4); position: relative;
+    }
+    .material-card__name { font-size: 1.0625rem; font-weight: 700; color: var(--text-primary); margin-bottom: var(--space-1); }
+    .material-card__meta { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6; }
+    .material-card__tags { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3); }
+    .material-card__change {
+      position: absolute; top: var(--space-3); right: var(--space-3);
+      height: 34px; padding: 0 0.75rem;
+      border: 1.5px solid var(--color-primary-400, #60A5FA); border-radius: var(--radius-full);
+      background: #fff; color: var(--color-primary-600);
+      font-size: 0.8125rem; font-weight: 600; cursor: pointer;
+      font-family: var(--font-family-base); -webkit-tap-highlight-color: transparent;
+    }
+
+    /* ===== 数量 + 单位 ===== */
+    .qty-row { display: flex; gap: var(--space-3); align-items: stretch; }
+    .qty-input-wrap { flex: 1; }
+    .qty-input {
+      width: 100%; height: var(--mp-input-h);
+      border: 2px solid var(--border-default); border-radius: var(--radius-lg);
+      font-size: 1.875rem; font-weight: 700; font-family: var(--font-family-number);
+      color: var(--text-primary); text-align: center; background: var(--bg-card);
+      outline: none; -webkit-appearance: none;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+    .qty-input:focus { border-color: var(--color-primary-500); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+    .unit-wrap { position: relative; width: 92px; flex-shrink: 0; }
+    .unit-select {
+      width: 100%; height: var(--mp-input-h); padding: 0 2rem 0 var(--space-3);
+      border: 2px solid var(--border-default); border-radius: var(--radius-lg);
+      font-size: 1rem; font-weight: 600; font-family: var(--font-family-base);
+      color: var(--text-primary); background: var(--bg-card);
+      appearance: none; -webkit-appearance: none; outline: none; cursor: pointer;
+      transition: border-color var(--transition-fast);
+    }
+    .unit-select:focus { border-color: var(--color-primary-500); }
+    .unit-wrap::after {
+      content: '▾'; position: absolute; right: 0.6rem; top: 50%;
+      transform: translateY(-50%); font-size: 0.875rem; color: var(--text-secondary); pointer-events: none;
+    }
+
+    /* 换算提示（动画展开） */
+    .conv-hint {
+      overflow: hidden; max-height: 0; opacity: 0;
+      transition: max-height var(--transition-slow) ease, opacity var(--transition-base) ease;
+    }
+    .conv-hint--on { max-height: 5rem; opacity: 1; }
+    .conv-hint__inner {
+      margin-top: var(--space-2);
+      display: flex; align-items: flex-start; gap: var(--space-2);
+      padding: var(--space-2) var(--space-3);
+      background: var(--color-info-50); border: 1px dashed var(--color-info-300);
+      border-radius: var(--radius-md); font-size: 0.875rem; color: var(--color-info-600); line-height: 1.5;
+    }
+
+    /* 步进 */
+    .stepper-row {
+      display: grid; grid-template-columns: var(--mp-touch-min) 1fr var(--mp-touch-min);
+      gap: var(--space-2); align-items: center;
+    }
+    .stepper-btn {
+      height: var(--mp-touch-min); width: var(--mp-touch-min);
+      border: 2px solid var(--border-default); border-radius: var(--radius-lg);
+      background: var(--bg-card); font-size: 1.5rem; font-weight: 300;
+      color: var(--color-primary-600); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background var(--transition-fast); -webkit-tap-highlight-color: transparent;
+    }
+    .stepper-btn:active { background: var(--color-primary-50); transform: scale(0.93); }
+    .stepper-meta { text-align: center; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.5; }
+    .stepper-meta__num { font-size: 1rem; font-weight: 700; color: var(--text-primary); display: block; }
+
+    /* ===== 缸号区（动态展开） ===== */
+    .dye-section {
+      overflow: hidden; max-height: 0; opacity: 0;
+      transition: max-height 0.38s ease, opacity var(--transition-slow) ease;
+    }
+    .dye-section--on { max-height: 640px; opacity: 1; }
+    .dye-card {
+      background: var(--color-accent-50); border: 2px dashed var(--color-accent-300);
+      border-radius: var(--radius-xl); padding: var(--space-4);
+    }
+    .dye-card__hd { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); }
+    .dye-card__icon { font-size: 1.25rem; }
+    .dye-card__title { font-size: 1rem; font-weight: 700; color: var(--color-accent-600); flex: 1; }
+    .dye-card__req {
+      font-size: 0.75rem; font-weight: 700; color: var(--color-error-600);
+      background: var(--color-error-100); padding: 0.125rem 0.5rem; border-radius: var(--radius-full);
+    }
+    .dye-select-wrap { position: relative; }
+    .dye-select {
+      width: 100%; height: var(--mp-input-h); padding: 0 2.5rem 0 var(--space-4);
+      border: 2px solid var(--color-accent-300); border-radius: var(--radius-lg);
+      font-size: 1rem; font-weight: 600; font-family: var(--font-family-base);
+      color: var(--text-primary); background: var(--bg-card);
+      appearance: none; -webkit-appearance: none; outline: none; cursor: pointer;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+    .dye-select:focus { border-color: var(--color-accent-500); box-shadow: 0 0 0 3px rgba(249,115,22,0.15); }
+    .dye-select-wrap::after {
+      content: '▾'; position: absolute; right: 0.875rem; top: 50%;
+      transform: translateY(-50%); font-size: 0.875rem; color: var(--text-secondary); pointer-events: none;
+    }
+    .dye-hint {
+      margin-top: var(--space-2); font-size: 0.8125rem; color: var(--color-accent-600);
+      line-height: 1.5; padding-left: 0.125rem;
+    }
+    /* 新增缸号按钮 */
+    .dye-new-btn {
+      margin-top: var(--space-3); width: 100%; height: var(--mp-touch-min);
+      border: 1.5px dashed var(--color-accent-400, #FB923C); border-radius: var(--radius-lg);
+      background: transparent; color: var(--color-accent-600);
+      font-size: 0.9375rem; font-weight: 700; font-family: var(--font-family-base);
+      cursor: pointer; display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+      transition: background var(--transition-fast); -webkit-tap-highlight-color: transparent;
+    }
+    .dye-new-btn:active { background: rgba(249,115,22,0.08); }
+    /* 新增输入框 */
+    .new-dye-wrap { display: none; margin-top: var(--space-3); }
+    .new-dye-wrap--on { display: block; }
+    .new-dye-input {
+      width: 100%; height: var(--mp-input-h); padding: 0 var(--space-4);
+      border: 2px solid var(--color-warning-300); border-radius: var(--radius-lg);
+      font-size: 1rem; font-weight: 600; font-family: var(--font-family-base);
+      color: var(--text-primary); background: var(--color-warning-50);
+      outline: none; -webkit-appearance: none;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+    .new-dye-input:focus { border-color: var(--color-warning-500); box-shadow: 0 0 0 3px rgba(245,158,11,0.15); }
+    .new-dye-input::placeholder { color: var(--text-disabled); font-weight: 400; }
+    .new-dye-hint { margin-top: var(--space-1); font-size: 0.75rem; color: var(--color-warning-600); }
+
+    /* ===== 备注 ===== */
+    .remark {
+      width: 100%; min-height: 4.5rem; padding: var(--space-3) var(--space-4);
+      border: 2px solid var(--border-default); border-radius: var(--radius-lg);
+      font-size: 1rem; font-family: var(--font-family-base);
+      color: var(--text-primary); background: var(--bg-card);
+      resize: none; outline: none; -webkit-appearance: none;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+    .remark:focus { border-color: var(--color-primary-500); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+    .remark::placeholder { color: var(--text-disabled); }
+
+    /* ===== 底部确认按钮 ===== */
+    .mp-footer {
+      background: var(--bg-card); border-top: 1px solid var(--border-default);
+      padding: var(--space-3) var(--space-4); box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
+      flex-shrink: 0; z-index: 10;
+    }
+    .confirm-btn {
+      width: 100%; height: var(--mp-btn-h);
+      background: var(--color-success-600); color: #fff; border: none;
+      border-radius: var(--radius-2xl); font-size: 1.0625rem; font-weight: 700;
+      font-family: var(--font-family-base); cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+      letter-spacing: 0.04em;
+      transition: background var(--transition-fast), transform var(--transition-fast);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .confirm-btn:active { background: var(--color-success-700); transform: scale(0.98); }
+    .confirm-btn--loading { background: var(--color-gray-400); cursor: not-allowed; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block; width: 1.125rem; height: 1.125rem;
+      border: 2.5px solid rgba(255,255,255,0.35); border-top-color: #fff;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+    }
+
+    /* ===== 成功遮罩 ===== */
+    .success-layer {
+      display: none; position: absolute; inset: 0; background: var(--bg-page);
+      z-index: 300; flex-direction: column; align-items: center; justify-content: center;
+      padding: var(--space-6); gap: var(--space-5);
+    }
+    .success-layer--on { display: flex; animation: fadeUp 0.3s ease both; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+    @keyframes bounceIn {
+      0%   { transform: scale(0.2); opacity: 0; }
+      60%  { transform: scale(1.18); opacity: 1; }
+      80%  { transform: scale(0.92); }
+      100% { transform: scale(1); }
+    }
+    .success-icon {
+      width: 6rem; height: 6rem; border-radius: var(--radius-full);
+      background: var(--color-success-100);
+      display: flex; align-items: center; justify-content: center; font-size: 3rem;
+      animation: bounceIn 0.5s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    .success-title { font-size: 1.5rem; font-weight: 700; color: var(--color-success-700); }
+    .success-card {
+      width: 100%; background: var(--bg-card); border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-sm); padding: var(--space-5);
+      display: flex; flex-direction: column; gap: var(--space-3);
+    }
+    .srow { display: flex; align-items: center; justify-content: space-between; font-size: 1rem; }
+    .srow__lbl { color: var(--text-secondary); }
+    .srow__val { font-weight: 700; color: var(--text-primary); }
+    .srow__val--big { font-size: 1.5rem; color: var(--color-success-700); font-family: var(--font-family-number); }
+    .srow__val--dye { color: var(--color-accent-600); font-family: monospace; letter-spacing: 0.03em; }
+    .stock-ok {
+      display: flex; align-items: center; gap: var(--space-2);
+      padding: var(--space-2) var(--space-3); background: var(--color-success-50);
+      border-radius: var(--radius-md); font-size: 0.875rem; color: var(--color-success-700); font-weight: 600;
+    }
+    .success-btns { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); width: 100%; }
+    .sbtn {
+      height: var(--mp-btn-h); border-radius: var(--radius-2xl);
+      font-size: 1.0625rem; font-weight: 700; font-family: var(--font-family-base);
+      border: none; cursor: pointer;
+      transition: background var(--transition-fast), transform var(--transition-fast);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .sbtn:active { transform: scale(0.97); }
+    .sbtn--primary { background: var(--color-primary-600); color: #fff; }
+    .sbtn--ghost { background: var(--bg-card); color: var(--color-primary-600); border: 2px solid var(--color-primary-200); }
+
+    /* ===== TabBar ===== */
+    .mp-tab {
+      height: var(--mp-tab-h); background: var(--bg-card);
+      border-top: 1px solid var(--border-default); display: flex; flex-shrink: 0;
+    }
+    .mp-tab__item {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 3px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+    }
+    .mp-tab__icon { font-size: 1.375rem; line-height: 1; }
+    .mp-tab__lbl { font-size: 0.625rem; font-weight: 500; color: var(--text-disabled); }
+    .mp-tab__item--active .mp-tab__lbl { color: var(--color-primary-500); font-weight: 700; }
+
+    /* 错误抖动 */
+    @keyframes shake {
+      0%,100%{ transform:translateX(0); }
+      20%{ transform:translateX(-8px); }
+      60%{ transform:translateX(8px); }
+      80%{ transform:translateX(-4px); }
+    }
+    .shake { animation: shake 0.35s ease; }
+  </style>
+</head>
+<body>
+<div class="mp-shell">
+
+  <!-- 状态栏 -->
+  <div class="mp-statusbar" aria-hidden="true">
+    <span class="mp-statusbar__time">09:18</span>
+    <div class="mp-statusbar__icons"><span>●●●</span><span>WiFi</span><span>87%</span></div>
+  </div>
+
+  <!-- 导航栏 -->
+  <header class="mp-navbar">
+    <button class="mp-navbar__back" aria-label="返回">‹</button>
+    <h1 class="mp-navbar__title">采购入库</h1>
+    <div class="mp-navbar__right" aria-hidden="true"></div>
+  </header>
+
+  <!-- 滚动区 -->
+  <main class="mp-scroll" id="js-form">
+
+    <!-- 1. 扫码区 -->
+    <section aria-label="扫码或手动搜索物料">
+      <div class="scan-zone">
+        <button class="scan-btn" onclick="handleScan()" aria-label="扫描物料条码">
+          <span class="scan-btn__icon" aria-hidden="true">📷</span>
+          <span>扫码识别物料</span>
+        </button>
+        <button class="scan-manual" onclick="toggleSearch()" aria-label="手动搜索物料">手动搜索物料名称</button>
+        <div class="search-wrap" id="js-search-wrap">
+          <input
+            class="search-input" type="search" id="js-search"
+            placeholder="输入物料名称或 SKU 编码"
+            aria-label="手动搜索物料"
+            oninput="handleSearch(this.value)"
+          >
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 物料信息卡（扫码/搜索后出现） -->
+    <section aria-label="已选物料信息" id="js-mat-card">
+      <div class="material-card">
+        <button class="material-card__change" onclick="clearMat()" aria-label="更换物料">更换</button>
+        <div class="material-card__name">进口牛皮 1.2mm 棕色</div>
+        <div class="material-card__meta">
+          规格：1.2mm 厚 · 门幅 1.4m<br>
+          SKU：FAB-001 · 供应商：广州皮革城
+        </div>
+        <div class="material-card__tags">
+          <span class="tag tag--dye-lot">🎨 面料·需填缸号</span>
+          <span class="tag tag--info">多单位</span>
+          <span class="tag tag--neutral">安全库存：80 m²</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. 入库数量 + 单位切换 -->
+    <section aria-label="入库数量">
+      <div class="card">
+        <div class="card__header">
+          <div class="field-label" style="margin:0;">
+            入库数量 <span class="field-label__req" aria-label="必填">*</span>
+          </div>
+        </div>
+        <div class="card__body">
+          <!-- 数量 + 单位下拉 -->
+          <div class="qty-row">
+            <div class="qty-input-wrap">
+              <input
+                type="number" class="qty-input" id="js-qty"
+                value="30" min="0.01" step="any"
+                inputmode="decimal" aria-label="入库数量"
+                onchange="updateConv()" oninput="updateConv()"
+              >
+            </div>
+            <div class="unit-wrap">
+              <select class="unit-select" id="js-unit" aria-label="选择单位" onchange="updateConv()">
+                <option value="sqm" data-rate="1">平方米</option>
+                <option value="roll" data-rate="14">卷</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 换算提示（非基础单位时展开） -->
+          <div class="conv-hint" id="js-conv">
+            <div class="conv-hint__inner">
+              <span aria-hidden="true">ℹ️</span>
+              <span id="js-conv-txt">1 卷 = 14 m²，本次入库将计入 <strong>420 m²</strong></span>
+            </div>
+          </div>
+
+          <!-- 步进器 -->
+          <div class="stepper-row">
+            <button class="stepper-btn" onclick="stepQty(-1)" aria-label="减少1">－</button>
+            <div class="stepper-meta">
+              <span>当前库存</span>
+              <span class="stepper-meta__num">55 m²</span>
+            </div>
+            <button class="stepper-btn" onclick="stepQty(1)" aria-label="增加1">＋</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. 面料缸号（动态展开） -->
+    <div class="dye-section dye-section--on" id="js-dye-sec">
+      <div class="dye-card" role="group" aria-label="缸号信息">
+        <div class="dye-card__hd">
+          <span class="dye-card__icon" aria-hidden="true">🎨</span>
+          <span class="dye-card__title">缸号 / 染色批次</span>
+          <span class="dye-card__req" aria-label="必填">必填</span>
+        </div>
+
+        <div class="field-label">
+          选择已有缸号 <span class="field-label__req" aria-hidden="true">*</span>
+        </div>
+        <div class="dye-select-wrap">
+          <select class="dye-select" id="js-dye" aria-label="选择缸号" aria-required="true" onchange="onDyeChange(this)">
+            <option value="">— 请选择缸号批次 —</option>
+            <option value="DY-2026-001">DY-2026-001 · 剩余 32 m²（2026-01-05 入库）</option>
+            <option value="DY-2026-002">DY-2026-002 · 剩余 18 m²（2026-02-18 入库）</option>
+            <option value="DY-2025-088">DY-2025-088 · 剩余 5 m²（即将耗尽）⚠️</option>
+            <option value="__new__">＋ 新增缸号批次…</option>
+          </select>
+        </div>
+        <div class="dye-hint" id="js-dye-hint">💡 同一订单面料须使用同一缸号，避免色差</div>
+
+        <!-- 新增缸号输入 -->
+        <div class="new-dye-wrap" id="js-newdye-wrap">
+          <input
+            class="new-dye-input" id="js-newdye" type="text"
+            maxlength="20" placeholder="输入缸号，如 DY-2026-003"
+            aria-label="新缸号"
+          >
+          <div class="new-dye-hint">📝 将创建新批次，入库日期记录为今日</div>
+        </div>
+
+        <button class="dye-new-btn" onclick="clickNewDye()" aria-label="新增缸号批次">
+          <span aria-hidden="true">＋</span> 新增缸号批次
+        </button>
+      </div>
+    </div>
+
+    <!-- 5. 备注 -->
+    <section aria-label="备注">
+      <div class="field-label">备注（可选）</div>
+      <textarea class="remark" rows="3"
+        placeholder="如：到货检查无异常，颜色与样品一致…"
+        aria-label="备注信息"></textarea>
+    </section>
+
+  </main>
+
+  <!-- 底部确认 -->
+  <div class="mp-footer">
+    <button class="confirm-btn" id="js-confirm" onclick="handleConfirm()" aria-label="确认入库">
+      <span id="js-confirm-ico" aria-hidden="true">✓</span>
+      <span id="js-confirm-txt">确认入库</span>
+    </button>
+  </div>
+
+  <!-- TabBar -->
+  <nav class="mp-tab" aria-label="底部导航">
+    <div class="mp-tab__item">
+      <span class="mp-tab__icon" aria-hidden="true">🏠</span>
+      <span class="mp-tab__lbl">首页</span>
+    </div>
+    <div class="mp-tab__item mp-tab__item--active" aria-current="page">
+      <span class="mp-tab__icon" aria-hidden="true">📦</span>
+      <span class="mp-tab__lbl" style="color:var(--color-primary-500);">库存</span>
+    </div>
+    <div class="mp-tab__item">
+      <span class="mp-tab__icon" aria-hidden="true">🔔</span>
+      <span class="mp-tab__lbl">消息</span>
+    </div>
+    <div class="mp-tab__item">
+      <span class="mp-tab__icon" aria-hidden="true">👤</span>
+      <span class="mp-tab__lbl">我的</span>
+    </div>
+  </nav>
+
+  <!-- 成功遮罩 -->
+  <div class="success-layer" id="js-success" role="status" aria-live="assertive">
+    <div class="success-icon" aria-hidden="true">✅</div>
+    <div class="success-title">入库成功！</div>
+    <div class="success-card">
+      <div class="srow">
+        <span class="srow__lbl">物料</span>
+        <span class="srow__val">进口牛皮 1.2mm 棕色</span>
+      </div>
+      <div class="srow">
+        <span class="srow__lbl">入库数量</span>
+        <span class="srow__val srow__val--big" id="js-s-qty">+30 m²</span>
+      </div>
+      <div class="srow">
+        <span class="srow__lbl">缸号批次</span>
+        <span class="srow__val srow__val--dye" id="js-s-dye">DY-2026-001</span>
+      </div>
+      <div class="srow">
+        <span class="srow__lbl">更新后库存</span>
+        <span class="srow__val">85 m²（3 个批次）</span>
+      </div>
+      <div class="stock-ok" role="note">
+        <span aria-hidden="true">✓</span> 已高于安全库存线（80 m²）
+      </div>
+    </div>
+    <div class="success-btns">
+      <button class="sbtn sbtn--ghost" onclick="resetForm()" aria-label="返回首页">返回首页</button>
+      <button class="sbtn sbtn--primary" onclick="resetForm()" aria-label="继续入库">继续入库</button>
+    </div>
+  </div>
+
+</div><!-- .mp-shell -->
+
+<script>
+  /* 单位换算 */
+  function updateConv() {
+    var qty  = parseFloat(document.getElementById('js-qty').value) || 0;
+    var sel  = document.getElementById('js-unit');
+    var rate = parseFloat(sel.options[sel.selectedIndex].dataset.rate || 1);
+    var hint = document.getElementById('js-conv');
+    var txt  = document.getElementById('js-conv-txt');
+    var unit = sel.options[sel.selectedIndex].text;
+    if (rate !== 1) {
+      var base = (qty * rate).toFixed(1).replace(/\.0$/, '');
+      txt.innerHTML = '1 ' + unit + ' = ' + rate + ' m²，本次入库将计入 <strong>' + base + ' m²</strong>';
+      hint.classList.add('conv-hint--on');
+    } else {
+      hint.classList.remove('conv-hint--on');
+    }
+  }
+
+  /* 步进 */
+  function stepQty(d) {
+    var el = document.getElementById('js-qty');
+    var v  = parseFloat(el.value) || 0;
+    v = Math.max(0.01, v + d);
+    el.value = v % 1 === 0 ? v : parseFloat(v.toFixed(2));
+    updateConv();
+  }
+
+  /* 手动搜索切换 */
+  function toggleSearch() {
+    var w = document.getElementById('js-search-wrap');
+    w.classList.toggle('search-wrap--visible');
+    if (w.classList.contains('search-wrap--visible')) document.getElementById('js-search').focus();
+  }
+  function handleSearch(v) {
+    if (v.length > 1) document.getElementById('js-mat-card').style.display = '';
+  }
+  function handleScan() { document.getElementById('js-mat-card').style.display = ''; }
+  function clearMat()   { document.getElementById('js-mat-card').style.display = 'none'; }
+
+  /* 缸号变化 */
+  function onDyeChange(sel) {
+    var hint    = document.getElementById('js-dye-hint');
+    var newWrap = document.getElementById('js-newdye-wrap');
+    if (sel.value === '__new__') {
+      newWrap.classList.add('new-dye-wrap--on');
+      document.getElementById('js-newdye').focus();
+      hint.textContent = '📝 将创建新批次，今日为入库日期';
+    } else if (sel.value) {
+      newWrap.classList.remove('new-dye-wrap--on');
+      hint.textContent = '✓ 将累计入该批次，系统自动关联领用记录';
+    } else {
+      newWrap.classList.remove('new-dye-wrap--on');
+      hint.textContent = '💡 同一订单面料须使用同一缸号，避免色差';
+    }
+  }
+  function clickNewDye() {
+    var sel = document.getElementById('js-dye');
+    sel.value = '__new__';
+    onDyeChange(sel);
+  }
+
+  /* 抖动反馈 */
+  function shake(el) {
+    el.classList.add('shake');
+    el.focus();
+    setTimeout(function(){ el.classList.remove('shake'); }, 400);
+  }
+
+  /* 提交 */
+  function handleConfirm() {
+    var dyeSec = document.getElementById('js-dye-sec');
+    var hasDye = dyeSec.classList.contains('dye-section--on');
+    if (hasDye) {
+      var dyeVal = document.getElementById('js-dye').value;
+      var newVal = document.getElementById('js-newdye').value.trim();
+      if (!dyeVal) { shake(document.getElementById('js-dye')); return; }
+      if (dyeVal === '__new__' && !newVal) { shake(document.getElementById('js-newdye')); return; }
+    }
+    var qty = parseFloat(document.getElementById('js-qty').value);
+    if (!qty || qty <= 0) { shake(document.getElementById('js-qty')); return; }
+
+    var btn = document.getElementById('js-confirm');
+    btn.disabled = true;
+    btn.classList.add('confirm-btn--loading');
+    document.getElementById('js-confirm-ico').innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+    document.getElementById('js-confirm-txt').textContent = '提交中…';
+
+    setTimeout(function() {
+      var sel     = document.getElementById('js-unit');
+      var unitTxt = sel.options[sel.selectedIndex].text;
+      var dyeVal2 = document.getElementById('js-dye').value;
+      var newVal2 = document.getElementById('js-newdye').value.trim();
+      var lotDisp = dyeVal2 === '__new__' ? newVal2 : dyeVal2;
+      document.getElementById('js-s-qty').textContent = '+' + qty + ' ' + unitTxt;
+      document.getElementById('js-s-dye').textContent = lotDisp || '—';
+      document.getElementById('js-success').classList.add('success-layer--on');
+    }, 1100);
+  }
+
+  function resetForm() {
+    document.getElementById('js-success').classList.remove('success-layer--on');
+    var btn = document.getElementById('js-confirm');
+    btn.disabled = false;
+    btn.classList.remove('confirm-btn--loading');
+    document.getElementById('js-confirm-ico').textContent = '✓';
+    document.getElementById('js-confirm-txt').textContent = '确认入库';
+    document.getElementById('js-qty').value = '';
+    document.getElementById('js-dye').value = '';
+    document.getElementById('js-newdye').value = '';
+    document.getElementById('js-newdye-wrap').classList.remove('new-dye-wrap--on');
+    document.getElementById('js-conv').classList.remove('conv-hint--on');
+    document.getElementById('js-dye-hint').textContent = '💡 同一订单面料须使用同一缸号，避免色差';
+  }
+</script>
+</body>
+</html>

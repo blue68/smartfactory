@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智造管家 — BOM管理</title>
+  <style>
+    /* ===== Design Tokens ===== */
+    :root {
+      --color-primary-50:#EFF6FF;--color-primary-100:#DBEAFE;
+      --color-primary-500:#3B82F6;--color-primary-600:#2563EB;--color-primary-700:#1D4ED8;
+      --color-accent-50:#FFF7ED;--color-accent-500:#F97316;--color-accent-600:#EA580C;
+      --color-success-50:#F0FDF4;--color-success-100:#DCFCE7;
+      --color-success-500:#22C55E;--color-success-600:#16A34A;--color-success-700:#15803D;
+      --color-warning-50:#FFFBEB;--color-warning-100:#FEF3C7;
+      --color-warning-500:#F59E0B;--color-warning-600:#D97706;--color-warning-700:#B45309;
+      --color-error-50:#FEF2F2;--color-error-100:#FEE2E2;
+      --color-error-500:#EF4444;--color-error-600:#DC2626;--color-error-700:#B91C1C;
+      --color-stagnant-100:#EDE9FE;--color-stagnant-500:#8B5CF6;--color-stagnant-600:#7C3AED;
+      --color-gray-0:#FFFFFF;--color-gray-50:#F8FAFC;--color-gray-100:#F1F5F9;
+      --color-gray-200:#E2E8F0;--color-gray-300:#CBD5E1;--color-gray-400:#94A3B8;
+      --color-gray-500:#64748B;--color-gray-600:#475569;--color-gray-700:#334155;
+      --color-gray-800:#1E293B;--color-gray-900:#0F172A;
+      --bg-page:#F8FAFC;--bg-card:#FFFFFF;--bg-sidebar:#1E293B;
+      --text-sidebar:#CBD5E1;--bg-sidebar-active:#2563EB;
+      --text-primary:#1E293B;--text-secondary:#64748B;--text-disabled:#94A3B8;
+      --border-default:#E2E8F0;--border-strong:#CBD5E1;
+      --font-family-base:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --font-family-number:"DIN Alternate","Roboto Mono",var(--font-family-base);
+      --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;
+      --space-5:1.25rem;--space-6:1.5rem;--space-8:2rem;
+      --layout-sidebar-width:240px;--layout-header-height:64px;
+      --layout-page-padding:24px;--layout-card-gap:16px;
+      --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:16px;--radius-full:9999px;
+      --shadow-xs:0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --transition-fast:150ms ease;--transition-base:200ms ease;--transition-slow:300ms ease;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{font-size:16px;}
+    body{font-family:var(--font-family-base);background:var(--bg-page);color:var(--text-primary);min-height:100vh;display:flex;}
+
+    /* ===== Sidebar ===== */
+    .sidebar{width:var(--layout-sidebar-width);background:var(--bg-sidebar);min-height:100vh;position:fixed;top:0;left:0;display:flex;flex-direction:column;z-index:100;}
+    .sidebar__logo{height:var(--layout-header-height);display:flex;align-items:center;padding:0 var(--space-6);border-bottom:1px solid rgba(255,255,255,.08);}
+    .sidebar__logo-mark{width:32px;height:32px;background:var(--color-primary-500);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:1rem;color:#fff;font-weight:800;margin-right:var(--space-3);flex-shrink:0;}
+    .sidebar__logo-text{font-size:1rem;font-weight:700;color:#fff;}
+    .sidebar__logo-sub{font-size:.6875rem;color:rgba(255,255,255,.45);}
+    .sidebar__nav{padding:var(--space-4) 0;flex:1;}
+    .sidebar__section-label{font-size:.625rem;font-weight:600;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.1em;padding:var(--space-3) var(--space-6) var(--space-2);}
+    .sidebar__item{display:flex;align-items:center;gap:var(--space-3);padding:.65rem var(--space-6);color:var(--text-sidebar);font-size:.9375rem;cursor:pointer;transition:background var(--transition-fast);text-decoration:none;border-left:3px solid transparent;}
+    .sidebar__item:hover{background:rgba(255,255,255,.06);color:#fff;}
+    .sidebar__item--active{background:rgba(37,99,235,.25);color:#fff;border-left-color:var(--color-primary-500);}
+    .sidebar__item-icon{font-size:1rem;width:20px;text-align:center;flex-shrink:0;}
+
+    /* ===== Main ===== */
+    .main-wrapper{margin-left:var(--layout-sidebar-width);flex:1;display:flex;flex-direction:column;min-height:100vh;}
+    .top-header{height:var(--layout-header-height);background:var(--bg-card);border-bottom:1px solid var(--border-default);display:flex;align-items:center;padding:0 var(--layout-page-padding);gap:var(--space-4);position:sticky;top:0;z-index:50;}
+    .breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:.875rem;color:var(--text-secondary);}
+    .breadcrumb__sep{color:var(--color-gray-300);}
+    .breadcrumb__current{color:var(--text-primary);font-weight:600;}
+    .breadcrumb__link{cursor:pointer;}
+    .breadcrumb__link:hover{color:var(--color-primary-600);text-decoration:underline;}
+    .header-actions{margin-left:auto;display:flex;gap:var(--space-3);align-items:center;}
+
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:36px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:.875rem;font-weight:600;font-family:var(--font-family-base);cursor:pointer;border:none;transition:background var(--transition-fast),transform var(--transition-fast);white-space:nowrap;}
+    .btn:active{transform:scale(.97);}
+    .btn--primary{background:var(--color-primary-500);color:#fff;}
+    .btn--primary:hover{background:var(--color-primary-600);}
+    .btn--ghost{background:transparent;color:var(--text-secondary);border:1.5px solid var(--border-default);}
+    .btn--ghost:hover{border-color:var(--border-strong);color:var(--text-primary);}
+    .btn--secondary{background:var(--color-gray-100);color:var(--text-primary);border:1.5px solid var(--border-default);}
+    .btn--secondary:hover{background:var(--color-gray-200);}
+    .btn--sm{height:28px;padding:0 var(--space-3);font-size:.8125rem;}
+    .btn--success{background:var(--color-success-600);color:#fff;}
+    .btn--success:hover{background:var(--color-success-700);}
+    .btn--accent{background:var(--color-accent-500);color:#fff;}
+    .btn--accent:hover{background:var(--color-accent-600);}
+
+    /* ===== Page Views ===== */
+    .page-view{display:none;padding:var(--layout-page-padding);flex:1;}
+    .page-view--active{display:flex;flex-direction:column;}
+
+    /* ===== Toolbar ===== */
+    .toolbar{display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);flex-wrap:wrap;}
+    .search-box{position:relative;flex:0 0 260px;}
+    .search-box__input{width:100%;height:36px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3) 0 2.25rem;font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);background:var(--bg-card);}
+    .search-box__input:focus{outline:none;border-color:var(--color-primary-500);box-shadow:0 0 0 3px rgba(59,130,246,.12);}
+    .search-box__icon{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);color:var(--text-disabled);pointer-events:none;}
+    .filter-select{height:36px;padding:0 2rem 0 var(--space-3);border:1.5px solid var(--border-default);border-radius:var(--radius-md);background:var(--bg-card);font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;}
+    .toolbar__spacer{flex:1;}
+
+    /* ===== Summary ===== */
+    .summary-strip{display:flex;align-items:center;gap:var(--space-6);background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-4) var(--space-5);margin-bottom:var(--layout-card-gap);box-shadow:var(--shadow-xs);}
+    .summary-item__label{font-size:.75rem;color:var(--text-secondary);}
+    .summary-item__value{font-size:1.25rem;font-weight:800;font-family:var(--font-family-number);}
+    .summary-item--done .summary-item__value{color:var(--color-success-600);}
+    .summary-item--wip  .summary-item__value{color:var(--color-warning-600);}
+    .summary-item--none .summary-item__value{color:var(--text-disabled);}
+    .summary-divider{width:1px;height:36px;background:var(--border-default);}
+    .warn-banner{margin-left:auto;background:var(--color-warning-50);border:1px solid var(--color-warning-300);border-radius:var(--radius-md);padding:var(--space-2) var(--space-4);font-size:.8125rem;color:var(--color-warning-700);display:flex;align-items:center;gap:var(--space-2);}
+
+    /* ===== BOM Progress Bar ===== */
+    .bom-progress{display:flex;flex-direction:column;gap:4px;}
+    .bom-progress__bar-wrap{display:flex;align-items:center;gap:var(--space-3);}
+    .bom-progress__track{flex:1;height:8px;background:var(--color-gray-200);border-radius:var(--radius-full);overflow:hidden;min-width:80px;}
+    .bom-progress__fill{height:100%;border-radius:var(--radius-full);transition:width .4s ease;}
+    .bom-progress__fill--100{background:var(--color-success-500);}
+    .bom-progress__fill--high{background:var(--color-success-400,#4ade80);}
+    .bom-progress__fill--mid{background:var(--color-warning-500);}
+    .bom-progress__fill--low{background:var(--color-error-500);}
+    .bom-progress__fill--zero{background:var(--color-gray-300);width:0%!important;}
+    .bom-progress__pct{font-size:.875rem;font-weight:700;font-family:var(--font-family-number);white-space:nowrap;}
+    .bom-progress__pct--100{color:var(--color-success-600);}
+    .bom-progress__pct--high{color:var(--color-success-600);}
+    .bom-progress__pct--mid{color:var(--color-warning-600);}
+    .bom-progress__pct--low{color:var(--color-error-600);}
+    .bom-progress__pct--zero{color:var(--text-disabled);}
+
+    /* ===== Table Card ===== */
+    .table-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+    .data-table{width:100%;border-collapse:collapse;}
+    .data-table thead tr{background:var(--color-gray-50);border-bottom:1px solid var(--border-default);}
+    .data-table th{padding:var(--space-3) var(--space-4);font-size:.8125rem;font-weight:600;color:var(--text-secondary);text-align:left;white-space:nowrap;}
+    .data-table td{padding:var(--space-4);font-size:.9375rem;color:var(--text-primary);border-bottom:1px solid var(--border-default);vertical-align:middle;}
+    .data-table tbody tr:last-child td{border-bottom:none;}
+    .data-table tbody tr{transition:background var(--transition-fast);}
+    .data-table tbody tr:hover{background:var(--color-gray-50);}
+
+    .sku-code{font-family:var(--font-family-number);font-size:.8125rem;font-weight:700;padding:2px 7px;border-radius:var(--radius-sm);background:var(--color-success-50);color:var(--color-success-700);}
+    .tag{display:inline-flex;align-items:center;gap:4px;font-size:.6875rem;font-weight:600;padding:2px 8px;border-radius:var(--radius-full);}
+    .tag--danger{background:var(--color-error-50);color:var(--color-error-600);border:1px solid var(--color-error-200);}
+
+    .table-footer{padding:var(--space-4);border-top:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between;font-size:.875rem;color:var(--text-secondary);}
+    .pagination{display:flex;gap:var(--space-1);}
+    .page-btn{width:32px;height:32px;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--bg-card);font-size:.875rem;color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;}
+    .page-btn--active{background:var(--color-primary-500);color:#fff;border-color:var(--color-primary-500);}
+
+    /* ===== BOM Editor View ===== */
+    .bom-editor{display:grid;grid-template-columns:1fr 1fr;gap:0;flex:1;background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+    .bom-tree-panel{border-right:1px solid var(--border-default);display:flex;flex-direction:column;}
+    .bom-tree-panel__header{padding:var(--space-4) var(--space-5);border-bottom:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-3);}
+    .bom-tree-panel__title{font-size:.9375rem;font-weight:700;color:var(--text-primary);}
+    .bom-tree-panel__body{flex:1;overflow-y:auto;padding:var(--space-4);}
+    .bom-tree-panel__body::-webkit-scrollbar{width:4px;}
+    .bom-tree-panel__body::-webkit-scrollbar-thumb{background:var(--color-gray-300);border-radius:var(--radius-full);}
+    .bom-tree-actions{padding:var(--space-3) var(--space-5);border-top:1px solid var(--border-default);display:flex;gap:var(--space-3);}
+
+    /* Tree nodes */
+    .tree-node{margin-left:0;}
+    .tree-node__row{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-radius:var(--radius-md);cursor:pointer;transition:background var(--transition-fast);}
+    .tree-node__row:hover{background:var(--color-gray-100);}
+    .tree-node__row--selected{background:var(--color-primary-50);border:1px solid var(--color-primary-200);}
+    .tree-node__toggle{width:16px;height:16px;font-size:.625rem;color:var(--text-disabled);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform var(--transition-fast);}
+    .tree-node__toggle--open{transform:rotate(90deg);}
+    .tree-node__icon{font-size:1rem;flex-shrink:0;}
+    .tree-node__label{font-size:.9375rem;font-weight:600;color:var(--text-primary);flex:1;}
+    .tree-node__label--dim{font-weight:400;color:var(--text-secondary);}
+    .tree-node__qty{font-size:.8125rem;color:var(--text-secondary);white-space:nowrap;}
+    .tree-children{margin-left:1.5rem;border-left:2px solid var(--border-default);padding-left:var(--space-3);}
+
+    /* Detail panel */
+    .bom-detail-panel{display:flex;flex-direction:column;}
+    .bom-detail-panel__header{padding:var(--space-4) var(--space-5);border-bottom:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-3);}
+    .bom-detail-panel__title{font-size:.9375rem;font-weight:700;color:var(--text-primary);}
+    .bom-detail-panel__body{flex:1;overflow-y:auto;padding:var(--space-5);}
+
+    .detail-section-title{font-size:.75rem;font-weight:700;color:var(--text-disabled);text-transform:uppercase;letter-spacing:.08em;margin-bottom:var(--space-3);}
+    .detail-row{display:flex;align-items:flex-start;gap:var(--space-3);margin-bottom:var(--space-3);}
+    .detail-row__label{font-size:.875rem;color:var(--text-secondary);width:90px;flex-shrink:0;}
+    .detail-row__value{font-size:.9375rem;font-weight:600;color:var(--text-primary);flex:1;}
+    .detail-actions{display:flex;gap:var(--space-3);margin-top:var(--space-4);}
+
+    /* AI suggestion panel */
+    .ai-panel{background:var(--color-accent-50);border:1px solid var(--color-accent-200);border-radius:var(--radius-lg);padding:var(--space-4);margin-top:var(--space-5);}
+    .ai-panel__header{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-3);}
+    .ai-panel__icon{font-size:1rem;color:var(--color-accent-500);}
+    .ai-panel__title{font-size:.875rem;font-weight:700;color:var(--color-accent-600);}
+    .ai-panel__sub{font-size:.8125rem;color:var(--text-secondary);margin-bottom:var(--space-3);line-height:1.5;}
+    .ai-panel__match{display:inline-flex;align-items:center;gap:4px;font-size:.8125rem;font-weight:700;padding:2px 10px;border-radius:var(--radius-full);background:var(--color-accent-500);color:#fff;margin-bottom:var(--space-3);}
+    .ai-bom-table{width:100%;border-collapse:collapse;margin-bottom:var(--space-3);}
+    .ai-bom-table th{font-size:.75rem;font-weight:600;color:var(--text-secondary);padding:var(--space-2) var(--space-3);background:rgba(255,255,255,.6);border-bottom:1px solid var(--color-accent-200);}
+    .ai-bom-table td{font-size:.875rem;padding:var(--space-2) var(--space-3);border-bottom:1px solid rgba(249,115,22,.1);vertical-align:middle;}
+    .ai-bom-table tr:last-child td{border-bottom:none;}
+    .confidence{display:inline-flex;align-items:center;gap:4px;font-size:.6875rem;font-weight:600;padding:1px 7px;border-radius:var(--radius-full);}
+    .confidence__dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+    .confidence--high{background:var(--color-success-50);color:var(--color-success-700);}
+    .confidence--high .confidence__dot{background:var(--color-success-500);}
+    .confidence--medium{background:var(--color-warning-50);color:var(--color-warning-700);}
+    .confidence--medium .confidence__dot{background:var(--color-warning-500);}
+    .ai-panel__actions{display:flex;gap:var(--space-2);flex-wrap:wrap;}
+
+    /* Add material panel */
+    .add-mat-panel{background:var(--color-primary-50);border:1px solid var(--color-primary-200);border-radius:var(--radius-lg);padding:var(--space-4);margin-top:var(--space-4);}
+    .add-mat-panel__title{font-size:.875rem;font-weight:700;color:var(--color-primary-700);margin-bottom:var(--space-3);}
+    .add-mat-search{display:flex;gap:var(--space-2);align-items:center;margin-bottom:var(--space-3);}
+    .add-mat-form{display:grid;grid-template-columns:1fr 80px 100px;gap:var(--space-3);align-items:end;}
+    .form-group{display:flex;flex-direction:column;gap:var(--space-2);}
+    .form-label{font-size:.8125rem;font-weight:600;color:var(--text-secondary);}
+    .form-input,.form-select{height:36px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3);font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);background:var(--bg-card);}
+    .form-input:focus,.form-select:focus{outline:none;border-color:var(--color-primary-500);}
+    .form-select{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .5rem center;padding-right:1.75rem;}
+
+    /* Wizard modal */
+    .modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity var(--transition-slow);}
+    .modal-overlay--on{opacity:1;pointer-events:auto;}
+    .modal{background:var(--bg-card);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:640px;max-width:calc(100vw - 2rem);transform:translateY(16px) scale(.97);transition:transform var(--transition-slow);}
+    .modal-overlay--on .modal{transform:translateY(0) scale(1);}
+    .modal__header{padding:var(--space-5) var(--space-6) var(--space-4);border-bottom:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-3);}
+    .modal__title{font-size:1.0625rem;font-weight:700;color:var(--text-primary);flex:1;}
+    .modal__close{width:28px;height:28px;border:none;background:transparent;cursor:pointer;color:var(--text-secondary);font-size:1rem;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-md);}
+    .modal__close:hover{background:var(--color-gray-100);}
+    .modal__body{padding:var(--space-6);}
+    .modal__footer{padding:var(--space-4) var(--space-6);border-top:1px solid var(--border-default);display:flex;justify-content:flex-end;gap:var(--space-3);}
+
+    .stepper{display:flex;align-items:center;margin-bottom:var(--space-5);}
+    .stepper__step{display:flex;align-items:center;gap:var(--space-2);}
+    .stepper__circle{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.8125rem;font-weight:700;flex-shrink:0;}
+    .stepper__circle--active{background:var(--color-primary-500);color:#fff;}
+    .stepper__circle--pending{background:var(--color-gray-200);color:var(--text-disabled);}
+    .stepper__label{font-size:.8125rem;font-weight:600;}
+    .stepper__label--active{color:var(--color-primary-600);}
+    .stepper__label--pending{color:var(--text-disabled);}
+    .stepper__line{flex:1;height:2px;background:var(--border-default);margin:0 var(--space-3);}
+
+    .wizard-item{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);border-radius:var(--radius-md);border:1.5px solid var(--border-default);margin-bottom:var(--space-3);cursor:pointer;transition:border-color var(--transition-fast),background var(--transition-fast);}
+    .wizard-item--checked{border-color:var(--color-primary-500);background:var(--color-primary-50);}
+    .wizard-item input[type="checkbox"]{width:16px;height:16px;accent-color:var(--color-primary-500);}
+    .wizard-item__code{font-family:var(--font-family-number);font-size:.8125rem;font-weight:700;padding:1px 6px;border-radius:var(--radius-sm);background:var(--color-success-50);color:var(--color-success-700);}
+    .wizard-item__name{font-size:.9375rem;font-weight:600;color:var(--text-primary);flex:1;}
+    .wizard-item__alert{font-size:.8125rem;color:var(--color-error-600);background:var(--color-error-50);padding:2px 8px;border-radius:var(--radius-full);}
+
+    .toast{position:fixed;bottom:2rem;left:50%;transform:translateX(-50%) translateY(10px);background:var(--color-gray-800);color:#fff;padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);font-size:.9375rem;font-weight:500;box-shadow:var(--shadow-md);z-index:300;opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;white-space:nowrap;}
+    .toast--on{opacity:1;transform:translateX(-50%) translateY(0);}
+
+    @keyframes spin{to{transform:rotate(360deg);}}
+
+    /* ===== 品类成本占比汇总区 ===== */
+    .cost-breakdown{border-top:1px solid var(--border-default);padding-top:var(--space-4);margin-top:var(--space-4);}
+    .cost-breakdown__header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3);}
+    .cost-breakdown__title{font-size:.875rem;font-weight:700;color:var(--text-primary);}
+    .cost-breakdown__total{font-size:.8125rem;color:var(--text-secondary);}
+    .cost-breakdown__total strong{color:var(--text-primary);font-family:var(--font-family-number);}
+
+    /* 横向堆叠条形图 */
+    .cost-bar-track{height:20px;border-radius:var(--radius-full);overflow:hidden;display:flex;margin-bottom:var(--space-3);background:var(--color-gray-100);}
+    .cost-bar-seg{height:100%;transition:width .6s cubic-bezier(.34,1.56,.64,1);position:relative;cursor:default;}
+    .cost-bar-seg:hover::after{content:attr(data-tip);position:absolute;top:-28px;left:50%;transform:translateX(-50%);background:var(--color-gray-800);color:#fff;font-size:.6875rem;padding:2px 6px;border-radius:var(--radius-sm);white-space:nowrap;pointer-events:none;z-index:10;}
+    /* 各品类配色（与 SKU 标签体系一致） */
+    .cost-bar-seg--board    {background:#C2774A;}  /* 板材   棕橙 */
+    .cost-bar-seg--fabric   {background:#7C3AED;}  /* 面料   紫 */
+    .cost-bar-seg--foam     {background:#059669;}  /* 海绵   青绿 */
+    .cost-bar-seg--hardware {background:#94A3B8;}  /* 五金   灰 */
+    .cost-bar-seg--paint    {background:#D97706;}  /* 油漆   琥珀 */
+    .cost-bar-seg--other    {background:#CBD5E1;}  /* 其他   浅灰 */
+
+    /* 明细列表 */
+    .cost-detail-list{display:flex;flex-direction:column;gap:var(--space-2);}
+    .cost-detail-item{display:grid;grid-template-columns:10px 1fr auto auto;align-items:center;gap:var(--space-2);}
+    .cost-detail-item__dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+    .cost-detail-item__name{font-size:.8125rem;color:var(--text-primary);}
+    .cost-detail-item__amt{font-size:.8125rem;font-family:var(--font-family-number);color:var(--text-secondary);text-align:right;}
+    .cost-detail-item__pct{font-size:.8125rem;font-weight:700;font-family:var(--font-family-number);color:var(--text-primary);text-align:right;min-width:36px;}
+
+    /* 数据缺失提示 */
+    .cost-breakdown__warning{display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-3);padding:var(--space-2) var(--space-3);background:var(--color-warning-50);border:1px solid var(--color-warning-100);border-radius:var(--radius-md);font-size:.75rem;color:var(--color-warning-700);}
+    .cost-breakdown__warning-icon{flex-shrink:0;}
+  </style>
+</head>
+<body>
+
+<aside class="sidebar" role="navigation" aria-label="主导航">
+  <div class="sidebar__logo">
+    <div class="sidebar__logo-mark">智</div>
+    <div><div class="sidebar__logo-text">智造管家</div><div class="sidebar__logo-sub">SmartFactory Agent</div></div>
+  </div>
+  <nav class="sidebar__nav">
+    <div class="sidebar__section-label">核心功能</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128200;</span>驾驶舱</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128230;</span>采购管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#127981;</span>生产排产</a>
+    <div class="sidebar__section-label" style="margin-top:var(--space-4);">基础数据</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#128193;</span>SKU主数据</a>
+    <a class="sidebar__item sidebar__item--active" href="#"><span class="sidebar__item-icon">&#128196;</span>BOM管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">&#9881;</span>工序配置</a>
+  </nav>
+</aside>
+
+<div class="main-wrapper">
+  <header class="top-header">
+    <nav class="breadcrumb" aria-label="面包屑">
+      <span class="breadcrumb__link">基础数据</span>
+      <span class="breadcrumb__sep">›</span>
+      <span class="breadcrumb__current" id="breadcrumbCurrent">BOM管理</span>
+    </nav>
+    <div class="header-actions" id="headerActions">
+      <button class="btn btn--primary" onclick="openView('editor')">&#128064; 查看/编辑</button>
+      <button class="btn btn--secondary" onclick="openModal('wizardModal')">&#9889; BOM快速录入向导</button>
+    </div>
+  </header>
+
+  <!-- ===== List View ===== -->
+  <div class="page-view page-view--active" id="viewList">
+    <div class="toolbar">
+      <div class="search-box">
+        <span class="search-box__icon">&#128269;</span>
+        <input class="search-box__input" type="text" placeholder="搜索成品名称 / 编码…">
+      </div>
+      <select class="filter-select">
+        <option>全部完整度</option>
+        <option>已完成 (100%)</option>
+        <option>进行中 (40-99%)</option>
+        <option>未开始 (0%)</option>
+      </select>
+      <div class="toolbar__spacer"></div>
+      <button class="btn btn--primary">&#65291; 新建BOM</button>
+      <button class="btn btn--secondary" onclick="openModal('wizardModal')">&#9889; BOM快速录入向导</button>
+    </div>
+
+    <div class="summary-strip">
+      <div class="summary-item">
+        <div class="summary-item__label">全部成品</div>
+        <div class="summary-item__value" style="color:var(--text-primary);">151</div>
+      </div>
+      <div class="summary-divider"></div>
+      <div class="summary-item summary-item--done">
+        <div class="summary-item__label">已完成BOM</div>
+        <div class="summary-item__value">43</div>
+      </div>
+      <div class="summary-item summary-item--wip">
+        <div class="summary-item__label">进行中</div>
+        <div class="summary-item__value">28</div>
+      </div>
+      <div class="summary-item summary-item--none">
+        <div class="summary-item__label">未开始</div>
+        <div class="summary-item__value">80</div>
+      </div>
+      <div class="warn-banner">&#9888; 未完成BOM将导致AI采购建议覆盖不全</div>
+    </div>
+
+    <div class="table-card">
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>SKU编码</th>
+              <th>成品名称</th>
+              <th style="min-width:200px;">BOM完整度</th>
+              <th>物料种数</th>
+              <th>关联订单</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="sku-code">FG-00001</span></td>
+              <td style="font-weight:600;">红橡实木书柜 1.8m</td>
+              <td>
+                <div class="bom-progress">
+                  <div class="bom-progress__bar-wrap">
+                    <div class="bom-progress__track"><div class="bom-progress__fill bom-progress__fill--100" style="width:100%;"></div></div>
+                    <span class="bom-progress__pct bom-progress__pct--100">100%</span>
+                  </div>
+                </div>
+              </td>
+              <td>12 种</td>
+              <td>3 单</td>
+              <td>
+                <div style="display:flex;gap:var(--space-2);">
+                  <button class="btn btn--primary btn--sm" onclick="openView('editor')">查看/编辑</button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="sku-code">FG-00002</span></td>
+              <td style="font-weight:600;">白色烤漆衣柜 2.0m</td>
+              <td>
+                <div class="bom-progress">
+                  <div class="bom-progress__bar-wrap">
+                    <div class="bom-progress__track"><div class="bom-progress__fill bom-progress__fill--high" style="width:75%;"></div></div>
+                    <span class="bom-progress__pct bom-progress__pct--high">75%</span>
+                  </div>
+                </div>
+              </td>
+              <td>9 种</td>
+              <td>2 单</td>
+              <td>
+                <button class="btn btn--accent btn--sm" onclick="openView('editor')">继续录入</button>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="sku-code">FG-00008</span></td>
+              <td style="font-weight:600;">亚麻软包床头柜</td>
+              <td>
+                <div class="bom-progress">
+                  <div class="bom-progress__bar-wrap">
+                    <div class="bom-progress__track"><div class="bom-progress__fill bom-progress__fill--mid" style="width:25%;"></div></div>
+                    <span class="bom-progress__pct bom-progress__pct--mid">25%</span>
+                  </div>
+                </div>
+              </td>
+              <td>3 种</td>
+              <td>1 单</td>
+              <td>
+                <button class="btn btn--accent btn--sm" onclick="openView('editor')">继续录入</button>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="sku-code">FG-00015</span></td>
+              <td>
+                <div>实木茶几 1.2m</div>
+                <span class="tag tag--danger" style="margin-top:4px;">&#9888; 在产订单关联，影响采购建议</span>
+              </td>
+              <td>
+                <div class="bom-progress">
+                  <div class="bom-progress__bar-wrap">
+                    <div class="bom-progress__track"><div class="bom-progress__fill bom-progress__fill--zero" style="width:0%;"></div></div>
+                    <span class="bom-progress__pct bom-progress__pct--zero">0%</span>
+                  </div>
+                </div>
+              </td>
+              <td style="color:var(--text-disabled);">—</td>
+              <td>1 单</td>
+              <td>
+                <button class="btn btn--primary btn--sm" onclick="openView('editor')">开始录入</button>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="sku-code">FG-00023</span></td>
+              <td style="font-weight:600;">布艺三人沙发</td>
+              <td>
+                <div class="bom-progress">
+                  <div class="bom-progress__bar-wrap">
+                    <div class="bom-progress__track"><div class="bom-progress__fill bom-progress__fill--low" style="width:30%;"></div></div>
+                    <span class="bom-progress__pct bom-progress__pct--low">30%</span>
+                  </div>
+                </div>
+              </td>
+              <td>4 种</td>
+              <td>0 单</td>
+              <td>
+                <button class="btn btn--accent btn--sm" onclick="openView('editor')">继续录入</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-footer">
+        <span>共 151 条记录</span>
+        <div class="pagination">
+          <button class="page-btn">&#8249;</button>
+          <button class="page-btn page-btn--active">1</button>
+          <button class="page-btn">2</button>
+          <button class="page-btn">3</button>
+          <span style="display:flex;align-items:center;padding:0 var(--space-2);color:var(--text-disabled);">…</span>
+          <button class="page-btn">8</button>
+          <button class="page-btn">&#8250;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== BOM Editor View ===== -->
+  <div class="page-view" id="viewEditor">
+    <div style="padding:0 0 var(--space-4) 0;display:flex;align-items:center;gap:var(--space-4);">
+      <button class="btn btn--ghost btn--sm" onclick="openView('list')">&#8592; 返回列表</button>
+      <div>
+        <div style="font-size:1rem;font-weight:700;color:var(--text-primary);">红橡实木书柜 1.8m（FG-00001）</div>
+        <div style="font-size:.8125rem;color:var(--text-secondary);">BOM版本：v1.0 &nbsp;·&nbsp; 上次修改：2026-03-08</div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:var(--space-3);">
+        <button class="btn btn--primary" onclick="showToast('&#10003; BOM已保存')">&#65291; 新增物料</button>
+        <button class="btn btn--secondary" onclick="showToast('&#10003; BOM保存成功')">保存</button>
+      </div>
+    </div>
+
+    <div class="bom-editor" style="min-height:520px;">
+      <!-- Left: Tree -->
+      <div class="bom-tree-panel">
+        <div class="bom-tree-panel__header">
+          <span style="font-size:1rem;font-weight:700;color:var(--text-primary);">BOM树形结构</span>
+        </div>
+        <div class="bom-tree-panel__body" id="bomTree">
+
+          <!-- Root -->
+          <div class="tree-node">
+            <div class="tree-node__row tree-node__row--selected" onclick="selectNode(this,'root')">
+              <span class="tree-node__toggle tree-node__toggle--open">&#9654;</span>
+              <span class="tree-node__icon">&#128230;</span>
+              <span class="tree-node__label">红橡实木书柜 1.8m</span>
+              <span class="tree-node__qty">[1 套]</span>
+            </div>
+            <div class="tree-children" id="rootChildren">
+
+              <!-- Component 1 -->
+              <div class="tree-node">
+                <div class="tree-node__row" onclick="selectNode(this,'cabinet')">
+                  <span class="tree-node__toggle tree-node__toggle--open">&#9654;</span>
+                  <span class="tree-node__icon">&#128230;</span>
+                  <span class="tree-node__label">柜体组件</span>
+                  <span class="tree-node__qty">[1 套]</span>
+                </div>
+                <div class="tree-children">
+                  <div class="tree-node__row" onclick="selectNode(this,'rm12')" style="cursor:pointer;">
+                    <span class="tree-node__toggle"></span>
+                    <span class="tree-node__icon">&#128190;</span>
+                    <span class="tree-node__label tree-node__label--dim">RM-00012 红橡木板</span>
+                    <span class="tree-node__qty">×8 张</span>
+                    <span style="width:8px;height:8px;border-radius:50%;background:var(--color-primary-500);flex-shrink:0;" title="已选中"></span>
+                  </div>
+                  <div class="tree-node__row" onclick="selectNode(this,'rm33')">
+                    <span class="tree-node__toggle"></span>
+                    <span class="tree-node__icon">&#128190;</span>
+                    <span class="tree-node__label tree-node__label--dim">RM-00033 木工板</span>
+                    <span class="tree-node__qty">×2 张</span>
+                  </div>
+                  <div class="tree-node__row" onclick="selectNode(this,'wip21')">
+                    <span class="tree-node__toggle"></span>
+                    <span class="tree-node__icon">&#128190;</span>
+                    <span class="tree-node__label tree-node__label--dim">WIP-0021 侧板（半成品）</span>
+                    <span class="tree-node__qty">×2 套</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Component 2 -->
+              <div class="tree-node">
+                <div class="tree-node__row" onclick="selectNode(this,'door')">
+                  <span class="tree-node__toggle tree-node__toggle--open">&#9654;</span>
+                  <span class="tree-node__icon">&#128230;</span>
+                  <span class="tree-node__label">门板组件</span>
+                  <span class="tree-node__qty">[1 套]</span>
+                </div>
+                <div class="tree-children">
+                  <div class="tree-node__row" onclick="selectNode(this,'rm12b')">
+                    <span class="tree-node__toggle"></span>
+                    <span class="tree-node__icon">&#128190;</span>
+                    <span class="tree-node__label tree-node__label--dim">RM-00012 红橡木板</span>
+                    <span class="tree-node__qty">×4 张</span>
+                  </div>
+                  <div class="tree-node__row" onclick="selectNode(this,'rm89')">
+                    <span class="tree-node__toggle"></span>
+                    <span class="tree-node__icon">&#128190;</span>
+                    <span class="tree-node__label tree-node__label--dim">RM-00089 铰链全盖</span>
+                    <span class="tree-node__qty">×4 个</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Leaf -->
+              <div class="tree-node__row" onclick="selectNode(this,'rm201')">
+                <span class="tree-node__toggle"></span>
+                <span class="tree-node__icon">&#128190;</span>
+                <span class="tree-node__label tree-node__label--dim">RM-00201 木蜡油 0.5L</span>
+                <span class="tree-node__qty">×1 瓶</span>
+              </div>
+
+            </div>
+          </div>
+        </div>
+        <div class="bom-tree-actions">
+          <button class="btn btn--ghost btn--sm">展开全部</button>
+          <button class="btn btn--ghost btn--sm">折叠全部</button>
+        </div>
+      </div>
+
+      <!-- Right: Detail -->
+      <div class="bom-detail-panel">
+        <div class="bom-detail-panel__header">
+          <span class="bom-detail-panel__title">物料详情</span>
+          <span style="font-size:.8125rem;color:var(--text-secondary);">已选中：红橡木板 200×2400</span>
+        </div>
+        <div class="bom-detail-panel__body">
+
+          <div class="detail-section-title">物料信息</div>
+          <div class="detail-row">
+            <span class="detail-row__label">SKU编码</span>
+            <span class="detail-row__value" style="font-family:var(--font-family-number);color:var(--color-primary-600);">RM-00012</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-row__label">用量</span>
+            <span class="detail-row__value">8 张（采购单位）</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-row__label">领用单位</span>
+            <span class="detail-row__value">200×2400 mm²</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-row__label">换算说明</span>
+            <span class="detail-row__value" style="color:var(--text-secondary);">1 张 = 1 张</span>
+          </div>
+          <div class="detail-actions">
+            <button class="btn btn--secondary btn--sm" onclick="showToast('请修改用量')">修改用量</button>
+            <button class="btn btn--ghost btn--sm" style="color:var(--color-error-600);border-color:var(--color-error-200);" onclick="showToast('已删除该物料')">删除此物料</button>
+          </div>
+
+          <!-- Add material panel -->
+          <div class="add-mat-panel">
+            <div class="add-mat-panel__title">&#65291; 添加物料到：门板组件</div>
+            <div class="add-mat-search">
+              <div style="position:relative;flex:1;">
+                <span style="position:absolute;left:.6rem;top:50%;transform:translateY(-50%);color:var(--text-disabled);pointer-events:none;">&#128269;</span>
+                <input class="form-input" type="text" placeholder="搜索物料名称或编码…" style="padding-left:2rem;width:100%;">
+              </div>
+              <span style="font-size:.875rem;color:var(--color-primary-600);font-weight:600;white-space:nowrap;">已选择：五金滑轨 500mm</span>
+            </div>
+            <div class="add-mat-form">
+              <div class="form-group">
+                <label class="form-label">用量</label>
+                <input class="form-input" type="number" value="4" min="0.01">
+              </div>
+              <div class="form-group">
+                <label class="form-label">单位</label>
+                <select class="form-select"><option>副</option><option>个</option><option>套</option></select>
+              </div>
+              <div style="display:flex;gap:var(--space-2);align-items:flex-end;">
+                <button class="btn btn--ghost btn--sm" style="height:36px;">取消</button>
+                <button class="btn btn--success btn--sm" style="height:36px;" onclick="showToast('&#10003; 物料已添加')">确认添加</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 品类成本占比汇总区 -->
+          <div class="cost-breakdown" role="region" aria-label="BOM品类成本占比">
+            <div class="cost-breakdown__header">
+              <span class="cost-breakdown__title">品类成本占比</span>
+              <span class="cost-breakdown__total">BOM总估算：<strong>¥3,280</strong></span>
+            </div>
+
+            <!-- 横向堆叠条形图 -->
+            <div class="cost-bar-track" role="img" aria-label="各品类成本占比堆叠条形图">
+              <div class="cost-bar-seg cost-bar-seg--fabric"   style="width:35%;" data-tip="面料类 35%"></div>
+              <div class="cost-bar-seg cost-bar-seg--board"    style="width:32%;" data-tip="板材类 32%"></div>
+              <div class="cost-bar-seg cost-bar-seg--foam"     style="width:18%;" data-tip="海绵类 18%"></div>
+              <div class="cost-bar-seg cost-bar-seg--hardware" style="width:8%;"  data-tip="五金类 8%"></div>
+              <div class="cost-bar-seg cost-bar-seg--other"    style="width:7%;"  data-tip="其他 7%"></div>
+            </div>
+
+            <!-- 品类明细列表 -->
+            <div class="cost-detail-list" role="list" aria-label="品类成本明细">
+              <div class="cost-detail-item" role="listitem">
+                <span class="cost-detail-item__dot" style="background:#7C3AED;" aria-hidden="true"></span>
+                <span class="cost-detail-item__name">面料类</span>
+                <span class="cost-detail-item__amt">¥1,148</span>
+                <span class="cost-detail-item__pct">35%</span>
+              </div>
+              <div class="cost-detail-item" role="listitem">
+                <span class="cost-detail-item__dot" style="background:#C2774A;" aria-hidden="true"></span>
+                <span class="cost-detail-item__name">板材类</span>
+                <span class="cost-detail-item__amt">¥1,050</span>
+                <span class="cost-detail-item__pct">32%</span>
+              </div>
+              <div class="cost-detail-item" role="listitem">
+                <span class="cost-detail-item__dot" style="background:#059669;" aria-hidden="true"></span>
+                <span class="cost-detail-item__name">海绵类</span>
+                <span class="cost-detail-item__amt">¥590</span>
+                <span class="cost-detail-item__pct">18%</span>
+              </div>
+              <div class="cost-detail-item" role="listitem">
+                <span class="cost-detail-item__dot" style="background:#94A3B8;" aria-hidden="true"></span>
+                <span class="cost-detail-item__name">五金类</span>
+                <span class="cost-detail-item__amt">¥262</span>
+                <span class="cost-detail-item__pct">8%</span>
+              </div>
+              <div class="cost-detail-item" role="listitem">
+                <span class="cost-detail-item__dot" style="background:#CBD5E1;" aria-hidden="true"></span>
+                <span class="cost-detail-item__name">其他（油漆/辅料）</span>
+                <span class="cost-detail-item__amt">¥230</span>
+                <span class="cost-detail-item__pct">7%</span>
+              </div>
+            </div>
+
+            <!-- 数据缺失提示 -->
+            <div class="cost-breakdown__warning" role="note">
+              <span class="cost-breakdown__warning-icon" aria-hidden="true">&#9888;</span>
+              <span><strong>2 个物料</strong>价格未维护（木蜡油、抽屉滑轨），已按历史均价估算；<strong>1 个物料</strong>二级品类未设置，暂归入"其他"。</span>
+            </div>
+          </div>
+
+          <!-- AI suggestion panel -->
+          <div class="ai-panel">
+            <div class="ai-panel__header">
+              <span class="ai-panel__icon">&#129302;</span>
+              <span class="ai-panel__title">AI BOM建议</span>
+              <button class="btn btn--ghost btn--sm" style="margin-left:auto;">重新分析</button>
+            </div>
+            <p class="ai-panel__sub">该产品结构与"红橡实木书柜 1.8m"相似度较高，以下是基于相似产品推荐的物料构成：</p>
+            <div class="ai-panel__match">相似度 78%</div>
+            <table class="ai-bom-table">
+              <thead>
+                <tr>
+                  <th>物料名称</th>
+                  <th>建议用量</th>
+                  <th>置信度</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>红橡木板 200×2400</td>
+                  <td>12 张</td>
+                  <td><span class="confidence confidence--high"><span class="confidence__dot"></span>高（已有BOM）</span></td>
+                </tr>
+                <tr>
+                  <td>木工板 1220×2440</td>
+                  <td>3 张</td>
+                  <td><span class="confidence confidence--high"><span class="confidence__dot"></span>高</span></td>
+                </tr>
+                <tr>
+                  <td>铰链全盖</td>
+                  <td>6 个</td>
+                  <td><span class="confidence confidence--high"><span class="confidence__dot"></span>高</span></td>
+                </tr>
+                <tr>
+                  <td>木蜡油 0.5L</td>
+                  <td>1 瓶</td>
+                  <td><span class="confidence confidence--medium"><span class="confidence__dot"></span>中（估算值）</span></td>
+                </tr>
+                <tr>
+                  <td>抽屉滑轨 500mm</td>
+                  <td>4 副</td>
+                  <td><span class="confidence confidence--medium"><span class="confidence__dot"></span>中</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="ai-panel__actions">
+              <button class="btn btn--accent btn--sm" onclick="showToast('&#10003; BOM结构已以草稿态导入，请逐一确认用量')">一键复用此BOM结构</button>
+              <button class="btn btn--secondary btn--sm">逐条确认</button>
+              <button class="btn btn--ghost btn--sm">忽略建议</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main-wrapper -->
+
+<!-- ===== Wizard Modal ===== -->
+<div class="modal-overlay" id="wizardModal" role="dialog" aria-modal="true">
+  <div class="modal">
+    <div class="modal__header">
+      <span class="modal__title">BOM快速录入向导</span>
+      <span style="font-size:.8125rem;color:var(--text-secondary);">步骤 1 / 4</span>
+      <button class="modal__close" onclick="closeModal('wizardModal')" aria-label="关闭">&#10005;</button>
+    </div>
+    <div class="modal__body">
+      <div class="stepper">
+        <div class="stepper__step">
+          <div class="stepper__circle stepper__circle--active">1</div>
+          <span class="stepper__label stepper__label--active">选择成品</span>
+        </div>
+        <div class="stepper__line"></div>
+        <div class="stepper__step">
+          <div class="stepper__circle stepper__circle--pending">2</div>
+          <span class="stepper__label stepper__label--pending">AI推荐</span>
+        </div>
+        <div class="stepper__line"></div>
+        <div class="stepper__step">
+          <div class="stepper__circle stepper__circle--pending">3</div>
+          <span class="stepper__label stepper__label--pending">填写用量</span>
+        </div>
+        <div class="stepper__line"></div>
+        <div class="stepper__step">
+          <div class="stepper__circle stepper__circle--pending">4</div>
+          <span class="stepper__label stepper__label--pending">确认</span>
+        </div>
+      </div>
+      <p style="font-size:.875rem;color:var(--text-secondary);margin-bottom:var(--space-4);">推荐优先录入（在产订单已关联，BOM缺失影响采购）：</p>
+      <label class="wizard-item wizard-item--checked">
+        <input type="checkbox" checked>
+        <span class="wizard-item__code">FG-00002</span>
+        <span class="wizard-item__name">白色烤漆衣柜 2.0m</span>
+        <span class="wizard-item__alert">&#8592; 订单B19 已下单</span>
+      </label>
+      <label class="wizard-item wizard-item--checked">
+        <input type="checkbox" checked>
+        <span class="wizard-item__code">FG-00015</span>
+        <span class="wizard-item__name">实木茶几 1.2m</span>
+        <span class="wizard-item__alert">&#8592; 订单D05 已下单</span>
+      </label>
+      <label class="wizard-item">
+        <input type="checkbox">
+        <span class="wizard-item__code">FG-00023</span>
+        <span class="wizard-item__name">布艺沙发 三人位</span>
+      </label>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('wizardModal')">取消</button>
+      <button class="btn btn--primary" onclick="closeModal('wizardModal');openView('editor');showToast('&#129302; AI正在分析相似BOM，请稍候…')">下一步：获取AI推荐</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  /* View switching */
+  function openView(view) {
+    document.querySelectorAll('.page-view').forEach(v => v.classList.remove('page-view--active'));
+    document.getElementById('view' + view.charAt(0).toUpperCase() + view.slice(1)).classList.add('page-view--active');
+    const crumb = document.getElementById('breadcrumbCurrent');
+    const ha = document.getElementById('headerActions');
+    if (view === 'editor') {
+      crumb.textContent = 'BOM编辑 — 红橡实木书柜 1.8m';
+      ha.innerHTML = `<button class="btn btn--ghost btn--sm" onclick="openView('list')">&#8592; 返回列表</button>`;
+    } else {
+      crumb.textContent = 'BOM管理';
+      ha.innerHTML = `<button class="btn btn--primary" onclick="openView('editor')">&#128064; 查看/编辑</button><button class="btn btn--secondary" onclick="openModal('wizardModal')">&#9889; BOM快速录入向导</button>`;
+    }
+  }
+
+  /* Node selection */
+  function selectNode(row, id) {
+    document.querySelectorAll('.tree-node__row--selected').forEach(r => r.classList.remove('tree-node__row--selected'));
+    row.classList.add('tree-node__row--selected');
+  }
+
+  /* Modal */
+  function openModal(id) {
+    document.getElementById(id).classList.add('modal-overlay--on');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('modal-overlay--on');
+    document.body.style.overflow = '';
+  }
+
+  /* Toast */
+  let toastTimer;
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerHTML = msg;
+    t.classList.add('toast--on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('toast--on'), 2800);
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') document.querySelectorAll('.modal-overlay--on').forEach(m => closeModal(m.id));
+  });
+</script>
+</body>
+</html>

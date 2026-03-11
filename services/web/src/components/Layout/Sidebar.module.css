@@ -1,0 +1,161 @@
+.sidebar {
+  width: var(--layout-sidebar-width);
+  height: 100%;
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width var(--transition-base);
+  user-select: none;
+}
+
+.sidebar--collapsed { width: var(--layout-sidebar-collapsed); }
+
+/* Logo */
+.sidebar__logo {
+  height: var(--layout-header-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.sidebar__logo_icon { font-size: 1.5rem; flex-shrink: 0; }
+
+.sidebar__logo_text {
+  font-size: var(--text-h4);
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 菜单列表容器 */
+.sidebar__menu {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-3) 0;
+}
+
+.sidebar__menu::-webkit-scrollbar { width: 4px; }
+.sidebar__menu::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: var(--radius-full); }
+
+/* 分组 */
+.sidebar__group {
+  margin-bottom: var(--space-1);
+}
+
+/* 分组标签：小字灰色大写，折叠时不渲染 */
+.sidebar__group_label {
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* 分组内列表：清除 ul 默认样式 */
+.sidebar__group_list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* 菜单项 */
+.sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  height: 44px;
+  color: var(--text-sidebar);
+  font-size: var(--text-body-m);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  border-radius: 0;
+}
+
+.sidebar__item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  text-decoration: none;
+}
+
+.sidebar__item--active {
+  background: var(--bg-sidebar-active);
+  color: #fff;
+  font-weight: 500;
+}
+
+.sidebar__item--active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 6px; bottom: 6px;
+  width: 3px;
+  background: #fff;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.sidebar__icon { font-size: 1.15rem; flex-shrink: 0; line-height: 1; }
+.sidebar__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+.sidebar__badge {
+  background: var(--color-error-500);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+/* 用户信息 */
+.sidebar__user {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.sidebar__user_avatar {
+  width: 32px; height: 32px;
+  background: var(--color-primary-600);
+  border-radius: var(--radius-full);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 700; font-size: var(--text-body-s);
+  flex-shrink: 0;
+}
+
+.sidebar__user_name {
+  font-size: var(--text-body-m);
+  color: #fff;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar__user_role {
+  font-size: var(--text-body-s);
+  color: var(--text-sidebar);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -1,0 +1,309 @@
+/* =========================================================
+   [artifact:前端代码] — 工序配置页样式
+   规范：BEM命名、CSS变量、响应式（Mobile First）
+   ========================================================= */
+
+/* 页面容器 */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ——— 筛选栏 ——— */
+
+.filter_bar {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter_search {
+  flex: 1;
+  min-width: 220px;
+  height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.filter_search:focus {
+  border-color: var(--border-focus);
+}
+
+.filter_select {
+  height: 38px;
+  min-width: 130px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.filter_select:focus {
+  border-color: var(--border-focus);
+}
+
+/* ——— 表格单元格 ——— */
+
+.cell_name {
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.cell_desc {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  /* 超长截断 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cell_numeric {
+  font-family: var(--font-family-mono);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.cell_unit {
+  font-family: var(--font-family-base);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 2px;
+}
+
+.cell_workstation {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  background: var(--color-gray-50);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+  display: inline-block;
+}
+
+.cell_sort {
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.cell_empty {
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.cell_actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* ——— 删除确认 Modal ——— */
+
+.delete_body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.delete_text {
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+/* ——— 新建/编辑表单 ——— */
+
+.config_form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.form_row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.form_field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.form_label {
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.required {
+  color: var(--color-error-500);
+  margin-left: 2px;
+}
+
+.form_input {
+  height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  width: 100%;
+  transition: border-color var(--transition-fast);
+  /* 去掉 number 类型的默认箭头（Firefox） */
+  -moz-appearance: textfield;
+}
+
+.form_input::-webkit-inner-spin-button,
+.form_input::-webkit-outer-spin-button {
+  opacity: 0.4;
+}
+
+.form_input:focus {
+  border-color: var(--border-focus);
+}
+
+.form_input:disabled {
+  background: var(--color-gray-100);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+.form_textarea {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  font-family: var(--font-family-base);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  width: 100%;
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.6;
+  transition: border-color var(--transition-fast);
+}
+
+.form_textarea:focus {
+  border-color: var(--border-focus);
+}
+
+/* ——— T210: 工序路由流程图 ——— */
+
+.process_flow {
+  padding: var(--space-4) var(--space-5);
+}
+
+.process_flow__title {
+  font-size: var(--text-body-l);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.process_flow__track {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  overflow-x: auto;
+  padding: var(--space-3) 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.process_flow__node_wrap {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.process_flow__node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 2px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  min-width: 100px;
+  text-align: center;
+  transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.process_flow__node:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.process_flow__node_order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-family-mono);
+}
+
+.process_flow__node_name {
+  font-size: var(--text-body-m);
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.process_flow__node_meta {
+  font-size: 12px;
+  font-family: var(--font-family-mono);
+  color: var(--text-secondary);
+}
+
+.process_flow__arrow {
+  font-size: 20px;
+  color: var(--text-tertiary, var(--color-gray-400));
+  margin: 0 var(--space-2);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* ——— 响应式：窄屏单列布局 ——— */
+
+@media (max-width: 640px) {
+  .form_row {
+    grid-template-columns: 1fr;
+  }
+
+  .filter_bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter_search,
+  .filter_select {
+    width: 100%;
+  }
+}
