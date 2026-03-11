@@ -2,8 +2,44 @@ import Decimal from 'decimal.js';
 import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
 import { getRedisClient, RedisKeys, RedisTTL } from '../../config/redis';
+import { AppError } from '../../shared/AppError';
+import { ResponseCode } from '../../shared/ApiResponse';
 
 // ─── 类型定义 ──────────────────────────────────────────────────
+
+/** 插单影响分析入参 */
+export interface UrgentInsertParams {
+  /** 新插单的工艺模板 ID（用于计算总工时） */
+  processTemplateId: number;
+  /** 新插单的计划数量 */
+  qtyPlanned: string;
+  /** 新插单将占用的工作站 ID */
+  workstationId: number;
+  /** 新插单插入后的优先级（高于此值的已有工单不受影响） */
+  insertAfterPriority: number;
+}
+
+/** 单条受影响工单的分析结果 */
+export interface ImpactedOrderResult {
+  productionOrderId: number;
+  workOrderNo: string;
+  skuName: string;
+  originalPlannedEnd: string | null;
+  delayDays: number;
+  newPlannedEnd: string;
+  affectsDelivery: boolean;
+  expectedDelivery: string;
+}
+
+/** 插单影响分析完整响应 */
+export interface UrgentInsertImpactResult {
+  delayDaysPerOrder: number;
+  impactedCount: number;
+  workstationName: string;
+  dailyCapacity: number;
+  urgentTotalHours: string;
+  impactedOrders: ImpactedOrderResult[];
+}
 
 interface ProductionOrderRow {
   id: number;
@@ -466,5 +502,159 @@ export class SchedulerService {
     // 跳过周末
     while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
     return d.toISOString().slice(0, 10);
+  }
+
+  // ── BE-P2-011: 插单影响分析（真实延期天数计算）─────────────────
+
+  /**
+   * 分析紧急插单对当前已排产工单的影响。
+   *
+   * 算法：
+   *   1. 查询目标工作站信息（名称 + 日产能）
+   *   2. 计算新插单在该工作站上的总工时（步骤标准工时 × 数量，仅统计匹配工作站类型的工序）
+   *   3. 延期天数 = ceil(总工时 / 工作站日产能)
+   *   4. 查询优先级 <= insertAfterPriority 且状态非完成/取消的已排产工单
+   *   5. 为每个受影响工单计算：
+   *      - newPlannedEnd = originalPlannedEnd + delayDays（跳过周末）
+   *      - affectsDelivery = newPlannedEnd > salesOrder.expectedDelivery
+   */
+  async analyzeUrgentInsertImpact(
+    params: UrgentInsertParams,
+  ): Promise<UrgentInsertImpactResult> {
+    // Step 1: 查询工作站信息（参数化，租户隔离）
+    const wsRows = await AppDataSource.query<Array<{
+      id: number;
+      name: string;
+      type: string;
+      capacity: number;
+      daily_capacity: number | null;
+    }>>(
+      `SELECT id, name, type,
+              COALESCE(daily_capacity, capacity, 0) AS capacity,
+              daily_capacity
+       FROM workstations
+       WHERE id = ? AND tenant_id = ? AND status = 'active'
+       LIMIT 1`,
+      [params.workstationId, this.tenantId],
+    );
+
+    if (wsRows.length === 0) {
+      throw AppError.notFound('工作站不存在或已停用', ResponseCode.WORKSTATION_NOT_FOUND);
+    }
+
+    const ws = wsRows[0];
+    const dailyCapacity = Number(ws.capacity);
+
+    if (dailyCapacity <= 0) {
+      throw AppError.badRequest(
+        `工作站「${ws.name}」日产能未配置，无法计算延期天数`,
+        ResponseCode.WORKSTATION_NOT_FOUND,
+      );
+    }
+
+    // Step 2: 计算新插单在该工作站的总工时
+    //         仅累加 workstation_type 与工作站 type 匹配（或未指定类型）的工序
+    const stepRows = await AppDataSource.query<Array<{
+      standard_hours: string;
+      workstation_type: string | null;
+    }>>(
+      `SELECT COALESCE(standard_hours, 0) AS standard_hours, workstation_type
+       FROM process_steps
+       WHERE template_id = ? AND tenant_id = ?
+       ORDER BY step_no`,
+      [params.processTemplateId, this.tenantId],
+    );
+
+    const qtyDecimal = new Decimal(params.qtyPlanned);
+    let urgentTotalHours = new Decimal(0);
+
+    for (const step of stepRows) {
+      // 无类型约束的工序视为通用，参与计算；类型匹配则计入
+      if (!step.workstation_type || step.workstation_type === ws.type) {
+        urgentTotalHours = urgentTotalHours.plus(
+          new Decimal(step.standard_hours).mul(qtyDecimal),
+        );
+      }
+    }
+
+    // Step 3: 延期天数（向上取整）
+    const delayDays = Math.ceil(urgentTotalHours.div(dailyCapacity).toNumber());
+
+    // Step 4: 查询受影响工单（优先级 <= insertAfterPriority，非完成/取消）
+    //         内联关联 sales_orders 获取交期
+    const affectedRows = await AppDataSource.query<Array<{
+      id: number;
+      work_order_no: string;
+      sku_name: string;
+      planned_end: string | null;
+      expected_delivery: string;
+    }>>(
+      `SELECT po.id,
+              po.work_order_no,
+              s.name        AS sku_name,
+              po.planned_end,
+              so.expected_delivery
+       FROM production_orders po
+       INNER JOIN skus s         ON s.id  = po.sku_id
+       INNER JOIN sales_orders so ON so.id = po.sales_order_id
+       WHERE po.tenant_id = ?
+         AND po.priority <= ?
+         AND po.status NOT IN ('completed', 'cancelled')
+       ORDER BY po.priority ASC, po.planned_end ASC`,
+      [this.tenantId, params.insertAfterPriority],
+    );
+
+    // Step 5: 为每个受影响工单计算延后结果
+    const impactedOrders: ImpactedOrderResult[] = affectedRows.map((row) => {
+      const newPlannedEnd = this.addCalendarDays(row.planned_end, delayDays);
+      const affectsDelivery =
+        row.expected_delivery
+          ? newPlannedEnd > row.expected_delivery
+          : false;
+
+      return {
+        productionOrderId: row.id,
+        workOrderNo: row.work_order_no,
+        skuName: row.sku_name,
+        originalPlannedEnd: row.planned_end,
+        delayDays,
+        newPlannedEnd,
+        affectsDelivery,
+        expectedDelivery: row.expected_delivery,
+      };
+    });
+
+    return {
+      delayDaysPerOrder: delayDays,
+      impactedCount: impactedOrders.length,
+      workstationName: ws.name,
+      dailyCapacity,
+      urgentTotalHours: urgentTotalHours.toFixed(2),
+      impactedOrders,
+    };
+  }
+
+  /**
+   * 将日期字符串（YYYY-MM-DD）加上指定的自然日天数（跳过周六/周日）。
+   * 若 baseDateStr 为 null，以当天为基准。
+   */
+  private addCalendarDays(baseDateStr: string | null, days: number): string {
+    const base = baseDateStr
+      ? new Date(baseDateStr + 'T00:00:00Z')
+      : new Date();
+    base.setUTCHours(0, 0, 0, 0);
+
+    let remaining = days;
+    const cursor = new Date(base);
+
+    while (remaining > 0) {
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      const dow = cursor.getUTCDay(); // 0=Sun, 6=Sat
+      if (dow !== 0 && dow !== 6) {
+        remaining--;
+      }
+    }
+
+    return cursor.toISOString().slice(0, 10);
   }
 }

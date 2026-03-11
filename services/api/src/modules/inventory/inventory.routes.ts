@@ -3,6 +3,8 @@ import { inventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
 import { authMiddleware, requireRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
+import { triggerStockAlertScan } from '../../shared/queue';
+import { success } from '../../shared/ApiResponse';
 
 const router = Router();
 router.use(authMiddleware);
@@ -37,6 +39,17 @@ router.post('/stocktake/:id/items',
 );
 router.get('/stocktake/:id/diff',
   asyncHandler(inventoryController.getStocktakeDiff.bind(inventoryController)),
+);
+
+// BE-P2-010: 安全库存预警 — 手动触发接口
+// 权限：supervisor / boss（warehouse 操作员无需手动触发系统任务）
+router.post(
+  '/stock-alert/trigger',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const jobId = await triggerStockAlertScan();
+    success(res, { jobId }, '安全库存预警扫描任务已入队，将在后台执行');
+  }),
 );
 
 // BE-P2-014: 库存 CSV 导出（IMP-003: 分批流式写入，防止 OOM）

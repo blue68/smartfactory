@@ -18,12 +18,15 @@ export const AppDataSource = new DataSource({
   logging: process.env.NODE_ENV === 'development' ? ['query', 'error'] : ['error'],
   entities: [__dirname + '/../modules/**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/../migrations/*{.ts,.js}'],
-  poolSize: Number(process.env.DB_POOL_SIZE ?? 10),
+  poolSize: Number(process.env.DB_POOL_MAX ?? 20),
   connectorPackage: 'mysql2',
   extra: {
-    // mysql2 连接池额外配置
-    connectionLimit: Number(process.env.DB_POOL_SIZE ?? 10),
+    // mysql2 连接池额外配置（BE-P2-015 优化）
+    connectionLimit: Number(process.env.DB_POOL_MAX ?? 20),
+    minIdle: Number(process.env.DB_POOL_MIN ?? 5),
     waitForConnections: true,
+    connectTimeout: 30_000,     // 连接超时 30 秒
+    idleTimeout: 10_000,        // 空闲连接 10 秒后回收
     queueLimit: 0,
   },
 });

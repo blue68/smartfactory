@@ -3,6 +3,7 @@ import cookieParser from 'cookie-parser';
 import cors, { CorsOptions } from 'cors';
 import rateLimit from 'express-rate-limit';
 import { errorHandler } from './middleware/errorHandler';
+import { apmMiddleware, metricsHandler } from './middleware/apm';
 
 // 路由模块
 import authRoutes      from './modules/auth/auth.routes';
@@ -64,6 +65,10 @@ app.use(cors(corsOptions));
 // ── Cookie 解析（SEC-003 HttpOnly Cookie）────────────────────────
 app.use(cookieParser());
 
+// ── APM 性能监控中间件（BE-P2-012）──────────────────────────────
+// 在路由之前注册，确保所有请求的响应时间均被采集
+app.use(apmMiddleware);
+
 // ── 基础中间件 ──────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -98,6 +103,9 @@ app.use('/api/auth/login', authLimiter as RequestHandler);
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// ── APM 指标端点（BE-P2-012，不需认证） ───────────────────
+app.get('/api/health/metrics', metricsHandler);
 
 // ── API 路由注册 ────────────────────────────────────────────
 app.use('/api/auth',       authRoutes);

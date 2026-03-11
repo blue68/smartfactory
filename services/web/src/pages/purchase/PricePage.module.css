@@ -169,8 +169,42 @@
 }
 
 /* ─────────────────────────────────────────────
-   响应式 —— 小屏单列
+   响应式断点（标准 1200px / 768px）
 ───────────────────────────────────────────── */
+
+/* 1200px — 中等屏幕：筛选栏最小宽度收缩 */
+@media (max-width: 1200px) {
+  .filter_search {
+    min-width: 180px;
+  }
+}
+
+/* 768px — 移动端：筛选栏堆叠，表格横向滚动，单列表单 */
+@media (max-width: 768px) {
+  .page {
+    gap: var(--space-4);
+  }
+
+  .filter_bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter_search {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .filter_select {
+    width: 100%;
+  }
+
+  .form_row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 640px — 向下兼容原有小屏规则 */
 @media (max-width: 640px) {
   .form_row {
     grid-template-columns: 1fr;

@@ -159,7 +159,52 @@
   grid-column: 1 / -1;
 }
 
-/* ─── 响应式：手机端单列 ─── */
+/* ─── 响应式断点 ─── */
+
+/* 1200px — 中等屏幕：工具栏紧凑，准时率列收窄 */
+@media (max-width: 1200px) {
+  .searchInput {
+    min-width: 160px;
+  }
+
+  .onTimeRateCell {
+    min-width: 80px;
+  }
+}
+
+/* 768px — 移动端：堆叠布局，表格横向滚动，单列表单 */
+@media (max-width: 768px) {
+  .page {
+    padding: var(--space-4);
+    gap: var(--space-4);
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .searchInput {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .select {
+    width: 100%;
+  }
+
+  .formRow {
+    grid-template-columns: 1fr;
+  }
+
+  /* 供应商表格横向滚动 */
+  .page > * table,
+  .page table {
+    min-width: 600px;
+  }
+}
+
+/* 640px — 手机端单列（保留原有规则） */
 @media (max-width: 640px) {
   .formRow {
     grid-template-columns: 1fr;

@@ -1,0 +1,42 @@
+.page { padding: 24rpx; background: #f5f6fa; min-height: 100vh; }
+.page__title { font-size: 40rpx; font-weight: 700; color: #1a1a2e; margin-bottom: 32rpx; }
+
+.loading-hint { text-align: center; padding: 80rpx 0; font-size: 30rpx; color: #909399; }
+
+.form { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 32rpx; }
+.form__group { padding: 20rpx 0; border-bottom: 1rpx solid #f0f0f5; }
+.form__group:last-child { border-bottom: none; }
+.form__label { font-size: 28rpx; color: #606266; margin-bottom: 12rpx; display: block; }
+.form__input { font-size: 32rpx; height: 72rpx; padding: 0 16rpx; background: #f5f6fa; border-radius: 8rpx; }
+.form__picker { font-size: 32rpx; height: 72rpx; line-height: 72rpx; padding: 0 16rpx; background: #f5f6fa; border-radius: 8rpx; color: #303133; }
+.form__textarea { font-size: 28rpx; min-height: 120rpx; padding: 16rpx; background: #f5f6fa; border-radius: 8rpx; width: 100%; }
+
+/* 不良类型标签 */
+.defect-tags { display: flex; flex-wrap: wrap; gap: 16rpx; }
+.defect-tag {
+  padding: 12rpx 24rpx; font-size: 26rpx; border-radius: 8rpx;
+  border: 2rpx solid #dcdfe6; color: #606266; background: #fff;
+}
+.defect-tag--active { border-color: #1a6eff; color: #1a6eff; background: #e6f0ff; }
+
+/* 图片上传 */
+.image-list { display: flex; gap: 16rpx; flex-wrap: wrap; }
+.image-item { position: relative; width: 180rpx; height: 180rpx; border-radius: 12rpx; overflow: hidden; }
+.image-item__img { width: 100%; height: 100%; }
+.image-item__remove {
+  position: absolute; top: 4rpx; right: 4rpx; width: 40rpx; height: 40rpx;
+  background: rgba(0,0,0,0.5); color: #fff; font-size: 24rpx;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%;
+}
+.image-add {
+  width: 180rpx; height: 180rpx; border: 2rpx dashed #c0c4cc; border-radius: 12rpx;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.image-add__icon { font-size: 48rpx; color: #c0c4cc; }
+.image-add__text { font-size: 24rpx; color: #909399; }
+
+.btn-submit {
+  width: 100%; height: 96rpx; line-height: 96rpx; text-align: center;
+  background: #1a6eff; color: #fff; font-size: 34rpx; font-weight: 600; border-radius: 16rpx;
+}
+.btn-submit--disabled { opacity: 0.5; }

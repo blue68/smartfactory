@@ -45,6 +45,7 @@ export const ResponseCode = {
   // 生产模块 7xxx
   PRODUCTION_ORDER_NOT_FOUND: 7001,
   SCHEDULE_CONFLICT: 7002,
+  WORKSTATION_NOT_FOUND: 7003,
 } as const;
 
 export type ResponseCodeValue = typeof ResponseCode[keyof typeof ResponseCode];

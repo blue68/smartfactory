@@ -306,9 +306,90 @@
 }
 .form_input:focus { border-color: var(--border-focus); }
 
+/* ─────────────────────────────────────────────
+   响应式断点（标准 1200px / 768px）
+───────────────────────────────────────────── */
+
+/* 1200px — 中等屏幕：看板缩为两列，筛选栏紧凑，甘特图 label 压缩 */
+@media (max-width: 1200px) {
+  .task_board {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .filter_bar {
+    flex-wrap: wrap;
+  }
+
+  .gantt_row {
+    grid-template-columns: 140px 1fr;
+  }
+
+  .schedule_header {
+    gap: var(--space-4);
+  }
+}
+
+/* 900px — 小型平板：保留原有规则 */
 @media (max-width: 900px) {
   .task_board { grid-template-columns: 1fr 1fr; }
 }
+
+/* 768px — 移动端：单列堆叠，表格横滚，甘特图横滚 */
+@media (max-width: 768px) {
+  .page {
+    gap: var(--space-4);
+  }
+
+  .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+
+  .tab {
+    padding: var(--space-3) var(--space-4);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .filter_bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter_select {
+    width: 100%;
+  }
+
+  .task_board {
+    grid-template-columns: 1fr;
+  }
+
+  .schedule_gantt {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .gantt_row {
+    grid-template-columns: 100px 1fr;
+    min-width: 480px;
+  }
+
+  .schedule_header {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .detail_grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form_row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 600px — 保留原有规则作为向下兼容 */
 @media (max-width: 600px) {
   .task_board { grid-template-columns: 1fr; }
   .form_row { grid-template-columns: 1fr; }

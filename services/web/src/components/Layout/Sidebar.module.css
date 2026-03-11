@@ -159,3 +159,107 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ─────────────────────────────────────────────
+   响应式断点
+───────────────────────────────────────────── */
+
+/* 1200px — 中等屏幕：侧栏自动折叠为图标模式 */
+@media (max-width: 1200px) {
+  .sidebar {
+    width: var(--layout-sidebar-collapsed, 64px);
+  }
+
+  /* 折叠后隐藏文字标签 */
+  .sidebar__logo_text,
+  .sidebar__group_label,
+  .sidebar__label,
+  .sidebar__badge,
+  .sidebar__user_name,
+  .sidebar__user_role {
+    display: none;
+  }
+
+  /* 图标居中 */
+  .sidebar__item {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .sidebar__logo {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .sidebar__user {
+    justify-content: center;
+    padding: var(--space-3) 0;
+  }
+}
+
+/* 768px — 移动端：侧栏脱离文档流，以抽屉形式出现 */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: var(--layout-sidebar-width, 220px);
+    z-index: var(--z-overlay, 300);
+    transform: translateX(-100%);
+    transition: transform var(--transition-base);
+    box-shadow: var(--shadow-xl);
+
+    /* 移动端恢复展开宽度，重新显示文字 */
+    &.sidebar--collapsed {
+      width: var(--layout-sidebar-width, 220px);
+      transform: translateX(-100%);
+    }
+  }
+
+  /* 通过 JS 添加 --open 修饰符显示抽屉 */
+  .sidebar--open {
+    transform: translateX(0);
+  }
+
+  /* 移动端恢复显示所有文字内容 */
+  .sidebar__logo_text,
+  .sidebar__group_label,
+  .sidebar__label,
+  .sidebar__badge,
+  .sidebar__user_name,
+  .sidebar__user_role {
+    display: block;
+  }
+
+  .sidebar__item {
+    justify-content: flex-start;
+    padding: 0 var(--space-4);
+  }
+
+  .sidebar__logo {
+    justify-content: flex-start;
+    padding: 0 var(--space-4);
+  }
+
+  .sidebar__user {
+    justify-content: flex-start;
+    padding: var(--space-4);
+  }
+}
+
+/* 移动端侧栏遮罩层 */
+.sidebar__overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: calc(var(--z-overlay, 300) - 1);
+  animation: fade-in var(--transition-base);
+}
+
+@media (max-width: 768px) {
+  .sidebar__overlay--visible {
+    display: block;
+  }
+}

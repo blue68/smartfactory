@@ -222,13 +222,27 @@
   margin: 0 0 var(--space-4) 0;
 }
 
+/* 桌面横向排列；overflow-x 保证超出时可横向滚动 */
 .process_flow__track {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 0;
   overflow-x: auto;
-  padding: var(--space-3) 0;
+  padding: var(--space-3) 0 var(--space-4) 0;
   -webkit-overflow-scrolling: touch;
+  /* 隐藏滚动条但保留滚动能力（WebKit / Firefox） */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+}
+
+.process_flow__track::-webkit-scrollbar {
+  height: 4px;
+}
+
+.process_flow__track::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 2px;
 }
 
 .process_flow__node_wrap {
@@ -246,9 +260,10 @@
   border: 2px solid var(--border-default);
   border-radius: var(--radius-lg);
   background: var(--bg-card);
-  min-width: 100px;
+  min-width: 108px;
   text-align: center;
   transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+  cursor: default;
 }
 
 .process_flow__node:hover {
@@ -256,6 +271,7 @@
   transform: translateY(-2px);
 }
 
+/* 步骤序号圆点 — 颜色由类型修饰类覆盖 */
 .process_flow__node_order {
   display: inline-flex;
   align-items: center;
@@ -263,10 +279,12 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
+  background: var(--color-gray-400);
   color: #fff;
   font-size: 12px;
   font-weight: 700;
   font-family: var(--font-family-mono);
+  flex-shrink: 0;
 }
 
 .process_flow__node_name {
@@ -274,6 +292,37 @@
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.process_flow__node_type {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  /* 颜色由类型修饰类覆盖 */
+}
+
+.process_flow__node_workstation {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--color-gray-50);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-2);
+}
+
+/* 节点内容区：桌面端纵向堆叠，间距收紧 */
+.process_flow__node_content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
 }
 
 .process_flow__node_meta {
@@ -282,12 +331,59 @@
   color: var(--text-secondary);
 }
 
+/* 节点类型修饰类 — 圆点背景色 + 节点边框色 + 类型标签色 */
+
+.process_flow__node--cj .process_flow__node_order   { background: var(--color-error-500); }
+.process_flow__node--cj .process_flow__node_type    { color: var(--color-error-500); }
+.process_flow__node--cj                             { border-color: var(--color-error-300, #fca5a5); }
+
+.process_flow__node--fz .process_flow__node_order   { background: var(--color-primary-500); }
+.process_flow__node--fz .process_flow__node_type    { color: var(--color-primary-500); }
+.process_flow__node--fz                             { border-color: var(--color-primary-300, #93c5fd); }
+
+.process_flow__node--zt .process_flow__node_order   { background: var(--color-warning-500); }
+.process_flow__node--zt .process_flow__node_type    { color: var(--color-warning-500); }
+.process_flow__node--zt                             { border-color: var(--color-warning-300, #fcd34d); }
+
+.process_flow__node--jy .process_flow__node_order   { background: var(--color-success-500); }
+.process_flow__node--jy .process_flow__node_type    { color: var(--color-success-500); }
+.process_flow__node--jy                             { border-color: var(--color-success-300, #6ee7b7); }
+
+.process_flow__node--bz .process_flow__node_order   { background: var(--color-info-500, var(--color-primary-400)); }
+.process_flow__node--bz .process_flow__node_type    { color: var(--color-info-500, var(--color-primary-400)); }
+.process_flow__node--bz                             { border-color: var(--color-info-300, var(--color-primary-200)); }
+
+/* 箭头连接线 */
 .process_flow__arrow {
+  display: flex;
+  align-items: center;
   font-size: 20px;
   color: var(--text-tertiary, var(--color-gray-400));
   margin: 0 var(--space-2);
   flex-shrink: 0;
   user-select: none;
+  line-height: 1;
+}
+
+/* 空状态 */
+.process_flow__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8) var(--space-4);
+  gap: var(--space-2);
+  color: var(--text-secondary);
+}
+
+.process_flow__empty_icon {
+  font-size: 32px;
+  opacity: 0.4;
+}
+
+.process_flow__empty_text {
+  font-size: var(--text-body-m);
+  color: var(--text-secondary);
 }
 
 /* ——— 响应式：窄屏单列布局 ——— */
@@ -305,5 +401,61 @@
   .filter_search,
   .filter_select {
     width: 100%;
+  }
+}
+
+/* ——— T210: 移动端流程图纵向排列（<768px） ——— */
+
+@media (max-width: 767px) {
+  /* track 转为纵向列布局 */
+  .process_flow__track {
+    flex-direction: column;
+    align-items: stretch;
+    overflow-x: visible;
+    padding: var(--space-2) 0;
+  }
+
+  /* 每个节点包裹块纵向排列：节点在上，箭头在下 */
+  .process_flow__node_wrap {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* 节点宽度占满、水平方向排列内容为垂直居中 */
+  .process_flow__node {
+    width: 100%;
+    min-width: unset;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--space-3);
+    text-align: left;
+  }
+
+  /* 移动端节点名称允许展示更长内容 */
+  .process_flow__node_name {
+    max-width: none;
+    white-space: normal;
+  }
+
+  /* 节点工作站标签同样允许展示 */
+  .process_flow__node_workstation {
+    max-width: none;
+  }
+
+  /* 右侧文字内容纵向排列 */
+  .process_flow__node_content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* 箭头改为向下的竖向指示 */
+  .process_flow__arrow {
+    font-size: 18px;
+    margin: var(--space-1) 0;
+    transform: rotate(90deg);
   }
 }

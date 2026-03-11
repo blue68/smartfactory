@@ -117,6 +117,62 @@
 .conversion_remove:hover:not(:disabled) { background: var(--color-error-50); color: var(--color-error-600); border-color: var(--color-error-300); }
 .conversion_remove:disabled { opacity: 0.3; cursor: not-allowed; }
 
+/* ─────────────────────────────────────────────
+   响应式断点
+───────────────────────────────────────────── */
+
+/* 1200px — 中等屏幕：筛选栏紧凑，减小最小宽度 */
+@media (max-width: 1200px) {
+  .filter_search {
+    min-width: 160px;
+  }
+
+  /* conversion 行在中等屏幕下适当压缩 */
+  .conversion_header,
+  .conversion_row {
+    grid-template-columns: 1fr 1fr 1fr 32px;
+    gap: var(--space-2);
+  }
+}
+
+/* 768px — 移动端：筛选栏堆叠，表格横向滚动，单列表单 */
+@media (max-width: 768px) {
+  .page {
+    gap: var(--space-4);
+  }
+
+  .filter_bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter_search {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .filter_select {
+    width: 100%;
+  }
+
+  .form_row {
+    grid-template-columns: 1fr;
+  }
+
+  /* conversion 行移动端简化为两列 */
+  .conversion_header,
+  .conversion_row {
+    grid-template-columns: 1fr 1fr 32px;
+  }
+
+  /* 隐藏换算结果列标题和输入框第三项 */
+  .conversion_header span:nth-child(3),
+  .conversion_row .conversion_input:nth-child(3) {
+    display: none;
+  }
+}
+
+/* 640px 及以下保留原有表单单列规则 */
 @media (max-width: 640px) {
   .form_row { grid-template-columns: 1fr; }
 }

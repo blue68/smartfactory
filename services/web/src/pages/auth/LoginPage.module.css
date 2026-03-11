@@ -58,3 +58,44 @@
   font-size: var(--text-body-s);
   color: var(--text-disabled);
 }
+
+/* ─────────────────────────────────────────────
+   响应式断点
+───────────────────────────────────────────── */
+
+/* 1200px — 中等屏幕：无需特殊处理，卡片已有 max-width */
+
+/* 768px — 移动端：卡片内边距收缩，适配小屏 */
+@media (max-width: 768px) {
+  .card {
+    padding: var(--space-8) var(--space-6);
+    border-radius: var(--radius-lg);
+  }
+
+  .logo {
+    margin-bottom: var(--space-6);
+  }
+
+  .logo__icon {
+    font-size: 2.5rem;
+  }
+}
+
+/* 480px — 极小屏：完全铺满，去掉圆角 */
+@media (max-width: 480px) {
+  .page {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .card {
+    max-width: 100%;
+    min-height: 100vh;
+    border-radius: 0;
+    box-shadow: none;
+    padding: var(--space-10) var(--space-5);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+}

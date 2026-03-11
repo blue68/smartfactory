@@ -207,10 +207,107 @@
 .trace_node_detail { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 .trace_node_time { font-size: 11px; color: var(--text-disabled); margin-top: 2px; font-family: var(--font-family-mono); }
 
+/* ─────────────────────────────────────────────
+   响应式断点（标准 1200px / 768px）
+───────────────────────────────────────────── */
+
+/* 1200px — 中等屏幕：KPI 缩为 2 列，图表单列 */
+@media (max-width: 1200px) {
+  .stats_kpi_grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stats_charts_row {
+    grid-template-columns: 1fr;
+  }
+
+  .filter_bar {
+    flex-wrap: wrap;
+  }
+}
+
+/* 900px — 小平板：保留原有规则 */
 @media (max-width: 900px) {
   .stats_kpi_grid { grid-template-columns: repeat(2, 1fr); }
   .stats_charts_row { grid-template-columns: 1fr; }
 }
+
+/* 768px — 移动端：全面单列堆叠，表格横滚，溯源搜索栏包裹 */
+@media (max-width: 768px) {
+  .page {
+    gap: var(--space-4);
+  }
+
+  .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+
+  .tab {
+    padding: var(--space-3) var(--space-4);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .filter_bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter_select {
+    width: 100%;
+  }
+
+  .stats_kpi_grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .stats_charts_row {
+    grid-template-columns: 1fr;
+  }
+
+  .form_row {
+    grid-template-columns: 1fr;
+  }
+
+  .detail_grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trace_search_bar {
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .trace_input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .trace_chain_meta {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  /* 溯源结果表格允许横向滚动 */
+  .trace_chain_wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* trend_row 列收窄 */
+  .trend_row {
+    grid-template-columns: 64px 1fr 40px 32px;
+  }
+
+  /* issue_type_row 列收窄 */
+  .issue_type_row {
+    grid-template-columns: 20px 1fr 80px 28px;
+  }
+}
+
+/* 640px — 向下兼容原有规则 */
 @media (max-width: 640px) {
   .stats_kpi_grid { grid-template-columns: 1fr 1fr; }
   .form_row { grid-template-columns: 1fr; }

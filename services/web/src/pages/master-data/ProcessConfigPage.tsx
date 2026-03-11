@@ -23,6 +23,95 @@ import Button from '@/components/common/Button';
 import Tag from '@/components/common/Tag';
 import styles from './ProcessConfigPage.module.css';
 
+// ——— 工序类型 → CSS 修饰类映射 ———
+
+const PROCESS_TYPE_MODIFIER: Record<string, string> = {
+  裁剪: 'cj',
+  缝制: 'fz',
+  整烫: 'zt',
+  检验: 'jy',
+  包装: 'bz',
+};
+
+// ——— T210: ProcessRouteFlow — 工序路由流程图组件 ———
+
+type ProcessRouteFlowProps = {
+  /** 工序列表，按 sortOrder 已排好序或由组件内部排序 */
+  steps: ProcessConfig[];
+  /** 路线名称，用于区域标题 */
+  routeTitle?: string;
+};
+
+/**
+ * 将工序路线步骤渲染为横向（桌面）/ 纵向（移动端 <768px）流程图。
+ * - 每个节点展示：步骤序号、工序名称、工序类型（彩色标签）、工作站名称、标准工时
+ * - 节点间用箭头连接
+ * - 无步骤时展示空状态提示
+ * - 纯 CSS Module 实现，无第三方图表库依赖
+ */
+function ProcessRouteFlow({ steps, routeTitle = '工序路由流程' }: ProcessRouteFlowProps) {
+  const sorted = [...steps].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
+  return (
+    <div className={`card ${styles.process_flow}`}>
+      <h3 className={styles.process_flow__title}>{routeTitle}</h3>
+
+      {sorted.length === 0 ? (
+        /* 空状态 */
+        <div className={styles.process_flow__empty}>
+          <span className={styles.process_flow__empty_icon} aria-hidden="true">⚙️</span>
+          <span className={styles.process_flow__empty_text}>暂无工序步骤，请先添加工序配置</span>
+        </div>
+      ) : (
+        <div className={styles.process_flow__track} role="list" aria-label={`${routeTitle}步骤列表`}>
+          {sorted.map((step, idx) => {
+            const modifier = PROCESS_TYPE_MODIFIER[step.type];
+            const nodeClass = [
+              styles.process_flow__node,
+              modifier ? styles[`process_flow__node--${modifier}` as keyof typeof styles] : '',
+            ]
+              .filter(Boolean)
+              .join(' ');
+
+            return (
+              <div
+                key={step.id}
+                className={styles.process_flow__node_wrap}
+                role="listitem"
+              >
+                {/* 流程节点 */}
+                <div className={nodeClass} title={step.description ?? step.name}>
+                  {/* 序号圆点 */}
+                  <span className={styles.process_flow__node_order} aria-label={`步骤 ${idx + 1}`}>
+                    {idx + 1}
+                  </span>
+
+                  {/* 节点文字内容区 */}
+                  <div className={styles.process_flow__node_content}>
+                    <span className={styles.process_flow__node_name}>{step.name}</span>
+                    <span className={styles.process_flow__node_type}>{step.type}</span>
+                    {step.workstation && (
+                      <span className={styles.process_flow__node_workstation}>{step.workstation}</span>
+                    )}
+                    <span className={styles.process_flow__node_meta}>
+                      {Number(step.standardHours).toFixed(1)} h/套
+                    </span>
+                  </div>
+                </div>
+
+                {/* 连接箭头（最后一个节点不渲染） */}
+                {idx < sorted.length - 1 && (
+                  <span className={styles.process_flow__arrow} aria-hidden="true">→</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ——— 类型扩展 ———
 
 type ProcessConfigRecord = ProcessConfig & Record<string, unknown>;
@@ -376,36 +465,18 @@ export default function ProcessConfigPage() {
         </select>
       </div>
 
-      {/* 数据表格 */}
-      {/* T210: 工序流程图 — 水平节点连线 */}
-      {list.length > 0 && (
-        <div className={`card ${styles.process_flow}`}>
-          <h3 className={styles.process_flow__title}>工序路由流程</h3>
-          <div className={styles.process_flow__track}>
-            {[...list]
-              .sort((a, b) => ((a as ProcessConfig).sortOrder ?? 0) - ((b as ProcessConfig).sortOrder ?? 0))
-              .map((item, idx, arr) => {
-                const pc = item as unknown as ProcessConfig;
-                const typeColor: Record<string, string> = {
-                  '裁剪': 'var(--color-error-500)', '缝制': 'var(--color-primary-500)',
-                  '整烫': 'var(--color-warning-500)', '检验': 'var(--color-success-500)',
-                  '包装': 'var(--color-info-500)', '其他': 'var(--color-gray-500)',
-                };
-                const color = typeColor[pc.type] ?? 'var(--color-gray-400)';
-                return (
-                  <div key={pc.id} className={styles.process_flow__node_wrap}>
-                    <div className={styles.process_flow__node} style={{ borderColor: color }}>
-                      <span className={styles.process_flow__node_order} style={{ background: color }}>{idx + 1}</span>
-                      <span className={styles.process_flow__node_name}>{pc.name}</span>
-                      <span className={styles.process_flow__node_meta}>{Number(pc.standardHours).toFixed(1)}h</span>
-                    </div>
-                    {idx < arr.length - 1 && <span className={styles.process_flow__arrow}>→</span>}
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      )}
+      {/* T210: 工序路由流程图 — ProcessRouteFlow 组件 */}
+      {/* 有工序数据时展示流程图；无数据时组件内部显示空状态，始终渲染保持区域稳定 */}
+      <ProcessRouteFlow
+        steps={(data?.list ?? []) as ProcessConfig[]}
+        routeTitle={
+          typeFilter
+            ? `工序路由流程 — ${typeFilter}`
+            : debouncedKeyword
+            ? `工序路由流程 — 搜索：${debouncedKeyword}`
+            : '工序路由流程'
+        }
+      />
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <Table<ProcessConfigRecord>

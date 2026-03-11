@@ -175,3 +175,50 @@
   transition: background var(--transition-fast);
 }
 .topbar__menu_item:hover { background: var(--color-gray-50); }
+
+/* ─────────────────────────────────────────────
+   响应式断点（补充 1200px / 768px 标准断点）
+───────────────────────────────────────────── */
+
+/* 1200px — 中等屏幕：搜索框缩小最大宽度 */
+@media (max-width: 1200px) {
+  .topbar__search {
+    max-width: 320px;
+  }
+
+  .topbar {
+    padding: 0 var(--space-4);
+  }
+}
+
+/* 768px — 移动端：侧栏汉堡按钮显示，搜索框隐藏或收起 */
+@media (max-width: 768px) {
+  .topbar {
+    padding: 0 var(--space-3);
+    gap: var(--space-2);
+  }
+
+  /* 移动端显示侧栏开关按钮（桌面端通过 collapse_btn 控制）*/
+  .topbar__collapse_btn {
+    display: flex;
+  }
+
+  /* 搜索框在移动端隐藏，节省顶部空间 */
+  .topbar__search {
+    display: none;
+  }
+
+  .topbar__title {
+    font-size: var(--text-body-m);
+  }
+
+  /* 右侧操作区精简间距 */
+  .topbar__right {
+    gap: var(--space-2);
+  }
+
+  /* AI 按钮移动端仅显示图标，隐藏文字（已由 min-width: 768px 媒体查询控制） */
+  .topbar__ai_btn {
+    padding: 0 var(--space-2);
+  }
+}
