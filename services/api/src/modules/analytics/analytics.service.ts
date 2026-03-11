@@ -65,7 +65,7 @@ export class AnalyticsService {
     const [pend] = await AppDataSource.query(
       `SELECT COUNT(*) AS val
        FROM sales_orders
-       WHERE tenant_id = ? AND status = 'pending'`,
+       WHERE tenant_id = ? AND status = 'pending_approval'`,
       [this.tenantId],
     );
 
@@ -144,9 +144,12 @@ export class AnalyticsService {
     }));
 
     // 近 30 天库存净变动（入库记 +，出库记 -）
+    // BUG-002 FIX: inventory_transactions 表中无 qty 列；
+    // 使用 qty_stock_unit（换算后库存单位数量）代替，并改用 direction 字段（IN/OUT）
+    // 判断方向，比原来的 transaction_type LIKE '%_IN' 更准确且不依赖命名约定。
     const trend = await AppDataSource.query(
       `SELECT DATE(it.created_at) AS date,
-              SUM(CASE WHEN it.transaction_type LIKE '%_IN' THEN it.qty ELSE -it.qty END) AS net
+              SUM(CASE WHEN it.direction = 'IN' THEN it.qty_stock_unit ELSE -it.qty_stock_unit END) AS net
        FROM inventory_transactions it
        WHERE it.tenant_id = ?
          AND it.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)

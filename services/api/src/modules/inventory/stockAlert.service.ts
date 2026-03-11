@@ -123,7 +123,7 @@ export class StockAlertService {
    * 扫描单个租户的安全库存预警
    *
    * 查询逻辑：
-   *   inventory_balance.qty_available < skus.safety_stock
+   *   (inventory.qty_on_hand - inventory.qty_reserved) < skus.safety_stock
    *   AND skus.safety_stock > 0（未设安全库存的 SKU 不预警）
    */
   private async scanTenant(
@@ -156,17 +156,17 @@ export class StockAlertService {
       SELECT
         s.id            AS skuId,
         s.sku_code      AS skuCode,
-        s.sku_name      AS skuName,
-        COALESCE(b.qty_available, 0) AS available,
+        s.name          AS skuName,
+        COALESCE(b.qty_on_hand - b.qty_reserved, 0) AS available,
         s.safety_stock  AS safetyStock,
         s.stock_unit    AS stockUnit
       FROM skus s
-      LEFT JOIN inventory_balance b
+      LEFT JOIN inventory b
         ON b.sku_id = s.id AND b.tenant_id = s.tenant_id
       WHERE s.tenant_id = ?
         AND s.status = 'active'
         AND s.safety_stock > 0
-        AND COALESCE(b.qty_available, 0) < s.safety_stock
+        AND COALESCE(b.qty_on_hand - b.qty_reserved, 0) < s.safety_stock
       ORDER BY s.id
     `;
     return AppDataSource.query<LowStockSku[]>(sql, [tenantId]);

@@ -976,6 +976,87 @@ CREATE TABLE IF NOT EXISTS `ai_feedbacks` (
   KEY `idx_tenant_created_at` (`tenant_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI反馈表';
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 43. 销售发货主表 sales_deliveries
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `sales_deliveries` (
+  `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`    INT UNSIGNED    NOT NULL COMMENT '租户ID',
+  `order_id`     BIGINT UNSIGNED NOT NULL COMMENT '关联销售订单ID',
+  `delivery_no`  VARCHAR(32)     NOT NULL COMMENT '发货单号',
+  `tracking_no`  VARCHAR(128)    DEFAULT NULL COMMENT '物流单号',
+  `status`       ENUM('pending','received') NOT NULL DEFAULT 'pending' COMMENT '状态：pending=已发货待收货, received=已收货',
+  `shipped_at`   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发货时间',
+  `received_at`  DATETIME        DEFAULT NULL COMMENT '收货确认时间',
+  `created_by`   INT UNSIGNED    NOT NULL COMMENT '创建人',
+  `updated_by`   INT UNSIGNED    NOT NULL COMMENT '最后修改人',
+  `created_at`   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_delivery_no` (`tenant_id`, `delivery_no`),
+  KEY `idx_tenant_order`  (`tenant_id`, `order_id`),
+  KEY `idx_tenant_status` (`tenant_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='销售发货主表';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 44. 销售发货明细表 sales_delivery_items
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `sales_delivery_items` (
+  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`     INT UNSIGNED    NOT NULL COMMENT '租户ID',
+  `delivery_id`   BIGINT UNSIGNED NOT NULL COMMENT '关联发货单ID',
+  `order_item_id` BIGINT UNSIGNED NOT NULL COMMENT '关联订单明细ID',
+  `shipped_qty`   DECIMAL(14,4)   NOT NULL COMMENT '本次发货数量',
+  `created_by`    INT UNSIGNED    NOT NULL COMMENT '创建人',
+  `created_at`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_delivery`   (`tenant_id`, `delivery_id`),
+  KEY `idx_order_item`        (`order_item_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='销售发货明细表';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 45. 销售结算单表 sales_settlements
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `sales_settlements` (
+  `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`       INT UNSIGNED    NOT NULL COMMENT '租户ID',
+  `order_id`        BIGINT UNSIGNED NOT NULL COMMENT '关联销售订单ID',
+  `settlement_no`   VARCHAR(32)     NOT NULL COMMENT '结算单号',
+  `total_amount`    DECIMAL(14,2)   NOT NULL COMMENT '应收总金额',
+  `paid_amount`     DECIMAL(14,2)   NOT NULL DEFAULT 0 COMMENT '已收金额',
+  `status`          ENUM('pending','partial_paid','paid','overdue') NOT NULL DEFAULT 'pending' COMMENT '结算状态',
+  `due_date`        DATE            NOT NULL COMMENT '应付款日期',
+  `invoice_no`      VARCHAR(64)     DEFAULT NULL COMMENT '发票号',
+  `invoice_date`    DATE            DEFAULT NULL COMMENT '开票日期',
+  `notes`           TEXT            DEFAULT NULL COMMENT '备注',
+  `created_by`      INT UNSIGNED    NOT NULL COMMENT '创建人',
+  `updated_by`      INT UNSIGNED    NOT NULL COMMENT '最后修改人',
+  `created_at`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_tenant_order`    (`tenant_id`, `order_id`),
+  KEY `idx_tenant_status`         (`tenant_id`, `status`),
+  KEY `idx_tenant_due_date`       (`tenant_id`, `due_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='销售结算单表';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 46. 销售付款记录表 sales_payments
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `sales_payments` (
+  `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`       INT UNSIGNED    NOT NULL COMMENT '租户ID',
+  `settlement_id`   BIGINT UNSIGNED NOT NULL COMMENT '关联结算单ID',
+  `payment_amount`  DECIMAL(14,2)   NOT NULL COMMENT '本次付款金额',
+  `payment_method`  VARCHAR(32)     NOT NULL DEFAULT 'bank_transfer' COMMENT '付款方式',
+  `payment_date`    DATE            NOT NULL COMMENT '付款日期',
+  `reference_no`    VARCHAR(64)     DEFAULT NULL COMMENT '付款流水号/参考号',
+  `notes`           TEXT            DEFAULT NULL COMMENT '备注',
+  `created_by`      INT UNSIGNED    NOT NULL COMMENT '创建人',
+  `created_at`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant_settlement` (`tenant_id`, `settlement_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='销售付款记录表';
+
 -- ═════════════════════════════════════════════════════════════════════════════
 -- 种子数据（初始测试数据）
 -- ═════════════════════════════════════════════════════════════════════════════
