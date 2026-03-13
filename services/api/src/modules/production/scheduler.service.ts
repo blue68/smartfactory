@@ -527,11 +527,10 @@ export class SchedulerService {
       name: string;
       type: string;
       capacity: number;
-      daily_capacity: number | null;
     }>>(
       `SELECT id, name, type,
-              COALESCE(daily_capacity, capacity, 0) AS capacity,
-              daily_capacity
+              capacity,
+              capacity AS daily_capacity
        FROM workstations
        WHERE id = ? AND tenant_id = ? AND status = 'active'
        LIMIT 1`,

@@ -46,6 +46,9 @@ router.post('/schedule/confirm',
   asyncHandler(productionController.confirmSchedule.bind(productionController)),
 );
 
+// R-06: 任务列表（分页 + 筛选）
+router.get('/tasks', asyncHandler(productionController.listTasks.bind(productionController)));
+
 // 工人任务
 router.get('/tasks/worker/:workerId',  asyncHandler(productionController.getWorkerTasks.bind(productionController)));
 router.post('/tasks/:id/start',
@@ -55,6 +58,13 @@ router.post('/tasks/:id/start',
 router.post('/tasks/:id/complete',
   requireRoles('worker', 'supervisor'),
   asyncHandler(productionController.completeTask.bind(productionController)),
+);
+router.post('/tasks/:id/exception',
+  asyncHandler(productionController.reportException.bind(productionController)),
+);
+router.post('/tasks/:id/resolve-exception',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(productionController.resolveException.bind(productionController)),
 );
 
 export default router;

@@ -131,6 +131,95 @@ export class ProductionService {
     return { id: Number(result.insertId), workOrderNo };
   }
 
+  // R-06: 任务列表（支持分页、状态筛选、关键字搜索）
+  async listTasks(params: {
+    page: number; pageSize: number; status?: string; keyword?: string;
+  }) {
+    const conds = ['pt.tenant_id = ?'];
+    const p: unknown[] = [this.tenantId];
+
+    if (params.status) {
+      conds.push('pt.status = ?');
+      p.push(params.status);
+    }
+    if (params.keyword) {
+      conds.push('(po.work_order_no LIKE ? OR ps.step_name LIKE ? OR u.real_name LIKE ?)');
+      p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
+    }
+
+    const where = conds.join(' AND ');
+    const offset = (params.page - 1) * params.pageSize;
+
+    const [list, countRows] = await Promise.all([
+      AppDataSource.query(
+        `SELECT pt.id, pt.task_date AS taskDate, pt.status,
+                pt.planned_qty AS plannedQty, pt.completed_qty AS completedQty,
+                po.work_order_no AS orderNo, ps.step_name AS processName,
+                ws.name AS workstationName, u.real_name AS workerName
+         FROM production_tasks pt
+         INNER JOIN production_orders po ON po.id = pt.production_order_id
+         INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+         LEFT JOIN workstations ws ON ws.id = pt.workstation_id
+         LEFT JOIN users u ON u.id = pt.worker_id
+         WHERE ${where}
+         ORDER BY pt.task_date DESC, pt.id DESC
+         LIMIT ? OFFSET ?`,
+        [...p, params.pageSize, offset],
+      ),
+      AppDataSource.query<Array<{ total: string }>>(
+        `SELECT COUNT(*) AS total
+         FROM production_tasks pt
+         INNER JOIN production_orders po ON po.id = pt.production_order_id
+         INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+         LEFT JOIN users u ON u.id = pt.worker_id
+         WHERE ${where}`,
+        p,
+      ),
+    ]);
+
+    return { list, total: Number(countRows[0]?.total ?? 0) };
+  }
+
+  // R-06: 异常上报
+  async reportException(taskId: number, params: {
+    type: string; description: string; severity: string;
+  }) {
+    await AppDataSource.transaction(async (manager) => {
+      // 更新任务状态为 exception
+      await manager.query(
+        `UPDATE production_tasks SET status = 'exception', updated_by = ?
+         WHERE id = ? AND tenant_id = ?`,
+        [this.userId, taskId, this.tenantId],
+      );
+      // 插入异常记录
+      await manager.query(
+        `INSERT INTO task_exceptions
+           (tenant_id, task_id, exception_type, description, severity, reported_by)
+         VALUES (?,?,?,?,?,?)`,
+        [this.tenantId, taskId, params.type, params.description, params.severity, this.userId],
+      );
+    });
+  }
+
+  // P2: 异常处理（恢复任务状态）
+  async resolveException(taskId: number, resolution: string): Promise<void> {
+    await AppDataSource.transaction(async (manager) => {
+      // 恢复任务状态为 pending
+      await manager.query(
+        `UPDATE production_tasks SET status = 'pending', updated_by = ?
+         WHERE id = ? AND tenant_id = ? AND status = 'exception'`,
+        [this.userId, taskId, this.tenantId],
+      );
+      // 更新异常记录
+      await manager.query(
+        `UPDATE task_exceptions SET resolved_at = NOW(), resolved_by = ?, resolution = ?
+         WHERE task_id = ? AND tenant_id = ? AND resolved_at IS NULL
+         ORDER BY id DESC LIMIT 1`,
+        [this.userId, resolution, taskId, this.tenantId],
+      );
+    });
+  }
+
   // BE-P1: 排产手动调整
   async adjustSchedule(
     date: string,
@@ -171,7 +260,7 @@ export class ProductionService {
   // BE-P1: 工作站列表
   async listWorkstations(): Promise<Array<{ id: number; name: string; capacity: number }>> {
     const rows = await AppDataSource.query(
-      `SELECT id, name, daily_capacity AS capacity FROM workstations WHERE tenant_id = ? AND status = 'active' ORDER BY name`,
+      `SELECT id, name, capacity FROM workstations WHERE tenant_id = ? AND status = 'active' ORDER BY name`,
       [this.tenantId],
     );
     return rows;
@@ -247,25 +336,8 @@ export class ProductionService {
   }
 
   // BE-P2-009: 工作日历 — 设置节假日 / 调休
+  // NOTE: work_calendar 表由迁移脚本创建，见 migrations/create_work_calendar.sql
   async setHoliday(params: { date: string; isWorkday: boolean; name?: string }): Promise<void> {
-    // Ensure work_calendar table exists before upsert (idempotent DDL)
-    await AppDataSource.query(
-      `CREATE TABLE IF NOT EXISTS work_calendar (
-         id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-         tenant_id    INT UNSIGNED    NOT NULL,
-         date         DATE            NOT NULL,
-         is_workday   TINYINT(1)      NOT NULL DEFAULT 1,
-         holiday_name VARCHAR(50)     NULL,
-         created_by   INT UNSIGNED    NULL,
-         updated_by   INT UNSIGNED    NULL,
-         created_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-         updated_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-         PRIMARY KEY (id),
-         UNIQUE KEY uk_tenant_date (tenant_id, date),
-         INDEX idx_tenant_month (tenant_id, date)
-       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-    );
-
     await AppDataSource.query(
       `INSERT INTO work_calendar (tenant_id, date, is_workday, holiday_name, created_by, updated_by)
        VALUES (?, ?, ?, ?, ?, ?)

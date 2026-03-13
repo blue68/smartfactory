@@ -84,6 +84,38 @@ export class ProductionController {
     success(res, null, '完工已上报');
   }
 
+  // R-06: 任务列表
+  async listTasks(req: Request, res: Response): Promise<void> {
+    const q = PaginationSchema.extend({
+      status: z.string().optional(),
+      keyword: z.string().max(100).optional(),
+    }).parse(req.query);
+    const { list, total } = await this.svc(req).listTasks(q);
+    success(res, buildPaginated(list, total, q.page, q.pageSize));
+  }
+
+  // R-06: 异常上报
+  async reportException(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const body = z.object({
+      type: z.enum(['设备故障', '物料缺失', '质量异常', '其他']),
+      description: z.string().min(1).max(1000),
+      severity: z.enum(['low', 'medium', 'high']),
+    }).parse(req.body);
+    await this.svc(req).reportException(id, body);
+    success(res, null, '异常已上报');
+  }
+
+  // P2: 异常处理（恢复任务）
+  async resolveException(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const body = z.object({
+      resolution: z.string().min(1).max(1000),
+    }).parse(req.body);
+    await this.svc(req).resolveException(id, body.resolution);
+    success(res, null, '异常已处理');
+  }
+
   // BE-P2-009: 工作日历 — 查询月度日历
   async getWorkCalendar(req: Request, res: Response): Promise<void> {
     const schema = z.object({
