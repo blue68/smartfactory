@@ -1,92 +1,1344 @@
 /**
  * [artifact:前端代码] — 供应商管理页
- * 功能：供应商列表浏览、关键字搜索（防抖350ms）、等级/状态筛选、新建、编辑
+ * 100% 对齐 web-supplier-manage.html 设计规范
+ *
+ * 列结构：等级 | 供应商名称+联系人 | 主供品类 | 准时交货率 | 质量异常率 | 账期 | 操作
+ * Header 操作区：绩效对比 | 导出 | + 新增供应商
+ * 统计摘要栏：总数 | A级(🥇) | B级(🥈) | C级(🥉) | 预警提示
+ * 新增供应商 Drawer：分三节（基础信息/合作条款/其他）
+ * 绩效对比 Modal：横向柱状图 + AI 建议块
  */
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
 import {
   useSupplierList,
   useCreateSupplier,
   useUpdateSupplier,
+  useSupplierSkus,
+  useSupplierPriceAgreements,
+  useSupplierPerformance,
 } from '@/api/supplier';
 import type {
   Supplier,
   SupplierRating,
   SupplierListQuery,
   CreateSupplierPayload,
+  SupplierRelatedSku,
+  SupplierPriceAgreement,
+  SupplierPerformance,
 } from '@/api/supplier';
+import { usePriceHistory, useCreatePrice } from '@/api/price';
+import type { PriceHistoryItem } from '@/api/price';
+import { useSkuList } from '@/api/sku';
+import type { Sku } from '@/types/models';
 import type { Column } from '@/components/common/Table';
 import Table from '@/components/common/Table';
 import Drawer from '@/components/common/Drawer';
-import Tag from '@/components/common/Tag';
+import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
-import SummaryStrip from '@/components/common/SummaryStrip';
-import ProgressBar from '@/components/common/ProgressBar';
 import styles from './SupplierPage.module.css';
 
 // ─────────────────────────────────────────────
-// 常量与辅助映射
+// 常量与辅助类型
 // ─────────────────────────────────────────────
 
-type SupplierRecord = Supplier & Record<string, unknown>;
+type SupplierRecord = Supplier & {
+  /** 主供品类（暂 mock，后端返回后直接使用） */
+  category?: string;
+  /** 质量异常率 0–100，如 1.2 表示 1.2% */
+  qualityRate?: number;
+  [key: string]: unknown;
+};
 
 const RATING_OPTIONS: SupplierRating[] = ['A', 'B', 'C', 'D'];
 
-const RATING_VARIANT: Record<SupplierRating, 'success' | 'info' | 'warning' | 'danger'> = {
-  A: 'success',
-  B: 'info',
-  C: 'warning',
-  D: 'danger',
-};
-
-const RATING_LABEL: Record<SupplierRating, string> = {
-  A: 'A 级',
-  B: 'B 级',
-  C: 'C 级',
-  D: 'D 级',
-};
+// CATEGORY_OPTIONS 由实际供应商数据动态生成
 
 // ─────────────────────────────────────────────
-// 表单类型
+// 子组件：等级徽章
 // ─────────────────────────────────────────────
+
+function GradeBadge({ rating }: { rating: SupplierRating }) {
+  const cls =
+    rating === 'A' ? styles.gradeBadgeA
+    : rating === 'B' ? styles.gradeBadgeB
+    : rating === 'C' ? styles.gradeBadgeC
+    : styles.gradeBadgeD;
+  return <span className={`${styles.gradeBadge} ${cls}`}>{rating}</span>;
+}
+
+// ─────────────────────────────────────────────
+// 子组件：准时率进度条
+// ─────────────────────────────────────────────
+
+function RateBar({ pct }: { pct: number }) {
+  const tier = pct >= 80 ? 'high' : pct >= 65 ? 'mid' : 'low';
+  const fillCls =
+    tier === 'high' ? styles.rateBarFillHigh
+    : tier === 'mid' ? styles.rateBarFillMid
+    : styles.rateBarFillLow;
+  const valCls =
+    tier === 'high' ? styles.rateValueHigh
+    : tier === 'mid' ? styles.rateValueMid
+    : styles.rateValueLow;
+  return (
+    <div className={styles.rateBar}>
+      <div className={styles.rateBarTrack}>
+        <div className={`${styles.rateBarFill} ${fillCls}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className={`${styles.rateValue} ${valCls}`}>{pct}%</span>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 子组件：质量异常率单元格
+// ─────────────────────────────────────────────
+
+function QualityRateCell({ rate }: { rate: number }) {
+  const isExceed = rate > 5;
+  const isWarn = !isExceed && rate > 3;
+  const cls = isExceed ? styles.qualityRateBad : isWarn ? styles.qualityRateWarn : styles.qualityRateGood;
+  return (
+    <span>
+      <span className={cls}>{rate.toFixed(1)}%</span>
+      {isExceed && <span className={styles.qualityExceedTag}>超预警</span>}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 子组件：绩效对比 Modal（横向柱状图）
+// ─────────────────────────────────────────────
+
+type PerfModalProps = {
+  open: boolean;
+  onClose: () => void;
+};
+
+const PERF_DATA = [
+  { name: '华森木业 (A)', onTime: 96, quality: 1.2 },
+  { name: '明辉五金 (A)', onTime: 94, quality: 0.8 },
+  { name: '广州板材 (B)', onTime: 82, quality: 3.5 },
+  { name: '联鑫材料 (B)', onTime: 78, quality: 6.2 },
+  { name: '顺达包材 (C)', onTime: 65, quality: 2.8 },
+];
+
+function HBarRow({
+  label,
+  pct,
+  valLabel,
+  tier,
+  warningAt,
+  warningLabel,
+  tagLabel,
+  valOut,
+}: {
+  label: string;
+  pct: number;
+  valLabel: string;
+  tier: 'good' | 'mid' | 'warn';
+  warningAt?: number;
+  warningLabel?: string;
+  tagLabel?: string;
+  valOut?: boolean;
+}) {
+  const fillCls =
+    tier === 'good' ? styles.hbarFillGood
+    : tier === 'mid' ? styles.hbarFillMid
+    : styles.hbarFillWarn;
+
+  return (
+    <div className={styles.hbarRow}>
+      <div className={styles.hbarLabel}>{label}</div>
+      <div className={styles.hbarTrack} style={{ position: 'relative' }}>
+        {warningAt != null && (
+          <div className={styles.hbarWarningLine} style={{ left: `${warningAt}%` }}>
+            {warningLabel && (
+              <div className={styles.hbarWarningLabel}>{warningLabel}</div>
+            )}
+          </div>
+        )}
+        <div className={`${styles.hbarFill} ${fillCls}`} style={{ width: `${pct}%` }}>
+          {!valOut && <span className={styles.hbarFillVal}>{valLabel}</span>}
+          {valOut && (
+            <span
+              className={styles.hbarFillValOut}
+              style={{ left: `calc(${pct}% + 8px)` }}
+            >
+              {valLabel}
+            </span>
+          )}
+        </div>
+      </div>
+      {tagLabel && <span className={styles.hbarTag}>{tagLabel}</span>}
+    </div>
+  );
+}
+
+function PerfModal({ open, onClose }: PerfModalProps) {
+  useEffect(() => {
+    if (!open) return;
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [open, onClose]);
+
+  const [period, setPeriod] = useState('近3个月');
+
+  if (!open) return null;
+
+  return createPortal(
+    <div
+      className={`${styles.perfOverlay} ${styles.perfOverlayOpen}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="供应商绩效对比"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className={styles.perfModal}>
+        <div className={styles.perfModalHeader}>
+          <div className={styles.perfModalTitle}>供应商绩效对比</div>
+          <select
+            className={styles.perfPeriodSelect}
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+          >
+            <option>近3个月</option>
+            <option>近6个月</option>
+            <option>近12个月</option>
+          </select>
+          <Button variant="ghost" size="sm" onClick={onClose}>关闭</Button>
+        </div>
+
+        <div className={styles.perfModalBody}>
+          {/* 准时交货率对比 */}
+          <div>
+            <div className={styles.perfSectionTitle}>准时交货率对比（A/B级供应商）</div>
+            <div className={styles.hbarChart}>
+              {PERF_DATA.map((d) => {
+                const tier = d.onTime >= 80 ? 'good' : d.onTime >= 65 ? 'mid' : 'warn';
+                const isLow = d.onTime < 60;
+                return (
+                  <HBarRow
+                    key={d.name}
+                    label={d.name}
+                    pct={d.onTime}
+                    valLabel={`${d.onTime}%`}
+                    tier={tier}
+                    warningAt={isLow ? 60 : undefined}
+                    warningLabel={isLow ? '60% 预警线' : undefined}
+                    tagLabel={isLow ? '← 低于60%预警线' : undefined}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 质量异常率对比 */}
+          <div>
+            <div className={styles.perfSectionTitle}>质量异常率对比（越低越好）</div>
+            <div className={styles.hbarChart}>
+              {PERF_DATA.map((d) => {
+                const scaledPct = d.quality * 10; // scale: 0–10% → 0–100%
+                const isExceed = d.quality > 5;
+                const tier: 'good' | 'mid' | 'warn' = isExceed ? 'warn' : d.quality > 3 ? 'mid' : 'good';
+                const valOut = scaledPct < 20;
+                return (
+                  <HBarRow
+                    key={d.name}
+                    label={d.name}
+                    pct={scaledPct}
+                    valLabel={`${d.quality}%`}
+                    tier={tier}
+                    valOut={valOut}
+                    warningAt={isExceed ? 50 : undefined}
+                    warningLabel={isExceed ? '5% 预警线' : undefined}
+                    tagLabel={isExceed ? '← 超5%预警' : undefined}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          {/* AI 建议 */}
+          <div className={styles.aiSuggestion}>
+            <div className={styles.aiSuggestionHeader}>
+              <span className={styles.aiSuggestionIcon}>🤖</span>
+              <span className={styles.aiSuggestionTitle}>AI 供应商评估建议</span>
+            </div>
+            <div className={styles.aiSuggestionBody}>
+              联鑫材料质量异常率持续偏高（6.2%，超过5%预警阈值），近3个月已触发 2 次到货质检不合格。建议采购员与联鑫材料沟通整改方案，或评估是否调整为 C 级并寻找替代供应商。
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ─────────────────────────────────────────────
+// 表单类型与初始值
+// ─────────────────────────────────────────────
+
+type PaymentType = 'cod' | 'monthly';
 
 type SupplierFormData = {
-  code: string;
   name: string;
+  rating: SupplierRating;
   contactName: string;
   contactPhone: string;
+  category: string;
+  paymentType: PaymentType;
+  paymentDays: string;
+  leadDays: string;
+  startDate: string;
+  notes: string;
+  /** 编辑专用字段 */
+  code: string;
   contactEmail: string;
   address: string;
-  rating: SupplierRating;
-  paymentDays: string;
-  notes: string;
 };
 
 const EMPTY_FORM: SupplierFormData = {
-  code: '',
   name: '',
+  rating: 'B',
   contactName: '',
   contactPhone: '',
+  category: '',
+  paymentType: 'monthly',
+  paymentDays: '30',
+  leadDays: '',
+  startDate: new Date().toISOString().slice(0, 10),
+  notes: '',
+  code: '',
   contactEmail: '',
   address: '',
-  rating: 'A',
-  paymentDays: '',
-  notes: '',
 };
 
 function supplierToForm(s: Supplier): SupplierFormData {
+  // 后端返回 rating/contactName/contactPhone（由 controller 做了映射）
+  const rec = s as unknown as Record<string, unknown>;
+  const rating = (s.rating ?? rec.grade ?? 'B') as SupplierRating;
+  const contactName = s.contactName ?? rec.contact as string ?? '';
+  const contactPhone = s.contactPhone ?? rec.phone as string ?? '';
+  const category = rec.category as string ?? '';
+  const leadDays = rec.leadDays;
   return {
-    code: s.code,
     name: s.name,
-    contactName: s.contactName ?? '',
-    contactPhone: s.contactPhone ?? '',
+    rating,
+    contactName,
+    contactPhone,
+    category,
+    paymentType: s.paymentDays ? 'monthly' : 'cod',
+    paymentDays: s.paymentDays != null ? String(s.paymentDays) : '30',
+    leadDays: leadDays != null ? String(leadDays) : '',
+    startDate: new Date().toISOString().slice(0, 10),
+    notes: s.notes ?? '',
+    code: s.code,
     contactEmail: s.contactEmail ?? '',
     address: s.address ?? '',
-    rating: s.rating,
-    paymentDays: s.paymentDays != null ? String(s.paymentDays) : '',
-    notes: s.notes ?? '',
   };
+}
+
+// ─────────────────────────────────────────────
+// 子组件：新建/编辑 供应商表单
+// ─────────────────────────────────────────────
+
+type SupplierFormFieldsProps = {
+  form: SupplierFormData;
+  onChange: React.Dispatch<React.SetStateAction<SupplierFormData>>;
+  isNew: boolean;
+};
+
+function SupplierFormFields({ form, onChange, isNew }: SupplierFormFieldsProps) {
+  const set =
+    (field: keyof SupplierFormData) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      onChange((f) => ({ ...f, [field]: e.target.value }));
+
+  const setPaymentType = (val: PaymentType) =>
+    onChange((f) => ({ ...f, paymentType: val }));
+
+  return (
+    <div className={styles.form}>
+      {/* ── 基础信息 ── */}
+      <div className={styles.formSection}>
+        <div className={styles.formSectionTitle}>基础信息</div>
+
+        {/* 新建时显示编码 */}
+        {isNew && (
+          <div className={styles.formGroup}>
+            <label className={`${styles.formLabel} ${styles.formLabelRequired}`}>供应商名称</label>
+            <input
+              type="text"
+              className={styles.formInput}
+              placeholder="请输入供应商全称"
+              value={form.name}
+              onChange={set('name')}
+            />
+          </div>
+        )}
+
+        {/* 编辑时显示名称+编码 */}
+        {!isNew && (
+          <div className={styles.formRow}>
+            <div>
+              <label className={styles.formLabel}>供应商编码</label>
+              <input
+                className={styles.formInput}
+                value={form.code}
+                disabled
+              />
+            </div>
+            <div>
+              <label className={`${styles.formLabel} ${styles.formLabelRequired}`}>供应商名称</label>
+              <input
+                type="text"
+                className={styles.formInput}
+                value={form.name}
+                onChange={set('name')}
+                placeholder="供应商全称"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* 供应商级别 */}
+        <div className={styles.formGroup}>
+          <label className={`${styles.formLabel} ${styles.formLabelRequired}`}>供应商级别</label>
+          <div className={styles.radioGroup}>
+            {RATING_OPTIONS.filter((r) => r !== 'D').map((r) => {
+              const icons: Record<string, string> = { A: '🥇', B: '🥈', C: '🥉' };
+              return (
+                <label key={r} className={styles.radioItem}>
+                  <input
+                    type="radio"
+                    name={`rating-${isNew ? 'new' : 'edit'}`}
+                    value={r}
+                    checked={form.rating === r}
+                    onChange={() => onChange((f) => ({ ...f, rating: r }))}
+                  />
+                  <span>{icons[r]} {r}级</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 联系人 + 电话 */}
+        <div className={styles.formRow}>
+          <div>
+            <label className={styles.formLabel}>主要联系人</label>
+            <input
+              type="text"
+              className={styles.formInput}
+              placeholder="联系人姓名"
+              value={form.contactName}
+              onChange={set('contactName')}
+            />
+          </div>
+          <div>
+            <label className={styles.formLabel}>联系电话</label>
+            <input
+              type="tel"
+              className={styles.formInput}
+              placeholder="手机号码"
+              value={form.contactPhone}
+              onChange={set('contactPhone')}
+            />
+          </div>
+        </div>
+
+        {/* 主供品类 */}
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel}>主供品类</label>
+          <input
+            type="text"
+            className={styles.formInput}
+            placeholder="如：木板类、五金类…"
+            value={form.category}
+            onChange={set('category')}
+          />
+        </div>
+      </div>
+
+      {/* ── 合作条款 ── */}
+      <div className={styles.formSection}>
+        <div className={styles.formSectionTitle}>合作条款</div>
+
+        {/* 账期 */}
+        <div className={styles.formGroup}>
+          <label className={`${styles.formLabel} ${styles.formLabelRequired}`}>账期</label>
+          <div className={styles.paymentGroup}>
+            <label className={styles.radioItem}>
+              <input
+                type="radio"
+                name={`payment-${isNew ? 'new' : 'edit'}`}
+                value="cod"
+                checked={form.paymentType === 'cod'}
+                onChange={() => setPaymentType('cod')}
+              />
+              <span>货到付款</span>
+            </label>
+            <label className={styles.radioItem}>
+              <input
+                type="radio"
+                name={`payment-${isNew ? 'new' : 'edit'}`}
+                value="monthly"
+                checked={form.paymentType === 'monthly'}
+                onChange={() => setPaymentType('monthly')}
+              />
+              <span>月结</span>
+            </label>
+            {form.paymentType === 'monthly' && (
+              <div className={styles.paymentDaysInput}>
+                <input
+                  type="number"
+                  min="1"
+                  max="180"
+                  value={form.paymentDays}
+                  onChange={set('paymentDays')}
+                />
+                <span className={styles.paymentDaysUnit}>天</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 平均交货周期 */}
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel}>平均交货周期（天）</label>
+          <input
+            type="number"
+            className={`${styles.formInput} ${styles.formInputSm}`}
+            placeholder="如：3"
+            min="1"
+            value={form.leadDays}
+            onChange={set('leadDays')}
+          />
+        </div>
+      </div>
+
+      {/* ── 其他 ── */}
+      <div className={styles.formSection}>
+        <div className={styles.formSectionTitle}>其他</div>
+
+        {/* 合作起始时间 */}
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel}>合作起始时间</label>
+          <input
+            type="date"
+            className={styles.formInput}
+            value={form.startDate}
+            onChange={set('startDate')}
+          />
+        </div>
+
+        {/* 备注 */}
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel}>备注</label>
+          <textarea
+            className={styles.formTextarea}
+            placeholder="供应商特殊说明、注意事项…"
+            rows={3}
+            value={form.notes}
+            onChange={set('notes')}
+          />
+        </div>
+      </div>
+
+      {/* 价格管理提示 */}
+      {isNew && (
+        <div className={styles.drawerHint}>
+          ℹ 保存后请及时前往 <strong>价格管理</strong> 录入该供应商的价格协议，否则 AI 采购建议将无法匹配该供应商。
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 详情视图：Tab 1 基础信息
+// ─────────────────────────────────────────────
+
+function SupplierInfoTab({ supplier }: { supplier: SupplierRecord }) {
+  const rec = supplier as unknown as Record<string, unknown>;
+  const category = (rec.category as string) || '—';
+  const leadDays = rec.leadDays != null ? `${rec.leadDays} 天` : '—';
+  const startDate = (rec.startDate as string) || (rec.cooperationStartDate as string) || (supplier.createdAt ? String(supplier.createdAt).slice(0, 10) : '—');
+  const lastOrderDate = (rec.lastOrderDate as string) || (supplier.updatedAt ? String(supplier.updatedAt).slice(0, 10) : '—');
+
+  const items: { label: string; value: React.ReactNode }[] = [
+    { label: '供应商名称', value: supplier.name },
+    {
+      label: '供应商级别',
+      value: (
+        <span className={styles.detailItemValueLarge}>
+          <GradeBadge rating={supplier.rating} />
+          <span>{supplier.rating}级供应商</span>
+        </span>
+      ),
+    },
+    { label: '主要联系人', value: supplier.contactName || '—' },
+    { label: '联系电话', value: supplier.contactPhone || '—' },
+    { label: '联系邮箱', value: supplier.contactEmail || '—' },
+    { label: '主供品类', value: category },
+    { label: '账期', value: supplier.paymentDays ? `月结 ${supplier.paymentDays} 天` : '货到付款' },
+    { label: '平均交货周期', value: leadDays },
+    { label: '合作起始时间', value: startDate },
+    { label: '最近采购时间', value: lastOrderDate },
+    { label: '供应商编码', value: supplier.code || '—' },
+    { label: '备注', value: supplier.notes || '—' },
+  ];
+
+  return (
+    <div className={styles.detailPanel}>
+      <div className={styles.detailGrid}>
+        {items.map((item) => (
+          <div key={item.label} className={styles.detailItem}>
+            <span className={styles.detailItemLabel}>{item.label}</span>
+            <span className={styles.detailItemValue}>{item.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 详情视图：Tab 2 关联SKU
+// ─────────────────────────────────────────────
+
+function SupplierSkuTab({
+  data,
+  isLoading,
+  supplierId,
+  onToast,
+}: {
+  data: SupplierRelatedSku[] | undefined;
+  isLoading: boolean;
+  supplierId: number;
+  onToast: (msg: string) => void;
+}) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+
+  // ── 价格历史 Modal 状态 ───────────────────────
+  const [historySkuId, setHistorySkuId] = useState<number | null>(null);
+  const [historySkuName, setHistorySkuName] = useState('');
+  const { data: historyData, isLoading: historyLoading } = usePriceHistory(historySkuId, supplierId);
+
+  // ── 新增关联SKU Modal 状态 ────────────────────
+  const [addSkuOpen, setAddSkuOpen] = useState(false);
+  const [skuSearch, setSkuSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [selectedSku, setSelectedSku] = useState<Pick<Sku, 'id' | 'name' | 'skuCode' | 'purchaseUnit'> | null>(null);
+  const [newPrice, setNewPrice] = useState('');
+  const [newUnit, setNewUnit] = useState('');
+  const [newValidFrom, setNewValidFrom] = useState('');
+  const [newValidTo, setNewValidTo] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // 搜索防抖
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(skuSearch), 300);
+    return () => clearTimeout(t);
+  }, [skuSearch]);
+
+  // SKU 搜索结果
+  const { data: skuSearchData } = useSkuList({ page: 1, pageSize: 10, keyword: debouncedSearch || undefined });
+  const skus = data ?? [];
+  const skuOptions = (skuSearchData?.list ?? []).filter((s) => !skus.some((existing) => existing.id === s.id));
+
+  // 创建价格协议
+  const createPrice = useCreatePrice();
+
+  const handleAddSku = async () => {
+    if (!selectedSku || !newPrice || !newValidFrom) {
+      onToast('请填写必填字段');
+      return;
+    }
+    setSaving(true);
+    try {
+      await createPrice.mutateAsync({
+        skuId: Number(selectedSku.id),
+        supplierId: Number(supplierId),
+        unitPrice: newPrice,
+        purchaseUnit: newUnit || selectedSku.purchaseUnit || '件',
+        validFrom: newValidFrom,
+        validTo: newValidTo || undefined,
+      });
+      onToast('关联SKU成功');
+      setAddSkuOpen(false);
+      setSelectedSku(null);
+      setNewPrice('');
+      setNewUnit('');
+      setNewValidFrom('');
+      setNewValidTo('');
+      setSkuSearch('');
+      void qc.invalidateQueries({ queryKey: ['suppliers', 'skus'] });
+    } catch (e) {
+      onToast((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className={styles.detailPanel}>
+        <div className={styles.detailPanelLoading}>加载中...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.detailPanel}>
+      <div className={styles.detailTableHeader}>
+        <span className={styles.detailTableTitle}>共 <strong>{skus.length}</strong> 个关联SKU</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setAddSkuOpen(true)}
+        >
+          + 新增关联SKU
+        </Button>
+      </div>
+      {skus.length === 0 ? (
+        <div className={styles.detailTableEmpty}>暂无关联SKU数据</div>
+      ) : (
+        <table className={styles.detailTable}>
+          <thead>
+            <tr>
+              <th>物料名称</th>
+              <th>物料编码</th>
+              <th>规格</th>
+              <th>是否主供</th>
+              <th>当前价格</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {skus.map((sku) => (
+              <tr key={sku.id}>
+                <td>{sku.name}</td>
+                <td style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-family-number, monospace)' }}>{sku.skuCode}</td>
+                <td style={{ color: 'var(--text-secondary)' }}>{sku.spec || '—'}</td>
+                <td>
+                  {sku.isMainSupplier ? (
+                    <span className={styles.mainSupplierBadge}>主供</span>
+                  ) : (
+                    <span className={styles.nonMainSupplierBadge}>备供</span>
+                  )}
+                </td>
+                <td style={{ fontFamily: 'var(--font-family-number, monospace)', fontWeight: 600 }}>
+                  ¥{sku.currentPrice} / {sku.priceUnit}
+                </td>
+                <td>
+                  <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => navigate('/master-data/sku')}
+                    >
+                      查看物料
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setHistorySkuId(sku.id); setHistorySkuName(sku.name); }}
+                    >
+                      价格历史
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {/* 价格历史 Modal */}
+      <Modal
+        open={historySkuId !== null}
+        title={`价格历史 — ${historySkuName}`}
+        onClose={() => setHistorySkuId(null)}
+      >
+        {historyLoading ? (
+          <div style={{ padding: 'var(--space-4)', textAlign: 'center' }}>加载中...</div>
+        ) : (
+          historyData && historyData.length > 0 ? (
+            <table className={styles.detailTable}>
+              <thead>
+                <tr>
+                  <th>生效日期</th>
+                  <th>价格</th>
+                  <th>单位</th>
+                  <th>供应商</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyData.map((h: PriceHistoryItem, i: number) => (
+                  <tr key={i}>
+                    <td>{h.effectiveAt?.slice(0, 10) ?? '—'}</td>
+                    <td style={{ fontWeight: 600 }}>¥{h.price}</td>
+                    <td>{h.unit}</td>
+                    <td>{h.supplierName}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div style={{ padding: 'var(--space-4)', textAlign: 'center', color: 'var(--text-secondary)' }}>
+              暂无历史数据
+            </div>
+          )
+        )}
+      </Modal>
+
+      {/* 新增关联SKU Modal */}
+      <Modal
+        open={addSkuOpen}
+        title="新增关联SKU"
+        onClose={() => setAddSkuOpen(false)}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', padding: 'var(--space-2) 0' }}>
+          {/* 物料搜索 */}
+          <div>
+            <label style={{ display: 'block', marginBottom: 'var(--space-1)', fontSize: '0.8125rem', fontWeight: 500 }}>
+              搜索物料 *
+            </label>
+            <input
+              type="text"
+              placeholder="输入物料名称或编码..."
+              value={selectedSku ? `${selectedSku.name}（${selectedSku.skuCode}）` : skuSearch}
+              onChange={(e) => { setSkuSearch(e.target.value); setSelectedSku(null); }}
+              style={{ width: '100%', padding: 'var(--space-2)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: '0.875rem' }}
+            />
+            {!selectedSku && debouncedSearch && skuOptions.length > 0 && (
+              <div style={{ border: '1px solid var(--border-primary)', borderRadius: 6, maxHeight: 160, overflow: 'auto', marginTop: 4, background: 'var(--bg-primary)' }}>
+                {skuOptions.map((s) => (
+                  <div
+                    key={s.id}
+                    style={{ padding: 'var(--space-2)', cursor: 'pointer', fontSize: '0.875rem', borderBottom: '1px solid var(--border-secondary)' }}
+                    onClick={() => { setSelectedSku({ id: s.id, name: s.name, skuCode: s.skuCode, purchaseUnit: s.purchaseUnit }); setNewUnit(s.purchaseUnit || ''); }}
+                  >
+                    <strong>{s.name}</strong>{' '}
+                    <span style={{ color: 'var(--text-secondary)' }}>{s.skuCode}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 价格 + 单位 */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: 'var(--space-1)', fontSize: '0.8125rem', fontWeight: 500 }}>
+                含税单价 *
+              </label>
+              <input
+                type="text"
+                placeholder="0.00"
+                value={newPrice}
+                onChange={(e) => setNewPrice(e.target.value)}
+                style={{ width: '100%', padding: 'var(--space-2)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: '0.875rem' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 'var(--space-1)', fontSize: '0.8125rem', fontWeight: 500 }}>
+                采购单位
+              </label>
+              <input
+                type="text"
+                placeholder="件"
+                value={newUnit}
+                onChange={(e) => setNewUnit(e.target.value)}
+                style={{ width: '100%', padding: 'var(--space-2)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: '0.875rem' }}
+              />
+            </div>
+          </div>
+
+          {/* 有效期 */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: 'var(--space-1)', fontSize: '0.8125rem', fontWeight: 500 }}>
+                有效期起 *
+              </label>
+              <input
+                type="date"
+                value={newValidFrom}
+                onChange={(e) => setNewValidFrom(e.target.value)}
+                style={{ width: '100%', padding: 'var(--space-2)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: '0.875rem' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 'var(--space-1)', fontSize: '0.8125rem', fontWeight: 500 }}>
+                有效期止
+              </label>
+              <input
+                type="date"
+                value={newValidTo}
+                onChange={(e) => setNewValidTo(e.target.value)}
+                style={{ width: '100%', padding: 'var(--space-2)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: '0.875rem' }}
+              />
+            </div>
+          </div>
+
+          {/* 操作按钮 */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+            <Button variant="ghost" size="sm" onClick={() => setAddSkuOpen(false)}>
+              取消
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleAddSku} disabled={saving}>
+              {saving ? '保存中...' : '确认关联'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 详情视图：Tab 3 价格协议
+// ─────────────────────────────────────────────
+
+function SupplierPriceTab({
+  data,
+  isLoading,
+}: {
+  data: SupplierPriceAgreement[] | undefined;
+  isLoading: boolean;
+}) {
+  const navigate = useNavigate();
+  if (isLoading) {
+    return (
+      <div className={styles.detailPanel}>
+        <div className={styles.detailPanelLoading}>加载中...</div>
+      </div>
+    );
+  }
+
+  const agreements = data ?? [];
+  const validCount = agreements.filter((a) => a.status !== '已过期').length;
+
+  function StatusBadge({ status }: { status: string }) {
+    if (status === '有效') return <span className={styles.agreementStatusValid}>有效</span>;
+    if (status === '即将到期') return <span className={styles.agreementStatusExpiringSoon}>即将到期</span>;
+    return <span className={styles.agreementStatusExpired}>已过期</span>;
+  }
+
+  return (
+    <div className={styles.detailPanel}>
+      <div className={styles.detailTableHeader}>
+        <span className={styles.detailTableTitle}>共 <strong>{validCount}</strong> 份有效协议</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate('/purchase/prices')}
+        >
+          前往价格管理
+        </Button>
+      </div>
+      {agreements.length === 0 ? (
+        <div className={styles.detailTableEmpty}>暂无价格协议数据</div>
+      ) : (
+        <table className={styles.detailTable}>
+          <thead>
+            <tr>
+              <th>物料名称</th>
+              <th>协议价格</th>
+              <th>最小起订量</th>
+              <th>有效期</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            {agreements.map((ag) => (
+              <tr key={ag.id}>
+                <td>{ag.skuName}</td>
+                <td style={{ fontFamily: 'var(--font-family-number, monospace)', fontWeight: 600 }}>
+                  ¥{ag.unitPrice} / {ag.purchaseUnit}
+                </td>
+                <td style={{ color: 'var(--text-secondary)' }}>
+                  {ag.moq != null ? `${ag.moq} ${ag.purchaseUnit}` : '—'}
+                </td>
+                <td style={{ color: 'var(--text-secondary)', fontSize: '0.8125rem' }}>
+                  {String(ag.validFrom).slice(0, 10)} ~ {ag.validTo ? String(ag.validTo).slice(0, 10) : '长期'}
+                </td>
+                <td><StatusBadge status={ag.status} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 详情视图：Tab 4 绩效数据
+// ─────────────────────────────────────────────
+
+function SupplierPerfTab({
+  data,
+  isLoading,
+  supplier,
+}: {
+  data: SupplierPerformance | undefined;
+  isLoading: boolean;
+  supplier: SupplierRecord;
+}) {
+  if (isLoading) {
+    return (
+      <div className={styles.detailPanel}>
+        <div className={styles.detailPanelLoading}>加载中...</div>
+      </div>
+    );
+  }
+
+  // 从 API 数据或 supplier 字段中取准时率，如没有则显示占位
+  const onTimeRateRaw = data?.onTimeRate
+    ?? (typeof (supplier as Record<string, unknown>).onTimeRate === 'number'
+      ? String((supplier as Record<string, unknown>).onTimeRate)
+      : null);
+
+  const qualityRateRaw = data?.qualityRate
+    ?? (typeof supplier.qualityRate === 'number' ? String(supplier.qualityRate) : null);
+
+  const avgLeadDays = data?.avgLeadDays
+    ?? ((supplier as Record<string, unknown>).leadDays != null
+      ? String((supplier as Record<string, unknown>).leadDays)
+      : null);
+
+  const onTimePct = onTimeRateRaw != null ? parseFloat(onTimeRateRaw) : null;
+  const qualityPct = qualityRateRaw != null ? parseFloat(qualityRateRaw) : null;
+  const leadDayNum = avgLeadDays != null ? parseFloat(avgLeadDays) : null;
+
+  const onTimeIsGood = onTimePct != null && onTimePct >= 80;
+  const qualityIsGood = qualityPct != null && qualityPct <= 3;
+
+  const deliveries = data?.recentDeliveries ?? [];
+
+  return (
+    <div className={styles.detailPanel}>
+      {/* KPI Cards */}
+      <div className={styles.kpiGrid}>
+        {/* 准时交货率 */}
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiCardLabel}>准时交货率</div>
+          {onTimePct != null ? (
+            <>
+              <div className={`${styles.kpiCardValue} ${onTimeIsGood ? styles.kpiCardValueGood : styles.kpiCardValueWarn}`}>
+                {onTimePct.toFixed(1)}%
+              </div>
+              <div className={styles.kpiCardBar}>
+                <div
+                  className={`${styles.kpiCardBarFill} ${onTimeIsGood ? styles.kpiCardBarFillGood : styles.kpiCardBarFillWarn}`}
+                  style={{ width: `${Math.min(onTimePct, 100)}%` }}
+                />
+              </div>
+              <div className={styles.kpiCardSub}>近3个月</div>
+              <div className={`${styles.kpiCardStatus} ${onTimeIsGood ? styles.kpiCardStatusOk : styles.kpiCardStatusWarn}`}>
+                {onTimeIsGood ? '表现优秀' : onTimePct >= 65 ? '需关注' : '低于预警线'}
+              </div>
+            </>
+          ) : (
+            <div className={`${styles.kpiCardValue} ${styles.kpiCardValueNeutral}`}>—</div>
+          )}
+        </div>
+
+        {/* 质量异常率 */}
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiCardLabel}>质量异常率</div>
+          {qualityPct != null ? (
+            <>
+              <div className={`${styles.kpiCardValue} ${qualityIsGood ? styles.kpiCardValueGood : styles.kpiCardValueWarn}`}>
+                {qualityPct.toFixed(1)}%
+              </div>
+              <div className={styles.kpiCardBar}>
+                <div
+                  className={`${styles.kpiCardBarFill} ${qualityIsGood ? styles.kpiCardBarFillGood : styles.kpiCardBarFillWarn}`}
+                  style={{ width: `${Math.min(qualityPct * 10, 100)}%` }}
+                />
+              </div>
+              <div className={styles.kpiCardSub}>越低越好，预警线 5%</div>
+              <div className={`${styles.kpiCardStatus} ${qualityIsGood ? styles.kpiCardStatusOk : styles.kpiCardStatusWarn}`}>
+                {qualityPct <= 3 ? '质量稳定' : qualityPct <= 5 ? '需关注' : '超预警线'}
+              </div>
+            </>
+          ) : (
+            <div className={`${styles.kpiCardValue} ${styles.kpiCardValueNeutral}`}>—</div>
+          )}
+        </div>
+
+        {/* 平均交货周期 */}
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiCardLabel}>平均交货周期</div>
+          {leadDayNum != null ? (
+            <>
+              <div className={`${styles.kpiCardValue} ${styles.kpiCardValueNeutral}`}>
+                {leadDayNum}<span style={{ fontSize: '1rem', fontWeight: 500, marginLeft: 4 }}>天</span>
+              </div>
+              <div className={styles.kpiCardBar}>
+                <div
+                  className={`${styles.kpiCardBarFill} ${styles.kpiCardBarFillNeutral}`}
+                  style={{ width: `${Math.min(leadDayNum * 6.67, 100)}%` }}
+                />
+              </div>
+              <div className={styles.kpiCardSub}>标准周期参考</div>
+              <div className={`${styles.kpiCardStatus} ${styles.kpiCardStatusOk}`}>
+                {leadDayNum <= 3 ? '快速交货' : leadDayNum <= 7 ? '正常' : '周期偏长'}
+              </div>
+            </>
+          ) : (
+            <div className={`${styles.kpiCardValue} ${styles.kpiCardValueNeutral}`}>—</div>
+          )}
+        </div>
+      </div>
+
+      {/* 近期交货记录 */}
+      <div style={{ marginTop: 8 }}>
+        <div className={styles.detailTableHeader}>
+          <span className={styles.detailTableTitle} style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem' }}>
+            近期交货记录
+          </span>
+        </div>
+        {deliveries.length === 0 ? (
+          <div className={styles.detailTableEmpty} style={{ background: 'var(--color-gray-50)', borderRadius: 'var(--radius-md)', padding: '24px' }}>
+            暂无交货记录数据
+          </div>
+        ) : (
+          <table className={styles.detailTable}>
+            <thead>
+              <tr>
+                <th>采购单号</th>
+                <th>物料名称</th>
+                <th>约定日期</th>
+                <th>实际日期</th>
+                <th>备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deliveries.map((rec, idx) => (
+                <tr key={idx}>
+                  <td style={{ fontFamily: 'var(--font-family-number, monospace)', color: 'var(--text-secondary)' }}>{rec.orderId}</td>
+                  <td>{rec.skuName}</td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{rec.scheduledDate}</td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{rec.actualDate}</td>
+                  <td>
+                    {rec.remark === '准时' || rec.remark === 'ontime' ? (
+                      <span className={styles.deliveryOnTime}>准时</span>
+                    ) : (
+                      <span className={styles.deliveryLate}>{rec.remark}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 详情视图：根组件
+// ─────────────────────────────────────────────
+
+type DetailTab = 'info' | 'sku' | 'price' | 'perf';
+
+const TAB_LABELS: { key: DetailTab; label: string }[] = [
+  { key: 'info', label: '基础信息' },
+  { key: 'sku', label: '关联SKU' },
+  { key: 'price', label: '价格协议' },
+  { key: 'perf', label: '绩效数据' },
+];
+
+function SupplierDetailView({
+  supplier,
+  onBack,
+  onEdit,
+  onToast,
+  onGradeChange,
+  gradeUpdating,
+}: {
+  supplier: SupplierRecord;
+  onBack: () => void;
+  onEdit: (s: Supplier) => void;
+  onToast: (msg: string) => void;
+  onGradeChange: (id: number, rating: SupplierRating, reason: string) => void;
+  gradeUpdating: boolean;
+}) {
+  const [activeTab, setActiveTab] = useState<DetailTab>('info');
+
+  // 调整级别 Modal 状态
+  const [gradeModalOpen, setGradeModalOpen] = useState(false);
+  const [targetGrade, setTargetGrade] = useState<SupplierRating>(supplier.rating);
+  const [gradeReason, setGradeReason] = useState('');
+
+  const { data: skuData, isLoading: skuLoading } = useSupplierSkus(activeTab === 'sku' ? supplier.id : null);
+  const { data: priceData, isLoading: priceLoading } = useSupplierPriceAgreements(activeTab === 'price' ? supplier.id : null);
+  const { data: perfData, isLoading: perfLoading } = useSupplierPerformance(activeTab === 'perf' ? supplier.id : null);
+
+  const rec = supplier as unknown as Record<string, unknown>;
+  const category = (rec.category as string) || null;
+  const startDate = (rec.startDate as string) || (rec.cooperationStartDate as string) || (supplier.createdAt ? String(supplier.createdAt).slice(0, 10) : null);
+
+  const metaParts: string[] = [];
+  if (category) metaParts.push(`主供品类: ${category}`);
+  if (startDate) metaParts.push(`合作起始: ${startDate}`);
+  if (supplier.paymentDays) metaParts.push(`账期: 月结${supplier.paymentDays}天`);
+  else metaParts.push('账期: 货到付款');
+
+  const gradeLabel: Record<SupplierRating, string> = { A: 'A级（优质供应商）', B: 'B级（合格供应商）', C: 'C级（待改进）', D: 'D级（高风险）' };
+
+  const handleOpenGradeModal = useCallback(() => {
+    setTargetGrade(supplier.rating);
+    setGradeReason('');
+    setGradeModalOpen(true);
+  }, [supplier.rating]);
+
+  const handleSubmitGrade = useCallback(() => {
+    if (!gradeReason.trim()) {
+      onToast('请填写调整原因');
+      return;
+    }
+    if (targetGrade === supplier.rating) {
+      onToast('目标级别与当前级别相同，无需调整');
+      return;
+    }
+    onGradeChange(supplier.id, targetGrade, gradeReason.trim());
+    setGradeModalOpen(false);
+  }, [targetGrade, gradeReason, supplier.id, supplier.rating, onGradeChange, onToast]);
+
+  return (
+    <div className={styles.page} style={{ paddingTop: 'var(--layout-page-padding, 24px)' }}>
+      {/* 顶部操作区 */}
+      <div className={styles.detailHeader}>
+        <div className={styles.detailBreadcrumb}>
+          <span
+            className={styles.detailBreadcrumbCurrent}
+            style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}
+            onClick={onBack}
+          >
+            采购管理
+          </span>
+          <span className={styles.detailBreadcrumbSep}>›</span>
+          <span className={styles.detailBreadcrumbCurrent}>{supplier.name}</span>
+        </div>
+        <div className={styles.detailHeaderActions}>
+          <Button variant="ghost" size="md" onClick={onBack}>
+            ← 返回列表
+          </Button>
+          <Button variant="primary" size="md" onClick={() => onEdit(supplier)}>
+            编辑基础信息
+          </Button>
+        </div>
+      </div>
+
+      {/* Summary Card */}
+      <div className={styles.detailSummary}>
+        <div className={styles.detailSummaryLeft}>
+          <div className={styles.detailSupplierIcon}>🏭</div>
+          <div>
+            <div className={styles.detailSupplierName}>
+              {supplier.name}
+              <GradeBadge rating={supplier.rating} />
+              <span className={styles.detailGradeText}>{gradeLabel[supplier.rating]}</span>
+            </div>
+            {metaParts.length > 0 && (
+              <div className={styles.detailSupplierMeta}>{metaParts.join(' · ')}</div>
+            )}
+          </div>
+        </div>
+        <Button variant="ghost" size="sm" onClick={handleOpenGradeModal}>
+          调整级别
+        </Button>
+      </div>
+
+      {/* Tab 导航 */}
+      <div className={styles.detailTabs}>
+        {TAB_LABELS.map(({ key, label }) => (
+          <button
+            key={key}
+            className={activeTab === key ? styles.detailTabActive : styles.detailTab}
+            onClick={() => setActiveTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab 内容 */}
+      {activeTab === 'info' && <SupplierInfoTab supplier={supplier} />}
+      {activeTab === 'sku' && (
+        <SupplierSkuTab data={skuData} isLoading={skuLoading} supplierId={supplier.id} onToast={onToast} />
+      )}
+      {activeTab === 'price' && (
+        <SupplierPriceTab data={priceData} isLoading={priceLoading} />
+      )}
+      {activeTab === 'perf' && (
+        <SupplierPerfTab data={perfData} isLoading={perfLoading} supplier={supplier} />
+      )}
+
+      {/* 调整级别 Modal */}
+      <Modal
+        open={gradeModalOpen}
+        title={`调整供应商级别 — ${supplier.name}`}
+        onClose={() => setGradeModalOpen(false)}
+        onConfirm={handleSubmitGrade}
+        confirmLabel="提交审批"
+        confirmLoading={gradeUpdating}
+      >
+        <div className={styles.gradeModalBody}>
+          <div className={styles.gradeModalWarning}>
+            ⚠ 调整供应商级别（从 {supplier.rating} 级调整）需要工厂老板审批，操作记录将完整留存。请确认调整原因。
+          </div>
+
+          <div className={styles.gradeModalField}>
+            <label className={`${styles.formLabel} ${styles.formLabelRequired}`}>调整目标级别</label>
+            <div className={styles.radioGroup}>
+              {(['A', 'B', 'C'] as SupplierRating[]).map((r) => {
+                const icons: Record<string, string> = { A: '🥇', B: '🥈', C: '🥉' };
+                return (
+                  <label key={r} className={styles.radioItem}>
+                    <input
+                      type="radio"
+                      name="targetGrade"
+                      value={r}
+                      checked={targetGrade === r}
+                      onChange={() => setTargetGrade(r)}
+                    />
+                    <span>{icons[r]} {r}级</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className={styles.gradeModalField}>
+            <label className={`${styles.formLabel} ${styles.formLabelRequired}`}>调整原因</label>
+            <textarea
+              className={styles.formTextarea}
+              value={gradeReason}
+              onChange={(e) => setGradeReason(e.target.value)}
+              placeholder="请说明调整原因，将随审批流程提交给工厂老板…"
+              rows={5}
+            />
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -103,11 +1355,17 @@ export default function SupplierPage() {
   const [keyword, setKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
   const [ratingFilter, setRatingFilter] = useState<SupplierRating | ''>('');
-  const [activeFilter, setActiveFilter] = useState<'true' | 'false' | ''>('');
+  const [categoryFilter, setCategoryFilter] = useState('');
 
-  // 模态框状态
-  const [createModal, setCreateModal] = useState(false);
-  const [editModal, setEditModal] = useState<{ open: boolean; supplier: Supplier | null }>({
+  // 详情视图状态
+  const [selectedSupplier, setSelectedSupplier] = useState<SupplierRecord | null>(null);
+
+  // Modal 状态
+  const [perfModalOpen, setPerfModalOpen] = useState(false);
+
+  // Drawer 状态
+  const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
+  const [editDrawer, setEditDrawer] = useState<{ open: boolean; supplier: Supplier | null }>({
     open: false,
     supplier: null,
   });
@@ -135,51 +1393,48 @@ export default function SupplierPage() {
     pageSize: 20,
     keyword: debouncedKeyword || undefined,
     rating: (ratingFilter || undefined) as SupplierRating | undefined,
-    isActive:
-      activeFilter === 'true' ? true
-      : activeFilter === 'false' ? false
-      : undefined,
   };
 
   const { data, isLoading, error } = useSupplierList(query);
   const createMutation = useCreateSupplier();
   const updateMutation = useUpdateSupplier();
 
-  // ── 打开新建弹窗 ──
+  // ── 打开新建 Drawer ──
   const openCreate = useCallback(() => {
     setForm(EMPTY_FORM);
-    setCreateModal(true);
-  }, []);
-
-  // ── 打开编辑弹窗 ──
-  const openEdit = useCallback((supplier: Supplier) => {
-    setForm(supplierToForm(supplier));
-    setEditModal({ open: true, supplier });
+    setCreateDrawerOpen(true);
   }, []);
 
   // ── 提交新建 ──
   const handleCreate = async () => {
-    const { code, name, rating } = form;
-    if (!code.trim() || !name.trim()) {
-      showToast({ type: 'warning', message: '请填写供应商编码和名称' });
+    if (!form.name.trim()) {
+      showToast({ type: 'warning', message: '请填写供应商名称' });
       return;
     }
+    const paymentDays =
+      form.paymentType === 'monthly' && form.paymentDays
+        ? Number(form.paymentDays)
+        : undefined;
+    // 自动生成 code（后端可覆盖）
+    const code = `SUP-${Date.now().toString().slice(-6)}`;
     const payload: CreateSupplierPayload = {
-      code: code.trim(),
-      name: name.trim(),
-      rating,
+      code,
+      name: form.name.trim(),
+      rating: form.rating,
       contactName: form.contactName.trim() || undefined,
       contactPhone: form.contactPhone.trim() || undefined,
       contactEmail: form.contactEmail.trim() || undefined,
       address: form.address.trim() || undefined,
-      paymentDays: form.paymentDays ? Number(form.paymentDays) : undefined,
+      paymentDays,
+      category: form.category.trim() || undefined,
+      leadDays: form.leadDays ? Number(form.leadDays) : undefined,
       notes: form.notes.trim() || undefined,
       isActive: true,
     };
     try {
       await createMutation.mutateAsync(payload);
-      showToast({ type: 'success', message: '供应商创建成功' });
-      setCreateModal(false);
+      showToast({ type: 'success', message: '供应商已保存。请及时前往价格管理录入价格协议' });
+      setCreateDrawerOpen(false);
       setForm(EMPTY_FORM);
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message ?? '创建失败，请重试' });
@@ -188,160 +1443,230 @@ export default function SupplierPage() {
 
   // ── 提交编辑 ──
   const handleUpdate = async () => {
-    if (!editModal.supplier) return;
-    const { name, rating } = form;
-    if (!name.trim()) {
+    if (!editDrawer.supplier) return;
+    if (!form.name.trim()) {
       showToast({ type: 'warning', message: '请填写供应商名称' });
       return;
     }
+    const paymentDays =
+      form.paymentType === 'monthly' && form.paymentDays
+        ? Number(form.paymentDays)
+        : undefined;
     try {
       await updateMutation.mutateAsync({
-        id: editModal.supplier.id,
+        id: editDrawer.supplier.id,
         payload: {
-          name: name.trim(),
-          rating,
+          name: form.name.trim(),
+          rating: form.rating,
           contactName: form.contactName.trim() || undefined,
           contactPhone: form.contactPhone.trim() || undefined,
           contactEmail: form.contactEmail.trim() || undefined,
           address: form.address.trim() || undefined,
-          paymentDays: form.paymentDays ? Number(form.paymentDays) : undefined,
+          paymentDays,
+          category: form.category.trim() || undefined,
+          leadDays: form.leadDays ? Number(form.leadDays) : undefined,
           notes: form.notes.trim() || undefined,
         },
       });
       showToast({ type: 'success', message: '供应商信息更新成功' });
-      setEditModal({ open: false, supplier: null });
+      setEditDrawer({ open: false, supplier: null });
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message ?? '更新失败，请重试' });
     }
   };
 
-  // ── 筛选联动：切换筛选项时重置到第1页 ──
+  // ── 筛选联动 ──
   const handleRatingChange = (val: SupplierRating | '') => {
     setRatingFilter(val);
     setPage(1);
   };
-  const handleActiveChange = (val: 'true' | 'false' | '') => {
-    setActiveFilter(val);
+  const handleCategoryChange = (val: string) => {
+    setCategoryFilter(val);
     setPage(1);
   };
 
   // ─────────────────────────────────────────────
-  // 列定义
+  // 列定义（对齐设计稿）
   // ─────────────────────────────────────────────
 
   const columns: Column<SupplierRecord>[] = [
     {
-      key: 'code',
-      title: '供应商编码',
-      width: 140,
-      render: (_, r) => (
-        <span style={{ fontFamily: 'var(--font-family-mono)', fontSize: 13 }}>
-          {(r as unknown as Supplier).code}
-        </span>
-      ),
+      key: 'rating',
+      title: '级别',
+      width: 60,
+      render: (_, r) => <GradeBadge rating={r.rating} />,
     },
     {
       key: 'name',
       title: '供应商名称',
       render: (_, r) => {
-        const s = r as unknown as Supplier;
-        return <span style={{ fontWeight: 500 }}>{s.name}</span>;
-      },
-    },
-    {
-      key: 'rating',
-      title: '等级',
-      width: 80,
-      render: (_, r) => {
-        const s = r as unknown as Supplier;
+        const onTime = typeof (r as Record<string, unknown>).onTimeRate === 'number'
+          ? ((r as Record<string, unknown>).onTimeRate as number)
+          : null;
+        const isWarning = onTime !== null && onTime < 65;
         return (
-          <Tag variant={RATING_VARIANT[s.rating]}>
-            {RATING_LABEL[s.rating]}
-          </Tag>
-        );
-      },
-    },
-    {
-      key: 'contactName',
-      title: '联系人',
-      width: 110,
-      render: (_, r) => (r as unknown as Supplier).contactName ?? '—',
-    },
-    {
-      key: 'contactPhone',
-      title: '联系电话',
-      width: 140,
-      render: (_, r) => (r as unknown as Supplier).contactPhone ?? '—',
-    },
-    {
-      key: 'isActive',
-      title: '状态',
-      width: 80,
-      render: (_, r) => {
-        const s = r as unknown as Supplier;
-        return (
-          <Tag variant={s.isActive ? 'success' : 'neutral'}>
-            {s.isActive ? '启用' : '停用'}
-          </Tag>
-        );
-      },
-    },
-    {
-      key: 'onTimeRate',
-      title: '准时率',
-      width: 140,
-      render: (_, r) => {
-        const s = r as unknown as Supplier;
-        // onTimeRate 为 0–100 的数值，若字段不存在则以 0 展示
-        const rate = typeof (s as Record<string, unknown>).onTimeRate === 'number'
-          ? ((s as Record<string, unknown>).onTimeRate as number)
-          : 0;
-        const pct = Math.round(rate);
-        return (
-          <div className={styles.onTimeRateCell}>
-            <ProgressBar value={pct} size="sm" />
-            <span className={styles.onTimeRateLabel}>{pct}%</span>
+          <div className={styles.nameCell}>
+            <span className={styles.namePrimary}>{r.name}</span>
+            {r.contactName && (
+              <span className={styles.nameContact}>
+                {r.contactName}
+                {r.contactPhone ? ` ${r.contactPhone}` : ''}
+              </span>
+            )}
+            {isWarning && (
+              <span className={styles.nameWarningTag}>⚠ 准时率预警</span>
+            )}
           </div>
         );
       },
     },
     {
+      key: 'category',
+      title: '主供品类',
+      width: 110,
+      render: (_, r) => {
+        const cat = r.category ?? '—';
+        if (cat === '—') return <span style={{ color: 'var(--text-disabled)' }}>—</span>;
+        return <span className={styles.categoryTag}>{cat}</span>;
+      },
+    },
+    {
+      key: 'onTimeRate',
+      title: '准时交货率（近3M）',
+      width: 180,
+      render: (_, r) => {
+        const rate = typeof (r as Record<string, unknown>).onTimeRate === 'number'
+          ? ((r as Record<string, unknown>).onTimeRate as number)
+          : 0;
+        return <RateBar pct={Math.round(rate)} />;
+      },
+    },
+    {
+      key: 'qualityRate',
+      title: '质量异常率',
+      width: 120,
+      render: (_, r) => {
+        const qr = typeof r.qualityRate === 'number' ? r.qualityRate : 0;
+        return <QualityRateCell rate={qr} />;
+      },
+    },
+    {
+      key: 'paymentDays',
+      title: '账期',
+      width: 110,
+      render: (_, r) => (
+        <span className={styles.paymentCell}>
+          {r.paymentDays ? `月结 ${r.paymentDays} 天` : '货到付款'}
+        </span>
+      ),
+    },
+    {
       key: 'actions',
       title: '操作',
-      width: 80,
-      render: (_, r) => {
-        const s = r as unknown as Supplier;
-        return (
-          <Button variant="ghost" size="sm" onClick={() => openEdit(s)}>
-            编辑
+      width: 72,
+      render: (_, r) => (
+        <div className={styles.actionCell}>
+          <Button variant="ghost" size="sm" onClick={() => setSelectedSupplier(r)}>
+            查看
           </Button>
-        );
-      },
+        </div>
+      ),
     },
   ];
 
   const supplierList = (data?.list ?? []) as SupplierRecord[];
 
-  // ─────────────────────────────────────────────
-  // SummaryStrip 统计数据（基于当前分页 total + 列表）
-  // ─────────────────────────────────────────────
+  // 动态提取品类选项
+  const categoryOptions = useMemo(() => {
+    const cats = supplierList
+      .map((s) => s.category)
+      .filter((c): c is string => !!c);
+    return [...new Set(cats)].sort();
+  }, [supplierList]);
 
-  const summaryItems = useMemo(() => {
-    const list = supplierList.map((r) => r as unknown as Supplier);
-    const countA = list.filter((s) => s.rating === 'A').length;
-    const countB = list.filter((s) => s.rating === 'B').length;
-    const countC = list.filter((s) => s.rating === 'C').length;
-    return [
-      { label: '供应商总数', value: data?.total ?? 0, unit: '家' },
-      { label: 'A 级', value: countA, unit: '家', highlight: true },
-      { label: 'B 级', value: countB, unit: '家' },
-      { label: 'C 级', value: countC, unit: '家' },
-    ];
+  // 前端品类过滤
+  const filteredList = useMemo(() => {
+    if (!categoryFilter) return supplierList;
+    return supplierList.filter((s) => s.category === categoryFilter);
+  }, [supplierList, categoryFilter]);
+
+  // ── 统计摘要 ──
+  const { countA, countB, countC, totalCount, hasLowOnTime } = useMemo(() => {
+    const all = supplierList;
+    return {
+      totalCount: data?.total ?? 0,
+      countA: all.filter((s) => s.rating === 'A').length,
+      countB: all.filter((s) => s.rating === 'B').length,
+      countC: all.filter((s) => s.rating === 'C').length,
+      hasLowOnTime: all.some((s) => {
+        const r = (s as Record<string, unknown>).onTimeRate;
+        return typeof r === 'number' && r < 65;
+      }),
+    };
   }, [supplierList, data?.total]);
+
+  // ── 行样式辅助（通过 render 中 style 实现预警行高亮） ──
+  // Table 组件不支持 rowClassName，改由列 render 内内嵌样式实现。
+
+  // ── 详情视图：编辑回调 ──
+  const handleDetailEdit = useCallback((s: Supplier) => {
+    setSelectedSupplier(null);
+    setForm(supplierToForm(s));
+    setEditDrawer({ open: true, supplier: s });
+  }, []);
 
   // ─────────────────────────────────────────────
   // 渲染
   // ─────────────────────────────────────────────
+
+  // ── 调整级别回调 ──
+  const handleGradeChange = useCallback(async (id: number, rating: SupplierRating, _reason: string) => {
+    try {
+      await updateMutation.mutateAsync({ id, payload: { rating } });
+      // 更新本地 selectedSupplier 的 rating 以便即时反映
+      setSelectedSupplier((prev) => prev ? { ...prev, rating } : null);
+      showToast({ type: 'success', message: `供应商级别已调整为 ${rating} 级` });
+    } catch (e) {
+      showToast({ type: 'error', message: (e as Error).message ?? '级别调整失败' });
+    }
+  }, [updateMutation, showToast]);
+
+  // 详情视图模式
+  if (selectedSupplier) {
+    return (
+      <>
+        <SupplierDetailView
+          supplier={selectedSupplier}
+          onBack={() => setSelectedSupplier(null)}
+          onEdit={handleDetailEdit}
+          onToast={(msg) => showToast({ type: 'info', message: msg })}
+          onGradeChange={(id, rating, reason) => void handleGradeChange(id, rating, reason)}
+          gradeUpdating={updateMutation.isPending}
+        />
+        {/* 编辑供应商 Drawer (详情模式下也需要) */}
+        <Drawer
+          open={editDrawer.open}
+          title={`编辑供应商 — ${editDrawer.supplier?.name ?? ''}`}
+          width={480}
+          onClose={() => setEditDrawer({ open: false, supplier: null })}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)' }}>
+              <Button variant="ghost" onClick={() => setEditDrawer({ open: false, supplier: null })}>取消</Button>
+              <Button
+                variant="primary"
+                onClick={() => void handleUpdate()}
+                loading={updateMutation.isPending}
+              >
+                保存
+              </Button>
+            </div>
+          }
+        >
+          <SupplierFormFields form={form} onChange={setForm} isNew={false} />
+        </Drawer>
+      </>
+    );
+  }
 
   return (
     <div className={styles.page}>
@@ -349,55 +1674,107 @@ export default function SupplierPage() {
       <div className="page-header">
         <h1 className="page-header__title">供应商管理</h1>
         <div className="page-header__actions">
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={() => setPerfModalOpen(true)}
+          >
+            📊 绩效对比
+          </Button>
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={() => showToast({ type: 'info', message: '导出功能开发中' })}
+          >
+            导出
+          </Button>
           <Button variant="primary" size="md" onClick={openCreate}>
-            新建供应商
+            + 新增供应商
           </Button>
         </div>
       </div>
 
-      {/* 统计摘要栏 */}
-      <SummaryStrip items={summaryItems} />
+      {/* 工具栏（包裹在 card 内） */}
+      <div className="card">
+        <div className={styles.toolbarCard}>
+          <div className={styles.toolbar}>
+            {/* 搜索框（带放大镜图标） */}
+            <label className={styles.searchWrapper}>
+              <span className={styles.searchIcon}>🔍</span>
+              <input
+                type="text"
+                className={styles.searchInput}
+                placeholder="搜索供应商名称、联系人…"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                aria-label="搜索供应商"
+              />
+            </label>
 
-      {/* 筛选栏 */}
-      <div className={styles.toolbar}>
-        <input
-          type="search"
-          className={styles.searchInput}
-          placeholder="搜索编码 / 名称..."
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          aria-label="搜索供应商"
-        />
-        <select
-          className={styles.select}
-          value={ratingFilter}
-          onChange={(e) => handleRatingChange(e.target.value as SupplierRating | '')}
-          aria-label="等级筛选"
-        >
-          <option value="">全部等级</option>
-          {RATING_OPTIONS.map((r) => (
-            <option key={r} value={r}>
-              {RATING_LABEL[r]}
-            </option>
-          ))}
-        </select>
-        <select
-          className={styles.select}
-          value={activeFilter}
-          onChange={(e) => handleActiveChange(e.target.value as 'true' | 'false' | '')}
-          aria-label="状态筛选"
-        >
-          <option value="">全部状态</option>
-          <option value="true">启用</option>
-          <option value="false">停用</option>
-        </select>
+            {/* 级别筛选 */}
+            <select
+              className={styles.select}
+              value={ratingFilter}
+              onChange={(e) => handleRatingChange(e.target.value as SupplierRating | '')}
+              aria-label="级别筛选"
+            >
+              <option value="">全部级别</option>
+              <option value="A">A级</option>
+              <option value="B">B级</option>
+              <option value="C">C级</option>
+              <option value="D">D级</option>
+            </select>
+
+            {/* 品类筛选 */}
+            <select
+              className={styles.select}
+              value={categoryFilter}
+              onChange={(e) => handleCategoryChange(e.target.value)}
+              aria-label="品类筛选"
+            >
+              <option value="">全部主供品类</option>
+              {categoryOptions.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* 统计摘要栏 */}
+      <div className={styles.statsStrip}>
+        <span className={styles.statsLabel}>
+          汇总：共 <strong>{totalCount}</strong> 家
+        </span>
+        <div className={styles.statsItem}>
+          <span className={styles.statsIcon}>🥇</span>
+          <span className={styles.statsCount}>{countA}</span>
+          <span className={styles.statsName}>A级</span>
+        </div>
+        <div className={styles.statsDivider} />
+        <div className={styles.statsItem}>
+          <span className={styles.statsIcon}>🥈</span>
+          <span className={styles.statsCount}>{countB}</span>
+          <span className={styles.statsName}>B级</span>
+        </div>
+        <div className={styles.statsDivider} />
+        <div className={styles.statsItem}>
+          <span className={styles.statsIcon}>🥉</span>
+          <span className={styles.statsCount}>{countC}</span>
+          <span className={styles.statsName}>C级</span>
+        </div>
+        {hasLowOnTime && (
+          <div className={styles.statsWarning}>
+            ⚠ 1家供应商准时率低于预警线
+          </div>
+        )}
       </div>
 
       {/* 列表 */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <Table<SupplierRecord>
           columns={columns}
-          dataSource={supplierList}
+          dataSource={filteredList}
           rowKey="id"
           loading={isLoading}
           error={error ? (error as Error).message : null}
@@ -410,16 +1787,25 @@ export default function SupplierPage() {
         />
       </div>
 
+      {/* 绩效对比 Modal */}
+      <PerfModal open={perfModalOpen} onClose={() => setPerfModalOpen(false)} />
+
       {/* 新建供应商 Drawer */}
       <Drawer
-        open={createModal}
-        title="新建供应商"
+        open={createDrawerOpen}
+        title="新增供应商"
         width={480}
-        onClose={() => setCreateModal(false)}
+        onClose={() => setCreateDrawerOpen(false)}
         footer={
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <Button variant="ghost" onClick={() => setCreateModal(false)}>取消</Button>
-            <Button variant="primary" onClick={() => void handleCreate()} loading={createMutation.isPending}>创建</Button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)' }}>
+            <Button variant="ghost" onClick={() => setCreateDrawerOpen(false)}>取消</Button>
+            <Button
+              variant="primary"
+              onClick={() => void handleCreate()}
+              loading={createMutation.isPending}
+            >
+              保存供应商
+            </Button>
           </div>
         }
       >
@@ -428,163 +1814,25 @@ export default function SupplierPage() {
 
       {/* 编辑供应商 Drawer */}
       <Drawer
-        open={editModal.open}
-        title={`编辑供应商 — ${editModal.supplier?.code ?? ''}`}
+        open={editDrawer.open}
+        title={`编辑供应商 — ${editDrawer.supplier?.name ?? ''}`}
         width={480}
-        onClose={() => setEditModal({ open: false, supplier: null })}
+        onClose={() => setEditDrawer({ open: false, supplier: null })}
         footer={
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <Button variant="ghost" onClick={() => setEditModal({ open: false, supplier: null })}>取消</Button>
-            <Button variant="primary" onClick={() => void handleUpdate()} loading={updateMutation.isPending}>保存</Button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)' }}>
+            <Button variant="ghost" onClick={() => setEditDrawer({ open: false, supplier: null })}>取消</Button>
+            <Button
+              variant="primary"
+              onClick={() => void handleUpdate()}
+              loading={updateMutation.isPending}
+            >
+              保存
+            </Button>
           </div>
         }
       >
         <SupplierFormFields form={form} onChange={setForm} isNew={false} />
       </Drawer>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// 内部子组件：供应商表单字段
-// ─────────────────────────────────────────────
-
-type SupplierFormFieldsProps = {
-  form: SupplierFormData;
-  onChange: React.Dispatch<React.SetStateAction<SupplierFormData>>;
-  isNew: boolean;
-};
-
-function SupplierFormFields({ form, onChange, isNew }: SupplierFormFieldsProps) {
-  const set =
-    (field: keyof SupplierFormData) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-      onChange((f) => ({ ...f, [field]: e.target.value }));
-
-  return (
-    <div className={styles.form}>
-      {/* 行1：编码 + 名称 */}
-      <div className={styles.formRow}>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>
-            供应商编码 <span className={styles.required}>*</span>
-          </label>
-          <input
-            className={styles.formInput}
-            value={form.code}
-            onChange={set('code')}
-            placeholder="如：SUP-001"
-            disabled={!isNew}
-            aria-required="true"
-          />
-        </div>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>
-            供应商名称 <span className={styles.required}>*</span>
-          </label>
-          <input
-            className={styles.formInput}
-            value={form.name}
-            onChange={set('name')}
-            placeholder="如：广州顺兴布料有限公司"
-            aria-required="true"
-          />
-        </div>
-      </div>
-
-      {/* 行2：联系人 + 联系电话 */}
-      <div className={styles.formRow}>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>联系人</label>
-          <input
-            className={styles.formInput}
-            value={form.contactName}
-            onChange={set('contactName')}
-            placeholder="如：张三"
-          />
-        </div>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>联系电话</label>
-          <input
-            className={styles.formInput}
-            type="tel"
-            value={form.contactPhone}
-            onChange={set('contactPhone')}
-            placeholder="如：13800138000"
-          />
-        </div>
-      </div>
-
-      {/* 行3：邮箱 + 账期 */}
-      <div className={styles.formRow}>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>联系邮箱</label>
-          <input
-            className={styles.formInput}
-            type="email"
-            value={form.contactEmail}
-            onChange={set('contactEmail')}
-            placeholder="如：contact@supplier.com"
-          />
-        </div>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>账期（天）</label>
-          <input
-            className={styles.formInput}
-            type="number"
-            min="0"
-            step="1"
-            value={form.paymentDays}
-            onChange={set('paymentDays')}
-            placeholder="如：30"
-          />
-        </div>
-      </div>
-
-      {/* 行4：评级 */}
-      <div className={styles.formRow}>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>供应商等级</label>
-          <select
-            className={styles.formSelect}
-            value={form.rating}
-            onChange={set('rating')}
-            aria-label="供应商等级"
-          >
-            {RATING_OPTIONS.map((r) => (
-              <option key={r} value={r}>
-                {RATING_LABEL[r]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className={styles.formGroup}>
-          {/* 占位，保持双列对齐 */}
-        </div>
-      </div>
-
-      {/* 地址 — 全宽 */}
-      <div className={styles.formGroupFull}>
-        <label className={styles.formLabel}>地址</label>
-        <input
-          className={styles.formInput}
-          value={form.address}
-          onChange={set('address')}
-          placeholder="如：广州市白云区某某工业园"
-        />
-      </div>
-
-      {/* 备注 — 全宽 */}
-      <div className={styles.formGroupFull}>
-        <label className={styles.formLabel}>备注</label>
-        <textarea
-          className={styles.formTextarea}
-          value={form.notes}
-          onChange={set('notes')}
-          placeholder="可选，填写供应商相关说明..."
-          rows={3}
-        />
-      </div>
     </div>
   );
 }

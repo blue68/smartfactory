@@ -19,8 +19,8 @@ export class SupplierEntity {
   @Column({ length: 200 })
   name: string;
 
-  @Column({ type: 'enum', enum: ['A', 'B', 'C'], default: 'B' })
-  grade: 'A' | 'B' | 'C';
+  @Column({ type: 'enum', enum: ['A', 'B', 'C', 'D'], default: 'B' })
+  grade: 'A' | 'B' | 'C' | 'D';
 
   @Column({ type: 'enum', enum: ['active', 'inactive'], default: 'active' })
   status: 'active' | 'inactive';
@@ -31,8 +31,23 @@ export class SupplierEntity {
   @Column({ type: 'varchar', length: 30, nullable: true })
   phone: string | null;
 
+  @Column({ name: 'contact_email', type: 'varchar', length: 200, nullable: true })
+  contactEmail: string | null;
+
   @Column({ type: 'varchar', length: 300, nullable: true })
   address: string | null;
+
+  @Column({ name: 'payment_days', type: 'int', nullable: true })
+  paymentDays: number | null;
+
+  @Column({ name: 'lead_days', type: 'int', nullable: true })
+  leadDays: number | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  category: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  notes: string | null;
 
   @Column({ name: 'main_skus', type: 'json', nullable: true })
   mainSkus: number[] | null;

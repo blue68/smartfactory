@@ -1,10 +1,56 @@
 /**
  * [artifact:接口联调代码] — 供应商管理 API
+ * R-02 扩展：供应商导出 + 绩效对比
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import request from '@/utils/request';
+import { config } from '@/config';
 import type { PaginatedData } from '@/types/api';
+
+// ─────────────────────────────────────────────
+// 详情相关类型
+// ─────────────────────────────────────────────
+
+export interface SupplierRelatedSku {
+  id: number;
+  skuCode: string;
+  name: string;
+  spec?: string;
+  currentPrice: string;
+  priceUnit: string;
+  isMainSupplier: boolean;
+}
+
+export interface SupplierPriceAgreement {
+  id: number;
+  skuId: number;
+  skuName: string;
+  unitPrice: string;
+  purchaseUnit: string;
+  moq?: number;
+  validFrom: string;
+  validTo: string | null;
+  isCurrent: boolean;
+  /** 有效 | 即将到期 | 已过期 */
+  status: string;
+}
+
+export interface SupplierDeliveryRecord {
+  orderId: string;
+  skuName: string;
+  scheduledDate: string;
+  actualDate: string;
+  remark: string;
+}
+
+export interface SupplierPerformance {
+  onTimeRate: string;
+  qualityRate: string;
+  avgLeadDays: string;
+  totalOrders: number;
+  recentDeliveries: SupplierDeliveryRecord[];
+}
 
 // ─────────────────────────────────────────────
 // 类型定义
@@ -48,6 +94,8 @@ export interface CreateSupplierPayload {
   address?: string;
   rating: SupplierRating;
   paymentDays?: number;
+  leadDays?: number;
+  category?: string;
   isActive?: boolean;
   notes?: string;
 }
@@ -65,6 +113,9 @@ export const supplierKeys = {
   detail: (id: number) => [...supplierKeys.all, 'detail', id] as const,
   /** 用于下拉选择，全量不分页 */
   options: () => [...supplierKeys.all, 'options'] as const,
+  skus: (id: number) => [...supplierKeys.all, 'skus', id] as const,
+  priceAgreements: (id: number) => [...supplierKeys.all, 'price-agreements', id] as const,
+  performance: (id: number) => [...supplierKeys.all, 'performance', id] as const,
 };
 
 // ─────────────────────────────────────────────
@@ -86,6 +137,15 @@ export const supplierApi = {
 
   update: (id: number, payload: UpdateSupplierPayload) =>
     request.put<Supplier>(`/api/suppliers/${id}`, payload),
+
+  getRelatedSkus: (id: number) =>
+    request.get<SupplierRelatedSku[]>(`/api/suppliers/${id}/skus`),
+
+  getPriceAgreements: (id: number) =>
+    request.get<SupplierPriceAgreement[]>(`/api/suppliers/${id}/price-agreements`),
+
+  getPerformance: (id: number) =>
+    request.get<SupplierPerformance>(`/api/suppliers/${id}/performance`),
 };
 
 // ─────────────────────────────────────────────
@@ -132,5 +192,35 @@ export function useUpdateSupplier() {
       void qc.invalidateQueries({ queryKey: supplierKeys.detail(variables.id) });
       void qc.invalidateQueries({ queryKey: supplierKeys.options() });
     },
+  });
+}
+
+/** 供应商关联SKU列表 */
+export function useSupplierSkus(id: number | null) {
+  return useQuery({
+    queryKey: supplierKeys.skus(id ?? 0),
+    queryFn: () => supplierApi.getRelatedSkus(id!),
+    enabled: id !== null,
+    staleTime: 1000 * 60 * 2,
+  });
+}
+
+/** 供应商价格协议列表 */
+export function useSupplierPriceAgreements(id: number | null) {
+  return useQuery({
+    queryKey: supplierKeys.priceAgreements(id ?? 0),
+    queryFn: () => supplierApi.getPriceAgreements(id!),
+    enabled: id !== null,
+    staleTime: 1000 * 60 * 2,
+  });
+}
+
+/** 供应商绩效数据 */
+export function useSupplierPerformance(id: number | null) {
+  return useQuery({
+    queryKey: supplierKeys.performance(id ?? 0),
+    queryFn: () => supplierApi.getPerformance(id!),
+    enabled: id !== null,
+    staleTime: 1000 * 60 * 2,
   });
 }
