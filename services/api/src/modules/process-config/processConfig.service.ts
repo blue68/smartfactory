@@ -1,5 +1,6 @@
 import { AppDataSource } from '../../config/database';
 import { ProcessTemplateEntity, ProcessStepEntity } from './processConfig.entity';
+import { ProcessWageEntity } from './processWage.entity';
 import { AppError } from '../../shared/AppError';
 
 export interface ProcessConfigListFilter {
@@ -142,5 +143,75 @@ export class ProcessConfigService {
 
     await stepRepo.delete({ templateId: id, tenantId: this.tenantId });
     await templateRepo.delete({ id });
+  }
+
+  // ─── R-05: 极限工时 ──────────────────────────────────────────────────────
+
+  /**
+   * 更新指定工序步骤的极限工时。
+   * maxHours 为 null 时表示清除限制（不设上限）。
+   */
+  async setMaxHours(stepId: number, maxHours: number | null): Promise<{ stepId: number; maxHours: string | null }> {
+    const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
+    const step = await stepRepo.findOne({ where: { id: stepId, tenantId: this.tenantId } });
+    if (!step) throw AppError.notFound('工序步骤不存在');
+
+    step.maxHours = maxHours !== null ? maxHours.toString() : null;
+    await stepRepo.save(step);
+
+    return { stepId: step.id, maxHours: step.maxHours };
+  }
+
+  // ─── R-05: 工价管理 ──────────────────────────────────────────────────────
+
+  /**
+   * 查询指定工序步骤的所有工价配置（skilled + apprentice）。
+   */
+  async getWages(stepId: number): Promise<ProcessWageEntity[]> {
+    const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
+    const step = await stepRepo.findOne({ where: { id: stepId, tenantId: this.tenantId } });
+    if (!step) throw AppError.notFound('工序步骤不存在');
+
+    return AppDataSource.getRepository(ProcessWageEntity).find({
+      where: { stepId, tenantId: this.tenantId },
+      order: { workerGrade: 'ASC' },
+    });
+  }
+
+  /**
+   * 设置（UPSERT）指定工序步骤某等级的工价。
+   * 依赖数据库唯一约束 uk_tenant_step_grade 实现 INSERT ... ON DUPLICATE KEY UPDATE。
+   */
+  async setWages(
+    stepId: number,
+    workerGrade: 'skilled' | 'apprentice',
+    unitPrice: number,
+  ): Promise<ProcessWageEntity> {
+    const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
+    const step = await stepRepo.findOne({ where: { id: stepId, tenantId: this.tenantId } });
+    if (!step) throw AppError.notFound('工序步骤不存在');
+
+    const wageRepo = AppDataSource.getRepository(ProcessWageEntity);
+
+    // 尝试找到已有记录，有则更新，无则插入（代码层 UPSERT）
+    let wage = await wageRepo.findOne({
+      where: { tenantId: this.tenantId, stepId, workerGrade },
+    });
+
+    if (wage) {
+      wage.unitPrice = unitPrice.toString();
+      wage.updatedBy = this.userId;
+    } else {
+      wage = wageRepo.create({
+        tenantId: this.tenantId,
+        stepId,
+        workerGrade,
+        unitPrice: unitPrice.toString(),
+        createdBy: this.userId,
+        updatedBy: this.userId,
+      });
+    }
+
+    return wageRepo.save(wage);
   }
 }

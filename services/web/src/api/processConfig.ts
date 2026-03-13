@@ -1,5 +1,18 @@
 /**
  * [artifact:接口联调代码] — 工序配置 API
+ *
+ * 后端实体说明：
+ *   - ProcessTemplateEntity (process_templates 表)
+ *     字段：id, tenantId, skuId, name, status, createdAt, updatedAt, createdBy, updatedBy
+ *   - ProcessStepEntity (process_steps 表)
+ *     字段：id, tenantId, templateId, stepNo, stepName, standardHours, workstationType, createdAt
+ *
+ * list 接口额外 JOIN skus 表，补充 skuName/skuCode 字段。
+ *
+ * R-05 新增：
+ *   - setMaxHours  PUT /api/process-config/steps/:stepId/max-hours
+ *   - getWages     GET /api/process-config/steps/:stepId/wages
+ *   - setWages     PUT /api/process-config/steps/:stepId/wages
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -7,27 +20,53 @@ import request from '@/utils/request';
 import type { PaginatedData } from '@/types/api';
 
 // ─────────────────────────────────────────────
-// 类型定义
+// 后端原始类型（与后端 service / entity 字段严格对齐）
 // ─────────────────────────────────────────────
 
-export interface ProcessConfig {
+/** list 接口单条记录（JOIN skus 后的 raw 结果） */
+export interface ProcessTemplateListItem {
   id: number;
   name: string;
-  /** 工序类型/分类 */
-  type: string;
-  /** 标准工时（小时/套） */
-  standardHours: number;
-  /** 单位成本（元/套） */
-  unitCost: number;
-  /** 所属工作站名称 */
-  workstation: string;
-  /** 工序说明 */
-  description?: string;
-  /** 排序序号 */
-  sortOrder: number;
+  skuId: number;
+  skuName: string | null;
+  skuCode: string | null;
+  status: 'active' | 'inactive';
   createdAt: string;
   updatedAt: string;
 }
+
+/** getById 接口返回的工序步骤 */
+export interface ProcessStep {
+  id: number;
+  tenantId: number;
+  templateId: number;
+  stepNo: number;
+  stepName: string;
+  /** decimal 字段，后端返回字符串，如 "2.0000" */
+  standardHours: string | null;
+  workstationType: string | null;
+  createdAt: string;
+}
+
+/** getById 接口完整返回 */
+export interface ProcessTemplateDetail {
+  template: {
+    id: number;
+    tenantId: number;
+    skuId: number;
+    name: string;
+    status: 'active' | 'inactive';
+    createdAt: string;
+    updatedAt: string;
+    createdBy: number;
+    updatedBy: number;
+  };
+  steps: ProcessStep[];
+}
+
+// ─────────────────────────────────────────────
+// 查询参数
+// ─────────────────────────────────────────────
 
 export interface ProcessConfigListQuery {
   page?: number;
@@ -36,14 +75,24 @@ export interface ProcessConfigListQuery {
   type?: string;
 }
 
+// ─────────────────────────────────────────────
+// 创建 / 更新 Payload（匹配后端 CreateSchema）
+// ─────────────────────────────────────────────
+
+export interface ProcessStepPayload {
+  stepNo: number;
+  stepName: string;
+  standardHours?: number;
+  workstationType?: string;
+}
+
 export interface CreateProcessConfigPayload {
+  /** 模板名称 */
   name: string;
-  type: string;
-  standardHours: number;
-  unitCost: number;
-  workstation: string;
-  description?: string;
-  sortOrder?: number;
+  /** 关联 SKU ID */
+  skuId: number;
+  /** 工序步骤列表（可选） */
+  steps?: ProcessStepPayload[];
 }
 
 export type UpdateProcessConfigPayload = Partial<CreateProcessConfigPayload>;
@@ -63,28 +112,74 @@ export const processConfigKeys = {
 // 原始请求函数
 // ─────────────────────────────────────────────
 
+// ─────────────────────────────────────────────
+// R-05 工步工价类型
+// ─────────────────────────────────────────────
+
+export type WorkerGrade = 'skilled' | 'apprentice';
+
+export interface StepWageItem {
+  id: number;
+  stepId: number;
+  workerGrade: WorkerGrade;
+  unitPrice: string; // decimal 字符串，如 "12.0000"
+  updatedAt: string;
+}
+
+export interface SetMaxHoursPayload {
+  maxHours: number;
+}
+
+export interface SetWagesPayload {
+  workerGrade: WorkerGrade;
+  unitPrice: number;
+}
+
+// ─────────────────────────────────────────────
+// 原始请求函数
+// ─────────────────────────────────────────────
+
 export const processConfigApi = {
   getList: (query: ProcessConfigListQuery) =>
-    request.get<PaginatedData<ProcessConfig>>('/api/process-configs', query as Record<string, unknown>),
+    request.get<PaginatedData<ProcessTemplateListItem>>(
+      '/api/process-configs',
+      query as Record<string, unknown>,
+    ),
 
   getById: (id: number) =>
-    request.get<ProcessConfig>(`/api/process-configs/${id}`),
+    request.get<ProcessTemplateDetail>(`/api/process-configs/${id}`),
 
   create: (payload: CreateProcessConfigPayload) =>
-    request.post<ProcessConfig>('/api/process-configs', payload),
+    request.post<ProcessTemplateListItem>('/api/process-configs', payload),
 
   update: (id: number, payload: UpdateProcessConfigPayload) =>
-    request.put<ProcessConfig>(`/api/process-configs/${id}`, payload),
+    request.put<ProcessTemplateListItem>(`/api/process-configs/${id}`, payload),
 
   remove: (id: number) =>
     request.delete<{ id: number }>(`/api/process-configs/${id}`),
+
+  // ── R-05 新增 ──
+  setMaxHours: (stepId: number, maxHours: number) =>
+    request.put<{ stepId: number; maxHours: number }>(
+      `/api/process-config/steps/${stepId}/max-hours`,
+      { maxHours } satisfies SetMaxHoursPayload,
+    ),
+
+  getWages: (stepId: number) =>
+    request.get<StepWageItem[]>(`/api/process-config/steps/${stepId}/wages`),
+
+  setWages: (stepId: number, payload: SetWagesPayload) =>
+    request.put<StepWageItem>(
+      `/api/process-config/steps/${stepId}/wages`,
+      payload,
+    ),
 };
 
 // ─────────────────────────────────────────────
 // React Query Hooks
 // ─────────────────────────────────────────────
 
-/** 工序配置分页列表 */
+/** 工序模板分页列表 */
 export function useProcessConfigList(query: ProcessConfigListQuery) {
   return useQuery({
     queryKey: processConfigKeys.list(query),
@@ -92,7 +187,16 @@ export function useProcessConfigList(query: ProcessConfigListQuery) {
   });
 }
 
-/** 创建工序配置 */
+/** 工序模板详情（含工序步骤） */
+export function useProcessConfigDetail(id: number | null) {
+  return useQuery({
+    queryKey: processConfigKeys.detail(id ?? 0),
+    queryFn: () => processConfigApi.getById(id!),
+    enabled: id !== null,
+  });
+}
+
+/** 创建工序模板 */
 export function useCreateProcessConfig() {
   const qc = useQueryClient();
   return useMutation({
@@ -103,7 +207,7 @@ export function useCreateProcessConfig() {
   });
 }
 
-/** 更新工序配置 */
+/** 更新工序模板 */
 export function useUpdateProcessConfig() {
   const qc = useQueryClient();
   return useMutation({
@@ -116,13 +220,51 @@ export function useUpdateProcessConfig() {
   });
 }
 
-/** 删除工序配置 */
+/** 删除工序模板 */
 export function useDeleteProcessConfig() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => processConfigApi.remove(id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: processConfigKeys.lists() });
+    },
+  });
+}
+
+// ─────────────────────────────────────────────
+// R-05 React Query Hooks
+// ─────────────────────────────────────────────
+
+/** 设置工步极限工时 */
+export function useSetMaxHours() {
+  return useMutation({
+    mutationFn: ({ stepId, maxHours }: { stepId: number; maxHours: number }) =>
+      processConfigApi.setMaxHours(stepId, maxHours),
+  });
+}
+
+/** 获取工步工价列表 */
+export function useStepWages(stepId: number | null) {
+  return useQuery({
+    queryKey: ['step-wages', stepId],
+    queryFn: () => processConfigApi.getWages(stepId!),
+    enabled: stepId !== null,
+  });
+}
+
+/** 设置工步工价 */
+export function useSetWages() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      stepId,
+      payload,
+    }: {
+      stepId: number;
+      payload: SetWagesPayload;
+    }) => processConfigApi.setWages(stepId, payload),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: ['step-wages', variables.stepId] });
     },
   });
 }

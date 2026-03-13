@@ -4,6 +4,17 @@ import { ProcessConfigService } from './processConfig.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
 
+// ── R-05 参数 Schema ──────────────────────────────────────────────────────
+
+const MaxHoursSchema = z.object({
+  maxHours: z.number().positive().nullable(),
+});
+
+const SetWageSchema = z.object({
+  workerGrade: z.enum(['skilled', 'apprentice']),
+  unitPrice: z.number().min(0),
+});
+
 const ListQuerySchema = PaginationSchema.extend({
   keyword: z.string().max(100).optional(),
   type: z.string().max(50).optional(),
@@ -61,6 +72,30 @@ export class ProcessConfigController {
     const id = Number(req.params.id);
     await this.svc(req).remove(id);
     success(res, { id }, '工序模板已删除');
+  }
+
+  // ─── R-05: 极限工时 ────────────────────────────────────────────────────
+
+  async putMaxHours(req: Request, res: Response): Promise<void> {
+    const stepId = Number(req.params.stepId);
+    const { maxHours } = MaxHoursSchema.parse(req.body);
+    const result = await this.svc(req).setMaxHours(stepId, maxHours);
+    success(res, result, '极限工时已更新');
+  }
+
+  // ─── R-05: 工价管理 ────────────────────────────────────────────────────
+
+  async getWages(req: Request, res: Response): Promise<void> {
+    const stepId = Number(req.params.stepId);
+    const wages = await this.svc(req).getWages(stepId);
+    success(res, wages);
+  }
+
+  async putWages(req: Request, res: Response): Promise<void> {
+    const stepId = Number(req.params.stepId);
+    const { workerGrade, unitPrice } = SetWageSchema.parse(req.body);
+    const wage = await this.svc(req).setWages(stepId, workerGrade, unitPrice);
+    success(res, wage, '工价已更新');
   }
 }
 
