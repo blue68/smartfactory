@@ -586,8 +586,9 @@ function EditorView({ row, onBack }: EditorViewProps) {
         onConfirm={async () => {
           if (!selectedItem) return;
           const qtyRegex = /^\d+(\.\d{1,4})?$/;
-          if (!qtyRegex.test(editQtyValue.trim())) {
-            showToast({ type: 'error', message: '用量格式不正确，请输入正整数或最多4位小数的正数' });
+          const trimmedQty = editQtyValue.trim();
+          if (!qtyRegex.test(trimmedQty) || Number(trimmedQty) <= 0) {
+            showToast({ type: 'error', message: '用量格式不正确，请输入大于0的正数（最多4位小数）' });
             return;
           }
           if (!editUnitValue.trim()) {
