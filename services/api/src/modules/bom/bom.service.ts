@@ -5,6 +5,10 @@ import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import { getRedisClient, RedisKeys, RedisTTL } from '../../config/redis';
 
+// ─── 常量 ────────────────────────────────────────────────────────
+const MAX_AI_CONFIDENCE = 95;
+const CONFIDENCE_PER_USAGE = 15;
+
 // ─── 类型定义 ──────────────────────────────────────────────────
 
 export interface BomItemNode {
@@ -61,6 +65,7 @@ export interface CreateBomItemParam {
   scrapRate?: string;
   sortOrder?: number;
   notes?: string;
+  children?: CreateBomItemParam[];
 }
 
 // ─── BOM Service ───────────────────────────────────────────────
@@ -328,7 +333,7 @@ export class BomService {
       const bomId = Number(headerResult.insertId);
 
       // 2. 校验循环引用，插入明细
-      await this.insertBomItems(manager, bomId, params.items, null, 1);
+      await this.insertBomItems(manager, bomId, params.items, null, 1, params.skuId);
 
       return { id: bomId };
     });
@@ -340,20 +345,24 @@ export class BomService {
     items: CreateBomItemParam[],
     parentDbId: number | null,
     level: number,
+    headerSkuId?: number,
   ): Promise<void> {
     if (level > 10) {
       throw AppError.badRequest('BOM层级不能超过10层', ResponseCode.BOM_CIRCULAR_REF);
     }
 
-    // P0-3: query header ONCE outside the loop (fixes N+1) and add tenant_id filter
-    const [header] = await manager.query<Array<{ sku_id: number }>>(
-      'SELECT sku_id FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1',
-      [bomId, this.tenantId],
-    );
+    // 只在未传入 headerSkuId 时查询（首次调用可直接传入，避免递归冗余查询）
+    if (headerSkuId === undefined) {
+      const [header] = await manager.query<Array<{ sku_id: number }>>(
+        'SELECT sku_id FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [bomId, this.tenantId],
+      );
+      headerSkuId = header?.sku_id;
+    }
 
     for (const item of items) {
       // 检查循环引用：若当前 componentSkuId 是 BOM 对应成品，则循环
-      if (header && header.sku_id === item.componentSkuId) {
+      if (headerSkuId !== undefined && headerSkuId === item.componentSkuId) {
         throw AppError.badRequest(
           `检测到循环引用：物料 ${item.componentSkuId} 是当前BOM的成品`,
           ResponseCode.BOM_CIRCULAR_REF,
@@ -375,9 +384,9 @@ export class BomService {
 
       const newItemId = Number(result.insertId);
       // 递归处理子节点（若前端以嵌套方式传入）
-      const sub = (item as any).children as CreateBomItemParam[] | undefined;
+      const sub = item.children;
       if (sub && sub.length > 0) {
-        await this.insertBomItems(manager, bomId, sub, newItemId, level + 1);
+        await this.insertBomItems(manager, bomId, sub, newItemId, level + 1, headerSkuId);
       }
     }
   }
@@ -429,7 +438,7 @@ export class BomService {
     if (payload.version !== undefined && header.status !== 'draft') {
       throw AppError.badRequest(
         '只有 draft 状态的 BOM 才能修改版本号',
-        ResponseCode.BOM_NOT_FOUND,
+        ResponseCode.BOM_STATUS_CONFLICT,
       );
     }
 
@@ -460,14 +469,14 @@ export class BomService {
    * 物理删除 BOM 明细行（含其所有子孙节点）。
    * 校验明细必须属于当前租户。
    */
-  async deleteBomItem(bomItemId: number): Promise<void> {
+  async deleteBomItem(bomItemId: number, expectedBomId: number): Promise<void> {
     // P1-4: existence check moved INSIDE the transaction to eliminate TOCTOU race condition
     let capturedBomHeaderId: number | undefined;
 
     await AppDataSource.transaction(async (manager) => {
       const [item] = await manager.query<Array<{ id: number; bom_header_id: number }>>(
-        'SELECT id, bom_header_id FROM bom_items WHERE id = ? AND tenant_id = ? LIMIT 1',
-        [bomItemId, this.tenantId],
+        'SELECT id, bom_header_id FROM bom_items WHERE id = ? AND tenant_id = ? AND bom_header_id = ? LIMIT 1',
+        [bomItemId, this.tenantId, expectedBomId],
       );
       if (!item) throw AppError.notFound('BOM明细不存在', ResponseCode.BOM_NOT_FOUND);
 
@@ -511,28 +520,28 @@ export class BomService {
    * 返回新 BOM 的 id。
    */
   async copyBom(bomId: number, newVersion: string): Promise<{ id: number }> {
-    // 1. 校验源 BOM 存在且属于当前租户
-    const [srcHeader] = await AppDataSource.query<Array<{
-      sku_id: number; description: string | null;
-    }>>(
-      'SELECT sku_id, description FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1',
-      [bomId, this.tenantId],
-    );
-    if (!srcHeader) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
-
-    // 2. 检查目标版本号在同一 SKU 下是否已存在
-    const [existing] = await AppDataSource.query<Array<{ id: number }>>(
-      'SELECT id FROM bom_headers WHERE tenant_id = ? AND sku_id = ? AND version = ? LIMIT 1',
-      [this.tenantId, srcHeader.sku_id, newVersion],
-    );
-    if (existing) {
-      throw AppError.badRequest(
-        `版本号 ${newVersion} 已存在，请使用其他版本号`,
-        ResponseCode.BOM_NOT_FOUND,
-      );
-    }
-
     return AppDataSource.transaction(async (manager) => {
+      // 1. 校验源 BOM 存在且属于当前租户（事务内查询）
+      const [srcHeader] = await manager.query<Array<{
+        sku_id: number; description: string | null;
+      }>>(
+        'SELECT sku_id, description FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [bomId, this.tenantId],
+      );
+      if (!srcHeader) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
+
+      // 2. 检查目标版本号在同一 SKU 下是否已存在（FOR UPDATE 防止并发写入重复版本号）
+      const [existing] = await manager.query<Array<{ id: number }>>(
+        'SELECT id FROM bom_headers WHERE tenant_id = ? AND sku_id = ? AND version = ? LIMIT 1 FOR UPDATE',
+        [this.tenantId, srcHeader.sku_id, newVersion],
+      );
+      if (existing) {
+        throw AppError.badRequest(
+          `版本号 ${newVersion} 已存在，请使用其他版本号`,
+          ResponseCode.BOM_VERSION_DUPLICATE,
+        );
+      }
+
       // 3. 复制表头
       const headerResult = await manager.query(
         `INSERT INTO bom_headers (tenant_id, sku_id, version, status, description, created_by, updated_by)
@@ -627,7 +636,7 @@ export class BomService {
         skuName: r.skuName,
         quantity: String(Number(r.avgQty).toFixed(2)),
         unit: r.unit,
-        confidence: Math.min(95, Number(r.usageCount) * 15),
+        confidence: Math.min(MAX_AI_CONFIDENCE, Number(r.usageCount) * CONFIDENCE_PER_USAGE),
         reason: `同品类 ${r.usageCount} 个 BOM 使用该物料`,
       })),
     };

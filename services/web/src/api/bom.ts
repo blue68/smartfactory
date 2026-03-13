@@ -66,8 +66,8 @@ export const bomApi = {
     request.delete<null>(`/api/bom/${bomId}/items/${itemId}`),
 
   /** POST /api/bom/:id/copy — 复制 BOM 为新草稿 */
-  copy: (id: number) =>
-    request.post<{ id: number }>(`/api/bom/${id}/copy`),
+  copy: (id: number, newVersion: string) =>
+    request.post<{ id: number }>(`/api/bom/${id}/copy`, { newVersion }),
 
   /** BE-P1-002: 根据 skuId 获取 AI 辅助 BOM 建议（同品类 BOM 频次统计） */
   getAiSuggestion: (skuId: number) =>
@@ -150,7 +150,7 @@ export function useUpdateBom() {
       bomApi.update(id, data),
     onSuccess: (_data, { id }) => {
       void qc.invalidateQueries({ queryKey: bomKeys.lists() });
-      void qc.invalidateQueries({ queryKey: bomKeys.detail(id) });
+      void qc.invalidateQueries({ queryKey: bomKeys.expanded(id) });
     },
   });
 }
@@ -172,7 +172,8 @@ export function useDeleteBomItem() {
 export function useCopyBom() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: bomApi.copy,
+    mutationFn: ({ id, newVersion }: { id: number; newVersion: string }) =>
+      bomApi.copy(id, newVersion),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: bomKeys.lists() });
     },

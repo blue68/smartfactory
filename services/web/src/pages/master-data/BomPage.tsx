@@ -38,10 +38,6 @@ interface BomListRow {
   id: number;
   /** skuId 用于 AI 建议等需要 skuId 的 API 调用 */
   skuId: number;
-  /**
-   * 后端 listBoms() 未返回 sku_code，展示用 `SKU-{id}` 占位。
-   * 若后端后续补充 skuCode 字段，直接替换此处映射即可。
-   */
   skuCode: string;
   skuName: string;
   hasAlert: boolean;
@@ -59,7 +55,7 @@ interface BomListRow {
 /**
  * 将后端 BomHeader 映射为前端展示用 BomListRow。
  * 映射规则：
- *   - skuCode: 后端未返回，使用 `SKU-{id}` 占位
+ *   - skuCode: 后端已返回，fallback 使用 `SKU-{id}` 占位
  *   - completionPct: active→100, draft→50, archived→0
  *   - materialCount: 列表不含明细，null
  *   - orderCount: 后端无此字段，固定 0
@@ -548,7 +544,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
         <Button variant="ghost" size="sm" onClick={onBack}>← 返回列表</Button>
         <div>
           <div className={styles.editor_meta__name}>{row.skuName}（{row.skuCode}）</div>
-          <div className={styles.editor_meta__sub}>BOM版本：1.0 &nbsp;·&nbsp; 上次修改：2026-03-08</div>
+          <div className={styles.editor_meta__sub}>BOM版本：{detailData?.version ?? row.status} &nbsp;·&nbsp; 状态：{row.status === BomStatus.ACTIVE ? '已激活' : row.status === BomStatus.DRAFT ? '草稿' : '已归档'}</div>
         </div>
         <div className={styles.editor_actions}>
           {row.status === BomStatus.DRAFT && (

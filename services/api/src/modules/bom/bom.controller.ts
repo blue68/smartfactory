@@ -52,6 +52,19 @@ const SkuIdParamSchema = z.object({
   skuId: z.coerce.number().int().positive(),
 });
 
+const UpdateBomSchema = z.object({
+  version:     z.string().min(1).max(20).optional(),
+  description: z.string().max(500).optional(),
+  status:      z.enum(['draft', 'active', 'archived']).optional(),
+}).refine(
+  (d) => d.version !== undefined || d.description !== undefined || d.status !== undefined,
+  { message: '至少提供一个可更新字段（version / description / status）' },
+);
+
+const CopyBomSchema = z.object({
+  newVersion: z.string().min(1).max(20),
+});
+
 export class BomController {
   private svc(req: Request): BomService {
     return new BomService({ tenantId: req.tenantId, userId: req.userId });
@@ -105,14 +118,6 @@ export class BomController {
   async update(req: Request, res: Response): Promise<void> {
     // P1-10: validate id route param with Zod
     const { id } = IdParamSchema.parse(req.params);
-    const UpdateBomSchema = z.object({
-      version:     z.string().min(1).max(20).optional(),
-      description: z.string().max(500).optional(),
-      status:      z.enum(['draft', 'active', 'archived']).optional(),
-    }).refine(
-      (d) => d.version !== undefined || d.description !== undefined || d.status !== undefined,
-      { message: '至少提供一个可更新字段（version / description / status）' },
-    );
     const body = UpdateBomSchema.parse(req.body);
     await this.svc(req).updateBom(id, body);
     success(res, null, 'BOM已更新');
@@ -121,9 +126,10 @@ export class BomController {
   // ── BE-P1-001: 删除 BOM 明细行 ────────────────────────────
 
   async deleteBomItem(req: Request, res: Response): Promise<void> {
-    // P1-10: validate itemId route param with Zod
+    // P1-10: validate route params with Zod
+    const { id: bomId } = IdParamSchema.parse(req.params);
     const { itemId } = ItemIdParamSchema.parse(req.params);
-    await this.svc(req).deleteBomItem(itemId);
+    await this.svc(req).deleteBomItem(itemId, bomId);
     success(res, null, 'BOM明细已删除');
   }
 
@@ -132,9 +138,6 @@ export class BomController {
   async copyBom(req: Request, res: Response): Promise<void> {
     // P1-10: validate id route param with Zod
     const { id } = IdParamSchema.parse(req.params);
-    const CopyBomSchema = z.object({
-      newVersion: z.string().min(1).max(20),
-    });
     const { newVersion } = CopyBomSchema.parse(req.body);
     const data = await this.svc(req).copyBom(id, newVersion);
     created(res, data, 'BOM已复制');
