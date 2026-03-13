@@ -224,21 +224,107 @@ interface WizardSkuItem {
 interface WizardModalProps {
   open: boolean;
   onClose: () => void;
-  onNext: (selected: string[]) => void;
+  onComplete: (data: {
+    skuId: number;
+    skuCode: string;
+    skuName: string;
+    version: string;
+    items: Array<{ componentSkuId: number; quantity: string; unit: string }>;
+  }) => void;
   skuItems: WizardSkuItem[];
 }
 
-function WizardModal({ open, onClose, onNext, skuItems }: WizardModalProps) {
-  const [checked, setChecked] = useState<Set<string>>(new Set());
+/** Step 2 中 AI 建议条目（可勾选 / 可编辑用量） */
+interface AiWizardItem {
+  skuId: number;
+  skuName: string;
+  quantity: string;
+  unit: string;
+  confidence: number;
+  checked: boolean;
+}
 
-  // 当 skuItems 变化时，默认勾选无 BOM 的成品（待录入项）
+/** Step 2 中手动追加的物料条目 */
+interface ManualWizardItem {
+  componentSkuId: number;
+  skuCode: string;
+  skuName: string;
+  quantity: string;
+  unit: string;
+}
+
+const WIZARD_STEPS = ['选择成品', 'AI推荐', '填写用量', '确认'];
+const UNIT_OPTIONS = ['个', '张', '米', '套', '副', '瓶', '桶', '卷', '块'];
+
+function WizardModal({ open, onClose, onComplete, skuItems }: WizardModalProps) {
+  /* ── Step 0 状态 ── */
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  /* ── 多步流程状态 ── */
+  const [currentStep, setCurrentStep] = useState(0);
+  const [selectedSkuId, setSelectedSkuId] = useState<number | null>(null);
+  const [selectedSkuCode, setSelectedSkuCode] = useState('');
+  const [selectedSkuName, setSelectedSkuName] = useState('');
+  /* ── Step 1 AI 建议列表 ── */
+  const [aiItems, setAiItems] = useState<AiWizardItem[]>([]);
+  /* ── Step 2 手动追加列表 ── */
+  const [manualItems, setManualItems] = useState<ManualWizardItem[]>([]);
+  const [manualSearch, setManualSearch] = useState('');
+  const [manualQty, setManualQty] = useState('1');
+  const [manualUnit, setManualUnit] = useState('个');
+  const [manualSelectedSku, setManualSelectedSku] = useState<{ id: number; skuCode: string; name: string; stockUnit: string } | null>(null);
+  /* ── Step 3 版本号 ── */
+  const [version, setVersion] = useState('1.0');
+
+  /* ── 手动搜索 SKU ── */
+  const manualSkuQuery = useSkuList({ keyword: manualSearch, pageSize: 20 });
+  const manualSkuList = manualSearch.trim().length >= 1 ? (manualSkuQuery.data?.list ?? []) : [];
+
+  /* ── AI 建议（仅 Step 1 时触发） ── */
+  const { data: wizardAiSuggestion, isLoading: wizardAiLoading } = useAiBomSuggestion(
+    currentStep >= 1 ? selectedSkuId : null,
+  );
+
+  /* ── 当 AI 建议返回时，初始化 aiItems（全部默认勾选） ── */
+  useEffect(() => {
+    if (wizardAiSuggestion) {
+      setAiItems(
+        wizardAiSuggestion.suggestedItems.map((s) => ({
+          skuId: s.skuId,
+          skuName: s.skuName,
+          quantity: s.quantity,
+          unit: s.unit,
+          confidence: s.confidence,
+          checked: true,
+        })),
+      );
+    }
+  }, [wizardAiSuggestion]);
+
+  /* ── 当 open 变化时，重置向导状态 ── */
+  useEffect(() => {
+    if (!open) {
+      setCurrentStep(0);
+      setSelectedSkuId(null);
+      setSelectedSkuCode('');
+      setSelectedSkuName('');
+      setAiItems([]);
+      setManualItems([]);
+      setManualSearch('');
+      setManualSelectedSku(null);
+      setManualQty('1');
+      setManualUnit('个');
+      setVersion('1.0');
+    }
+  }, [open]);
+
+  /* ── 当 skuItems 变化时，默认勾选无 BOM 的成品 ── */
   useEffect(() => {
     const noBom = skuItems.filter(s => !s.hasBom).map(s => s.code);
     const withAlert = skuItems.filter(s => s.alertText).map(s => s.code);
     setChecked(new Set([...noBom, ...withAlert]));
   }, [skuItems]);
 
-  const toggle = (code: string) => {
+  const toggleStep0 = (code: string) => {
     setChecked((prev) => {
       const next = new Set(prev);
       next.has(code) ? next.delete(code) : next.add(code);
@@ -246,63 +332,541 @@ function WizardModal({ open, onClose, onNext, skuItems }: WizardModalProps) {
     });
   };
 
-  const STEPS = ['选择成品', 'AI推荐', '填写用量', '确认'];
+  /* ── Step 1：切换 AI 建议项勾选 ── */
+  const toggleAiItem = (skuId: number) => {
+    setAiItems(prev => prev.map(item => item.skuId === skuId ? { ...item, checked: !item.checked } : item));
+  };
+
+  /* ── Step 1：修改 AI 建议项用量 ── */
+  const updateAiItemQty = (skuId: number, qty: string) => {
+    setAiItems(prev => prev.map(item => item.skuId === skuId ? { ...item, quantity: qty } : item));
+  };
+
+  /* ── Step 2：添加手动物料 ── */
+  const addManualItem = () => {
+    if (!manualSelectedSku) return;
+    const exists = manualItems.some(m => m.componentSkuId === manualSelectedSku.id);
+    if (!exists) {
+      setManualItems(prev => [...prev, {
+        componentSkuId: manualSelectedSku.id,
+        skuCode: manualSelectedSku.skuCode,
+        skuName: manualSelectedSku.name,
+        quantity: manualQty || '1',
+        unit: manualUnit,
+      }]);
+    }
+    setManualSelectedSku(null);
+    setManualSearch('');
+    setManualQty('1');
+    setManualUnit('个');
+  };
+
+  /* ── Step 2：删除手动物料 ── */
+  const removeManualItem = (componentSkuId: number) => {
+    setManualItems(prev => prev.filter(m => m.componentSkuId !== componentSkuId));
+  };
+
+  /* ── Step 2：修改手动物料用量/单位 ── */
+  const updateManualItem = (componentSkuId: number, field: 'quantity' | 'unit', value: string) => {
+    setManualItems(prev => prev.map(m => m.componentSkuId === componentSkuId ? { ...m, [field]: value } : m));
+  };
+
+  /* ── Step 2：同步来自 Step 1 勾选项的用量（在 Step 3 确认时合并） ── */
+  const getFinalItems = (): Array<{ componentSkuId: number; quantity: string; unit: string }> => {
+    const aiSelected = aiItems
+      .filter(item => item.checked)
+      .map(item => ({ componentSkuId: item.skuId, quantity: item.quantity, unit: item.unit }));
+    // 手动追加：去重（以 componentSkuId 为 key，手动优先）
+    const aiSkuIds = new Set(aiSelected.map(a => a.componentSkuId));
+    const manualFiltered = manualItems.filter(m => !aiSkuIds.has(m.componentSkuId));
+    return [...aiSelected, ...manualFiltered.map(m => ({
+      componentSkuId: m.componentSkuId,
+      quantity: m.quantity,
+      unit: m.unit,
+    }))];
+  };
+
+  /* ── 下一步逻辑 ── */
+  const handleNext = () => {
+    if (currentStep === 0) {
+      const selectedCodes = [...checked];
+      if (selectedCodes.length === 0) return;
+      const firstCode = selectedCodes[0];
+      const wizardItem = skuItems.find(s => s.code === firstCode);
+      if (!wizardItem) return;
+      setSelectedSkuId(wizardItem.skuId);
+      setSelectedSkuCode(wizardItem.code);
+      setSelectedSkuName(wizardItem.name);
+      setCurrentStep(1);
+    } else if (currentStep === 1) {
+      setCurrentStep(2);
+    } else if (currentStep === 2) {
+      setCurrentStep(3);
+    }
+  };
+
+  /* ── 上一步 ── */
+  const handlePrev = () => {
+    if (currentStep > 0) setCurrentStep(prev => prev - 1);
+  };
+
+  /* ── 最终确认 ── */
+  const handleConfirm = () => {
+    if (!selectedSkuId) return;
+    onComplete({
+      skuId: selectedSkuId,
+      skuCode: selectedSkuCode,
+      skuName: selectedSkuName,
+      version: version.trim() || '1.0',
+      items: getFinalItems(),
+    });
+  };
+
+  /* ── Stepper 样式帮助函数 ── */
+  const stepCircleClass = (i: number) => {
+    if (i < currentStep) return `${styles.stepper__circle} ${styles['stepper__circle--active']}`;
+    if (i === currentStep) return `${styles.stepper__circle} ${styles['stepper__circle--active']}`;
+    return `${styles.stepper__circle} ${styles['stepper__circle--pending']}`;
+  };
+  const stepLabelClass = (i: number) => {
+    if (i <= currentStep) return `${styles.stepper__label} ${styles['stepper__label--active']}`;
+    return `${styles.stepper__label} ${styles['stepper__label--pending']}`;
+  };
+
+  /* ── 当前步骤按钮组 ── */
+  const renderFooterButtons = () => {
+    const canNext0 = currentStep === 0 && checked.size > 0;
+    if (currentStep === 0) {
+      return (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', paddingTop: '1rem', borderTop: '1px solid var(--border-default)' }}>
+          <button onClick={onClose} style={{ padding: '0.5rem 1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)', background: 'white', cursor: 'pointer', fontSize: '0.875rem' }}>
+            取消
+          </button>
+          <button
+            onClick={handleNext}
+            disabled={!canNext0}
+            style={{ padding: '0.5rem 1.25rem', borderRadius: 'var(--radius-md)', border: 'none', background: canNext0 ? 'var(--color-primary-600, #2563eb)' : 'var(--color-disabled, #d1d5db)', color: 'white', cursor: canNext0 ? 'pointer' : 'not-allowed', fontSize: '0.875rem', fontWeight: 600 }}
+          >
+            下一步：获取AI推荐
+          </button>
+        </div>
+      );
+    }
+    if (currentStep === 1) {
+      return (
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', paddingTop: '1rem', borderTop: '1px solid var(--border-default)' }}>
+          <button onClick={handlePrev} style={{ padding: '0.5rem 1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)', background: 'white', cursor: 'pointer', fontSize: '0.875rem' }}>
+            上一步
+          </button>
+          <button
+            onClick={handleNext}
+            style={{ padding: '0.5rem 1.25rem', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-primary-600, #2563eb)', color: 'white', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600 }}
+          >
+            下一步：确认用量
+          </button>
+        </div>
+      );
+    }
+    if (currentStep === 2) {
+      return (
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', paddingTop: '1rem', borderTop: '1px solid var(--border-default)' }}>
+          <button onClick={handlePrev} style={{ padding: '0.5rem 1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)', background: 'white', cursor: 'pointer', fontSize: '0.875rem' }}>
+            上一步
+          </button>
+          <button
+            onClick={handleNext}
+            style={{ padding: '0.5rem 1.25rem', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-primary-600, #2563eb)', color: 'white', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600 }}
+          >
+            下一步：确认创建
+          </button>
+        </div>
+      );
+    }
+    // Step 3
+    return (
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', paddingTop: '1rem', borderTop: '1px solid var(--border-default)' }}>
+        <button onClick={handlePrev} style={{ padding: '0.5rem 1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)', background: 'white', cursor: 'pointer', fontSize: '0.875rem' }}>
+          上一步
+        </button>
+        <button
+          onClick={handleConfirm}
+          style={{ padding: '0.5rem 1.25rem', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-success-600, #059669)', color: 'white', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600 }}
+        >
+          确认创建 BOM
+        </button>
+      </div>
+    );
+  };
 
   return (
     <Modal
       open={open}
       title="BOM快速录入向导"
       onClose={onClose}
-      onConfirm={() => onNext([...checked])}
-      confirmLabel="下一步：获取AI推荐"
-      cancelLabel="取消"
-      size="md"
+      size="lg"
     >
       {/* Stepper */}
       <div className={styles.stepper}>
-        {STEPS.map((step, i) => (
-          <div key={step} style={{ display: 'flex', alignItems: 'center', flex: i < STEPS.length - 1 ? 1 : 'unset' }}>
+        {WIZARD_STEPS.map((step, i) => (
+          <div key={step} style={{ display: 'flex', alignItems: 'center', flex: i < WIZARD_STEPS.length - 1 ? 1 : 'unset' }}>
             <div className={styles.stepper__step}>
-              <div className={`${styles.stepper__circle} ${i === 0 ? styles['stepper__circle--active'] : styles['stepper__circle--pending']}`}>
-                {i + 1}
+              <div className={stepCircleClass(i)} style={i < currentStep ? { background: 'var(--color-success-600, #059669)', borderColor: 'var(--color-success-600, #059669)' } : undefined}>
+                {i < currentStep ? '✓' : i + 1}
               </div>
-              <span className={`${styles.stepper__label} ${i === 0 ? styles['stepper__label--active'] : styles['stepper__label--pending']}`}>
-                {step}
-              </span>
+              <span className={stepLabelClass(i)}>{step}</span>
             </div>
-            {i < STEPS.length - 1 && <div className={styles.stepper__line} />}
+            {i < WIZARD_STEPS.length - 1 && <div className={styles.stepper__line} />}
           </div>
         ))}
       </div>
 
-      <p className={styles.wizard_hint}>请选择需要录入BOM的成品（优先录入BOM缺失的成品）：</p>
-
-      {skuItems.length === 0 ? (
-        <p style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem 0' }}>
-          暂无成品数据，请先在SKU主数据中添加成品
-        </p>
-      ) : (
-        skuItems.map((sku) => {
-          const isChecked = checked.has(sku.code);
-          return (
-            <label
-              key={sku.code}
-              className={`${styles.wizard_item} ${isChecked ? styles['wizard_item--checked'] : ''}`}
-            >
-              <input
-                type="checkbox"
-                checked={isChecked}
-                onChange={() => toggle(sku.code)}
-              />
-              <span className={styles.wizard_item__code}>{sku.code}</span>
-              <span className={styles.wizard_item__name}>{sku.name}</span>
-              {sku.hasBom && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>已有BOM</span>}
-              {sku.alertText && <span className={styles.wizard_item__alert}>{sku.alertText}</span>}
-              {!sku.hasBom && !sku.alertText && <span style={{ fontSize: '0.75rem', color: 'var(--color-accent-500, #f97316)', marginLeft: 'auto' }}>待录入</span>}
-            </label>
-          );
-        })
+      {/* ── Step 0：选择成品 ── */}
+      {currentStep === 0 && (
+        <>
+          <p className={styles.wizard_hint}>请选择需要录入BOM的成品（优先录入BOM缺失的成品）：</p>
+          {skuItems.length === 0 ? (
+            <p style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem 0' }}>
+              暂无成品数据，请先在SKU主数据中添加成品
+            </p>
+          ) : (
+            <div style={{ maxHeight: '360px', overflowY: 'auto' }}>
+              {skuItems.map((sku) => {
+                const isChecked = checked.has(sku.code);
+                return (
+                  <label
+                    key={sku.code}
+                    className={`${styles.wizard_item} ${isChecked ? styles['wizard_item--checked'] : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleStep0(sku.code)}
+                    />
+                    <span className={styles.wizard_item__code}>{sku.code}</span>
+                    <span className={styles.wizard_item__name}>{sku.name}</span>
+                    {sku.hasBom && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>已有BOM</span>}
+                    {sku.alertText && <span className={styles.wizard_item__alert}>{sku.alertText}</span>}
+                    {!sku.hasBom && !sku.alertText && <span style={{ fontSize: '0.75rem', color: 'var(--color-accent-500, #f97316)', marginLeft: 'auto' }}>待录入</span>}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
+
+      {/* ── Step 1：AI 推荐 ── */}
+      {currentStep === 1 && (
+        <div>
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+            基于「<strong style={{ color: 'var(--text-primary)' }}>{selectedSkuName}</strong>」同品类已有BOM，AI 推荐以下物料：
+          </p>
+          {wizardAiLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '2rem 0', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+              <div className="spinner" role="status" aria-label="AI分析中" />
+              <span>AI 正在分析同品类BOM，请稍候...</span>
+            </div>
+          ) : aiItems.length === 0 ? (
+            <div style={{ padding: '1.5rem', background: 'var(--color-bg-subtle, #f8fafc)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+              暂无AI建议，请在下一步手动填写物料
+            </div>
+          ) : (
+            <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ background: 'var(--color-bg-subtle, #f8fafc)' }}>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: '1px solid var(--border-default)', fontWeight: 600, width: 36 }}></th>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: '1px solid var(--border-default)', fontWeight: 600 }}>物料名称</th>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border-default)', fontWeight: 600, width: 100 }}>用量</th>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', borderBottom: '1px solid var(--border-default)', fontWeight: 600, width: 80 }}>单位</th>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', borderBottom: '1px solid var(--border-default)', fontWeight: 600, width: 60 }}>置信度</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aiItems.map((item) => {
+                    const conf = item.confidence >= 70 ? 'high' : item.confidence >= 40 ? 'medium' : 'low';
+                    const confLabel = item.confidence >= 70 ? '高' : item.confidence >= 40 ? '中' : '低';
+                    return (
+                      <tr key={item.skuId} style={{ borderBottom: '1px solid var(--border-subtle, #e5e7eb)', opacity: item.checked ? 1 : 0.45 }}>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                          <input type="checkbox" checked={item.checked} onChange={() => toggleAiItem(item.skuId)} />
+                        </td>
+                        <td style={{ padding: '0.5rem 0.75rem', fontWeight: 500 }}>{item.skuName}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right' }}>
+                          <input
+                            type="number"
+                            min="0.0001"
+                            step="0.01"
+                            value={item.quantity}
+                            onChange={(e) => updateAiItemQty(item.skuId, e.target.value)}
+                            disabled={!item.checked}
+                            style={{ width: '80px', padding: '0.25rem 0.5rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm, 4px)', fontSize: '0.875rem', textAlign: 'right' }}
+                          />
+                        </td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center', color: 'var(--text-secondary)' }}>{item.unit}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                          <span className={`${styles.confidence} ${styles[`confidence--${conf}`]}`}>
+                            <span className={styles.confidence__dot} />{confLabel}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary, #9ca3af)', marginTop: '0.5rem' }}>
+                已勾选 {aiItems.filter(i => i.checked).length} / {aiItems.length} 项，可直接修改用量
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 2：填写用量 ── */}
+      {currentStep === 2 && (
+        <div>
+          {/* 来自 AI 建议的已勾选物料 */}
+          {aiItems.filter(i => i.checked).length > 0 && (
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>AI推荐物料</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ background: 'var(--color-bg-subtle, #f8fafc)' }}>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: '1px solid var(--border-default)', fontWeight: 600 }}>物料名称</th>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border-default)', fontWeight: 600, width: 100 }}>用量</th>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', borderBottom: '1px solid var(--border-default)', fontWeight: 600, width: 80 }}>单位</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aiItems.filter(i => i.checked).map((item) => (
+                    <tr key={item.skuId} style={{ borderBottom: '1px solid var(--border-subtle, #e5e7eb)' }}>
+                      <td style={{ padding: '0.5rem 0.75rem', fontWeight: 500 }}>{item.skuName}</td>
+                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right' }}>
+                        <input
+                          type="number"
+                          min="0.0001"
+                          step="0.01"
+                          value={item.quantity}
+                          onChange={(e) => updateAiItemQty(item.skuId, e.target.value)}
+                          style={{ width: '80px', padding: '0.25rem 0.5rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm, 4px)', fontSize: '0.875rem', textAlign: 'right' }}
+                        />
+                      </td>
+                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center', color: 'var(--text-secondary)' }}>{item.unit}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* 手动追加物料 */}
+          <div style={{ marginBottom: '0.75rem' }}>
+            <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>手动追加物料</div>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 160, position: 'relative' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>搜索物料</label>
+                {manualSelectedSku ? (
+                  <div style={{ padding: '0.4rem 0.625rem', background: 'var(--bg-secondary, #f1f5f9)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontWeight: 500 }}>{manualSelectedSku.skuCode}</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{manualSelectedSku.name}</span>
+                    <button onClick={() => setManualSelectedSku(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '1rem', lineHeight: 1 }}>×</button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      placeholder="输入名称或编码搜索..."
+                      value={manualSearch}
+                      onChange={(e) => setManualSearch(e.target.value)}
+                      style={{ width: '100%', padding: '0.4rem 0.625rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', boxSizing: 'border-box' }}
+                    />
+                    {manualSkuList.length > 0 && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'white', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', maxHeight: 160, overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                        {manualSkuList.map(sku => (
+                          <div
+                            key={String(sku.id)}
+                            onClick={() => { setManualSelectedSku({ id: Number(sku.id), skuCode: sku.skuCode, name: sku.name, stockUnit: sku.stockUnit }); setManualUnit(sku.stockUnit || '个'); setManualSearch(''); }}
+                            style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border-default)', fontSize: '0.875rem' }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary, #f1f5f9)'; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = ''; }}
+                          >
+                            <span style={{ color: 'var(--color-primary-600)', marginRight: '0.5rem' }}>{sku.skuCode}</span>
+                            {sku.name}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              <div style={{ width: 80 }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>用量</label>
+                <input
+                  type="number"
+                  min="0.0001"
+                  step="0.01"
+                  value={manualQty}
+                  onChange={(e) => setManualQty(e.target.value)}
+                  style={{ width: '100%', padding: '0.4rem 0.5rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem' }}
+                />
+              </div>
+              <div style={{ width: 80 }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>单位</label>
+                <select
+                  value={manualUnit}
+                  onChange={(e) => setManualUnit(e.target.value)}
+                  style={{ width: '100%', padding: '0.4rem 0.5rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem' }}
+                >
+                  {UNIT_OPTIONS.map(u => <option key={u}>{u}</option>)}
+                </select>
+              </div>
+              <button
+                onClick={addManualItem}
+                disabled={!manualSelectedSku}
+                style={{ padding: '0.4rem 0.875rem', borderRadius: 'var(--radius-md)', border: 'none', background: manualSelectedSku ? 'var(--color-primary-600, #2563eb)' : 'var(--color-disabled, #d1d5db)', color: 'white', cursor: manualSelectedSku ? 'pointer' : 'not-allowed', fontSize: '0.875rem', whiteSpace: 'nowrap', alignSelf: 'flex-end' }}
+              >
+                + 添加
+              </button>
+            </div>
+          </div>
+
+          {/* 已手动添加的物料列表 */}
+          {manualItems.length > 0 && (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+              <thead>
+                <tr style={{ background: 'var(--color-bg-subtle, #f8fafc)' }}>
+                  <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: '1px solid var(--border-default)', fontWeight: 600 }}>物料名称</th>
+                  <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border-default)', fontWeight: 600, width: 100 }}>用量</th>
+                  <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', borderBottom: '1px solid var(--border-default)', fontWeight: 600, width: 80 }}>单位</th>
+                  <th style={{ padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--border-default)', width: 40 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {manualItems.map((item) => (
+                  <tr key={item.componentSkuId} style={{ borderBottom: '1px solid var(--border-subtle, #e5e7eb)' }}>
+                    <td style={{ padding: '0.5rem 0.75rem' }}>
+                      <div style={{ fontWeight: 500 }}>{item.skuName}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{item.skuCode}</div>
+                    </td>
+                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right' }}>
+                      <input
+                        type="number"
+                        min="0.0001"
+                        step="0.01"
+                        value={item.quantity}
+                        onChange={(e) => updateManualItem(item.componentSkuId, 'quantity', e.target.value)}
+                        style={{ width: '80px', padding: '0.25rem 0.5rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm, 4px)', fontSize: '0.875rem', textAlign: 'right' }}
+                      />
+                    </td>
+                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                      <select
+                        value={item.unit}
+                        onChange={(e) => updateManualItem(item.componentSkuId, 'unit', e.target.value)}
+                        style={{ padding: '0.25rem 0.375rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm, 4px)', fontSize: '0.875rem' }}
+                      >
+                        {UNIT_OPTIONS.map(u => <option key={u}>{u}</option>)}
+                      </select>
+                    </td>
+                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                      <button
+                        onClick={() => removeManualItem(item.componentSkuId)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-danger-600, #dc2626)', fontSize: '1rem', lineHeight: 1 }}
+                        title="删除"
+                      >×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {aiItems.filter(i => i.checked).length === 0 && manualItems.length === 0 && (
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem 0' }}>
+              暂无物料，请手动搜索添加
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 3：确认 ── */}
+      {currentStep === 3 && (
+        <div>
+          {/* BOM 基本信息 */}
+          <div style={{ background: 'var(--color-bg-subtle, #f8fafc)', borderRadius: 'var(--radius-md)', padding: '1rem', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>成品名称</div>
+                <div style={{ fontWeight: 600, fontSize: '0.9375rem' }}>{selectedSkuName}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>SKU编码</div>
+                <div style={{ fontWeight: 600, fontSize: '0.9375rem', color: 'var(--color-primary-600)' }}>{selectedSkuCode}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>版本号</div>
+                <input
+                  type="text"
+                  value={version}
+                  onChange={(e) => setVersion(e.target.value)}
+                  placeholder="1.0"
+                  style={{ padding: '0.25rem 0.5rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm, 4px)', fontSize: '0.875rem', width: '80px' }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>物料总数</div>
+                <div style={{ fontWeight: 600, fontSize: '0.9375rem' }}>{getFinalItems().length} 种</div>
+              </div>
+            </div>
+          </div>
+
+          {/* 物料明细预览 */}
+          <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.5rem' }}>物料明细（只读预览）</div>
+          {getFinalItems().length === 0 ? (
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', padding: '0.75rem 0' }}>
+              暂无物料，创建后可在编辑器中继续添加
+            </p>
+          ) : (
+            <div style={{ maxHeight: '240px', overflowY: 'auto', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ background: 'var(--color-bg-subtle, #f8fafc)', position: 'sticky', top: 0 }}>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: '1px solid var(--border-default)', fontWeight: 600 }}>物料</th>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border-default)', fontWeight: 600, width: 80 }}>用量</th>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', borderBottom: '1px solid var(--border-default)', fontWeight: 600, width: 60 }}>单位</th>
+                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', borderBottom: '1px solid var(--border-default)', fontWeight: 600, width: 60 }}>来源</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const aiSkuIds = new Set(aiItems.filter(i => i.checked).map(i => i.skuId));
+                    return getFinalItems().map((item) => {
+                      const isAi = aiSkuIds.has(item.componentSkuId);
+                      const nameInfo = isAi
+                        ? aiItems.find(a => a.skuId === item.componentSkuId)?.skuName
+                        : manualItems.find(m => m.componentSkuId === item.componentSkuId)?.skuName;
+                      return (
+                        <tr key={item.componentSkuId} style={{ borderBottom: '1px solid var(--border-subtle, #e5e7eb)' }}>
+                          <td style={{ padding: '0.5rem 0.75rem', fontWeight: 500 }}>{nameInfo ?? `SKU-${item.componentSkuId}`}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', color: 'var(--text-secondary)' }}>{item.quantity}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center', color: 'var(--text-secondary)' }}>{item.unit}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                            <span style={{ fontSize: '0.75rem', padding: '0.125rem 0.375rem', borderRadius: 'var(--radius-sm, 4px)', background: isAi ? 'var(--color-primary-50, #eff6ff)' : 'var(--color-accent-50, #fff7ed)', color: isAi ? 'var(--color-primary-700, #1d4ed8)' : 'var(--color-accent-700, #c2410c)' }}>
+                              {isAi ? 'AI' : '手动'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 步骤导航按钮 */}
+      {renderFooterButtons()}
     </Modal>
   );
 }
@@ -1409,45 +1973,40 @@ export default function BomPage() {
     setEditingRow(null);
   };
 
-  const handleWizardNext = async (selected: string[]) => {
+  const handleWizardComplete = async (data: {
+    skuId: number;
+    skuCode: string;
+    skuName: string;
+    version: string;
+    items: Array<{ componentSkuId: number; quantity: string; unit: string }>;
+  }) => {
     setWizardOpen(false);
-    if (selected.length === 0) return;
-
-    // 选中第一个进入编辑器
-    const firstCode = selected[0];
-    // 先从已有 BOM 中查找
-    const existingRow = allRows.find((r) => r.skuCode === firstCode);
-    if (existingRow) {
-      handleEdit(existingRow);
-      return;
-    }
-    // 没有 BOM，为该成品创建一个草稿 BOM
-    const wizardItem = wizardSkuItems.find(s => s.code === firstCode);
-    if (wizardItem) {
-      try {
-        const result = await createBom.mutateAsync({
-          skuId: Number(wizardItem.skuId),
-          version: '1.0',
-          description: '',
-          items: [],
-        });
-        showToast({ type: 'success', message: `BOM草稿已创建（${wizardItem.name}），请在编辑器中添加物料` });
-        // 创建成功后以新 BOM 进入编辑器
-        handleEdit({
-          id: Number(result.id),
-          skuId: Number(wizardItem.skuId),
-          skuCode: wizardItem.code,
-          skuName: wizardItem.name,
-          hasAlert: true,
-          alertText: 'BOM草稿未激活，影响采购建议',
-          completionPct: 50,
-          materialCount: null,
-          orderCount: 0,
-          status: BomStatus.DRAFT,
-        });
-      } catch {
-        showToast({ type: 'error', message: '创建BOM失败，请稍后重试' });
-      }
+    try {
+      const result = await createBom.mutateAsync({
+        skuId: data.skuId,
+        version: data.version,
+        description: '',
+        items: data.items,
+      });
+      const itemCount = data.items.length;
+      showToast({
+        type: 'success',
+        message: `BOM草稿已创建（${data.skuName}），包含 ${itemCount} 种物料，请在编辑器中继续完善`,
+      });
+      handleEdit({
+        id: Number(result.id),
+        skuId: data.skuId,
+        skuCode: data.skuCode,
+        skuName: data.skuName,
+        hasAlert: true,
+        alertText: 'BOM草稿未激活，影响采购建议',
+        completionPct: 50,
+        materialCount: itemCount > 0 ? itemCount : null,
+        orderCount: 0,
+        status: BomStatus.DRAFT,
+      });
+    } catch {
+      showToast({ type: 'error', message: '创建BOM失败，请稍后重试' });
     }
   };
 
@@ -1634,7 +2193,7 @@ export default function BomPage() {
       <WizardModal
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
-        onNext={handleWizardNext}
+        onComplete={handleWizardComplete}
         skuItems={wizardSkuItems}
       />
     </div>
