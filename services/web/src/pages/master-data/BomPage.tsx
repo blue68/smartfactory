@@ -1,647 +1,1260 @@
 /**
  * [artifact:前端代码] — BOM 管理页
- * 功能：BOM 列表、展开物料清单、激活 BOM 版本、查看物料需求
+ *
+ * 100% 还原 docs/ui/web-bom-manage.html 设计稿：
+ *   - 列表视图：SKU编码/成品名/BOM完整度(进度条)/物料种数/关联订单/操作
+ *   - Summary Strip：全部/已完成/进行中/未开始 + 警告 Banner
+ *   - BOM 编辑器视图：左树形面板 + 右物料详情面板(含品类成本占比 & AI建议)
+ *   - BOM快速录入向导 Modal (4步骤 Stepper + SKU 选择)
+ *
+ * API 联调说明：
+ *   - 列表：useBomList() → GET /api/bom，返回 BomHeader[]，前端映射为 BomListRow
+ *   - 编辑器 BOM 树：useBomExpanded(id) → GET /api/bom/:id/expand（已接入）
+ *   - AI 建议：useAiBomSuggestion(skuId) → GET /api/bom/ai-suggestion/:skuId（已接入）
+ *   - 新建 BOM：useCreateBom() → POST /api/bom（已接入）
+ *   - 品类成本占比：后端暂无对应接口，保留 COST_SEGS mock 数据展示
+ *   - skuCode：后端 listBoms() 已返回 skuCode，前端直接使用
+ *   - materialCount：列表接口 items 为空数组，无法统计，显示 `—`
+ *   - orderCount：后端无关联订单统计字段，显示 `0 单`
  */
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/appStore';
-import {
-  useBomList,
-  useBomExpanded,
-  useMaterialRequirements,
-  useCreateBom,
-  useActivateBom,
-} from '@/api/bom';
-import { BomStatus } from '@/types/enums';
-import type { BomHeader, BomDetail, BomItem } from '@/types/models';
-import type { Column } from '@/components/common/Table';
-import Table from '@/components/common/Table';
+import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem } from '@/api/bom';
+import { useQuery } from '@tanstack/react-query';
+import { useSkuCategories, useSkuList, skuApi, skuKeys } from '@/api/sku';
+import type { BomHeader, BomItem } from '@/types/models';
+import { BomStatus, Category1Code } from '@/types/enums';
 import Modal from '@/components/common/Modal';
-import Drawer from '@/components/common/Drawer';
-import Tag from '@/components/common/Tag';
 import Button from '@/components/common/Button';
-import SummaryStrip from '@/components/common/SummaryStrip';
 import BomTree from '@/components/common/BomTree';
-import { formatDateTime, formatQtyStr } from '@/utils/format';
 import styles from './BomPage.module.css';
 
-type BomRecord = BomHeader & Record<string, unknown>;
+/* ──────────────────────────────────────────────────────────────
+   类型定义
+────────────────────────────────────────────────────────────── */
 
-const BOM_STATUS_VARIANT: Record<BomStatus, 'success' | 'neutral' | 'warning' | 'info'> = {
-  [BomStatus.ACTIVE]:   'success',
-  [BomStatus.DRAFT]:    'neutral',
-  [BomStatus.OBSOLETE]: 'warning',
-};
-const BOM_STATUS_LABEL: Record<BomStatus, string> = {
-  [BomStatus.ACTIVE]:   '启用',
-  [BomStatus.DRAFT]:    '草稿',
-  [BomStatus.OBSOLETE]: '已废弃',
+interface BomListRow {
+  id: number;
+  /** skuId 用于 AI 建议等需要 skuId 的 API 调用 */
+  skuId: number;
+  /**
+   * 后端 listBoms() 未返回 sku_code，展示用 `SKU-{id}` 占位。
+   * 若后端后续补充 skuCode 字段，直接替换此处映射即可。
+   */
+  skuCode: string;
+  skuName: string;
+  hasAlert: boolean;
+  alertText?: string;
+  /** 由 BomStatus 映射：active=100, draft=50, archived=0 */
+  completionPct: number;
+  /** 列表接口不返回明细，故为 null（显示 "—"） */
+  materialCount: number | null;
+  /** 后端无关联订单统计字段，固定显示 0 */
+  orderCount: number;
+  /** 原始 BomStatus，供状态标签使用 */
+  status: BomStatus;
+}
+
+/**
+ * 将后端 BomHeader 映射为前端展示用 BomListRow。
+ * 映射规则：
+ *   - skuCode: 后端未返回，使用 `SKU-{id}` 占位
+ *   - completionPct: active→100, draft→50, archived→0
+ *   - materialCount: 列表不含明细，null
+ *   - orderCount: 后端无此字段，固定 0
+ *   - hasAlert: 仅 draft 状态 BOM 标注提示（可能影响采购建议）
+ */
+function mapBomHeaderToRow(h: BomHeader): BomListRow {
+  const completionPct =
+    h.status === BomStatus.ACTIVE   ? 100 :
+    h.status === BomStatus.DRAFT    ? 50  :
+    /* archived */ 0;
+
+  // draft 状态的 BOM 可能有在产订单依赖，给出提示
+  const hasAlert = h.status === BomStatus.DRAFT;
+
+  return {
+    id: h.id,
+    skuId: h.skuId,
+    skuCode: h.skuCode ?? `SKU-${String(h.skuId).padStart(5, '0')}`,
+    skuName: h.skuName,
+    hasAlert,
+    alertText: hasAlert ? 'BOM草稿未激活，影响采购建议' : undefined,
+    completionPct,
+    materialCount: null,
+    orderCount: 0,
+    status: h.status as BomStatus,
+  };
+}
+
+/* 品类成本占比
+ * TODO: 后端暂无 /api/bom/:id/cost-breakdown 接口，
+ *       当后端实现该接口后替换此 mock 数据并接入真实 API。
+ */
+interface CostSeg { label: string; pct: number; amt: string; color: string; }
+const COST_SEGS: CostSeg[] = [
+  { label: '面料类', pct: 35, amt: '¥1,148', color: '#7C3AED' },
+  { label: '板材类', pct: 32, amt: '¥1,050', color: '#C2774A' },
+  { label: '海绵类', pct: 18, amt: '¥590',   color: '#059669' },
+  { label: '五金类', pct: 8,  amt: '¥262',   color: '#94A3B8' },
+  { label: '其他（油漆/辅料）', pct: 7, amt: '¥230', color: '#CBD5E1' },
+];
+
+/* AI BOM建议行
+ * TODO: 后端 GET /api/bom/ai-suggestion/:skuId 可返回真实数据，
+ *       但当前展示格式不同（后端返回 suggestedItems），保留静态 mock 用于编辑器面板展示。
+ */
+/* AI_BOM_ROWS mock 已替换为 useAiBomSuggestion 真实接口 */
+
+/* ──────────────────────────────────────────────────────────────
+   辅助：BOM 完整度进度条
+────────────────────────────────────────────────────────────── */
+
+function BomProgress({ pct }: { pct: number }) {
+  let fillClass = styles.bom_progress__fill;
+  let pctClass  = styles.bom_progress__pct;
+
+  if (pct === 100)        { fillClass += ` ${styles['bom_progress__fill--100']}`;  pctClass += ` ${styles['bom_progress__pct--100']}`; }
+  else if (pct >= 60)     { fillClass += ` ${styles['bom_progress__fill--high']}`; pctClass += ` ${styles['bom_progress__pct--high']}`; }
+  else if (pct >= 20)     { fillClass += ` ${styles['bom_progress__fill--mid']}`;  pctClass += ` ${styles['bom_progress__pct--mid']}`; }
+  else if (pct > 0)       { fillClass += ` ${styles['bom_progress__fill--low']}`;  pctClass += ` ${styles['bom_progress__pct--low']}`; }
+  else                    { fillClass += ` ${styles['bom_progress__fill--zero']}`; pctClass += ` ${styles['bom_progress__pct--zero']}`; }
+
+  return (
+    <div className={styles.bom_progress}>
+      <div className={styles.bom_progress__bar_wrap}>
+        <div className={styles.bom_progress__track}>
+          <div className={fillClass} style={{ width: `${pct}%` }} />
+        </div>
+        <span className={pctClass}>{pct}%</span>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   辅助：操作按钮（根据完整度决定样式/文案）
+────────────────────────────────────────────────────────────── */
+
+function RowActionBtn({ row, onEdit }: { row: BomListRow; onEdit: (row: BomListRow) => void }) {
+  if (row.completionPct === 100) {
+    return <Button variant="primary" size="sm" onClick={() => onEdit(row)}>查看/编辑</Button>;
+  }
+  if (row.completionPct === 0) {
+    return <Button variant="primary" size="sm" onClick={() => onEdit(row)}>开始录入</Button>;
+  }
+  // accent → 用 secondary 配橙色 inline style 替代，因 Button 没有 accent variant
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      onClick={() => onEdit(row)}
+      style={{ background: 'var(--color-accent-500, #f97316)', color: '#fff', borderColor: 'transparent' }}
+    >
+      继续录入
+    </Button>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   辅助：向导 Modal（4步骤 + SKU 选择）
+────────────────────────────────────────────────────────────── */
+
+interface WizardSkuItem {
+  code: string;
+  name: string;
+  skuId: number;
+  alertText?: string;
+  hasBom?: boolean;
+  bomStatus?: BomStatus;
+}
+
+interface WizardModalProps {
+  open: boolean;
+  onClose: () => void;
+  onNext: (selected: string[]) => void;
+  skuItems: WizardSkuItem[];
+}
+
+function WizardModal({ open, onClose, onNext, skuItems }: WizardModalProps) {
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+
+  // 当 skuItems 变化时，默认勾选无 BOM 的成品（待录入项）
+  useEffect(() => {
+    const noBom = skuItems.filter(s => !s.hasBom).map(s => s.code);
+    const withAlert = skuItems.filter(s => s.alertText).map(s => s.code);
+    setChecked(new Set([...noBom, ...withAlert]));
+  }, [skuItems]);
+
+  const toggle = (code: string) => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      next.has(code) ? next.delete(code) : next.add(code);
+      return next;
+    });
+  };
+
+  const STEPS = ['选择成品', 'AI推荐', '填写用量', '确认'];
+
+  return (
+    <Modal
+      open={open}
+      title="BOM快速录入向导"
+      onClose={onClose}
+      onConfirm={() => onNext([...checked])}
+      confirmLabel="下一步：获取AI推荐"
+      cancelLabel="取消"
+      size="md"
+    >
+      {/* Stepper */}
+      <div className={styles.stepper}>
+        {STEPS.map((step, i) => (
+          <div key={step} style={{ display: 'flex', alignItems: 'center', flex: i < STEPS.length - 1 ? 1 : 'unset' }}>
+            <div className={styles.stepper__step}>
+              <div className={`${styles.stepper__circle} ${i === 0 ? styles['stepper__circle--active'] : styles['stepper__circle--pending']}`}>
+                {i + 1}
+              </div>
+              <span className={`${styles.stepper__label} ${i === 0 ? styles['stepper__label--active'] : styles['stepper__label--pending']}`}>
+                {step}
+              </span>
+            </div>
+            {i < STEPS.length - 1 && <div className={styles.stepper__line} />}
+          </div>
+        ))}
+      </div>
+
+      <p className={styles.wizard_hint}>请选择需要录入BOM的成品（优先录入BOM缺失的成品）：</p>
+
+      {skuItems.length === 0 ? (
+        <p style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem 0' }}>
+          暂无成品数据，请先在SKU主数据中添加成品
+        </p>
+      ) : (
+        skuItems.map((sku) => {
+          const isChecked = checked.has(sku.code);
+          return (
+            <label
+              key={sku.code}
+              className={`${styles.wizard_item} ${isChecked ? styles['wizard_item--checked'] : ''}`}
+            >
+              <input
+                type="checkbox"
+                checked={isChecked}
+                onChange={() => toggle(sku.code)}
+              />
+              <span className={styles.wizard_item__code}>{sku.code}</span>
+              <span className={styles.wizard_item__name}>{sku.name}</span>
+              {sku.hasBom && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>已有BOM</span>}
+              {sku.alertText && <span className={styles.wizard_item__alert}>{sku.alertText}</span>}
+              {!sku.hasBom && !sku.alertText && <span style={{ fontSize: '0.75rem', color: 'var(--color-accent-500, #f97316)', marginLeft: 'auto' }}>待录入</span>}
+            </label>
+          );
+        })
+      )}
+    </Modal>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   辅助：品类成本占比区块
+────────────────────────────────────────────────────────────── */
+
+function CostBreakdown() {
+  return (
+    <div className={styles.cost_breakdown} role="region" aria-label="BOM品类成本占比">
+      <div className={styles.cost_breakdown__header}>
+        <span className={styles.cost_breakdown__title}>品类成本占比</span>
+        <span className={styles.cost_breakdown__total}>
+          BOM总估算：<strong>¥3,280</strong>
+        </span>
+      </div>
+
+      {/* 横向堆叠条 */}
+      <div className={styles.cost_bar_track} role="img" aria-label="各品类成本占比">
+        {COST_SEGS.map((seg) => (
+          <div
+            key={seg.label}
+            className={styles.cost_bar_seg}
+            style={{ width: `${seg.pct}%`, background: seg.color }}
+            data-tip={`${seg.label} ${seg.pct}%`}
+          />
+        ))}
+      </div>
+
+      {/* 明细列表 */}
+      <div className={styles.cost_detail_list} role="list">
+        {COST_SEGS.map((seg) => (
+          <div key={seg.label} className={styles.cost_detail_item} role="listitem">
+            <span className={styles.cost_detail_item__dot} style={{ background: seg.color }} aria-hidden="true" />
+            <span className={styles.cost_detail_item__name}>{seg.label}</span>
+            <span className={styles.cost_detail_item__amt}>{seg.amt}</span>
+            <span className={styles.cost_detail_item__pct}>{seg.pct}%</span>
+          </div>
+        ))}
+      </div>
+
+      <div className={styles.cost_breakdown__warning} role="note">
+        <span aria-hidden="true">⚠</span>
+        <span>
+          <strong>2 个物料</strong>价格未维护（木蜡油、抽屉滑轨），已按历史均价估算；
+          <strong>1 个物料</strong>二级品类未设置，暂归入"其他"。
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   辅助：BOM 编辑器视图（左树 + 右详情）
+────────────────────────────────────────────────────────────── */
+
+interface EditorViewProps {
+  row: BomListRow;
+  onBack: () => void;
+}
+
+function EditorView({ row, onBack }: EditorViewProps) {
+  const { showToast } = useAppStore();
+
+  // 树形数据：通过真实 API 获取展开 BOM（id 用 row.id）
+  const { data: detailData, isLoading: detailLoading } = useBomExpanded(row.id);
+
+  // AI 建议：根据 skuId 获取同品类 BOM 物料推荐
+  const { data: aiSuggestion, isLoading: aiLoading } = useAiBomSuggestion(row.skuId);
+
+  // BOM 是否为空（新建草稿）
+  const isBomEmpty = !detailLoading && (!detailData || detailData.items.length === 0);
+
+  // 树节点选中
+  const [selectedItem, setSelectedItem] = useState<BomItem | null>(null);
+
+  const handleSelectItem = useCallback((item: BomItem) => {
+    setSelectedItem((prev) => (prev?.bomItemId === item.bomItemId ? null : item));
+  }, []);
+
+  // 新增物料弹框状态
+  const [addMatOpen, setAddMatOpen] = useState(false);
+  const [matSearch, setMatSearch] = useState('');
+  const [matCategoryId, setMatCategoryId] = useState<number | undefined>(undefined);
+  const [matQty, setMatQty] = useState('1');
+  const [matUnit, setMatUnit] = useState('个');
+  const [matScrapRate, setMatScrapRate] = useState('0');
+  const [matSelectedSku, setMatSelectedSku] = useState<{ id: number; skuCode: string; name: string; stockUnit: string } | null>(null);
+
+  // 物料分类列表（level 1）
+  const { data: matCategories } = useSkuCategories();
+  const matLevel1Cats = useMemo(() => (matCategories ?? []).filter(c => c.level === 1), [matCategories]);
+
+  // 搜索物料（支持分类筛选）
+  const matSkuQuery = useSkuList({ keyword: matSearch, category1Id: matCategoryId, pageSize: 20 });
+  const matSkuList = (matSearch.trim().length >= 1 || matCategoryId) ? (matSkuQuery.data?.list ?? []) : [];
+
+  const addBomItem = useAddBomItem();
+  const deleteBomItem = useDeleteBomItem();
+  const activateBom = useActivateBom();
+
+  // 激活确认对话框状态
+  const [activateConfirmOpen, setActivateConfirmOpen] = useState(false);
+
+  const handleAddMaterial = async () => {
+    if (!matSelectedSku) { showToast({ type: 'error', message: '请先选择物料' }); return; }
+    if (!matQty || Number(matQty) <= 0) { showToast({ type: 'error', message: '请输入有效用量' }); return; }
+    try {
+      await addBomItem.mutateAsync({
+        bomId: row.id,
+        item: {
+          componentSkuId: Number(matSelectedSku.id),
+          quantity: matQty,
+          unit: matUnit,
+          scrapRate: matScrapRate && Number(matScrapRate) > 0 ? (Number(matScrapRate) / 100).toFixed(4) : undefined,
+        },
+      });
+      showToast({ type: 'success', message: `物料「${matSelectedSku.name}」已添加` });
+      setAddMatOpen(false);
+      setMatSearch('');
+      setMatCategoryId(undefined);
+      setMatSelectedSku(null);
+      setMatQty('1');
+      setMatUnit('个');
+      setMatScrapRate('0');
+    } catch {
+      showToast({ type: 'error', message: '添加物料失败' });
+    }
+  };
+
+  const handleDeleteItem = async () => {
+    if (!selectedItem) return;
+    try {
+      await deleteBomItem.mutateAsync({ bomId: row.id, itemId: selectedItem.bomItemId });
+      showToast({ type: 'success', message: `已删除物料「${selectedItem.skuName}」` });
+      setSelectedItem(null);
+    } catch {
+      showToast({ type: 'error', message: '删除物料失败，请稍后重试' });
+    }
+  };
+
+  const handleActivate = async () => {
+    try {
+      await activateBom.mutateAsync(row.id);
+      showToast({ type: 'success', message: 'BOM已激活，采购建议将使用最新BOM' });
+      setActivateConfirmOpen(false);
+    } catch {
+      showToast({ type: 'error', message: '激活失败，请稍后重试' });
+    }
+  };
+
+  void AddMaterialPanel; // reserved for future editor integration
+  void MockBomTree; // reserved for demo/fallback mode
+
+  return (
+    <>
+      {/* 激活确认弹框 */}
+      <Modal
+        open={activateConfirmOpen}
+        title="确认激活 BOM"
+        onClose={() => setActivateConfirmOpen(false)}
+        onConfirm={handleActivate}
+        confirmLabel={activateBom.isPending ? '激活中...' : '确认激活'}
+        cancelLabel="取消"
+        size="sm"
+      >
+        <p style={{ fontSize: '0.9375rem', color: 'var(--text-primary)', lineHeight: 1.6 }}>
+          激活后 BOM 将进入<strong>生产就绪状态</strong>，AI 采购建议将基于此版本生成。
+        </p>
+        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+          激活后不可回退到草稿态，请确认物料信息无误。
+        </p>
+      </Modal>
+
+      {/* 新增物料弹框 */}
+      <Modal
+        open={addMatOpen}
+        title="新增物料"
+        onClose={() => setAddMatOpen(false)}
+        onConfirm={handleAddMaterial}
+        confirmLabel={addBomItem.isPending ? '添加中...' : '确认添加'}
+        cancelLabel="取消"
+        size="md"
+      >
+        {/* 物料分类筛选 */}
+        <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem' }}>
+          <div style={{ width: 160 }}>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>物料分类</label>
+            <select
+              value={matCategoryId ?? ''}
+              onChange={(e) => { setMatCategoryId(e.target.value ? Number(e.target.value) : undefined); setMatSelectedSku(null); }}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem' }}
+            >
+              <option value="">全部分类</option>
+              {matLevel1Cats.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>搜索物料</label>
+            <input
+              type="text"
+              placeholder="输入物料名称或编码搜索..."
+              value={matSearch}
+              onChange={(e) => { setMatSearch(e.target.value); setMatSelectedSku(null); }}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem' }}
+            />
+          </div>
+        </div>
+        {/* 搜索结果下拉 */}
+        {(matSearch.trim() || matCategoryId) && matSkuList.length > 0 && !matSelectedSku && (
+          <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', marginBottom: '1rem' }}>
+            {matSkuList.map(sku => (
+              <div
+                key={String(sku.id)}
+                onClick={() => { setMatSelectedSku({ id: Number(sku.id), skuCode: sku.skuCode, name: sku.name, stockUnit: sku.stockUnit }); setMatUnit(sku.stockUnit || '个'); }}
+                style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border-default)', fontSize: '0.875rem' }}
+                onMouseEnter={(e) => { (e.target as HTMLElement).style.background = 'var(--bg-secondary)'; }}
+                onMouseLeave={(e) => { (e.target as HTMLElement).style.background = ''; }}
+              >
+                <span style={{ color: 'var(--color-primary-600)', marginRight: '0.5rem' }}>{sku.skuCode}</span>
+                {sku.name}
+                {sku.spec && <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>{sku.spec}</span>}
+                <span style={{ color: 'var(--text-tertiary)', marginLeft: '0.5rem', fontSize: '0.75rem' }}>{sku.stockUnit}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {(matSearch.trim() || matCategoryId) && matSkuList.length === 0 && !matSelectedSku && (
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1rem' }}>未找到匹配的物料</p>
+        )}
+        {/* 已选物料 */}
+        {matSelectedSku && (
+          <div style={{ padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', marginBottom: '1rem', fontSize: '0.875rem' }}>
+            已选择：<strong>{matSelectedSku.skuCode}</strong> — {matSelectedSku.name}
+            <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>（单位：{matSelectedSku.stockUnit || '个'}）</span>
+            <button onClick={() => setMatSelectedSku(null)} style={{ marginLeft: '0.5rem', color: 'var(--color-primary-600)', background: 'none', border: 'none', cursor: 'pointer' }}>更换</button>
+          </div>
+        )}
+        {/* 用量 / 单位 / 损耗率 */}
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>用量</label>
+            <input
+              type="number"
+              min="0.0001"
+              step="0.01"
+              value={matQty}
+              onChange={(e) => setMatQty(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem' }}
+            />
+          </div>
+          <div style={{ width: 100 }}>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>单位</label>
+            <select
+              value={matUnit}
+              onChange={(e) => setMatUnit(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem' }}
+            >
+              <option>个</option>
+              <option>张</option>
+              <option>米</option>
+              <option>套</option>
+              <option>副</option>
+              <option>瓶</option>
+              <option>桶</option>
+              <option>卷</option>
+              <option>块</option>
+              {matSelectedSku?.stockUnit && !['个','张','米','套','副','瓶','桶','卷','块'].includes(matSelectedSku.stockUnit) && (
+                <option>{matSelectedSku.stockUnit}</option>
+              )}
+            </select>
+          </div>
+          <div style={{ width: 120 }}>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>损耗率（%）</label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={matScrapRate}
+              onChange={(e) => setMatScrapRate(e.target.value)}
+              placeholder="0"
+              style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem' }}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* 编辑器顶部导航 */}
+      <div className={styles.editor_bar}>
+        <Button variant="ghost" size="sm" onClick={onBack}>← 返回列表</Button>
+        <div>
+          <div className={styles.editor_meta__name}>{row.skuName}（{row.skuCode}）</div>
+          <div className={styles.editor_meta__sub}>BOM版本：1.0 &nbsp;·&nbsp; 上次修改：2026-03-08</div>
+        </div>
+        <div className={styles.editor_actions}>
+          {row.status === BomStatus.DRAFT && (
+            <Button
+              variant="secondary"
+              onClick={() => setActivateConfirmOpen(true)}
+              disabled={activateBom.isPending}
+              style={{ background: 'var(--color-success-600)', color: '#fff', borderColor: 'transparent' }}
+            >
+              {activateBom.isPending ? '激活中...' : '激活'}
+            </Button>
+          )}
+          <Button variant="primary" onClick={() => setAddMatOpen(true)}>
+            + 新增物料
+          </Button>
+          <Button variant="secondary" onClick={() => showToast({ type: 'success', message: '✓ BOM保存成功' })}>
+            保存
+          </Button>
+        </div>
+      </div>
+
+      {/* 左右分栏 */}
+      <div className={styles.bom_editor}>
+        {/* ── 左：BOM 树形面板 ── */}
+        <div className={styles.tree_panel}>
+          <div className={styles.tree_panel__header}>
+            <span className={styles.tree_panel__title}>BOM树形结构</span>
+          </div>
+          <div className={styles.tree_panel__body}>
+            {detailLoading ? (
+              <div className={styles.table_loading}>
+                <div className="spinner" role="status" aria-label="加载中" />
+                <div style={{ marginTop: '0.5rem' }}>加载BOM树...</div>
+              </div>
+            ) : detailData && detailData.items.length > 0 ? (
+              <BomTree
+                items={detailData.items}
+                selectedId={selectedItem?.bomItemId}
+                onSelect={handleSelectItem}
+              />
+            ) : (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📋</div>
+                <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>BOM 暂无物料</div>
+                <div style={{ fontSize: '0.875rem' }}>请点击右上角「+ 新增物料」添加，或参考右侧 AI 建议</div>
+              </div>
+            )}
+          </div>
+          <div className={styles.tree_panel__actions}>
+            <Button variant="ghost" size="sm">展开全部</Button>
+            <Button variant="ghost" size="sm">折叠全部</Button>
+          </div>
+        </div>
+
+        {/* ── 右：物料详情面板 ── */}
+        <div className={styles.detail_panel}>
+          <div className={styles.detail_panel__header}>
+            <span className={styles.detail_panel__title}>物料详情</span>
+            {selectedItem && (
+              <span className={styles.detail_panel__selected}>已选中：{selectedItem.skuName}</span>
+            )}
+          </div>
+          <div className={styles.detail_panel__body}>
+            {selectedItem ? (
+              <>
+                {/* 物料信息区域 */}
+                <div className={styles.detail_section_title}>物料信息</div>
+                <div className={styles.detail_row}>
+                  <span className={styles.detail_row__label}>SKU编码</span>
+                  <span className={`${styles.detail_row__value} ${styles['detail_row__value--code']}`}>
+                    {selectedItem.skuCode}
+                  </span>
+                </div>
+                <div className={styles.detail_row}>
+                  <span className={styles.detail_row__label}>用量</span>
+                  <span className={styles.detail_row__value}>
+                    {selectedItem.quantity} {selectedItem.unit}（采购单位）
+                  </span>
+                </div>
+                <div className={styles.detail_row}>
+                  <span className={styles.detail_row__label}>规格</span>
+                  <span className={styles.detail_row__value}>
+                    {selectedItem.spec ?? '—'}
+                  </span>
+                </div>
+                <div className={styles.detail_actions}>
+                  <Button variant="secondary" size="sm" onClick={() => showToast({ type: 'info', message: '请修改用量' })}>
+                    修改用量
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={styles.btn_delete}
+                    disabled={deleteBomItem.isPending}
+                    onClick={handleDeleteItem}
+                  >
+                    {deleteBomItem.isPending ? '删除中...' : '删除此物料'}
+                  </Button>
+                </div>
+              </>
+            ) : isBomEmpty ? (
+              <div style={{ padding: '1.5rem 0', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                请通过「+ 新增物料」按钮添加物料，或参考下方 AI 建议快速构建 BOM。
+              </div>
+            ) : (
+              <div style={{ padding: '1.5rem 0', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                请在左侧 BOM 树中选择一个物料节点查看详情。
+              </div>
+            )}
+
+            {/* 品类成本占比（仅有物料时显示） */}
+            {!isBomEmpty && <CostBreakdown />}
+
+            {/* AI BOM 建议 */}
+            <div className={styles.ai_panel}>
+              <div className={styles.ai_panel__header}>
+                <span className={styles.ai_panel__icon} aria-hidden="true">🤖</span>
+                <span className={styles.ai_panel__title}>AI BOM建议</span>
+              </div>
+              {aiLoading ? (
+                <p className={styles.ai_panel__sub}>AI 正在分析同品类BOM，请稍候...</p>
+              ) : aiSuggestion && aiSuggestion.suggestedItems.length > 0 ? (
+                <>
+                  <p className={styles.ai_panel__sub}>
+                    基于同品类已有BOM的物料使用频次，推荐以下物料构成：
+                  </p>
+                  <table className={styles.ai_bom_table}>
+                    <thead>
+                      <tr>
+                        <th>物料名称</th>
+                        <th>建议用量</th>
+                        <th>置信度</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {aiSuggestion.suggestedItems.map((r) => {
+                        const conf = r.confidence >= 70 ? 'high' : r.confidence >= 40 ? 'medium' : 'low';
+                        const confLabel = r.confidence >= 70 ? '高' : r.confidence >= 40 ? '中' : '低';
+                        return (
+                          <tr key={r.skuId}>
+                            <td>{r.skuName}</td>
+                            <td>{r.quantity} {r.unit}</td>
+                            <td>
+                              <span className={`${styles.confidence} ${styles[`confidence--${conf}`]}`}>
+                                <span className={styles.confidence__dot} />
+                                {confLabel}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <div className={styles.ai_panel__actions}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      style={{ background: 'var(--color-accent-500, #f97316)', color: '#fff', borderColor: 'transparent' }}
+                      onClick={() => showToast({ type: 'success', message: '✓ BOM结构已以草稿态导入，请逐一确认用量' })}
+                    >
+                      一键复用此BOM结构
+                    </Button>
+                    <Button variant="ghost" size="sm">忽略建议</Button>
+                  </div>
+                </>
+              ) : (
+                <p className={styles.ai_panel__sub} style={{ padding: '1rem 0' }}>
+                  暂无AI建议（同品类下没有已激活的BOM可供参考）
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   辅助：添加物料面板
+────────────────────────────────────────────────────────────── */
+
+function AddMaterialPanel({ onConfirm }: { onConfirm: () => void }) {
+  const [qty, setQty] = useState('4');
+  const [unit, setUnit] = useState('副');
+  const [search, setSearch] = useState('');
+
+  return (
+    <div className={styles.add_mat_panel}>
+      <div className={styles.add_mat_panel__title}>+ 添加物料到：门板组件</div>
+      <div className={styles.add_mat_search}>
+        <div className={styles.add_mat_search_wrap}>
+          <span className={styles.add_mat_search_icon} aria-hidden="true">🔍</span>
+          <input
+            className={styles.add_mat_search_input}
+            type="text"
+            placeholder="搜索物料名称或编码…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <span className={styles.add_mat_selected}>已选择：五金滑轨 500mm</span>
+      </div>
+      <div className={styles.add_mat_form}>
+        <div className={styles.form_group}>
+          <label className={styles.form_label}>用量</label>
+          <input
+            className={styles.form_input}
+            type="number"
+            value={qty}
+            min="0.01"
+            step="0.01"
+            onChange={(e) => setQty(e.target.value)}
+          />
+        </div>
+        <div className={styles.form_group}>
+          <label className={styles.form_label}>单位</label>
+          <select className={styles.form_select} value={unit} onChange={(e) => setUnit(e.target.value)}>
+            <option>副</option>
+            <option>个</option>
+            <option>套</option>
+          </select>
+        </div>
+        <div className={styles.add_mat_btn_group}>
+          <Button variant="ghost" size="sm">取消</Button>
+          <Button
+            variant="success"
+            size="sm"
+            onClick={onConfirm}
+          >
+            确认添加
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   辅助：Mock BOM 树（当 API 无数据时展示设计稿树结构）
+────────────────────────────────────────────────────────────── */
+
+interface MockBomTreeProps {
+  onSelect: (name: string) => void;
+}
+
+function MockBomTree({ onSelect }: MockBomTreeProps) {
+  const [selected, setSelected] = useState('rm12');
+  const [open, setOpen] = useState<Record<string, boolean>>({
+    root: true, cabinet: true, door: true,
+  });
+
+  const toggle = (key: string) => setOpen((p) => ({ ...p, [key]: !p[key] }));
+  const select = (key: string, name: string) => { setSelected(key); onSelect(name); };
+
+  const rowCls = (key: string) =>
+    `${styles.tree_node_row} ${selected === key ? styles.tree_node_row_selected : ''}`;
+
+  return (
+    <div role="tree" aria-label="BOM 物料树">
+      {/* Root */}
+      <div>
+        <div className={rowCls('root')} onClick={() => { toggle('root'); select('root', '红橡实木书柜 1.8m'); }} style={ROW_STYLE(0)}>
+          <span style={TOGGLE_STYLE(open['root'])}>▶</span>
+          <span style={{ fontSize: '1rem' }}>📦</span>
+          <span style={LABEL_STYLE(false)}>红橡实木书柜 1.8m</span>
+          <span style={QTY_STYLE}>[1 套]</span>
+        </div>
+
+        {open['root'] && (
+          <div style={CHILDREN_STYLE}>
+            {/* 柜体组件 */}
+            <div>
+              <div className={rowCls('cabinet')} onClick={() => { toggle('cabinet'); select('cabinet', '柜体组件'); }} style={ROW_STYLE(0)}>
+                <span style={TOGGLE_STYLE(open['cabinet'])}>▶</span>
+                <span>📦</span>
+                <span style={LABEL_STYLE(false)}>柜体组件</span>
+                <span style={QTY_STYLE}>[1 套]</span>
+              </div>
+              {open['cabinet'] && (
+                <div style={CHILDREN_STYLE}>
+                  {[
+                    { key: 'rm12', name: 'RM-00012 红橡木板', qty: '×8 张', dot: true },
+                    { key: 'rm33', name: 'RM-00033 木工板',   qty: '×2 张', dot: false },
+                    { key: 'wip21',name: 'WIP-0021 侧板（半成品）', qty: '×2 套', dot: false },
+                  ].map((item) => (
+                    <div key={item.key} className={rowCls(item.key)} onClick={() => select(item.key, item.name)} style={ROW_STYLE(0)}>
+                      <span style={{ width: 16 }} />
+                      <span>💾</span>
+                      <span style={LABEL_STYLE(true)}>{item.name}</span>
+                      <span style={QTY_STYLE}>{item.qty}</span>
+                      {item.dot && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-primary-500)', flexShrink: 0 }} title="已选中" />}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 门板组件 */}
+            <div>
+              <div className={rowCls('door')} onClick={() => { toggle('door'); select('door', '门板组件'); }} style={ROW_STYLE(0)}>
+                <span style={TOGGLE_STYLE(open['door'])}>▶</span>
+                <span>📦</span>
+                <span style={LABEL_STYLE(false)}>门板组件</span>
+                <span style={QTY_STYLE}>[1 套]</span>
+              </div>
+              {open['door'] && (
+                <div style={CHILDREN_STYLE}>
+                  {[
+                    { key: 'rm12b', name: 'RM-00012 红橡木板', qty: '×4 张' },
+                    { key: 'rm89',  name: 'RM-00089 铰链全盖', qty: '×4 个' },
+                  ].map((item) => (
+                    <div key={item.key} className={rowCls(item.key)} onClick={() => select(item.key, item.name)} style={ROW_STYLE(0)}>
+                      <span style={{ width: 16 }} />
+                      <span>💾</span>
+                      <span style={LABEL_STYLE(true)}>{item.name}</span>
+                      <span style={QTY_STYLE}>{item.qty}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 叶节点 */}
+            <div className={rowCls('rm201')} onClick={() => select('rm201', 'RM-00201 木蜡油 0.5L')} style={ROW_STYLE(0)}>
+              <span style={{ width: 16 }} />
+              <span>💾</span>
+              <span style={LABEL_STYLE(true)}>RM-00201 木蜡油 0.5L</span>
+              <span style={QTY_STYLE}>×1 瓶</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const ROW_STYLE = (_level: number): React.CSSProperties => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '0.5rem',
+  padding: '0.5rem 0.75rem',
+  borderRadius: 'var(--radius-md)',
+  cursor: 'pointer',
+  transition: 'background var(--transition-fast)',
+});
+
+const TOGGLE_STYLE = (open: boolean): React.CSSProperties => ({
+  fontSize: '0.625rem',
+  color: 'var(--text-disabled)',
+  width: 16,
+  textAlign: 'center',
+  flexShrink: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  transform: open ? 'rotate(90deg)' : 'none',
+  transition: 'transform var(--transition-fast)',
+});
+
+const LABEL_STYLE = (dim: boolean): React.CSSProperties => ({
+  fontSize: '0.9375rem',
+  fontWeight: dim ? 400 : 600,
+  color: dim ? 'var(--text-secondary)' : 'var(--text-primary)',
+  flex: 1,
+  overflow: 'hidden',
+  whiteSpace: 'nowrap',
+  textOverflow: 'ellipsis',
+});
+
+const QTY_STYLE: React.CSSProperties = {
+  fontSize: '0.8125rem',
+  color: 'var(--text-secondary)',
+  whiteSpace: 'nowrap',
 };
 
-type CreateBomForm = {
-  skuId: string;
-  version: string;
-  description: string;
+const CHILDREN_STYLE: React.CSSProperties = {
+  marginLeft: '1.5rem',
+  borderLeft: '2px solid var(--border-default)',
+  paddingLeft: '0.75rem',
 };
+
+/* Pseudo-class selection styles handled by data-attribute + CSS module */
+
+/* ──────────────────────────────────────────────────────────────
+   主页面组件
+────────────────────────────────────────────────────────────── */
+
+type CompletionFilter = '' | '100' | 'mid' | '0';
 
 export default function BomPage() {
   const { setPageTitle, showToast } = useAppStore();
-  const [page, setPage] = useState(1);
+  const [view, setView] = useState<'list' | 'editor'>('list');
+  const [editingRow, setEditingRow] = useState<BomListRow | null>(null);
   const [keyword, setKeyword] = useState('');
-  const [debouncedKeyword, setDebouncedKeyword] = useState('');
-  const [statusFilter, setStatusFilter] = useState<BomStatus | ''>('');
+  const [completionFilter, setCompletionFilter] = useState<CompletionFilter>('');
+  const [page, setPage] = useState(1);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
-  // 展开详情 Drawer
-  const [detailDrawer, setDetailDrawer] = useState<{ open: boolean; bom: BomHeader | null }>({ open: false, bom: null });
-  // 物料需求 Drawer
-  const [reqDrawer, setReqDrawer] = useState<{ open: boolean; bom: BomHeader | null }>({ open: false, bom: null });
-  // 激活确认弹窗
-  const [activateModal, setActivateModal] = useState<{ open: boolean; bom: BomHeader | null }>({ open: false, bom: null });
-  // 新建 BOM 弹窗
-  const [createModal, setCreateModal] = useState(false);
-  const [createForm, setCreateForm] = useState<CreateBomForm>({ skuId: '', version: '', description: '' });
-  // 新建 BOM 物料行
-  const [bomItems, setBomItems] = useState<Array<{ materialSkuId: string; qty: string; unit: string; sequence: string }>>([
-    { materialSkuId: '', qty: '', unit: '', sequence: '10' },
-  ]);
+  const PAGE_SIZE = 20;
 
   useEffect(() => { setPageTitle('BOM 管理'); }, [setPageTitle]);
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedKeyword(keyword), 350);
-    return () => clearTimeout(t);
-  }, [keyword]);
+  // ── 真实 API 数据 ──
+  const { data: bomHeaders } = useBomList();
+  const allRows: BomListRow[] = (bomHeaders ?? []).map(mapBomHeaderToRow);
 
-  const { data, isLoading, error } = useBomList(
-    debouncedKeyword || undefined,
-    statusFilter as BomStatus || undefined,
-    page,
-    20,
-  );
+  // ── 获取所有成品 SKU（用于新建BOM和向导选择）──
+  const { data: categories } = useSkuCategories();
+  const finishedCatId = useMemo(() => {
+    if (!categories) return undefined;
+    const cat = categories.find(c => c.code === Category1Code.FINISHED && c.level === 1);
+    return cat?.id;
+  }, [categories]);
+  const { data: finishedSkuData } = useQuery({
+    queryKey: skuKeys.list({ category1Id: finishedCatId!, pageSize: 200 }),
+    queryFn: () => skuApi.getList({ category1Id: finishedCatId!, pageSize: 200 }),
+    enabled: !!finishedCatId,
+  });
 
-  const { data: detailData, isLoading: detailLoading } = useBomExpanded(
-    detailDrawer.bom?.id ?? '',
-    { enabled: detailDrawer.open && !!detailDrawer.bom },
-  );
+  // 构建向导可选项：所有成品 SKU，标注已有 BOM 的状态
+  const wizardSkuItems: WizardSkuItem[] = useMemo(() => {
+    const skus = finishedSkuData?.list ?? [];
+    if (skus.length === 0) return allRows.map(r => ({ code: r.skuCode, name: r.skuName, skuId: r.skuId, alertText: r.alertText }));
+    // 建立已有 BOM 的 skuId 集合
+    const bomSkuMap = new Map(allRows.map(r => [r.skuId, r]));
+    return skus.map(sku => {
+      const bomRow = bomSkuMap.get(sku.id);
+      return {
+        code: sku.skuCode,
+        name: sku.name,
+        skuId: sku.id,
+        alertText: bomRow?.alertText
+          ?? (bomRow ? undefined : undefined),
+        hasBom: !!bomRow,
+        bomStatus: bomRow?.status,
+      };
+    });
+  }, [finishedSkuData, allRows]);
 
-  const { data: reqData, isLoading: reqLoading } = useMaterialRequirements(
-    reqDrawer.bom?.id ?? '',
-    { enabled: reqDrawer.open && !!reqDrawer.bom },
-  );
+  const createBom = useCreateBom();
 
-  const createMutation  = useCreateBom();
-  const activateMutation = useActivateBom();
+  /* 客户端过滤 */
+  const filtered = allRows.filter((row) => {
+    const kw = keyword.trim().toLowerCase();
+    if (kw && !row.skuCode.toLowerCase().includes(kw) && !row.skuName.toLowerCase().includes(kw)) return false;
+    if (completionFilter === '100' && row.completionPct !== 100) return false;
+    if (completionFilter === 'mid' && (row.completionPct === 0 || row.completionPct === 100)) return false;
+    if (completionFilter === '0' && row.completionPct !== 0) return false;
+    return true;
+  });
 
-  const openDetail = useCallback((bom: BomHeader) => setDetailDrawer({ open: true, bom }), []);
-  const openReq    = useCallback((bom: BomHeader) => setReqDrawer({ open: true, bom }), []);
+  /* 汇总统计（从真实数据计算） */
+  const SUMMARY = {
+    total: allRows.length,
+    done: allRows.filter(r => r.completionPct === 100).length,
+    wip: allRows.filter(r => r.completionPct > 0 && r.completionPct < 100).length,
+    none: allRows.filter(r => r.completionPct === 0).length,
+  };
 
-  const handleActivate = async () => {
-    if (!activateModal.bom) return;
-    try {
-      await activateMutation.mutateAsync(activateModal.bom.id);
-      showToast({ type: 'success', message: `BOM ${activateModal.bom.version} 已激活` });
-      setActivateModal({ open: false, bom: null });
-    } catch (e) {
-      showToast({ type: 'error', message: (e as Error).message });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const handleEdit = (row: BomListRow) => {
+    setEditingRow(row);
+    setView('editor');
+  };
+
+  const handleBack = () => {
+    setView('list');
+    setEditingRow(null);
+  };
+
+  const handleWizardNext = async (selected: string[]) => {
+    setWizardOpen(false);
+    if (selected.length === 0) return;
+
+    // 选中第一个进入编辑器
+    const firstCode = selected[0];
+    // 先从已有 BOM 中查找
+    const existingRow = allRows.find((r) => r.skuCode === firstCode);
+    if (existingRow) {
+      handleEdit(existingRow);
+      return;
+    }
+    // 没有 BOM，为该成品创建一个草稿 BOM
+    const wizardItem = wizardSkuItems.find(s => s.code === firstCode);
+    if (wizardItem) {
+      try {
+        const result = await createBom.mutateAsync({
+          skuId: Number(wizardItem.skuId),
+          version: '1.0',
+          description: '',
+          items: [],
+        });
+        showToast({ type: 'success', message: `BOM草稿已创建（${wizardItem.name}），请在编辑器中添加物料` });
+        // 创建成功后以新 BOM 进入编辑器
+        handleEdit({
+          id: Number(result.id),
+          skuId: Number(wizardItem.skuId),
+          skuCode: wizardItem.code,
+          skuName: wizardItem.name,
+          hasAlert: true,
+          alertText: 'BOM草稿未激活，影响采购建议',
+          completionPct: 50,
+          materialCount: null,
+          orderCount: 0,
+          status: BomStatus.DRAFT,
+        });
+      } catch {
+        showToast({ type: 'error', message: '创建BOM失败，请稍后重试' });
+      }
     }
   };
 
-  const handleCreate = async () => {
-    const { skuId, version } = createForm;
-    if (!skuId || !version) {
-      showToast({ type: 'warning', message: '请填写成品 SKU ID 和版本号' });
-      return;
-    }
-    const validItems = bomItems.filter((i) => i.materialSkuId && i.qty && i.unit);
-    if (validItems.length === 0) {
-      showToast({ type: 'warning', message: '请至少填写一条物料行' });
-      return;
-    }
-    try {
-      await createMutation.mutateAsync({
-        skuId,
-        version,
-        description: createForm.description || undefined,
-        items: validItems.map((i) => ({
-          materialSkuId: i.materialSkuId,
-          qty: Number(i.qty),
-          unit: i.unit,
-          sequence: Number(i.sequence) || 10,
-        })),
-      });
-      showToast({ type: 'success', message: 'BOM 创建成功' });
-      setCreateModal(false);
-      setCreateForm({ skuId: '', version: '', description: '' });
-      setBomItems([{ materialSkuId: '', qty: '', unit: '', sequence: '10' }]);
-    } catch (e) {
-      showToast({ type: 'error', message: (e as Error).message });
-    }
-  };
+  /* ── 编辑器视图 ── */
+  if (view === 'editor' && editingRow) {
+    return (
+      <div className={styles.page}>
+        <EditorView row={editingRow} onBack={handleBack} />
+      </div>
+    );
+  }
 
-  const addBomItem = () =>
-    setBomItems((rows) => [...rows, { materialSkuId: '', qty: '', unit: '', sequence: String((rows.length + 1) * 10) }]);
-  const removeBomItem = (idx: number) => setBomItems((rows) => rows.filter((_, i) => i !== idx));
-  const updateBomItem = (idx: number, field: string, value: string) =>
-    setBomItems((rows) => rows.map((r, i) => i === idx ? { ...r, [field]: value } : r));
-
-  const columns: Column<BomRecord>[] = [
-    {
-      key: 'version',
-      title: '版本号',
-      width: 100,
-      render: (_, r) => {
-        const b = r as unknown as BomHeader;
-        return <span style={{ fontFamily: 'var(--font-family-mono)', fontSize: 13 }}>{b.version}</span>;
-      },
-    },
-    {
-      key: 'skuName',
-      title: '成品 SKU',
-      render: (_, r) => {
-        const b = r as unknown as BomHeader;
-        return (
-          <div>
-            <div style={{ fontWeight: 500 }}>{b.skuName}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-family-mono)' }}>{b.skuCode}</div>
-          </div>
-        );
-      },
-    },
-    {
-      key: 'status',
-      title: '状态',
-      width: 80,
-      render: (_, r) => {
-        const b = r as unknown as BomHeader;
-        return <Tag variant={BOM_STATUS_VARIANT[b.status]}>{BOM_STATUS_LABEL[b.status]}</Tag>;
-      },
-    },
-    {
-      key: 'itemCount',
-      title: '物料数',
-      width: 80,
-      render: (_, r) => `${(r as unknown as BomHeader).itemCount ?? '-'} 项`,
-    },
-    {
-      key: 'description',
-      title: '说明',
-      render: (_, r) => (r as unknown as BomHeader).description ?? '—',
-    },
-    {
-      key: 'updatedAt',
-      title: '更新时间',
-      width: 160,
-      render: (_, r) => formatDateTime((r as unknown as BomHeader).updatedAt),
-    },
-    {
-      key: 'actions',
-      title: '操作',
-      width: 200,
-      render: (_, r) => {
-        const b = r as unknown as BomHeader;
-        return (
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <Button variant="ghost" size="sm" onClick={() => openDetail(b)}>物料清单</Button>
-            <Button variant="ghost" size="sm" onClick={() => openReq(b)}>需求分析</Button>
-            {b.status === BomStatus.DRAFT && (
-              <Button variant="ghost" size="sm" onClick={() => setActivateModal({ open: true, bom: b })}>激活</Button>
-            )}
-          </div>
-        );
-      },
-    },
-  ];
-
-  const bomList = (data?.list ?? []) as BomRecord[];
-
+  /* ── 列表视图 ── */
   return (
     <div className={styles.page}>
-      <div className="page-header">
-        <h1 className="page-header__title">BOM 管理</h1>
-        <div className="page-header__actions">
-          <Button variant="primary" size="md" onClick={() => setCreateModal(true)}>新建 BOM</Button>
+      {/* Toolbar */}
+      <div className={styles.toolbar}>
+        <div className={styles.search_box}>
+          <span className={styles.search_icon} aria-hidden="true">🔍</span>
+          <input
+            className={styles.search_input}
+            type="text"
+            placeholder="搜索成品名称 / 编码…"
+            value={keyword}
+            onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
+            aria-label="搜索 BOM"
+          />
         </div>
-      </div>
 
-      {/* 筛选栏 */}
-      <div className={styles.filter_bar}>
-        <input
-          type="search"
-          className={styles.filter_search}
-          placeholder="搜索 SKU 编码 / 名称 / 版本..."
-          value={keyword}
-          onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
-          aria-label="搜索 BOM"
-        />
         <select
           className={styles.filter_select}
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value as BomStatus | ''); setPage(1); }}
-          aria-label="状态筛选"
+          value={completionFilter}
+          onChange={(e) => { setCompletionFilter(e.target.value as CompletionFilter); setPage(1); }}
+          aria-label="BOM完整度筛选"
         >
-          <option value="">全部状态</option>
-          {Object.entries(BOM_STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          <option value="">全部完整度</option>
+          <option value="100">已完成 (100%)</option>
+          <option value="mid">进行中 (40–99%)</option>
+          <option value="0">未开始 (0%)</option>
         </select>
+
+        <div className={styles.toolbar_spacer} />
+
+        <Button variant="primary" onClick={() => setWizardOpen(true)}>+ 新建BOM</Button>
+        <Button variant="secondary" onClick={() => setWizardOpen(true)}>⚡ BOM快速录入向导</Button>
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <Table<BomRecord>
-          columns={columns}
-          dataSource={bomList}
-          rowKey="id"
-          loading={isLoading}
-          error={error ? (error as Error).message : null}
-          emptyText="暂无 BOM 数据"
-          pagination={data ? { page, pageSize: 20, total: data.total, onChange: setPage } : undefined}
-        />
-      </div>
-
-      {/* 物料清单 Drawer */}
-      <Drawer
-        open={detailDrawer.open}
-        title={`物料清单 — ${detailDrawer.bom?.skuName ?? ''} (${detailDrawer.bom?.version ?? ''})`}
-        width={600}
-        onClose={() => setDetailDrawer({ open: false, bom: null })}
-      >
-        {detailLoading ? (
-          <div className={styles.drawer_loading}>
-            <div className="spinner" role="status" aria-label="加载中" />
-            <span>加载物料清单...</span>
-          </div>
-        ) : detailData ? (
-          <BomDetailTable detail={detailData} />
-        ) : (
-          <p style={{ color: 'var(--text-secondary)', padding: 'var(--space-4)' }}>暂无数据</p>
-        )}
-      </Drawer>
-
-      {/* 物料需求分析 Drawer */}
-      <Drawer
-        open={reqDrawer.open}
-        title={`物料需求分析 — ${reqDrawer.bom?.skuName ?? ''}`}
-        width={560}
-        onClose={() => setReqDrawer({ open: false, bom: null })}
-      >
-        {reqLoading ? (
-          <div className={styles.drawer_loading}>
-            <div className="spinner" role="status" aria-label="加载中" />
-            <span>计算需求...</span>
-          </div>
-        ) : reqData ? (
-          <MaterialRequirementsView data={reqData} />
-        ) : (
-          <p style={{ color: 'var(--text-secondary)', padding: 'var(--space-4)' }}>暂无数据</p>
-        )}
-      </Drawer>
-
-      {/* 激活确认弹窗 */}
-      <Modal
-        open={activateModal.open}
-        title="激活 BOM 版本"
-        onClose={() => setActivateModal({ open: false, bom: null })}
-        onConfirm={() => void handleActivate()}
-        confirmLabel="确认激活"
-        confirmLoading={activateMutation.isPending}
-        size="sm"
-      >
-        <div className={styles.activate_body}>
-          <p>
-            确认激活 BOM 版本 <strong>{activateModal.bom?.version}</strong>？
-          </p>
-          <div className="alert alert--warning" style={{ marginTop: 'var(--space-3)' }}>
-            激活后，同一 SKU 的其他启用版本将自动设为废弃。此操作不可撤销。
+      {/* Summary Strip */}
+      <div className={styles.summary_strip}>
+        <div>
+          <div className={styles.summary_item__label}>全部成品</div>
+          <div className={styles.summary_item__value}>{SUMMARY.total}</div>
+        </div>
+        <div className={styles.summary_divider} />
+        <div>
+          <div className={styles.summary_item__label}>已完成BOM</div>
+          <div className={`${styles.summary_item__value} ${styles['summary_item__value--done']}`}>
+            {SUMMARY.done}
           </div>
         </div>
-      </Modal>
-
-      {/* 新建 BOM 弹窗 */}
-      <Modal
-        open={createModal}
-        title="新建 BOM"
-        onClose={() => setCreateModal(false)}
-        onConfirm={() => void handleCreate()}
-        confirmLabel="创建"
-        confirmLoading={createMutation.isPending}
-        size="lg"
-      >
-        <div className={styles.create_form}>
-          <div className={styles.form_row}>
-            <div className={styles.form_field}>
-              <label className={styles.form_label}>成品 SKU ID <span className={styles.required}>*</span></label>
-              <input
-                className={styles.form_input}
-                value={createForm.skuId}
-                onChange={(e) => setCreateForm((f) => ({ ...f, skuId: e.target.value }))}
-                placeholder="SKU 内部 ID"
-              />
-            </div>
-            <div className={styles.form_field}>
-              <label className={styles.form_label}>版本号 <span className={styles.required}>*</span></label>
-              <input
-                className={styles.form_input}
-                value={createForm.version}
-                onChange={(e) => setCreateForm((f) => ({ ...f, version: e.target.value }))}
-                placeholder="如：V1.0"
-              />
-            </div>
-          </div>
-          <div className={styles.form_field}>
-            <label className={styles.form_label}>说明</label>
-            <input
-              className={styles.form_input}
-              value={createForm.description}
-              onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
-              placeholder="可选"
-            />
-          </div>
-
-          <div className={styles.items_section}>
-            <div className={styles.items_title}>物料明细</div>
-            <div className={styles.items_header}>
-              <span>物料 SKU ID</span>
-              <span>用量</span>
-              <span>单位</span>
-              <span>序号</span>
-              <span></span>
-            </div>
-            {bomItems.map((item, idx) => (
-              <div key={idx} className={styles.items_row}>
-                <input
-                  className={styles.form_input}
-                  value={item.materialSkuId}
-                  onChange={(e) => updateBomItem(idx, 'materialSkuId', e.target.value)}
-                  placeholder="SKU ID"
-                />
-                <input
-                  className={styles.form_input}
-                  type="number"
-                  min="0"
-                  step="0.000001"
-                  value={item.qty}
-                  onChange={(e) => updateBomItem(idx, 'qty', e.target.value)}
-                  placeholder="0.00"
-                />
-                <input
-                  className={styles.form_input}
-                  value={item.unit}
-                  onChange={(e) => updateBomItem(idx, 'unit', e.target.value)}
-                  placeholder="如：kg"
-                />
-                <input
-                  className={styles.form_input}
-                  type="number"
-                  min="1"
-                  value={item.sequence}
-                  onChange={(e) => updateBomItem(idx, 'sequence', e.target.value)}
-                  placeholder="10"
-                />
-                <button
-                  className={styles.item_remove}
-                  onClick={() => removeBomItem(idx)}
-                  disabled={bomItems.length <= 1}
-                  aria-label="删除此行"
-                >×</button>
-              </div>
-            ))}
-            <Button variant="ghost" size="sm" onClick={addBomItem} style={{ alignSelf: 'flex-start', marginTop: 'var(--space-2)' }}>
-              + 添加物料行
-            </Button>
+        <div>
+          <div className={styles.summary_item__label}>进行中</div>
+          <div className={`${styles.summary_item__value} ${styles['summary_item__value--wip']}`}>
+            {SUMMARY.wip}
           </div>
         </div>
-      </Modal>
-    </div>
-  );
-}
-
-/* ——— AI 建议类型 ——— */
-
-type AiSuggestion = {
-  id: string;
-  materialName: string;
-  qty: number;
-  unit: string;
-  confidence: number; // 0–100
-  reason: string;
-};
-
-/* ——— 内部子组件 ——— */
-
-function BomDetailTable({ detail }: { detail: BomDetail }) {
-  const [selectedItemId, setSelectedItemId] = useState<number | undefined>(undefined);
-
-  // AI 建议面板状态
-  const [showAiPanel, setShowAiPanel] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>([]);
-  const [adoptedIds, setAdoptedIds] = useState<Set<string>>(new Set());
-  const aiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleSelectItem = useCallback((item: BomItem) => {
-    setSelectedItemId((prev) => (prev === item.bomItemId ? undefined : item.bomItemId));
-  }, []);
-
-  /** 点击"AI 建议物料"按钮 —— 模拟异步请求 */
-  const handleAiSuggest = useCallback(() => {
-    setShowAiPanel(true);
-    setAiLoading(true);
-    setAiSuggestions([]);
-    setAdoptedIds(new Set());
-
-    // 模拟 1.5s 后返回建议
-    if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
-    aiTimerRef.current = setTimeout(() => {
-      setAiSuggestions([
-        {
-          id: 'ai-1',
-          materialName: '精梳棉纱 32 支',
-          qty: 120,
-          unit: 'kg',
-          confidence: 92,
-          reason: '历史订单中该物料使用频率最高，用量匹配当前成品规格',
-        },
-        {
-          id: 'ai-2',
-          materialName: '涤纶缝纫线 150D',
-          qty: 5,
-          unit: '卷',
-          confidence: 85,
-          reason: '同类 BOM 版本普遍配置此物料，建议补录',
-        },
-        {
-          id: 'ai-3',
-          materialName: '内衬无纺布',
-          qty: 30,
-          unit: '米',
-          confidence: 71,
-          reason: '基于产品工艺标准推断，置信度中等，请人工确认',
-        },
-      ]);
-      setAiLoading(false);
-    }, 1500);
-  }, []);
-
-  /** 采纳单条建议 */
-  const handleAdopt = useCallback((id: string) => {
-    setAdoptedIds((prev) => new Set([...prev, id]));
-  }, []);
-
-  // 组件卸载时清理定时器
-  useEffect(() => {
-    return () => {
-      if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
-    };
-  }, []);
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-      {/* BOM 基础信息 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
-        <InfoRow label="成品 SKU" value={`${detail.skuName} (${detail.skuCode})`} />
-        <InfoRow label="BOM 版本" value={detail.version} />
-        <InfoRow label="状态" value={BOM_STATUS_LABEL[detail.status]} />
-        <InfoRow label="更新时间" value={formatDateTime(detail.updatedAt)} />
-      </div>
-      {detail.description && <InfoRow label="说明" value={detail.description} />}
-
-      {/* BomTree 递归树形物料清单 */}
-      <div className={styles.bom_tree_wrapper}>
-        <BomTree
-          items={detail.items}
-          selectedId={selectedItemId}
-          onSelect={handleSelectItem}
-        />
+        <div>
+          <div className={styles.summary_item__label}>未开始</div>
+          <div className={`${styles.summary_item__value} ${styles['summary_item__value--none']}`}>
+            {SUMMARY.none}
+          </div>
+        </div>
+        <div className={styles.warn_banner}>
+          <span aria-hidden="true">⚠</span>
+          未完成BOM将导致AI采购建议覆盖不全
+        </div>
       </div>
 
-      {/* AI 建议物料按钮 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', paddingTop: 'var(--space-2)', borderTop: '1px solid var(--border-subtle)' }}>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleAiSuggest}
-          loading={aiLoading}
-        >
-          AI 建议物料
-        </Button>
-        {showAiPanel && !aiLoading && aiSuggestions.length > 0 && (
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-            共 {aiSuggestions.length} 条建议，已采纳 {adoptedIds.size} 条
-          </span>
-        )}
-      </div>
+      {/* Table Card */}
+      <div className={styles.table_card}>
+        <div className={styles.table_scroll}>
+          <table className={styles.data_table}>
+            <thead>
+              <tr>
+                <th>SKU编码</th>
+                <th>成品名称</th>
+                <th style={{ minWidth: 200 }}>BOM完整度</th>
+                <th>物料种数</th>
+                <th>关联订单</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paged.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className={styles.table_empty}>暂无 BOM 数据</td>
+                </tr>
+              ) : (
+                paged.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      <span className={styles.sku_code}>{row.skuCode}</span>
+                    </td>
+                    <td style={{ fontWeight: row.hasAlert ? 400 : 600 }}>
+                      {row.hasAlert ? (
+                        <div>
+                          <div>{row.skuName}</div>
+                          <span className={styles.tag_danger}>
+                            ⚠ {row.alertText}
+                          </span>
+                        </div>
+                      ) : (
+                        row.skuName
+                      )}
+                    </td>
+                    <td>
+                      <BomProgress pct={row.completionPct} />
+                    </td>
+                    <td style={{ color: row.materialCount === null ? 'var(--text-disabled)' : undefined }}>
+                      {row.materialCount !== null ? `${row.materialCount} 种` : '—'}
+                    </td>
+                    <td>{row.orderCount} 单</td>
+                    <td>
+                      <RowActionBtn row={row} onEdit={handleEdit} />
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
 
-      {/* AI 建议面板 */}
-      {showAiPanel && (
-        <div className={styles.ai_panel}>
-          <div className={styles.ai_panel__header}>
-            <span className={styles.ai_panel__title}>AI 物料建议</span>
+        {/* Table Footer / Pagination */}
+        <div className={styles.table_footer}>
+          <span>共 {filtered.length} 条记录</span>
+          <div className={styles.pagination}>
             <button
-              className={styles.ai_panel__close}
-              onClick={() => setShowAiPanel(false)}
-              aria-label="关闭 AI 建议面板"
+              className={styles.page_btn}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              aria-label="上一页"
             >
-              ×
+              ‹
+            </button>
+            {buildPageNums(page, totalPages).map((item, i) =>
+              item === '…' ? (
+                <span key={`ellipsis-${i}`} className={styles.pagination_ellipsis}>…</span>
+              ) : (
+                <button
+                  key={item}
+                  className={`${styles.page_btn} ${page === item ? styles['page_btn--active'] : ''}`}
+                  onClick={() => setPage(item as number)}
+                  aria-label={`第 ${item} 页`}
+                  aria-current={page === item ? 'page' : undefined}
+                >
+                  {item}
+                </button>
+              )
+            )}
+            <button
+              className={styles.page_btn}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              aria-label="下一页"
+            >
+              ›
             </button>
           </div>
-
-          {aiLoading ? (
-            <div className={styles.ai_panel__loading}>
-              <div className="spinner" role="status" aria-label="AI 分析中" />
-              <span>AI 正在分析物料组成...</span>
-            </div>
-          ) : aiSuggestions.length === 0 ? (
-            <p className={styles.ai_panel__empty}>暂无建议</p>
-          ) : (
-            <ul className={styles.ai_panel__list}>
-              {aiSuggestions.map((s) => {
-                const adopted = adoptedIds.has(s.id);
-                return (
-                  <li key={s.id} className={`${styles.ai_panel__item} ${adopted ? styles['ai_panel__item--adopted'] : ''}`}>
-                    <div className={styles.ai_panel__item_main}>
-                      <div className={styles.ai_panel__item_name}>{s.materialName}</div>
-                      <div className={styles.ai_panel__item_meta}>
-                        <span>
-                          用量：<strong>{s.qty} {s.unit}</strong>
-                        </span>
-                        <span
-                          className={styles.ai_panel__confidence}
-                          style={{
-                            color: s.confidence >= 85
-                              ? 'var(--color-success-700)'
-                              : s.confidence >= 70
-                              ? 'var(--color-warning-700)'
-                              : 'var(--color-error-600)',
-                          }}
-                        >
-                          置信度 {s.confidence}%
-                        </span>
-                      </div>
-                      <div className={styles.ai_panel__item_reason}>{s.reason}</div>
-                    </div>
-                    <div className={styles.ai_panel__item_action}>
-                      {adopted ? (
-                        <span className={styles.ai_panel__adopted_label}>已采纳</span>
-                      ) : (
-                        <Button variant="primary" size="sm" onClick={() => handleAdopt(s.id)}>
-                          采纳
-                        </Button>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
         </div>
-      )}
+      </div>
+
+      {/* 向导 Modal */}
+      <WizardModal
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onNext={handleWizardNext}
+        skuItems={wizardSkuItems}
+      />
     </div>
   );
 }
 
-function MaterialRequirementsView({ data }: { data: { items: Array<{ skuCode: string; skuName: string; required: number; available: number; shortfall: number; unit: string }> } }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-      <p style={{ fontSize: 'var(--text-body-s)', color: 'var(--text-secondary)' }}>
-        基于当前库存计算物料缺口，红色行表示库存不足。
-      </p>
-      <table className={styles.detail_table}>
-        <thead>
-          <tr>
-            <th>物料 SKU</th>
-            <th style={{ textAlign: 'right' }}>需求量</th>
-            <th style={{ textAlign: 'right' }}>可用量</th>
-            <th style={{ textAlign: 'right' }}>缺口</th>
-            <th>单位</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.items.map((item) => (
-            <tr
-              key={item.skuCode}
-              style={item.shortfall > 0 ? { background: 'var(--color-error-50)' } : undefined}
-            >
-              <td>
-                <div style={{ fontWeight: 500 }}>{item.skuName}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'var(--font-family-mono)' }}>{item.skuCode}</div>
-              </td>
-              <td style={{ textAlign: 'right', fontFamily: 'var(--font-family-mono)' }}>{formatQtyStr(item.required, 3)}</td>
-              <td style={{ textAlign: 'right', fontFamily: 'var(--font-family-mono)' }}>{formatQtyStr(item.available, 3)}</td>
-              <td style={{ textAlign: 'right', fontFamily: 'var(--font-family-mono)', color: item.shortfall > 0 ? 'var(--color-error-600)' : 'var(--color-success-600)', fontWeight: item.shortfall > 0 ? 700 : 400 }}>
-                {item.shortfall > 0 ? `-${formatQtyStr(item.shortfall, 3)}` : '充足'}
-              </td>
-              <td>{item.unit}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+/* ──────────────────────────────────────────────────────────────
+   工具函数：生成分页数字序列（含省略号）
+────────────────────────────────────────────────────────────── */
 
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
-      <span style={{ fontSize: 'var(--text-body-m)', color: 'var(--text-primary)' }}>{value}</span>
-    </div>
-  );
+function buildPageNums(current: number, total: number): (number | '…')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | '…')[] = [1];
+  if (current > 3) pages.push('…');
+  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) {
+    pages.push(i);
+  }
+  if (current < total - 2) pages.push('…');
+  pages.push(total);
+  return pages;
 }

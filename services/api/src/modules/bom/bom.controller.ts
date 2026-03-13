@@ -19,11 +19,37 @@ const CreateBomSchema = z.object({
   skuId: z.number().int().positive(),
   version: z.string().max(20).optional(),
   description: z.string().optional(),
-  items: z.array(CreateBomItemSchema).min(1),
+  items: z.array(CreateBomItemSchema).default([]),
 });
 
 const CalcRequirementsSchema = z.object({
   productionQty: z.coerce.number().positive(),
+});
+
+const AddBomItemSchema = z.object({
+  componentSkuId: z.coerce.number().int().positive(),
+  quantity: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  unit: z.string().min(1).max(20),
+  // P1-2: enforce numeric decimal format for scrapRate
+  scrapRate: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
+});
+
+// P0-2: reusable query schema for listing BOMs
+const ListQuerySchema = z.object({
+  skuId: z.coerce.number().int().positive().optional(),
+});
+
+// P1-10: reusable route param schemas
+const IdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+
+const ItemIdParamSchema = z.object({
+  itemId: z.coerce.number().int().positive(),
+});
+
+const SkuIdParamSchema = z.object({
+  skuId: z.coerce.number().int().positive(),
 });
 
 export class BomController {
@@ -32,19 +58,22 @@ export class BomController {
   }
 
   async list(req: Request, res: Response): Promise<void> {
-    const skuId = req.query.skuId ? Number(req.query.skuId) : undefined;
+    // P0-2: validate skuId query param with Zod
+    const { skuId } = ListQuerySchema.parse(req.query);
     const data = await this.svc(req).listBoms(skuId);
     success(res, data);
   }
 
   async getExpanded(req: Request, res: Response): Promise<void> {
-    const id = Number(req.params.id);
+    // P1-10: validate id route param with Zod
+    const { id } = IdParamSchema.parse(req.params);
     const data = await this.svc(req).getBomWithExpansion(id);
     success(res, data);
   }
 
   async calcRequirements(req: Request, res: Response): Promise<void> {
-    const id = Number(req.params.id);
+    // P1-10: validate id route param with Zod
+    const { id } = IdParamSchema.parse(req.params);
     const { productionQty } = CalcRequirementsSchema.parse(req.query);
     const data = await this.svc(req).calcMaterialRequirements(id, productionQty);
     success(res, data);
@@ -56,8 +85,17 @@ export class BomController {
     created(res, data, 'BOM已创建');
   }
 
+  async addItem(req: Request, res: Response): Promise<void> {
+    // P1-10: validate id route param with Zod
+    const { id: bomId } = IdParamSchema.parse(req.params);
+    const body = AddBomItemSchema.parse(req.body);
+    const data = await this.svc(req).addBomItem(bomId, body);
+    created(res, data, 'BOM明细已添加');
+  }
+
   async activate(req: Request, res: Response): Promise<void> {
-    const id = Number(req.params.id);
+    // P1-10: validate id route param with Zod
+    const { id } = IdParamSchema.parse(req.params);
     await this.svc(req).activateBom(id);
     success(res, null, 'BOM已激活');
   }
@@ -65,7 +103,8 @@ export class BomController {
   // ── BE-P1-001: 更新 BOM 头信息 ────────────────────────────
 
   async update(req: Request, res: Response): Promise<void> {
-    const id = Number(req.params.id);
+    // P1-10: validate id route param with Zod
+    const { id } = IdParamSchema.parse(req.params);
     const UpdateBomSchema = z.object({
       version:     z.string().min(1).max(20).optional(),
       description: z.string().max(500).optional(),
@@ -82,7 +121,8 @@ export class BomController {
   // ── BE-P1-001: 删除 BOM 明细行 ────────────────────────────
 
   async deleteBomItem(req: Request, res: Response): Promise<void> {
-    const itemId = Number(req.params.itemId);
+    // P1-10: validate itemId route param with Zod
+    const { itemId } = ItemIdParamSchema.parse(req.params);
     await this.svc(req).deleteBomItem(itemId);
     success(res, null, 'BOM明细已删除');
   }
@@ -90,7 +130,8 @@ export class BomController {
   // ── BE-P1-001: 复制 BOM ───────────────────────────────────
 
   async copyBom(req: Request, res: Response): Promise<void> {
-    const id = Number(req.params.id);
+    // P1-10: validate id route param with Zod
+    const { id } = IdParamSchema.parse(req.params);
     const CopyBomSchema = z.object({
       newVersion: z.string().min(1).max(20),
     });
@@ -102,7 +143,8 @@ export class BomController {
   // ── BE-P1-002: AI 辅助 BOM 建议 ──────────────────────────
 
   async getAiSuggestion(req: Request, res: Response): Promise<void> {
-    const skuId = Number(req.params.skuId);
+    // P1-10: validate skuId route param with Zod
+    const { skuId } = SkuIdParamSchema.parse(req.params);
     const data = await this.svc(req).getAiSuggestion(skuId);
     success(res, data);
   }

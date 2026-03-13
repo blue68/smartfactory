@@ -19,7 +19,23 @@ export const bomKeys = {
   detail: (id: number) => [...bomKeys.all, 'detail', id] as const,
   expanded: (id: number) => [...bomKeys.all, 'expanded', id] as const,
   requirements: (id: number, qty: number) => [...bomKeys.all, 'requirements', id, qty] as const,
+  aiSuggestion: (skuId: number) => [...bomKeys.all, 'ai-suggestion', skuId] as const,
 };
+
+// ── AI BOM 建议响应类型 ───────────────────────
+export interface AiSuggestionItem {
+  skuId: number;
+  skuName: string;
+  quantity: string;
+  unit: string;
+  /** 0–100 的置信度数值 */
+  confidence: number;
+  reason: string;
+}
+
+export interface AiBomSuggestion {
+  suggestedItems: AiSuggestionItem[];
+}
 
 // ── 原始请求函数 ─────────────────────────────
 export const bomApi = {
@@ -40,6 +56,26 @@ export const bomApi = {
 
   activate: (id: number) =>
     request.post<null>(`/api/bom/${id}/activate`),
+
+  /** PUT /api/bom/:id — 更新 BOM 头信息（版本号、描述等） */
+  update: (id: number, data: Partial<CreateBomPayload>) =>
+    request.put<null>(`/api/bom/${id}`, data),
+
+  /** DELETE /api/bom/:bomId/items/:itemId — 删除 BOM 子项 */
+  deleteItem: (bomId: number, itemId: number) =>
+    request.delete<null>(`/api/bom/${bomId}/items/${itemId}`),
+
+  /** POST /api/bom/:id/copy — 复制 BOM 为新草稿 */
+  copy: (id: number) =>
+    request.post<{ id: number }>(`/api/bom/${id}/copy`),
+
+  /** BE-P1-002: 根据 skuId 获取 AI 辅助 BOM 建议（同品类 BOM 频次统计） */
+  getAiSuggestion: (skuId: number) =>
+    request.get<AiBomSuggestion>(`/api/bom/ai-suggestion/${skuId}`),
+
+  /** 向已有 BOM 追加一条子项 */
+  addItem: (bomId: number, item: { componentSkuId: number; quantity: string; unit: string; scrapRate?: string }) =>
+    request.post<{ bomItemId: number }>(`/api/bom/${bomId}/items`, item),
 };
 
 // ── React Query Hooks ────────────────────────
@@ -86,8 +122,70 @@ export function useActivateBom() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: bomApi.activate,
+    onSuccess: (_data, id) => {
+      void qc.invalidateQueries({ queryKey: bomKeys.lists() });
+      void qc.invalidateQueries({ queryKey: bomKeys.expanded(id) });
+    },
+  });
+}
+
+/** 向已有 BOM 追加子项 */
+export function useAddBomItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ bomId, item }: { bomId: number; item: { componentSkuId: number; quantity: string; unit: string; scrapRate?: string } }) =>
+      bomApi.addItem(bomId, item),
+    onSuccess: (_data, { bomId }) => {
+      void qc.invalidateQueries({ queryKey: bomKeys.expanded(bomId) });
+      void qc.invalidateQueries({ queryKey: bomKeys.lists() });
+    },
+  });
+}
+
+/** 更新 BOM 头信息 */
+export function useUpdateBom() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<CreateBomPayload> }) =>
+      bomApi.update(id, data),
+    onSuccess: (_data, { id }) => {
+      void qc.invalidateQueries({ queryKey: bomKeys.lists() });
+      void qc.invalidateQueries({ queryKey: bomKeys.detail(id) });
+    },
+  });
+}
+
+/** 删除 BOM 子项 */
+export function useDeleteBomItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ bomId, itemId }: { bomId: number; itemId: number }) =>
+      bomApi.deleteItem(bomId, itemId),
+    onSuccess: (_data, { bomId }) => {
+      void qc.invalidateQueries({ queryKey: bomKeys.expanded(bomId) });
+      void qc.invalidateQueries({ queryKey: bomKeys.lists() });
+    },
+  });
+}
+
+/** 复制 BOM 为新草稿 */
+export function useCopyBom() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: bomApi.copy,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: bomKeys.lists() });
     },
+  });
+}
+
+/** AI 辅助 BOM 建议（BE-P1-002）：同品类 BOM 频次统计 */
+export function useAiBomSuggestion(skuId: number | null) {
+  return useQuery({
+    queryKey: bomKeys.aiSuggestion(skuId!),
+    queryFn: () => bomApi.getAiSuggestion(skuId!),
+    enabled: skuId !== null && skuId > 0,
+    // AI 建议数据不需要高频刷新，5 分钟 stale
+    staleTime: 5 * 60 * 1000,
   });
 }

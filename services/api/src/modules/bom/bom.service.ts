@@ -26,6 +26,8 @@ export interface BomHeader {
   id: number;
   skuId: number;
   skuName: string;
+  /** P2-2: SKU code included for list display */
+  skuCode?: string;
   version: string;
   status: string;
   items: BomItemNode[];
@@ -83,9 +85,10 @@ export class BomService {
     }
 
     const headers = await AppDataSource.query<Array<{
-      id: number; sku_id: number; sku_name: string; version: string; status: string;
+      id: number; sku_id: number; sku_name: string; sku_code: string; version: string; status: string;
     }>>(
-      `SELECT b.id, b.sku_id, s.name AS sku_name, b.version, b.status
+      // P2-2: include s.code AS skuCode so callers receive the SKU code in list responses
+      `SELECT b.id, b.sku_id, s.name AS sku_name, s.code AS sku_code, b.version, b.status
        FROM bom_headers b
        INNER JOIN skus s ON s.id = b.sku_id
        WHERE ${conditions.join(' AND ')}
@@ -93,7 +96,7 @@ export class BomService {
       params,
     );
 
-    return headers.map((h) => ({ ...h, skuId: h.sku_id, skuName: h.sku_name, items: [] }));
+    return headers.map((h) => ({ ...h, skuId: h.sku_id, skuName: h.sku_name, skuCode: h.sku_code, items: [] }));
   }
 
   // ── 获取 BOM 并递归展开（带缓存）────────────────────────────
@@ -342,12 +345,14 @@ export class BomService {
       throw AppError.badRequest('BOM层级不能超过10层', ResponseCode.BOM_CIRCULAR_REF);
     }
 
+    // P0-3: query header ONCE outside the loop (fixes N+1) and add tenant_id filter
+    const [header] = await manager.query<Array<{ sku_id: number }>>(
+      'SELECT sku_id FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [bomId, this.tenantId],
+    );
+
     for (const item of items) {
       // 检查循环引用：若当前 componentSkuId 是 BOM 对应成品，则循环
-      const [header] = await manager.query<Array<{ sku_id: number }>>(
-        'SELECT sku_id FROM bom_headers WHERE id = ? LIMIT 1',
-        [bomId],
-      );
       if (header && header.sku_id === item.componentSkuId) {
         throw AppError.badRequest(
           `检测到循环引用：物料 ${item.componentSkuId} 是当前BOM的成品`,
@@ -398,9 +403,10 @@ export class BomService {
       );
     });
 
-    // 失效缓存
+    // P1-1: add tenant_id filter to prevent cross-tenant cache leak
     const [header] = await AppDataSource.query<Array<{ version: string }>>(
-      'SELECT version FROM bom_headers WHERE id = ? LIMIT 1', [bomId],
+      'SELECT version FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [bomId, this.tenantId],
     );
     if (header) {
       await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, header.version));
@@ -455,13 +461,18 @@ export class BomService {
    * 校验明细必须属于当前租户。
    */
   async deleteBomItem(bomItemId: number): Promise<void> {
-    const [item] = await AppDataSource.query<Array<{ id: number; bom_header_id: number }>>(
-      'SELECT id, bom_header_id FROM bom_items WHERE id = ? AND tenant_id = ? LIMIT 1',
-      [bomItemId, this.tenantId],
-    );
-    if (!item) throw AppError.notFound('BOM明细不存在', ResponseCode.BOM_NOT_FOUND);
+    // P1-4: existence check moved INSIDE the transaction to eliminate TOCTOU race condition
+    let capturedBomHeaderId: number | undefined;
 
     await AppDataSource.transaction(async (manager) => {
+      const [item] = await manager.query<Array<{ id: number; bom_header_id: number }>>(
+        'SELECT id, bom_header_id FROM bom_items WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [bomItemId, this.tenantId],
+      );
+      if (!item) throw AppError.notFound('BOM明细不存在', ResponseCode.BOM_NOT_FOUND);
+
+      capturedBomHeaderId = item.bom_header_id;
+
       // 递归删除所有子孙节点（借助 WITH RECURSIVE CTE）
       await manager.query(
         `DELETE FROM bom_items
@@ -479,15 +490,17 @@ export class BomService {
       );
     });
 
-    // 失效该 BOM 的展开缓存
-    const [header] = await AppDataSource.query<Array<{ version: string }>>(
-      'SELECT version FROM bom_headers WHERE id = ? LIMIT 1',
-      [item.bom_header_id],
-    );
-    if (header) {
-      await getRedisClient().del(
-        RedisKeys.bomExpanded(this.tenantId, item.bom_header_id, header.version),
+    // 失效该 BOM 的展开缓存（在事务提交后执行）
+    if (capturedBomHeaderId !== undefined) {
+      const [header] = await AppDataSource.query<Array<{ version: string }>>(
+        'SELECT version FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [capturedBomHeaderId, this.tenantId],
       );
+      if (header) {
+        await getRedisClient().del(
+          RedisKeys.bomExpanded(this.tenantId, capturedBomHeaderId, header.version),
+        );
+      }
     }
   }
 
@@ -583,7 +596,16 @@ export class BomService {
       reason: string;
     }>;
   }> {
-    const rows = await AppDataSource.query(
+    // P2-1: use a proper typed interface instead of (r: any)
+    interface AiSuggestionRow {
+      skuId: number;
+      skuName: string;
+      avgQty: string;
+      unit: string;
+      usageCount: number;
+    }
+
+    const rows = await AppDataSource.query<AiSuggestionRow[]>(
       `SELECT bi.component_sku_id AS skuId, s.name AS skuName,
               AVG(bi.quantity) AS avgQty, bi.unit,
               COUNT(*) AS usageCount
@@ -600,7 +622,7 @@ export class BomService {
     );
 
     return {
-      suggestedItems: rows.map((r: any) => ({
+      suggestedItems: rows.map((r) => ({
         skuId: Number(r.skuId),
         skuName: r.skuName,
         quantity: String(Number(r.avgQty).toFixed(2)),
@@ -611,18 +633,71 @@ export class BomService {
     };
   }
 
+  // ── 新增 BOM 明细行（顶层，level = 1）──────────────────────
+
+  /**
+   * 向已有 BOM 追加一条顶层明细行（parent_item_id = NULL, level = 1）。
+   * 校验：componentSkuId 不得与 BOM 的成品 skuId 相同（防直接循环引用）。
+   * 成功后失效该 BOM 的展开缓存。
+   */
+  async addBomItem(
+    bomId: number,
+    payload: {
+      componentSkuId: number;
+      quantity: string;
+      unit: string;
+      scrapRate?: string;
+    },
+  ): Promise<{ bomItemId: number }> {
+    // 1. 校验 BOM 存在并获取 skuId 与 version（用于缓存失效）
+    const [header] = await AppDataSource.query<Array<{ sku_id: number; version: string }>>(
+      'SELECT sku_id, version FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [bomId, this.tenantId],
+    );
+    if (!header) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
+
+    // 2. 防止直接循环引用
+    if (header.sku_id === payload.componentSkuId) {
+      throw AppError.badRequest(
+        `检测到循环引用：物料 ${payload.componentSkuId} 是当前BOM的成品`,
+        ResponseCode.BOM_CIRCULAR_REF,
+      );
+    }
+
+    // 3. 插入明细行
+    const result = await AppDataSource.query(
+      `INSERT INTO bom_items
+         (tenant_id, bom_header_id, parent_item_id, component_sku_id,
+          quantity, unit, level, scrap_rate, sort_order, created_by, updated_by)
+       VALUES (?, ?, NULL, ?, ?, ?, 1, ?, 0, ?, ?)`,
+      [
+        this.tenantId, bomId, payload.componentSkuId,
+        payload.quantity, payload.unit,
+        payload.scrapRate ?? '0',
+        this.userId, this.userId,
+      ],
+    );
+
+    const bomItemId = Number(result.insertId);
+
+    // 4. 失效 Redis 展开缓存
+    await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, header.version));
+
+    return { bomItemId };
+  }
+
   // ── 私有辅助 ────────────────────────────────────────────────
 
   private async getBomHeader(bomId: number): Promise<BomHeader> {
     const [header] = await AppDataSource.query<Array<{
-      id: number; sku_id: number; sku_name: string; version: string; status: string;
+      id: number; sku_id: number; sku_name: string; sku_code: string; version: string; status: string; description: string | null;
     }>>(
-      `SELECT b.id, b.sku_id, s.name AS sku_name, b.version, b.status
+      `SELECT b.id, b.sku_id, s.name AS sku_name, s.code AS sku_code, b.version, b.status, b.description
        FROM bom_headers b INNER JOIN skus s ON s.id = b.sku_id
        WHERE b.id = ? AND b.tenant_id = ? LIMIT 1`,
       [bomId, this.tenantId],
     );
     if (!header) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
-    return { id: header.id, skuId: header.sku_id, skuName: header.sku_name, version: header.version, status: header.status, items: [] };
+    return { id: header.id, skuId: header.sku_id, skuName: header.sku_name, skuCode: header.sku_code, version: header.version, status: header.status, items: [] };
   }
 }

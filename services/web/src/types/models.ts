@@ -61,14 +61,51 @@ export interface SkuCategory {
   sortOrder: number;
 }
 
+/**
+ * R-01: 类目管理完整模型（含 isSystem + children）
+ * 对应 GET /api/sku-categories 响应结构
+ */
+export interface SkuCategoryFull {
+  id: number;
+  level: 1 | 2;
+  parentId: number | null;
+  code: string;
+  name: string;
+  sortOrder: number;
+  isActive: boolean;
+  /** true = 系统预置（tenant_id=0），前端禁止删除 */
+  isSystem: boolean;
+  children?: SkuCategoryFull[];
+}
+
+/** POST /api/sku-categories Request Body */
+export interface CreateCategoryPayload {
+  level: 1 | 2;
+  parentId?: number | null;
+  code: string;
+  name: string;
+  sortOrder?: number;
+}
+
+/** PATCH /api/sku-categories/:id Request Body */
+export interface UpdateCategoryPayload {
+  name?: string;
+  sortOrder?: number;
+}
+
+/** 批量排序更新 */
+export interface ReorderCategoryPayload {
+  orderedIds: number[];
+}
+
 // ─────────────────────────────────────────────
 // 单位换算
 // ─────────────────────────────────────────────
 export interface UnitConversion {
   fromUnit: string;
   toUnit: string;
-  /** 换算系数，例如 1 卷 = 50 m，则 factor = 50 */
-  factor: number;
+  /** 换算系数，例如 1 卷 = 50 m，则 conversionRate = "50"（后端 DECIMAL，字符串类型） */
+  conversionRate: string;
   description?: string;
 }
 
@@ -145,6 +182,7 @@ export type UpdateSkuPayload = Partial<CreateSkuPayload>;
 export interface BomHeader {
   id: number;
   skuId: number;
+  skuCode?: string;
   skuName: string;
   version: string;
   status: BomStatus;
