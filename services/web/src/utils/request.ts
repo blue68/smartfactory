@@ -48,6 +48,25 @@ function setLoading(delta: 1 | -1): void {
 }
 
 // ─────────────────────────────────────────────
+// snake_case → camelCase 转换（后端返回 snake_case，前端使用 camelCase）
+// ─────────────────────────────────────────────
+function toCamelCase(str: string): string {
+  return str.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
+}
+
+function camelizeKeys(obj: unknown): unknown {
+  if (Array.isArray(obj)) return obj.map(camelizeKeys);
+  if (obj !== null && typeof obj === 'object' && !(obj instanceof Date) && !(obj instanceof Blob)) {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      result[toCamelCase(key)] = camelizeKeys(value);
+    }
+    return result;
+  }
+  return obj;
+}
+
+// ─────────────────────────────────────────────
 // Axios 实例
 // ─────────────────────────────────────────────
 const instance: AxiosInstance = axios.create({
@@ -114,6 +133,14 @@ async function refreshAccessToken(): Promise<string | null> {
 instance.interceptors.response.use(
   (res: AxiosResponse<ApiResponse>) => {
     setLoading(-1);
+
+    // Blob 响应（如文件下载）跳过业务解包
+    if (res.data instanceof Blob) {
+      return res;
+    }
+
+    // snake_case → camelCase 转换
+    res.data = camelizeKeys(res.data) as ApiResponse;
     const body = res.data;
 
     // 业务错误：code !== 0
@@ -208,6 +235,11 @@ async function put<T>(url: string, body?: unknown, cfg?: AxiosRequestConfig): Pr
   return res.data.data;
 }
 
+async function patch<T>(url: string, body?: unknown, cfg?: AxiosRequestConfig): Promise<T> {
+  const res = await instance.patch<ApiResponse<T>>(url, body, cfg);
+  return res.data.data;
+}
+
 async function del<T>(url: string, cfg?: AxiosRequestConfig): Promise<T> {
   const res = await instance.delete<ApiResponse<T>>(url, cfg);
   return res.data.data;
@@ -218,5 +250,11 @@ async function postWithLockRetry<T>(url: string, body?: unknown): Promise<T> {
   return withLockRetry(() => post<T>(url, body));
 }
 
-export const request = { get, post, put, delete: del, postWithLockRetry, instance };
+/** 下载二进制文件（如 Excel 导出），使用统一 axios instance 自动注入 Token */
+async function downloadBlob(url: string, params?: Record<string, unknown>): Promise<Blob> {
+  const res = await instance.get(url, { params, responseType: 'blob' });
+  return res.data as Blob;
+}
+
+export const request = { get, post, put, patch, delete: del, postWithLockRetry, downloadBlob, instance };
 export default request;

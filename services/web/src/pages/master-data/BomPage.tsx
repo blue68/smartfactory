@@ -25,6 +25,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useSkuCategories, useSkuList, skuApi, skuKeys } from '@/api/sku';
 import type { BomHeader, BomItem } from '@/types/models';
 import { BomStatus, Category1Code } from '@/types/enums';
+import request from '@/utils/request';
 import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
 import BomTree from '@/components/common/BomTree';
@@ -1504,11 +1505,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
             variant="secondary"
             onClick={async () => {
               try {
-                const res = await fetch(`/api/bom/${row.id}/export`, {
-                  headers: { Authorization: `Bearer ${localStorage.getItem('sf_access_token') ?? ''}` },
-                });
-                if (!res.ok) throw new Error('导出失败');
-                const blob = await res.blob();
+                const blob = await request.downloadBlob(`/api/bom/${row.id}/export`);
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -1999,6 +1996,10 @@ export default function BomPage() {
         description: '',
         items: data.items,
       });
+      if (!result?.id) {
+        showToast({ type: 'error', message: '创建BOM失败：服务端未返回ID' });
+        return;
+      }
       setWizardOpen(false);
       const itemCount = data.items.length;
       showToast({

@@ -186,7 +186,8 @@ export class BomController {
     const { id } = IdParamSchema.parse(req.params);
     const buffer = await this.svc(req).exportBomToExcel(id);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="bom-${id}.xlsx"`);
+    const encodedName = encodeURIComponent(`bom-${id}.xlsx`);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedName}`);
     res.end(buffer);
   }
 }

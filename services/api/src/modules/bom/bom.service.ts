@@ -729,8 +729,8 @@ export class BomService {
            COALESCE(p.price, 0)
          ) AS totalCost
        FROM bom_items bi
-       INNER JOIN skus s ON s.id = bi.component_sku_id
-       LEFT JOIN sku_categories c ON c.id = s.category1_id
+       INNER JOIN skus s ON s.id = bi.component_sku_id AND s.tenant_id = bi.tenant_id
+       LEFT JOIN sku_categories c ON c.id = s.category1_id AND c.tenant_id = bi.tenant_id
        LEFT JOIN (
          SELECT sku_id, price,
            ROW_NUMBER() OVER (PARTITION BY sku_id ORDER BY effective_at DESC, id DESC) AS rn
@@ -866,15 +866,7 @@ export class BomService {
     let capturedVersion: string;
 
     await AppDataSource.transaction(async (manager) => {
-      // 1. 校验明细存在、归属租户、归属 bomId，并加行锁
-      const [item] = await manager.query<Array<{ id: number }>>(
-        `SELECT id FROM bom_items
-         WHERE id = ? AND tenant_id = ? AND bom_header_id = ? LIMIT 1 FOR UPDATE`,
-        [itemId, this.tenantId, bomId],
-      );
-      if (!item) throw AppError.notFound('BOM明细不存在', ResponseCode.BOM_NOT_FOUND);
-
-      // 2. 校验 BOM header status 必须是 draft（加行锁防止并发 activate 绕过）
+      // 1. 先锁 header（与 deleteBomItem 加锁顺序一致，防止死锁）
       const [header] = await manager.query<Array<{ status: string; version: string }>>(
         `SELECT status, version FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
         [bomId, this.tenantId],
@@ -887,6 +879,14 @@ export class BomService {
         );
       }
       capturedVersion = header.version;
+
+      // 2. 再锁 item（校验明细存在、归属租户、归属 bomId）
+      const [item] = await manager.query<Array<{ id: number }>>(
+        `SELECT id FROM bom_items
+         WHERE id = ? AND tenant_id = ? AND bom_header_id = ? LIMIT 1 FOR UPDATE`,
+        [itemId, this.tenantId, bomId],
+      );
+      if (!item) throw AppError.notFound('BOM明细不存在', ResponseCode.BOM_NOT_FOUND);
 
       // 3. 动态构建 SET 子句（仅更新有传入的字段）
       const setClauses: string[] = ['updated_by = ?'];
