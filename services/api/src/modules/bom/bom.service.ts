@@ -473,7 +473,7 @@ export class BomService {
         );
         if (existing) {
           throw AppError.badRequest(
-            `版本号 ${payload.version} 已存在，请使用其他版本号`,
+            '版本号已存在，请使用其他版本号',
             ResponseCode.BOM_VERSION_DUPLICATE,
           );
         }
@@ -512,8 +512,18 @@ export class BomService {
     let capturedBomHeaderId: number | undefined;
 
     await AppDataSource.transaction(async (manager) => {
+      // 先锁 header，确认 draft 状态（与 updateBomItem 保持一致的加锁顺序）
+      const [header] = await manager.query<Array<{ status: string }>>(
+        'SELECT status FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE',
+        [expectedBomId, this.tenantId],
+      );
+      if (!header) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
+      if (header.status !== 'draft') {
+        throw AppError.badRequest('只有 draft 状态的 BOM 允许删除明细', ResponseCode.BOM_STATUS_CONFLICT);
+      }
+
       const [item] = await manager.query<Array<{ id: number; bom_header_id: number }>>(
-        'SELECT id, bom_header_id FROM bom_items WHERE id = ? AND tenant_id = ? AND bom_header_id = ? LIMIT 1',
+        'SELECT id, bom_header_id FROM bom_items WHERE id = ? AND tenant_id = ? AND bom_header_id = ? LIMIT 1 FOR UPDATE',
         [bomItemId, this.tenantId, expectedBomId],
       );
       if (!item) throw AppError.notFound('BOM明细不存在', ResponseCode.BOM_NOT_FOUND);
@@ -575,7 +585,7 @@ export class BomService {
       );
       if (existing) {
         throw AppError.badRequest(
-          `版本号 ${newVersion} 已存在，请使用其他版本号`,
+          '版本号已存在，请使用其他版本号',
           ResponseCode.BOM_VERSION_DUPLICATE,
         );
       }
