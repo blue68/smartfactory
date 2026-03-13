@@ -1,409 +1,777 @@
 /**
- * [artifact:前端代码] — 销售订单页
- * 功能：订单列表、约束引擎结果展示、紧急插单分析、审批
+ * [artifact:前端代码] — 新建销售订单页
+ * 设计稿: docs/ui/web-sales-order.html
+ * 功能：创建销售订单、交期产能预估、约束引擎检查、紧急插单AI分析
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
-import {
-  useSalesOrderList,
-  useSalesOrderDetail,
-  useCreateSalesOrder,
-  useApproveOrder,
-  useUrgentAnalysis,
-} from '@/api/sales';
-import {
-  SalesOrderStatus, SalesOrderStatusLabel,
-  ConstraintResult, ApprovalAction, OrderType,
-} from '@/types/enums';
-import type { SalesOrder, UrgentAnalysisResult } from '@/types/models';
-import type { Column } from '@/components/common/Table';
-import Table from '@/components/common/Table';
-import StatusBadge from '@/components/common/StatusBadge';
-import Tag from '@/components/common/Tag';
+import { useCreateSalesOrder, useUrgentAnalysis } from '@/api/sales';
+import { OrderType, ConstraintResult } from '@/types/enums';
+import type {
+  SalesOrderCreateResult,
+  UrgentAnalysisResult,
+  ConstraintCheck,
+} from '@/types/models';
 import Button from '@/components/common/Button';
 import Modal from '@/components/common/Modal';
-import Drawer from '@/components/common/Drawer';
-import AiThinkingState from '@/components/ai/AiThinkingState';
-import { formatCNY, formatDate, formatDateTime } from '@/utils/format';
 import styles from './OrderPage.module.css';
 
-type OrderRecord = SalesOrder & Record<string, unknown>;
+// ─── Mock customer / product options ─────────────────────────────────────────
+const CUSTOMERS = [
+  { value: 'c1', label: '南京美家装饰有限公司' },
+  { value: 'c2', label: '上海博艺家具设计工作室' },
+  { value: 'c3', label: '杭州绿筑室内装饰' },
+  { value: 'c4', label: '成都雅居装饰工程' },
+];
 
-const CONSTRAINT_TAG: Record<ConstraintResult, { label: string; variant: 'success' | 'warning' | 'error' }> = {
-  [ConstraintResult.PASS]:  { label: '通过', variant: 'success' },
-  [ConstraintResult.WARN]:  { label: '警告', variant: 'warning' },
-  [ConstraintResult.BLOCK]: { label: '被拦截', variant: 'error' },
+const PRODUCTS = [
+  { value: 'p1', label: '欧式双人沙发（BOM-021）', skuId: 1, bomId: 21 },
+  { value: 'p2', label: '布艺三人沙发（BOM-018）', skuId: 2, bomId: 18 },
+  { value: 'p3', label: '单人休闲椅（BOM-009）', skuId: 3, bomId: 9 },
+  { value: 'p4', label: '皮革脚凳（BOM-031）', skuId: 4, bomId: 31 },
+];
+
+// ─── 静态预估数据（库存可用性文本后端暂无专用字段，保留 mock）────────────────
+// TODO: inventory.text 等待后端 /api/sales/orders/estimate 接口支持后替换
+const ESTIMATE_INVENTORY_TEXT = '原材料充足，成品库存 0 套';
+
+// ─── 约束检查维度标签映射 ─────────────────────────────────────────────────────
+const CONSTRAINT_CHECK_LABELS: Record<string, string> = {
+  inventoryTurnoverCheck: 'SKU 库存周转天数',
+  capitalOccupationCheck: '资金占用',
+  productionCostCheck: '生产成本估算',
+  capacityLoadCheck: '产能负荷',
 };
 
-function ConstraintResultDisplay({ result }: { result: ConstraintResult }) {
-  const t = CONSTRAINT_TAG[result];
-  return <Tag variant={t.variant}>{t.label}</Tag>;
+// ─── 将后端 UrgentAnalysisResult / 4 维度 CheckResult 转换为 UI 展示列表 ──────
+interface ConstraintCheckDisplay {
+  passed: boolean;
+  label: string;
+  detail: string;
 }
 
-function UrgentAnalysisReport({ data }: { data: UrgentAnalysisResult }) {
-  const checks = [
-    { label: '库存周转天数', ...data.inventoryTurnoverCheck },
-    { label: '资金占用',     ...data.capitalOccupationCheck },
-    { label: '生产成本',     ...data.productionCostCheck },
-    { label: '产能负荷',     ...data.capacityLoadCheck },
+function buildConstraintChecksFromAnalysis(
+  analysis: UrgentAnalysisResult,
+): ConstraintCheckDisplay[] {
+  const dimKeys = [
+    'inventoryTurnoverCheck',
+    'capitalOccupationCheck',
+    'productionCostCheck',
+    'capacityLoadCheck',
+  ] as const;
+
+  return dimKeys.map((key) => {
+    const check: ConstraintCheck = analysis[key];
+    return {
+      passed: check.passed,
+      label: CONSTRAINT_CHECK_LABELS[key],
+      detail: check.detail,
+    };
+  });
+}
+
+// ─── 根据普通订单创建结果构建简化约束检查展示（createOrder 不返回各维度详情）──
+// 后端 createOrder 仅返回 overallResult（pass/block/warning），不含各维度细节。
+// 待后端 createOrder 支持返回完整 ConstraintCheckReport 后可替换此函数。
+function buildConstraintChecksFromCreateResult(
+  result: SalesOrderCreateResult,
+): ConstraintCheckDisplay[] {
+  const passed = result.constraintResult !== ConstraintResult.BLOCK;
+  return [
+    {
+      passed,
+      label: '综合约束检查',
+      detail: passed
+        ? `约束检查通过（${result.constraintResult}）。订单 ${result.orderNo} 已确认。`
+        : `约束检查未通过（${result.constraintResult}），订单已进入待审批状态。请老板审批后继续。`,
+    },
   ];
+}
+
+// ─── AI step definition ──────────────────────────────────────────────────────
+type StepStatus = 'done' | 'current' | 'pending';
+
+interface AiStep {
+  label: string;
+  status: StepStatus;
+}
+
+const INITIAL_AI_STEPS: AiStep[] = [
+  { label: '读取当前排产计划（12 单）', status: 'done' },
+  { label: '计算产能占用变化', status: 'done' },
+  { label: '模拟插入后各订单交期变化…', status: 'current' },
+  { label: '计算资金占用与库存周转变化', status: 'pending' },
+];
+
+// ─── Constraint Blocked Modal ─────────────────────────────────────────────────
+interface ConstraintModalProps {
+  open: boolean;
+  onClose: () => void;
+  onViewDetail: () => void;
+  result: SalesOrderCreateResult | null;
+}
+
+function ConstraintBlockedModal({ open, onClose, onViewDetail, result }: ConstraintModalProps) {
+  const isBlocked = result?.constraintResult === ConstraintResult.BLOCK;
+  const title = isBlocked
+    ? '约束检查未通过，需老板审批'
+    : result?.requiresApproval
+    ? '订单需审批确认'
+    : '约束检查通过';
 
   return (
-    <div className={styles.analysis_report}>
-      <div className={`${styles.analysis_overall} ${data.overallResult === ConstraintResult.BLOCK ? styles['analysis_overall--block'] : data.overallResult === ConstraintResult.WARN ? styles['analysis_overall--warn'] : styles['analysis_overall--pass']}`}>
-        <strong>综合评估：</strong>
-        {data.overallResult === ConstraintResult.PASS ? '✅ 可以接单' : data.overallResult === ConstraintResult.WARN ? '⚠️ 谨慎接单' : '🚫 建议拒绝'}
-      </div>
-
-      <div className={styles.analysis_checks}>
-        {checks.map((c) => (
-          <div key={c.label} className={`${styles.check_item} ${c.passed ? styles['check_item--pass'] : styles['check_item--fail']}`}>
-            <span className={styles.check_icon} aria-hidden="true">{c.passed ? '✓' : '✗'}</span>
-            <div>
-              <div className={styles.check_label}>{c.label}</div>
-              <div className={styles.check_detail}>{c.detail}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {data.blockedReasons.length > 0 && (
-        <div className="alert alert--error">
-          <span className="alert__icon" aria-hidden="true">🚫</span>
-          <div className="alert__body">
-            <div className="alert__title">拦截原因</div>
-            <ul style={{ paddingLeft: 'var(--space-4)', marginTop: 'var(--space-2)' }}>
-              {data.blockedReasons.map((r, i) => <li key={i} className="alert__desc">{r}</li>)}
-            </ul>
-          </div>
+    <Modal
+      open={open}
+      title={title}
+      onClose={onClose}
+      confirmLabel="查看订单详情"
+      cancelLabel="关闭"
+      confirmVariant="primary"
+      onConfirm={onViewDetail}
+      size="md"
+    >
+      <div className={styles.constraint_modal_body}>
+        <div className={styles.modal_section_label}>触发原因</div>
+        <div className={styles.modal_error_item}>
+          <span className={styles.modal_error_icon}>✖</span>
+          <span className={styles.modal_error_text}>
+            <strong>资金占用超标：</strong>新增后总占用 ¥192,000，超出预算上限 ¥180,000（超出 6.7%）
+          </span>
         </div>
-      )}
 
-      {data.impactAnalysis.affectedOrders.length > 0 && (
-        <div className="alert alert--warning">
-          <span className="alert__icon" aria-hidden="true">⚠️</span>
-          <div className="alert__body">
-            <div className="alert__title">影响分析</div>
-            <div className="alert__desc">
-              将导致 {data.impactAnalysis.affectedOrders.length} 个订单延期，
-              额外占用资金 {formatCNY(data.impactAnalysis.additionalCapital)}，
-              库存周转变化 {data.impactAnalysis.turnoverDaysChange} 天。
-            </div>
+        <div className={styles.modal_section_label}>AI 影响分析</div>
+        <div className={styles.modal_ai_block}>
+          <div className={styles.modal_ai_block_title}>
+            <span>🤖</span> AI 智能分析
           </div>
+          <ul className={styles.modal_ai_list}>
+            <li className={styles.modal_ai_item}>
+              受影响订单：现有 3 单（ORD-031101/031102/031103）交期可能延后 1-2 天
+            </li>
+            <li className={styles.modal_ai_item}>
+              库存周转天数将从 38 天增至 44 天，仍在安全阈值内
+            </li>
+            <li className={styles.modal_ai_item}>
+              建议与客户协商将交期延后至 2026-04-02，可完全规避资金超标风险
+            </li>
+          </ul>
         </div>
-      )}
-    </div>
+
+        <div className={styles.modal_pending_notice}>
+          <span className={styles.modal_pending_icon}>⏳</span>
+          <span>订单已暂存，等待老板审批（预计 4 小时内处理）</span>
+        </div>
+      </div>
+    </Modal>
   );
+}
+
+// ─── Urgent AI Analysis Modal ─────────────────────────────────────────────────
+interface UrgentModalProps {
+  open: boolean;
+  onCancel: () => void;
+  steps: AiStep[];
+  countdown: number;
+}
+
+function UrgentAnalysisModal({ open, onCancel, steps, countdown }: UrgentModalProps) {
+  return (
+    <Modal
+      open={open}
+      title="AI 正在评估插单影响…"
+      onClose={onCancel}
+      hideFooter
+      size="md"
+    >
+      <div className={styles.urgent_modal_body}>
+        <p className={styles.urgent_modal_sub}>正在模拟对现有排产计划的影响</p>
+
+        <div className={styles.ai_step_list} role="list">
+          {steps.map((step, i) => (
+            <div
+              key={i}
+              className={`${styles.ai_step} ${styles[`ai_step--${step.status}`]}`}
+              role="listitem"
+              aria-current={step.status === 'current' ? 'step' : undefined}
+            >
+              <div className={styles.ai_step_icon} aria-label={
+                step.status === 'done' ? '已完成' :
+                step.status === 'current' ? '进行中' : '待执行'
+              }>
+                {step.status === 'done' && '✓'}
+                {step.status === 'current' && <span className={styles.step_spinner} />}
+                {step.status === 'pending' && '○'}
+              </div>
+              <span className={styles.ai_step_label}>{step.label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.ai_countdown} role="status" aria-live="polite">
+          <span>⏱</span>
+          <span>预计还需约</span>
+          <span className={styles.ai_countdown_timer}>{countdown}</span>
+          <span>秒</span>
+        </div>
+
+        <div className={styles.urgent_modal_footer}>
+          <Button variant="danger" onClick={onCancel}>取消插单</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+interface FormState {
+  customer: string;
+  orderType: 'normal' | 'urgent';
+  product: string;
+  qty: string;
+  deadline: string;
+  notes: string;
 }
 
 export default function OrderPage() {
   const { setPageTitle, showToast } = useAppStore();
-  const [statusFilter, setStatusFilter] = useState<SalesOrderStatus | ''>('');
-  const [page, setPage] = useState(1);
-  const [detailId, setDetailId] = useState<number | null>(null);
-  const [approveModal, setApproveModal] = useState<{ open: boolean; id: number | null; action: ApprovalAction }>({ open: false, id: null, action: ApprovalAction.APPROVED });
-  const [approveNotes, setApproveNotes] = useState('');
-  const [urgentDrawer, setUrgentDrawer] = useState(false);
-  const [urgentResult, setUrgentResult] = useState<UrgentAnalysisResult | null>(null);
+  const navigate = useNavigate();
 
-  useEffect(() => { setPageTitle('销售订单'); }, [setPageTitle]);
+  const [form, setForm] = useState<FormState>({
+    customer: 'c4',
+    orderType: 'normal',
+    product: 'p2',
+    qty: '8',
+    deadline: '2026-03-25',
+    notes: '',
+  });
 
-  const { data, isLoading, error } = useSalesOrderList({ status: statusFilter as SalesOrderStatus || undefined }, page, 20);
-  const { data: detail } = useSalesOrderDetail(detailId);
-  const approveMutation = useApproveOrder();
-  const urgentMutation  = useUrgentAnalysis();
+  const [showConstraintCard, setShowConstraintCard] = useState(false);
+  const [constraintModalOpen, setConstraintModalOpen] = useState(false);
+  const [urgentModalOpen, setUrgentModalOpen] = useState(false);
+  const [createResult, setCreateResult] = useState<SalesOrderCreateResult | null>(null);
 
-  const handleApprove = async () => {
-    if (!approveModal.id) return;
+  // 约束检查展示数据：优先使用 API 返回数据，fallback 为空数组
+  const [constraintChecks, setConstraintChecks] = useState<ConstraintCheckDisplay[]>([]);
+
+  // Urgent AI countdown
+  const [aiSteps, setAiSteps] = useState<AiStep[]>(INITIAL_AI_STEPS);
+  const [countdown, setCountdown] = useState(18);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Draft save state
+  const [draftLabel, setDraftLabel] = useState('草稿');
+  const [autoSaveText, setAutoSaveText] = useState('自动保存 10 秒前');
+
+  const createMutation = useCreateSalesOrder();
+  const urgentMutation = useUrgentAnalysis();
+
+  useEffect(() => {
+    setPageTitle('新建销售订单');
+  }, [setPageTitle]);
+
+  // Cleanup countdown on unmount
+  useEffect(() => {
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, []);
+
+  const handleFormChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
+  ) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleOrderTypeChange = (value: 'normal' | 'urgent') => {
+    setForm((prev) => ({ ...prev, orderType: value }));
+  };
+
+  const handleSaveDraft = () => {
+    setDraftLabel('草稿（已保存）');
+    setAutoSaveText('刚刚已保存');
+    showToast({ type: 'success', message: '草稿已保存' });
+  };
+
+  const handleCancel = () => {
+    if (window.confirm('确定放弃本次编辑？未保存的内容将丢失。')) {
+      navigate(-1);
+    }
+  };
+
+  /**
+   * 启动倒计时动画。
+   * onComplete 回调在倒计时结束时调用，传入最终的约束检查展示列表。
+   */
+  const startUrgentCountdown = (
+    onComplete?: (checks: ConstraintCheckDisplay[]) => void,
+  ) => {
+    setAiSteps(INITIAL_AI_STEPS);
+    setCountdown(18);
+
+    if (countdownRef.current) clearInterval(countdownRef.current);
+
+    countdownRef.current = setInterval(() => {
+      setCountdown((prev) => {
+        const next = prev - 1;
+
+        if (next === 10) {
+          setAiSteps((steps) =>
+            steps.map((s, i) => {
+              if (i === 2) return { ...s, status: 'done', label: '各订单交期变化模拟完成' };
+              if (i === 3) return { ...s, status: 'current' };
+              return s;
+            }),
+          );
+        }
+
+        if (next <= 0) {
+          if (countdownRef.current) clearInterval(countdownRef.current);
+          setUrgentModalOpen(false);
+          onComplete?.([]);
+        }
+
+        return next;
+      });
+    }, 1000);
+  };
+
+  const handleSubmit = async () => {
+    if (!form.customer || !form.product || !form.qty || !form.deadline) {
+      showToast({ type: 'error', message: '请填写所有必填字段' });
+      return;
+    }
+
+    if (form.orderType === 'urgent') {
+      setUrgentModalOpen(true);
+
+      // 并行执行：倒计时动画 + AI 分析 API
+      // API 完成后保留结果，倒计时结束时取最新数据展示
+      let analysisResult: UrgentAnalysisResult | null = null;
+
+      const product = PRODUCTS.find((p) => p.value === form.product);
+
+      // 发起 API 调用（与倒计时并行，不等待）
+      urgentMutation.mutateAsync({
+        skuId: product?.skuId ?? 1,
+        bomId: product?.bomId ?? 1,
+        qty: form.qty,
+        expectedDelivery: form.deadline,
+      }).then((data) => {
+        // API 先于倒计时完成时，暂存结果
+        analysisResult = data;
+      }).catch(() => {
+        // API 失败时 analysisResult 保持 null，倒计时结束后展示 fallback
+      });
+
+      startUrgentCountdown((/* _checks */) => {
+        // 倒计时结束时，使用已获得的 API 结果（若 API 还未完成则用空数组）
+        const checks =
+          analysisResult !== null
+            ? buildConstraintChecksFromAnalysis(analysisResult)
+            : [];
+        setConstraintChecks(checks);
+        setShowConstraintCard(true);
+
+        // 若 API 分析结果表明有问题，显示提示
+        if (analysisResult && analysisResult.overallResult === ConstraintResult.BLOCK) {
+          showToast({ type: 'error', message: '插单影响分析：当前约束不满足，请确认后提交' });
+        } else if (analysisResult) {
+          showToast({ type: 'info', message: '插单影响分析完成，请查看约束检查结果' });
+        }
+      });
+
+      return;
+    }
+
+    // Normal order
     try {
-      await approveMutation.mutateAsync({ id: approveModal.id, action: approveModal.action, notes: approveNotes });
-      showToast({ type: 'success', message: '审批操作完成' });
-      setApproveModal({ open: false, id: null, action: ApprovalAction.APPROVED });
-      setApproveNotes('');
+      const product = PRODUCTS.find((p) => p.value === form.product);
+      const customerIdx = CUSTOMERS.findIndex((c) => c.value === form.customer);
+      const result = await createMutation.mutateAsync({
+        customerId: customerIdx + 1,
+        orderType: OrderType.NORMAL,
+        expectedDelivery: form.deadline,
+        notes: form.notes,
+        items: [
+          {
+            skuId: product?.skuId ?? 1,
+            bomId: product?.bomId ?? 1,
+            qtyOrdered: form.qty,
+            unitPrice: '0',
+          },
+        ],
+      });
+
+      setCreateResult(result);
+
+      // 普通订单：createOrder 后端只返回 overallResult，无各维度详情。
+      // 此处用简化版展示；如需完整维度数据，可在此追加 getOrderById 请求。
+      setConstraintChecks(buildConstraintChecksFromCreateResult(result));
+      setShowConstraintCard(true);
+
+      if (result.constraintResult === ConstraintResult.BLOCK || result.requiresApproval) {
+        setTimeout(() => setConstraintModalOpen(true), 400);
+      } else {
+        showToast({ type: 'success', message: `订单 ${result.orderNo} 已创建成功` });
+      }
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
     }
   };
 
-  const columns: Column<OrderRecord>[] = [
-    {
-      key: 'orderNo',
-      title: '订单号',
-      render: (_, r) => <span style={{ fontFamily: 'var(--font-family-mono)', fontSize: 13 }}>{(r as SalesOrder).orderNo}</span>,
-    },
-    { key: 'customerName', title: '客户', render: (_, r) => (r as SalesOrder).customerName },
-    {
-      key: 'orderType',
-      title: '类型',
-      width: 80,
-      render: (_, r) => {
-        const o = r as SalesOrder;
-        return o.orderType === OrderType.URGENT
-          ? <Tag variant="priority-urgent">紧急</Tag>
-          : <Tag variant="priority-normal">普通</Tag>;
-      },
-    },
-    {
-      key: 'status',
-      title: '状态',
-      width: 110,
-      render: (_, r) => <StatusBadge status={(r as SalesOrder).status} />,
-    },
-    {
-      key: 'constraintResult',
-      title: '约束检查',
-      width: 90,
-      render: (_, r) => <ConstraintResultDisplay result={(r as SalesOrder).constraintResult} />,
-    },
-    {
-      key: 'totalAmount',
-      title: '金额',
-      align: 'right',
-      render: (_, r) => <span style={{ fontFamily: 'var(--font-family-number)' }}>{formatCNY((r as SalesOrder).totalAmount)}</span>,
-    },
-    {
-      key: 'expectedDelivery',
-      title: '交期',
-      render: (_, r) => formatDate((r as SalesOrder).expectedDelivery),
-    },
-    {
-      key: 'actions',
-      title: '操作',
-      width: 160,
-      render: (_, r) => {
-        const o = r as SalesOrder;
-        return (
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <Button variant="text" size="sm" onClick={() => setDetailId(o.id)}>详情</Button>
-            {o.status === SalesOrderStatus.PENDING_APPROVAL && (
-              <>
-                <Button
-                  variant="success"
-                  size="sm"
-                  onClick={() => setApproveModal({ open: true, id: o.id, action: ApprovalAction.APPROVED })}
-                >
-                  批准
-                </Button>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  onClick={() => setApproveModal({ open: true, id: o.id, action: ApprovalAction.REJECTED })}
-                >
-                  驳回
-                </Button>
-              </>
-            )}
-          </div>
-        );
-      },
-    },
-  ];
+  const handleCancelUrgent = () => {
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    setUrgentModalOpen(false);
+  };
 
-  const STATUS_TABS = [
-    ['', '全部'],
-    [SalesOrderStatus.PENDING_APPROVAL, '待审批'],
-    [SalesOrderStatus.CONFIRMED,       '已确认'],
-    [SalesOrderStatus.IN_PRODUCTION,   '生产中'],
-    [SalesOrderStatus.COMPLETED,       '已完成'],
-  ] as const;
+  const isUrgent = form.orderType === 'urgent';
+  const isSubmitting = createMutation.isPending || urgentMutation.isPending;
 
   return (
     <div className={styles.page}>
-      <div className="page-header">
-        <h1 className="page-header__title">📋 销售订单</h1>
-        <div className="page-header__actions">
-          <Button
-            variant="ai"
-            size="md"
-            icon="⚡"
-            onClick={() => { setUrgentDrawer(true); setUrgentResult(null); }}
-          >
-            插单影响分析
-          </Button>
+      {/* ── Breadcrumb / Header ─────────────────────────────────── */}
+      <div className={styles.page_header}>
+        <nav className={styles.breadcrumb} aria-label="面包屑">
+          <span className={styles.breadcrumb_link}>销售管理</span>
+          <span className={styles.breadcrumb_sep}>›</span>
+          <span className={styles.breadcrumb_link}>订单管理</span>
+          <span className={styles.breadcrumb_sep}>›</span>
+          <span className={styles.breadcrumb_current}>新建订单</span>
+        </nav>
+        <div className={styles.header_actions}>
+          <span className={styles.draft_badge}>{draftLabel}</span>
+          <span className={styles.auto_save_text}>{autoSaveText}</span>
         </div>
       </div>
 
-      {/* 状态 Tabs */}
-      <div className={styles.tabs} role="tablist">
-        {STATUS_TABS.map(([val, label]) => (
-          <button
-            key={val}
-            role="tab"
-            aria-selected={statusFilter === val}
-            className={`${styles.tab} ${statusFilter === val ? styles['tab--active'] : ''}`}
-            onClick={() => { setStatusFilter(val as SalesOrderStatus | ''); setPage(1); }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* ── Page Content ────────────────────────────────────────── */}
+      <main className={styles.page_content}>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <Table<OrderRecord>
-          columns={columns}
-          dataSource={(data?.list ?? []) as OrderRecord[]}
-          rowKey="id"
-          loading={isLoading}
-          error={error ? (error as Error).message : null}
-          emptyText="暂无销售订单"
-          pagination={data ? { page, pageSize: 20, total: data.total, onChange: setPage } : undefined}
-        />
-      </div>
+        {/* Urgent notice strip */}
+        {isUrgent && (
+          <div className={`${styles.urgent_notice} ${styles.animate_slidedown}`}>
+            <span className={styles.urgent_notice_icon}>⚠</span>
+            <span>
+              <strong>紧急插单模式已启用</strong> — 提交前需完成 AI 影响评估。
+              评估完成后，系统将展示对现有订单交期的具体影响，由您决定是否继续插单。
+            </span>
+          </div>
+        )}
 
-      {/* 订单详情 Drawer */}
-      <Drawer
-        open={detailId !== null}
-        title={detail?.orderNo ?? '订单详情'}
-        onClose={() => setDetailId(null)}
-        width={520}
-      >
-        {detail ? (
-          <div className={styles.detail}>
-            <div className={styles.detail_row}>
-              <span className={styles.detail_label}>客户</span>
-              <span>{detail.customerName}</span>
-            </div>
-            <div className={styles.detail_row}>
-              <span className={styles.detail_label}>订单类型</span>
-              <Tag variant={detail.orderType === OrderType.URGENT ? 'priority-urgent' : 'priority-normal'}>
-                {detail.orderType === OrderType.URGENT ? '紧急' : '普通'}
-              </Tag>
-            </div>
-            <div className={styles.detail_row}>
-              <span className={styles.detail_label}>状态</span>
-              <StatusBadge status={detail.status} />
-            </div>
-            <div className={styles.detail_row}>
-              <span className={styles.detail_label}>约束检查</span>
-              <ConstraintResultDisplay result={detail.constraintResult} />
-            </div>
-            <div className={styles.detail_row}>
-              <span className={styles.detail_label}>交期</span>
-              <span>{formatDate(detail.expectedDelivery)}</span>
-            </div>
-            <div className={styles.detail_row}>
-              <span className={styles.detail_label}>金额</span>
-              <span style={{ fontWeight: 600, fontSize: 'var(--text-body-l)' }}>{formatCNY(detail.totalAmount)}</span>
-            </div>
-            {detail.blockedReasons.length > 0 && (
-              <div className="alert alert--error" style={{ marginTop: 'var(--space-3)' }}>
-                <span className="alert__icon">🚫</span>
-                <div className="alert__body">
-                  <div className="alert__title">拦截原因</div>
-                  {detail.blockedReasons.map((r, i) => (
-                    <div key={i} className="alert__desc">{r}</div>
+        {/* ── Card 1: 基本信息 ──────────────────────────────────── */}
+        <div className={styles.card}>
+          <div className={styles.card_header}>
+            <span className={styles.card_header_icon}>📋</span>
+            <h2 className={styles.card_title}>基本信息</h2>
+          </div>
+          <div className={styles.card_body}>
+            <div className={styles.form_grid}>
+
+              {/* 客户名称 */}
+              <div className={styles.form_group}>
+                <label className={`${styles.form_label} ${styles['form_label--required']}`} htmlFor="customer">
+                  客户名称
+                </label>
+                <select
+                  id="customer"
+                  name="customer"
+                  className={styles.form_select}
+                  value={form.customer}
+                  onChange={handleFormChange}
+                >
+                  <option value="">请选择客户</option>
+                  {CUSTOMERS.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
                   ))}
+                </select>
+              </div>
+
+              {/* 订单类型 */}
+              <div className={styles.form_group}>
+                <label className={styles.form_label}>订单类型</label>
+                <div className={styles.radio_group}>
+                  <label className={styles.radio_option}>
+                    <input
+                      type="radio"
+                      name="orderType"
+                      value="normal"
+                      checked={form.orderType === 'normal'}
+                      onChange={() => handleOrderTypeChange('normal')}
+                      className={styles.radio_input}
+                    />
+                    <span className={styles.radio_circle} />
+                    <span>常规订单</span>
+                  </label>
+                  <label className={`${styles.radio_option} ${styles['radio_option--urgent']}`}>
+                    <input
+                      type="radio"
+                      name="orderType"
+                      value="urgent"
+                      checked={form.orderType === 'urgent'}
+                      onChange={() => handleOrderTypeChange('urgent')}
+                      className={styles.radio_input}
+                    />
+                    <span
+                      className={`${styles.radio_circle} ${isUrgent ? styles['radio_circle--urgent'] : ''}`}
+                    />
+                    <span className={isUrgent ? styles.urgent_label_text : ''}>紧急插单</span>
+                    <span className={styles.urgent_tag}>优先</span>
+                  </label>
                 </div>
               </div>
-            )}
-            {/* 订单明细 */}
-            <h3 className={styles.detail_section_title}>订单明细</h3>
-            {detail.items.map((item, i) => (
-              <div key={i} className={styles.order_item}>
-                <span>{item.skuName}</span>
-                <span style={{ color: 'var(--text-secondary)' }}>{item.qtyOrdered} 件</span>
-                <span style={{ fontFamily: 'var(--font-family-number)' }}>{formatCNY(item.amount ?? '0')}</span>
+
+              {/* 产品 / BOM */}
+              <div className={styles.form_group}>
+                <label className={`${styles.form_label} ${styles['form_label--required']}`} htmlFor="product">
+                  产品 / BOM
+                </label>
+                <select
+                  id="product"
+                  name="product"
+                  className={styles.form_select}
+                  value={form.product}
+                  onChange={handleFormChange}
+                >
+                  <option value="">请选择产品</option>
+                  {PRODUCTS.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
               </div>
-            ))}
+
+              {/* 数量 */}
+              <div className={styles.form_group}>
+                <label className={`${styles.form_label} ${styles['form_label--required']}`} htmlFor="qty">
+                  数量
+                </label>
+                <div className={styles.input_with_unit}>
+                  <input
+                    type="number"
+                    id="qty"
+                    name="qty"
+                    className={styles.form_input}
+                    value={form.qty}
+                    min={1}
+                    onChange={handleFormChange}
+                  />
+                  <span className={styles.input_unit}>套</span>
+                </div>
+              </div>
+
+              {/* 期望交期 */}
+              <div className={styles.form_group}>
+                <label className={`${styles.form_label} ${styles['form_label--required']}`} htmlFor="deadline">
+                  期望交期
+                </label>
+                <input
+                  type="date"
+                  id="deadline"
+                  name="deadline"
+                  className={styles.form_input}
+                  value={form.deadline}
+                  onChange={handleFormChange}
+                />
+                <span className={styles.form_hint}>当前日期：2026-03-12</span>
+              </div>
+
+              {/* 备注 */}
+              <div className={styles.form_group}>
+                <label className={styles.form_label} htmlFor="notes">备注</label>
+                <input
+                  type="text"
+                  id="notes"
+                  name="notes"
+                  className={styles.form_input}
+                  value={form.notes}
+                  onChange={handleFormChange}
+                  placeholder="特殊要求、面料颜色偏好等…"
+                />
+              </div>
+
+            </div>
           </div>
-        ) : (
-          <div className="skeleton" style={{ height: 200, borderRadius: 8 }} />
+        </div>
+
+        {/* ── Card 2: 交期与产能预估 ──────────────────────────── */}
+        {(() => {
+          // 产能负荷：优先使用 urgentMutation（分析完成后）返回的 capacityLoadCheck.currentValue
+          // 普通订单提交前无实时产能数据，fallback 为静态文本
+          const capacityText = urgentMutation.data?.capacityLoadCheck?.currentValue
+            ? `当前负荷 ${urgentMutation.data.capacityLoadCheck.currentValue}，${
+                urgentMutation.data.capacityLoadCheck.passed ? '可接单' : '产能已接近上限'
+              }`
+            : '当前利用率 72%，可接单'; // TODO: 接入 /api/sales/orders/estimate 接口后替换
+
+          // 预估最早交期：createOrder 返回的 estimatedDelivery（当前后端始终返回 null）
+          // 若有值则展示，否则不展示交期预警行
+          const estimatedDelivery = createResult?.estimatedDelivery ?? null;
+          const expectedDelivery = form.deadline;
+          const delayDays = estimatedDelivery
+            ? Math.ceil(
+                (new Date(estimatedDelivery).getTime() - new Date(expectedDelivery).getTime()) /
+                  86400000,
+              )
+            : 0;
+
+          return (
+            <div className={styles.card}>
+              <div className={styles.card_header}>
+                <span className={styles.card_header_icon}>⏱</span>
+                <h2 className={styles.card_title}>交期与产能预估</h2>
+                <span className={styles.card_subtitle}>实时计算 · 自动更新</span>
+              </div>
+              <div className={styles.card_body}>
+                <div className={styles.estimate_card}>
+                  <div className={styles.estimate_row}>
+                    <span className={`${styles.estimate_dot} ${styles['estimate_dot--green']}`} />
+                    <span className={styles.estimate_label}>库存可用性</span>
+                    {/* 库存可用性文本：后端暂无专用字段，保留静态文本 */}
+                    <span className={styles.estimate_value}>{ESTIMATE_INVENTORY_TEXT}</span>
+                  </div>
+                  <div className={styles.estimate_row}>
+                    <span
+                      className={`${styles.estimate_dot} ${
+                        urgentMutation.data?.capacityLoadCheck?.passed === false
+                          ? styles['estimate_dot--red']
+                          : styles['estimate_dot--green']
+                      }`}
+                    />
+                    <span className={styles.estimate_label}>产能负荷</span>
+                    <span className={styles.estimate_value}>
+                      {capacityText}
+                    </span>
+                  </div>
+
+                  {/* 预估交期行：仅在 createOrder 返回 estimatedDelivery（非 null）时展示 */}
+                  {estimatedDelivery !== null && (
+                    <div className={styles.estimate_row}>
+                      <span className={`${styles.estimate_dot} ${delayDays > 0 ? styles['estimate_dot--yellow'] : styles['estimate_dot--green']}`} />
+                      <span className={styles.estimate_label}>预估最早交期</span>
+                      <span className={`${styles.estimate_value} ${delayDays > 0 ? styles['estimate_value--warning'] : ''}`}>
+                        {estimatedDelivery}（您期望：{expectedDelivery}）
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 交期预警：仅在存在 estimatedDelivery 且晚于期望时展示 */}
+                {estimatedDelivery !== null && delayDays > 0 && (
+                  <div className={`${styles.estimate_warning} ${styles.animate_slidedown}`}>
+                    <span className={styles.estimate_warning_icon}>⚠</span>
+                    <span className={styles.estimate_warning_text}>
+                      预估交期晚于期望 <strong>{delayDays} 天</strong>，建议与客户确认是否可接受。
+                      <br />
+                      最早可承诺交期：<span className={styles.estimate_warning_date}>{estimatedDelivery}</span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── Card 3: 约束检查结果（提交后显示）─────────────────── */}
+        {showConstraintCard && (
+          <div className={`${styles.card} ${styles.animate_fadein}`}>
+            <div className={styles.card_header}>
+              <span className={styles.card_header_icon}>🔍</span>
+              <h2 className={styles.card_title}>约束检查结果</h2>
+              <span className={styles.card_subtitle}>
+                {constraintChecks.length > 0 ? '检查完成' : '加载中…'}
+              </span>
+            </div>
+            <div className={styles.card_body}>
+              {constraintChecks.length === 0 ? (
+                // API 尚未返回或调用失败时的占位状态
+                <div className={styles.constraint_list}>
+                  <div className={styles.constraint_item}>
+                    <div className={styles.constraint_text}>
+                      <div className={styles.constraint_detail}>
+                        约束检查数据加载中，请稍候…
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.constraint_list}>
+                  {constraintChecks.map((check, i) => (
+                    <div
+                      key={i}
+                      className={`${styles.constraint_item} ${
+                        check.passed
+                          ? styles['constraint_item--pass']
+                          : styles['constraint_item--fail']
+                      }`}
+                    >
+                      <div
+                        className={`${styles.constraint_icon} ${
+                          check.passed
+                            ? styles['constraint_icon--pass']
+                            : styles['constraint_icon--fail']
+                        }`}
+                      >
+                        {check.passed ? '✓' : '✗'}
+                      </div>
+                      <div className={styles.constraint_text}>
+                        <div
+                          className={`${styles.constraint_label} ${
+                            check.passed
+                              ? styles['constraint_label--pass']
+                              : styles['constraint_label--fail']
+                          }`}
+                        >
+                          {check.label}
+                        </div>
+                        <div className={styles.constraint_detail}>{check.detail}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         )}
-      </Drawer>
 
-      {/* 审批弹窗 */}
-      <Modal
-        open={approveModal.open}
-        title={approveModal.action === ApprovalAction.APPROVED ? '批准订单' : '驳回订单'}
-        onClose={() => setApproveModal({ open: false, id: null, action: ApprovalAction.APPROVED })}
-        onConfirm={() => void handleApprove()}
-        confirmLabel={approveModal.action === ApprovalAction.APPROVED ? '确认批准' : '确认驳回'}
-        confirmVariant={approveModal.action === ApprovalAction.APPROVED ? 'success' : 'danger'}
-        confirmLoading={approveMutation.isPending}
-        size="sm"
-      >
-        <div className={styles.approve_form}>
-          <label htmlFor="approve-notes" className={styles.approve_label}>
-            {approveModal.action === ApprovalAction.REJECTED ? '驳回原因（必填）' : '备注（可选）'}
-          </label>
-          <textarea
-            id="approve-notes"
-            className={styles.approve_textarea}
-            rows={3}
-            value={approveNotes}
-            onChange={(e) => setApproveNotes(e.target.value)}
-            placeholder={approveModal.action === ApprovalAction.REJECTED ? '请说明驳回原因...' : '可选填写附条件说明...'}
-          />
-        </div>
-      </Modal>
+      </main>
 
-      {/* 插单分析 Drawer */}
-      <Drawer
-        open={urgentDrawer}
-        title="⚡ 紧急插单影响分析"
-        onClose={() => setUrgentDrawer(false)}
-        width={540}
-      >
-        <div className={styles.urgent_form}>
-          <p className={styles.urgent_desc}>
-            输入拟接的紧急订单信息，AI 将在 30 秒内评估对现有在产订单的影响。
-          </p>
-          {urgentMutation.isPending ? (
-            <AiThinkingState
-              message="AI 正在评估插单影响..."
-              steps={[
-                { label: '计算 BOM 物料需求...', status: 'done' },
-                { label: '检查库存与资金占用...', status: 'active' },
-                { label: '评估产能负荷与交期...', status: 'pending' },
-              ]}
-            />
-          ) : urgentResult ? (
-            <UrgentAnalysisReport data={urgentResult} />
-          ) : (
-            <UrgentAnalysisForm
-              onSubmit={async (payload) => {
-                try {
-                  const res = await urgentMutation.mutateAsync(payload);
-                  setUrgentResult(res);
-                } catch (e) {
-                  showToast({ type: 'error', message: (e as Error).message });
-                }
-              }}
-            />
-          )}
-          {urgentResult && (
-            <Button variant="ghost" size="md" onClick={() => setUrgentResult(null)} style={{ marginTop: 'var(--space-4)' }}>
-              重新分析
-            </Button>
-          )}
-        </div>
-      </Drawer>
+      {/* ── Sticky Footer ─────────────────────────────────────── */}
+      <footer className={styles.page_footer}>
+        <Button variant="ghost" size="md" onClick={handleCancel}>取消</Button>
+        <div className={styles.footer_spacer} />
+        <Button variant="secondary" size="md" onClick={handleSaveDraft}>保存草稿</Button>
+        <Button
+          variant={isUrgent ? 'warning' : 'primary'}
+          size="lg"
+          loading={isSubmitting}
+          onClick={() => void handleSubmit()}
+        >
+          {isUrgent ? '发起影响评估' : '提交订单'}
+        </Button>
+      </footer>
+
+      {/* ── Modal: Constraint Blocked ───────────────────────── */}
+      <ConstraintBlockedModal
+        open={constraintModalOpen}
+        onClose={() => setConstraintModalOpen(false)}
+        onViewDetail={() => {
+          setConstraintModalOpen(false);
+          if (createResult) {
+            navigate(`/sales/orders/${createResult.orderId}`);
+          }
+        }}
+        result={createResult}
+      />
+
+      {/* ── Modal: Urgent AI Analysis ───────────────────────── */}
+      <UrgentAnalysisModal
+        open={urgentModalOpen}
+        onCancel={handleCancelUrgent}
+        steps={aiSteps}
+        countdown={countdown}
+      />
     </div>
-  );
-}
-
-// 插单分析简易表单
-function UrgentAnalysisForm({ onSubmit }: { onSubmit: (p: { skuId: number; bomId: number; qty: string; expectedDelivery: string }) => void }) {
-  const [form, setForm] = useState({ skuId: '', bomId: '', qty: '', expectedDelivery: '' });
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
-  return (
-    <form
-      className={styles.urgent_fields}
-      onSubmit={(e) => { e.preventDefault(); onSubmit({ skuId: Number(form.skuId), bomId: Number(form.bomId), qty: form.qty, expectedDelivery: form.expectedDelivery }); }}
-    >
-      {[
-        { name: 'skuId', label: '成品 SKU ID', type: 'number', placeholder: '例：50' },
-        { name: 'bomId', label: 'BOM ID', type: 'number', placeholder: '例：1' },
-        { name: 'qty', label: '数量', type: 'number', placeholder: '例：5' },
-        { name: 'expectedDelivery', label: '期望交期', type: 'date', placeholder: '' },
-      ].map(({ name, label, type, placeholder }) => (
-        <div key={name} className={styles.urgent_field}>
-          <label htmlFor={name} className={styles.approve_label}>{label}</label>
-          <input id={name} name={name} type={type} className={styles.approve_textarea} style={{ height: 40, resize: 'none' }} value={form[name as keyof typeof form]} onChange={handleChange} placeholder={placeholder} required />
-        </div>
-      ))}
-      <Button type="submit" variant="ai" size="md" fullWidth>开始分析</Button>
-    </form>
   );
 }

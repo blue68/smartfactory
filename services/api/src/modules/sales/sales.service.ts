@@ -308,7 +308,7 @@ export class SalesService {
     let requiresApproval = false;
 
     if (payload.items && payload.items.length > 0) {
-      const effectiveDelivery =
+      const effectiveDelivery: string =
         payload.expectedDelivery ??
         (await AppDataSource.query<Array<{ expected_delivery: string }>>(
           'SELECT DATE_FORMAT(expected_delivery, "%Y-%m-%d") AS expected_delivery FROM sales_orders WHERE id = ? LIMIT 1',
