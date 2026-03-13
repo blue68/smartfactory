@@ -869,6 +869,12 @@
   color: #fff;
 }
 
+.stepper__circle--completed {
+  background: var(--color-success-600, #059669);
+  color: #fff;
+  border-color: var(--color-success-600, #059669);
+}
+
 .stepper__circle--pending {
   background: var(--color-gray-200);
   color: var(--text-disabled);

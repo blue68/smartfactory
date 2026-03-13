@@ -232,6 +232,7 @@ interface WizardModalProps {
     items: Array<{ componentSkuId: number; quantity: string; unit: string }>;
   }) => void;
   skuItems: WizardSkuItem[];
+  submitting?: boolean;
 }
 
 /** Step 2 中 AI 建议条目（可勾选 / 可编辑用量） */
@@ -256,9 +257,9 @@ interface ManualWizardItem {
 const WIZARD_STEPS = ['选择成品', 'AI推荐', '填写用量', '确认'];
 const UNIT_OPTIONS = ['个', '张', '米', '套', '副', '瓶', '桶', '卷', '块'];
 
-function WizardModal({ open, onClose, onComplete, skuItems }: WizardModalProps) {
-  /* ── Step 0 状态 ── */
-  const [checked, setChecked] = useState<Set<string>>(new Set());
+function WizardModal({ open, onClose, onComplete, skuItems, submitting }: WizardModalProps) {
+  /* ── Step 0 状态（单选） ── */
+  const [selectedCode, setSelectedCode] = useState<string | null>(null);
   /* ── 多步流程状态 ── */
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedSkuId, setSelectedSkuId] = useState<number | null>(null);
@@ -314,23 +315,15 @@ function WizardModal({ open, onClose, onComplete, skuItems }: WizardModalProps) 
       setManualQty('1');
       setManualUnit('个');
       setVersion('1.0');
+      setConfirmError('');
     }
   }, [open]);
 
-  /* ── 当 skuItems 变化时，默认勾选无 BOM 的成品 ── */
+  /* ── 当 skuItems 变化时，默认选中第一个无 BOM 的成品 ── */
   useEffect(() => {
-    const noBom = skuItems.filter(s => !s.hasBom).map(s => s.code);
-    const withAlert = skuItems.filter(s => s.alertText).map(s => s.code);
-    setChecked(new Set([...noBom, ...withAlert]));
+    const noBom = skuItems.find(s => !s.hasBom);
+    setSelectedCode(noBom ? noBom.code : (skuItems[0]?.code ?? null));
   }, [skuItems]);
-
-  const toggleStep0 = (code: string) => {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      next.has(code) ? next.delete(code) : next.add(code);
-      return next;
-    });
-  };
 
   /* ── Step 1：切换 AI 建议项勾选 ── */
   const toggleAiItem = (skuId: number) => {
@@ -372,31 +365,35 @@ function WizardModal({ open, onClose, onComplete, skuItems }: WizardModalProps) 
   };
 
   /* ── Step 2：同步来自 Step 1 勾选项的用量（在 Step 3 确认时合并） ── */
-  const getFinalItems = (): Array<{ componentSkuId: number; quantity: string; unit: string }> => {
+  const QTY_REGEX = /^\d+(\.\d{1,4})?$/;
+  const getFinalItems = (): Array<{ componentSkuId: number; quantity: string; unit: string }> | null => {
     const aiSelected = aiItems
       .filter(item => item.checked)
       .map(item => ({ componentSkuId: item.skuId, quantity: item.quantity, unit: item.unit }));
     // 手动追加：去重（以 componentSkuId 为 key，手动优先）
     const aiSkuIds = new Set(aiSelected.map(a => a.componentSkuId));
     const manualFiltered = manualItems.filter(m => !aiSkuIds.has(m.componentSkuId));
-    return [...aiSelected, ...manualFiltered.map(m => ({
+    const all = [...aiSelected, ...manualFiltered.map(m => ({
       componentSkuId: m.componentSkuId,
       quantity: m.quantity,
       unit: m.unit,
     }))];
+    // P0-3: 校验所有数量格式
+    const invalid = all.some(it => !QTY_REGEX.test(it.quantity) || Number(it.quantity) <= 0);
+    if (invalid) return null;
+    return all;
   };
 
   /* ── 下一步逻辑 ── */
   const handleNext = () => {
     if (currentStep === 0) {
-      const selectedCodes = [...checked];
-      if (selectedCodes.length === 0) return;
-      const firstCode = selectedCodes[0];
-      const wizardItem = skuItems.find(s => s.code === firstCode);
+      if (!selectedCode) return;
+      const wizardItem = skuItems.find(s => s.code === selectedCode);
       if (!wizardItem) return;
       setSelectedSkuId(wizardItem.skuId);
       setSelectedSkuCode(wizardItem.code);
       setSelectedSkuName(wizardItem.name);
+      setAiItems([]); // P1-1: 重置 AI 建议，防止缓存数据对应错误 SKU
       setCurrentStep(1);
     } else if (currentStep === 1) {
       setCurrentStep(2);
@@ -407,24 +404,34 @@ function WizardModal({ open, onClose, onComplete, skuItems }: WizardModalProps) 
 
   /* ── 上一步 ── */
   const handlePrev = () => {
+    if (currentStep === 1) {
+      setAiItems([]); // 回到 Step 0 时清空 AI 建议，防止缓存错误
+    }
     if (currentStep > 0) setCurrentStep(prev => prev - 1);
   };
 
   /* ── 最终确认 ── */
+  const [confirmError, setConfirmError] = useState('');
   const handleConfirm = () => {
     if (!selectedSkuId) return;
+    const items = getFinalItems();
+    if (!items) {
+      setConfirmError('存在用量格式错误，请检查（数字，最多4位小数，必须大于0）');
+      return;
+    }
+    setConfirmError('');
     onComplete({
       skuId: selectedSkuId,
       skuCode: selectedSkuCode,
       skuName: selectedSkuName,
       version: version.trim() || '1.0',
-      items: getFinalItems(),
+      items,
     });
   };
 
   /* ── Stepper 样式帮助函数 ── */
   const stepCircleClass = (i: number) => {
-    if (i < currentStep) return `${styles.stepper__circle} ${styles['stepper__circle--active']}`;
+    if (i < currentStep) return `${styles.stepper__circle} ${styles['stepper__circle--completed']}`;
     if (i === currentStep) return `${styles.stepper__circle} ${styles['stepper__circle--active']}`;
     return `${styles.stepper__circle} ${styles['stepper__circle--pending']}`;
   };
@@ -435,7 +442,7 @@ function WizardModal({ open, onClose, onComplete, skuItems }: WizardModalProps) 
 
   /* ── 当前步骤按钮组 ── */
   const renderFooterButtons = () => {
-    const canNext0 = currentStep === 0 && checked.size > 0;
+    const canNext0 = currentStep === 0 && selectedCode !== null;
     if (currentStep === 0) {
       return (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', paddingTop: '1rem', borderTop: '1px solid var(--border-default)' }}>
@@ -490,9 +497,10 @@ function WizardModal({ open, onClose, onComplete, skuItems }: WizardModalProps) 
         </button>
         <button
           onClick={handleConfirm}
-          style={{ padding: '0.5rem 1.25rem', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-success-600, #059669)', color: 'white', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600 }}
+          disabled={submitting}
+          style={{ padding: '0.5rem 1.25rem', borderRadius: 'var(--radius-md)', border: 'none', background: submitting ? 'var(--color-disabled, #d1d5db)' : 'var(--color-success-600, #059669)', color: 'white', cursor: submitting ? 'not-allowed' : 'pointer', fontSize: '0.875rem', fontWeight: 600 }}
         >
-          确认创建 BOM
+          {submitting ? '创建中...' : '确认创建 BOM'}
         </button>
       </div>
     );
@@ -510,7 +518,7 @@ function WizardModal({ open, onClose, onComplete, skuItems }: WizardModalProps) 
         {WIZARD_STEPS.map((step, i) => (
           <div key={step} style={{ display: 'flex', alignItems: 'center', flex: i < WIZARD_STEPS.length - 1 ? 1 : 'unset' }}>
             <div className={styles.stepper__step}>
-              <div className={stepCircleClass(i)} style={i < currentStep ? { background: 'var(--color-success-600, #059669)', borderColor: 'var(--color-success-600, #059669)' } : undefined}>
+              <div className={stepCircleClass(i)}>
                 {i < currentStep ? '✓' : i + 1}
               </div>
               <span className={stepLabelClass(i)}>{step}</span>
@@ -531,16 +539,17 @@ function WizardModal({ open, onClose, onComplete, skuItems }: WizardModalProps) 
           ) : (
             <div style={{ maxHeight: '360px', overflowY: 'auto' }}>
               {skuItems.map((sku) => {
-                const isChecked = checked.has(sku.code);
+                const isSelected = selectedCode === sku.code;
                 return (
                   <label
                     key={sku.code}
-                    className={`${styles.wizard_item} ${isChecked ? styles['wizard_item--checked'] : ''}`}
+                    className={`${styles.wizard_item} ${isSelected ? styles['wizard_item--checked'] : ''}`}
                   >
                     <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => toggleStep0(sku.code)}
+                      type="radio"
+                      name="wizard-sku"
+                      checked={isSelected}
+                      onChange={() => setSelectedCode(sku.code)}
                     />
                     <span className={styles.wizard_item__code}>{sku.code}</span>
                     <span className={styles.wizard_item__name}>{sku.name}</span>
@@ -814,14 +823,17 @@ function WizardModal({ open, onClose, onComplete, skuItems }: WizardModalProps) 
               </div>
               <div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>物料总数</div>
-                <div style={{ fontWeight: 600, fontSize: '0.9375rem' }}>{getFinalItems().length} 种</div>
+                <div style={{ fontWeight: 600, fontSize: '0.9375rem' }}>{(getFinalItems() ?? []).length} 种</div>
               </div>
             </div>
           </div>
 
           {/* 物料明细预览 */}
           <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.5rem' }}>物料明细（只读预览）</div>
-          {getFinalItems().length === 0 ? (
+          {confirmError && (
+            <p style={{ fontSize: '0.8125rem', color: 'var(--color-error-600, #dc2626)', marginBottom: '0.5rem' }}>{confirmError}</p>
+          )}
+          {(getFinalItems() ?? []).length === 0 ? (
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', padding: '0.75rem 0' }}>
               暂无物料，创建后可在编辑器中继续添加
             </p>
@@ -839,7 +851,7 @@ function WizardModal({ open, onClose, onComplete, skuItems }: WizardModalProps) 
                 <tbody>
                   {(() => {
                     const aiSkuIds = new Set(aiItems.filter(i => i.checked).map(i => i.skuId));
-                    return getFinalItems().map((item) => {
+                    return (getFinalItems() ?? []).map((item) => {
                       const isAi = aiSkuIds.has(item.componentSkuId);
                       const nameInfo = isAi
                         ? aiItems.find(a => a.skuId === item.componentSkuId)?.skuName
@@ -1980,7 +1992,6 @@ export default function BomPage() {
     version: string;
     items: Array<{ componentSkuId: number; quantity: string; unit: string }>;
   }) => {
-    setWizardOpen(false);
     try {
       const result = await createBom.mutateAsync({
         skuId: data.skuId,
@@ -1988,6 +1999,7 @@ export default function BomPage() {
         description: '',
         items: data.items,
       });
+      setWizardOpen(false);
       const itemCount = data.items.length;
       showToast({
         type: 'success',
@@ -2195,6 +2207,7 @@ export default function BomPage() {
         onClose={() => setWizardOpen(false)}
         onComplete={handleWizardComplete}
         skuItems={wizardSkuItems}
+        submitting={createBom.isPending}
       />
     </div>
   );
