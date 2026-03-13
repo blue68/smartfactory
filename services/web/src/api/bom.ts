@@ -160,6 +160,7 @@ export function useAddBomItem() {
     onSuccess: (_data, { bomId }) => {
       void qc.invalidateQueries({ queryKey: bomKeys.expanded(bomId) });
       void qc.invalidateQueries({ queryKey: bomKeys.lists() });
+      void qc.invalidateQueries({ queryKey: bomKeys.costBreakdown(bomId) });
     },
   });
 }
@@ -186,6 +187,7 @@ export function useDeleteBomItem() {
     onSuccess: (_data, { bomId }) => {
       void qc.invalidateQueries({ queryKey: bomKeys.expanded(bomId) });
       void qc.invalidateQueries({ queryKey: bomKeys.lists() });
+      void qc.invalidateQueries({ queryKey: bomKeys.costBreakdown(bomId) });
     },
   });
 }
@@ -223,6 +225,7 @@ export function useUpdateBomItem() {
       void qc.invalidateQueries({ queryKey: bomKeys.expanded(bomId) });
       void qc.invalidateQueries({ queryKey: bomKeys.detail(bomId) });
       void qc.invalidateQueries({ queryKey: bomKeys.lists() });
+      void qc.invalidateQueries({ queryKey: bomKeys.costBreakdown(bomId) });
     },
   });
 }

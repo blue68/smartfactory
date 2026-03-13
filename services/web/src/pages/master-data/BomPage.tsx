@@ -1667,7 +1667,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
                       variant="secondary"
                       size="sm"
                       style={{ background: 'var(--color-accent-500, #f97316)', color: '#fff', borderColor: 'transparent' }}
-                      disabled={batchImporting}
+                      disabled={batchImporting || aiLoading || !aiSuggestion}
                       onClick={handleBatchImport}
                     >
                       {batchImporting ? '导入中...' : '一键复用此BOM结构'}
@@ -2205,7 +2205,7 @@ export default function BomPage() {
       {/* 向导 Modal */}
       <WizardModal
         open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
+        onClose={() => { if (!createBom.isPending) setWizardOpen(false); }}
         onComplete={handleWizardComplete}
         skuItems={wizardSkuItems}
         submitting={createBom.isPending}

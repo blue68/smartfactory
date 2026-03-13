@@ -23,7 +23,7 @@ const CreateBomSchema = z.object({
 });
 
 const CalcRequirementsSchema = z.object({
-  productionQty: z.coerce.number().positive().max(1_000_000),
+  productionQty: z.coerce.number().int().positive().max(1_000_000),
 });
 
 const AddBomItemSchema = z.object({
