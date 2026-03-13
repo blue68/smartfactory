@@ -40,6 +40,20 @@ export interface BomHeader {
   itemCount?: number;
 }
 
+// ── 品类成本占比分析 ────────────────────────────────────────
+
+export interface CostSegment {
+  categoryName: string;
+  totalCost: string;    // 保留2位小数字符串
+  percentage: number;   // 0-100 整数
+}
+
+export interface CostBreakdownResult {
+  bomTotal: string;             // BOM 总估算成本，保留2位小数
+  segments: CostSegment[];
+  missingPriceCount: number;    // 未维护价格的物料数
+}
+
 /** BOM 物料需求汇总（多层展开展平后，相同 SKU 合并） */
 export interface MaterialRequirement {
   skuId: number;
@@ -687,6 +701,82 @@ export class BomService {
         confidence: Math.min(MAX_AI_CONFIDENCE, Number(r.usageCount) * CONFIDENCE_PER_USAGE),
         reason: `同品类 ${r.usageCount} 个 BOM 使用该物料`,
       })),
+    };
+  }
+
+  // ── GET /bom/:id/cost-breakdown  品类成本占比 ─────────────
+
+  /**
+   * 按品类（category1）统计 BOM 各物料的估算成本占比。
+   * 物料成本 = quantity × 最新供应商报价（supplier_prices.price，is_current=1 取最新记录）。
+   * 无报价的物料计入 missingPriceCount，其成本按 0 计算。
+   */
+  async getCostBreakdown(bomId: number): Promise<CostBreakdownResult> {
+    // 1. 先确认 BOM 存在（复用私有方法，不存在时抛 NotFound）
+    await this.getBomHeader(bomId);
+
+    // 2. 按品类汇总成本
+    //    使用 supplier_prices 表（is_current=1 取 effective_at 最新的一条报价）
+    const segmentRows = await AppDataSource.query<Array<{
+      categoryName: string | null;
+      totalCost: string;
+    }>>(
+      `SELECT
+         COALESCE(c.name, '未分类') AS categoryName,
+         SUM(
+           CAST(bi.quantity AS DECIMAL(18,4)) *
+           COALESCE(p.price, 0)
+         ) AS totalCost
+       FROM bom_items bi
+       INNER JOIN skus s ON s.id = bi.component_sku_id
+       LEFT JOIN sku_categories c ON c.id = s.category1_id
+       LEFT JOIN (
+         SELECT sku_id, price,
+           ROW_NUMBER() OVER (PARTITION BY sku_id ORDER BY effective_at DESC, id DESC) AS rn
+         FROM supplier_prices
+         WHERE tenant_id = ? AND is_current = 1
+       ) p ON p.sku_id = bi.component_sku_id AND p.rn = 1
+       WHERE bi.bom_header_id = ? AND bi.tenant_id = ?
+       GROUP BY c.id, c.name
+       ORDER BY totalCost DESC`,
+      [this.tenantId, bomId, this.tenantId],
+    );
+
+    // 3. 统计未维护价格的物料数
+    const [missingRow] = await AppDataSource.query<Array<{ cnt: string }>>(
+      `SELECT COUNT(*) AS cnt
+       FROM bom_items bi
+       LEFT JOIN (
+         SELECT DISTINCT sku_id
+         FROM supplier_prices
+         WHERE tenant_id = ? AND is_current = 1
+       ) p ON p.sku_id = bi.component_sku_id
+       WHERE bi.bom_header_id = ? AND bi.tenant_id = ?
+         AND p.sku_id IS NULL`,
+      [this.tenantId, bomId, this.tenantId],
+    );
+    const missingPriceCount = Number(missingRow?.cnt ?? 0);
+
+    // 4. 计算总成本及各品类占比
+    let bomTotalDecimal = new Decimal(0);
+    const rawSegments = segmentRows.map((row) => {
+      const cost = new Decimal(row.totalCost ?? 0);
+      bomTotalDecimal = bomTotalDecimal.plus(cost);
+      return { categoryName: row.categoryName ?? '未分类', cost };
+    });
+
+    const segments: CostSegment[] = rawSegments.map(({ categoryName, cost }) => ({
+      categoryName,
+      totalCost: cost.toFixed(2),
+      percentage: bomTotalDecimal.isZero()
+        ? 0
+        : Math.round(cost.div(bomTotalDecimal).mul(100).toNumber()),
+    }));
+
+    return {
+      bomTotal: bomTotalDecimal.toFixed(2),
+      segments,
+      missingPriceCount,
     };
   }
 

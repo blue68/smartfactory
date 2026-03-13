@@ -20,7 +20,21 @@ export const bomKeys = {
   expanded: (id: number) => [...bomKeys.all, 'expanded', id] as const,
   requirements: (id: number, qty: number) => [...bomKeys.all, 'requirements', id, qty] as const,
   aiSuggestion: (skuId: number) => [...bomKeys.all, 'ai-suggestion', skuId] as const,
+  costBreakdown: (id: number) => [...bomKeys.all, 'cost-breakdown', id] as const,
 };
+
+// ── 品类成本占比响应类型 ─────────────────────
+export interface CostSegment {
+  categoryName: string;
+  totalCost: string;
+  percentage: number;
+}
+
+export interface CostBreakdownResult {
+  bomTotal: string;
+  segments: CostSegment[];
+  missingPriceCount: number;
+}
 
 // ── AI BOM 建议响应类型 ───────────────────────
 export interface AiSuggestionItem {
@@ -80,6 +94,10 @@ export const bomApi = {
   /** PATCH /api/bom/:bomId/items/:itemId — 修改 BOM 子项用量 */
   updateItem: (bomId: number, itemId: number, data: { quantity?: string; unit?: string; scrapRate?: string }) =>
     request.patch<null>(`/api/bom/${bomId}/items/${itemId}`, data),
+
+  /** GET /api/bom/:id/cost-breakdown — 品类成本占比 */
+  getCostBreakdown: (id: number) =>
+    request.get<CostBreakdownResult>(`/api/bom/${id}/cost-breakdown`),
 };
 
 // ── React Query Hooks ────────────────────────
@@ -206,5 +224,15 @@ export function useUpdateBomItem() {
       void qc.invalidateQueries({ queryKey: bomKeys.detail(bomId) });
       void qc.invalidateQueries({ queryKey: bomKeys.lists() });
     },
+  });
+}
+
+/** 品类成本占比 */
+export function useCostBreakdown(bomId: number | null) {
+  return useQuery({
+    queryKey: bomKeys.costBreakdown(bomId!),
+    queryFn: () => bomApi.getCostBreakdown(bomId!),
+    enabled: bomId !== null && bomId > 0,
+    staleTime: 2 * 60 * 1000,
   });
 }

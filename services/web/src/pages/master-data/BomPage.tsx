@@ -12,7 +12,7 @@
  *   - 编辑器 BOM 树：useBomExpanded(id) → GET /api/bom/:id/expand（已接入）
  *   - AI 建议：useAiBomSuggestion(skuId) → GET /api/bom/ai-suggestion/:skuId（已接入）
  *   - 新建 BOM：useCreateBom() → POST /api/bom（已接入）
- *   - 品类成本占比：后端暂无对应接口，保留 COST_SEGS mock 数据展示
+ *   - 品类成本占比：useCostBreakdown(bomId) → GET /api/bom/:id/cost-breakdown（已接入）
  *   - skuCode：后端 listBoms() 已返回 skuCode，前端直接使用
  *   - materialCount：后端 listBoms() 已返回 itemCount 子查询，前端直接使用
  *   - orderCount：后端无关联订单统计字段，显示 `—`
@@ -20,7 +20,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/appStore';
-import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useUpdateBom, useCopyBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem, useUpdateBomItem, useMaterialRequirements } from '@/api/bom';
+import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useUpdateBom, useCopyBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem, useUpdateBomItem, useMaterialRequirements, useCostBreakdown } from '@/api/bom';
 import { useQuery } from '@tanstack/react-query';
 import { useSkuCategories, useSkuList, skuApi, skuKeys } from '@/api/sku';
 import type { BomHeader, BomItem } from '@/types/models';
@@ -84,18 +84,8 @@ function mapBomHeaderToRow(h: BomHeader): BomListRow {
   };
 }
 
-/* 品类成本占比
- * TODO: 后端暂无 /api/bom/:id/cost-breakdown 接口，
- *       当后端实现该接口后替换此 mock 数据并接入真实 API。
- */
-interface CostSeg { label: string; pct: number; amt: string; color: string; }
-const COST_SEGS: CostSeg[] = [
-  { label: '面料类', pct: 35, amt: '¥1,148', color: '#7C3AED' },
-  { label: '板材类', pct: 32, amt: '¥1,050', color: '#C2774A' },
-  { label: '海绵类', pct: 18, amt: '¥590',   color: '#059669' },
-  { label: '五金类', pct: 8,  amt: '¥262',   color: '#94A3B8' },
-  { label: '其他（油漆/辅料）', pct: 7, amt: '¥230', color: '#CBD5E1' },
-];
+/* 品类成本占比 — 色板（按品类索引循环使用） */
+const COST_COLORS = ['#7C3AED', '#C2774A', '#059669', '#94A3B8', '#CBD5E1', '#2563EB', '#D97706', '#DC2626'];
 
 /* AI BOM建议行
  * TODO: 后端 GET /api/bom/ai-suggestion/:skuId 可返回真实数据，
@@ -321,47 +311,72 @@ function WizardModal({ open, onClose, onNext, skuItems }: WizardModalProps) {
    辅助：品类成本占比区块
 ────────────────────────────────────────────────────────────── */
 
-function CostBreakdown() {
+function CostBreakdown({ bomId }: { bomId: number }) {
+  const { data, isLoading } = useCostBreakdown(bomId);
+
+  if (isLoading) {
+    return (
+      <div className={styles.cost_breakdown} role="region" aria-label="BOM品类成本占比">
+        <div className={styles.cost_breakdown__header}>
+          <span className={styles.cost_breakdown__title}>品类成本占比</span>
+        </div>
+        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', padding: '1rem 0' }}>正在计算成本...</p>
+      </div>
+    );
+  }
+
+  if (!data || data.segments.length === 0) {
+    return (
+      <div className={styles.cost_breakdown} role="region" aria-label="BOM品类成本占比">
+        <div className={styles.cost_breakdown__header}>
+          <span className={styles.cost_breakdown__title}>品类成本占比</span>
+        </div>
+        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', padding: '1rem 0' }}>暂无成本数据（物料未关联报价）</p>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.cost_breakdown} role="region" aria-label="BOM品类成本占比">
       <div className={styles.cost_breakdown__header}>
         <span className={styles.cost_breakdown__title}>品类成本占比</span>
         <span className={styles.cost_breakdown__total}>
-          BOM总估算：<strong>¥3,280</strong>
+          BOM总估算：<strong>¥{data.bomTotal}</strong>
         </span>
       </div>
 
       {/* 横向堆叠条 */}
       <div className={styles.cost_bar_track} role="img" aria-label="各品类成本占比">
-        {COST_SEGS.map((seg) => (
+        {data.segments.map((seg, i) => (
           <div
-            key={seg.label}
+            key={seg.categoryName}
             className={styles.cost_bar_seg}
-            style={{ width: `${seg.pct}%`, background: seg.color }}
-            data-tip={`${seg.label} ${seg.pct}%`}
+            style={{ width: `${seg.percentage}%`, background: COST_COLORS[i % COST_COLORS.length] }}
+            data-tip={`${seg.categoryName} ${seg.percentage}%`}
           />
         ))}
       </div>
 
       {/* 明细列表 */}
       <div className={styles.cost_detail_list} role="list">
-        {COST_SEGS.map((seg) => (
-          <div key={seg.label} className={styles.cost_detail_item} role="listitem">
-            <span className={styles.cost_detail_item__dot} style={{ background: seg.color }} aria-hidden="true" />
-            <span className={styles.cost_detail_item__name}>{seg.label}</span>
-            <span className={styles.cost_detail_item__amt}>{seg.amt}</span>
-            <span className={styles.cost_detail_item__pct}>{seg.pct}%</span>
+        {data.segments.map((seg, i) => (
+          <div key={seg.categoryName} className={styles.cost_detail_item} role="listitem">
+            <span className={styles.cost_detail_item__dot} style={{ background: COST_COLORS[i % COST_COLORS.length] }} aria-hidden="true" />
+            <span className={styles.cost_detail_item__name}>{seg.categoryName}</span>
+            <span className={styles.cost_detail_item__amt}>¥{seg.totalCost}</span>
+            <span className={styles.cost_detail_item__pct}>{seg.percentage}%</span>
           </div>
         ))}
       </div>
 
-      <div className={styles.cost_breakdown__warning} role="note">
-        <span aria-hidden="true">⚠</span>
-        <span>
-          <strong>2 个物料</strong>价格未维护（木蜡油、抽屉滑轨），已按历史均价估算；
-          <strong>1 个物料</strong>二级品类未设置，暂归入"其他"。
-        </span>
-      </div>
+      {data.missingPriceCount > 0 && (
+        <div className={styles.cost_breakdown__warning} role="note">
+          <span aria-hidden="true">⚠</span>
+          <span>
+            <strong>{data.missingPriceCount} 个物料</strong>价格未维护，成本按 ¥0 计算，实际总成本可能更高。
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -1007,7 +1022,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
             )}
 
             {/* 品类成本占比（仅有物料时显示） */}
-            {!isBomEmpty && <CostBreakdown />}
+            {!isBomEmpty && <CostBreakdown bomId={row.id} />}
 
             {/* AI BOM 建议 */}
             <div className={styles.ai_panel}>

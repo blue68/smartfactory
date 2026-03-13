@@ -171,6 +171,14 @@ export class BomController {
     const data = await this.svc(req).getAiSuggestion(skuId);
     success(res, data);
   }
+
+  // ── 品类成本占比分析 ────────────────────────────────────────
+
+  async getCostBreakdown(req: Request, res: Response): Promise<void> {
+    const { id } = IdParamSchema.parse(req.params);
+    const data = await this.svc(req).getCostBreakdown(id);
+    success(res, data);
+  }
 }
 
 export const bomController = new BomController();
