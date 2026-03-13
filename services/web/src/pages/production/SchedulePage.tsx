@@ -363,7 +363,7 @@ export default function SchedulePage() {
             setHasPendingChanges(false);
             showToast({ type: 'info', message: '已取消调整，恢复 AI 初始排产' });
           }}
-          onConfirm={() => void handleConfirmSchedule()}
+          onConfirm={() => setConfirmModal(true)}
           confirmLoading={confirmMutation.isPending}
         />
       )}

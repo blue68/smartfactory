@@ -16,7 +16,7 @@ import { ApiCode, ApiError, type ApiResponse } from '@/types/api';
 // Token 工具（与 authStore 保持同步，避免循环依赖）
 // Refresh Token 已改为 HttpOnly Cookie，由浏览器自动携带，不再手动读写
 // ─────────────────────────────────────────────
-function getAccessToken(): string | null {
+export function getAccessToken(): string | null {
   return localStorage.getItem(config.tokenKey);
 }
 

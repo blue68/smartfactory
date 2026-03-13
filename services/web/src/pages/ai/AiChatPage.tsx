@@ -24,6 +24,7 @@ import {
   type ChangeEvent,
 } from 'react';
 import { config } from '@/config';
+import { getAccessToken } from '@/utils/request';
 import AiThinkingState, { type ThinkingStep } from '@/components/ai/AiThinkingState';
 import StreamText from '@/components/ai/StreamText';
 import ConfidenceTag from '@/components/common/ConfidenceTag';
@@ -392,7 +393,7 @@ export default function AiChatPage() {
       abortRef.current = new AbortController();
 
       try {
-        const token = localStorage.getItem(config.tokenKey);
+        const token = getAccessToken();
         const response = await fetch(`${config.apiBaseUrl}/api/ai/chat`, {
           method: 'POST',
           headers: {

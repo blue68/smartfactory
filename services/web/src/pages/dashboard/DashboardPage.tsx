@@ -28,6 +28,7 @@ import ConfidenceTag from '@/components/common/ConfidenceTag';
 import Button from '@/components/common/Button';
 import { formatCNY, formatDate } from '@/utils/format';
 import type { PurchaseSuggestion } from '@/types/models';
+import { usePermission } from '@/hooks/usePermission';
 import styles from './DashboardPage.module.css';
 
 // ─────────────────────────────────────────────
@@ -130,9 +131,10 @@ interface SuggestionItemProps {
   onApprove: (id: number) => void;
   onReject: (id: number) => void;
   approving: boolean;
+  canApprove: boolean;
 }
 
-function SuggestionItem({ suggestion, onApprove, onReject, approving }: SuggestionItemProps) {
+function SuggestionItem({ suggestion, onApprove, onReject, approving, canApprove }: SuggestionItemProps) {
   const [expanded, setExpanded] = useState(false);
 
   const isUrgent = parseFloat(suggestion.shortageQty) > 0;
@@ -210,23 +212,27 @@ function SuggestionItem({ suggestion, onApprove, onReject, approving }: Suggesti
           >
             采购员反馈
           </Button>
-          <Button
-            variant="success"
-            size="md"
-            loading={approving}
-            onClick={() => onApprove(suggestion.id)}
-            aria-label={`批准${suggestion.skuName}采购建议，金额${formatCNY(Number(suggestion.estimatedAmount))}`}
-          >
-            批准
-          </Button>
-          <Button
-            variant="danger"
-            size="md"
-            onClick={() => onReject(suggestion.id)}
-            aria-label={`驳回${suggestion.skuName}采购建议`}
-          >
-            驳回
-          </Button>
+          {canApprove && (
+            <>
+              <Button
+                variant="success"
+                size="md"
+                loading={approving}
+                onClick={() => onApprove(suggestion.id)}
+                aria-label={`批准${suggestion.skuName}采购建议，金额${formatCNY(Number(suggestion.estimatedAmount))}`}
+              >
+                批准
+              </Button>
+              <Button
+                variant="danger"
+                size="md"
+                onClick={() => onReject(suggestion.id)}
+                aria-label={`驳回${suggestion.skuName}采购建议`}
+              >
+                驳回
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </article>
@@ -239,6 +245,8 @@ function SuggestionItem({ suggestion, onApprove, onReject, approving }: Suggesti
 export default function DashboardPage() {
   const { setPageTitle } = useAppStore();
   const navigate = useNavigate();
+  const { can } = usePermission();
+  const canApproveSuggestion = can('purchase:suggestion:approve');
 
   useEffect(() => { setPageTitle('老板驾驶舱'); }, [setPageTitle]);
 
@@ -534,8 +542,8 @@ export default function DashboardPage() {
                   </div>
                   <div className={styles.suggestion_item__btns}>
                     <Button variant="ghost" size="sm">采购员反馈</Button>
-                    <Button variant="success" size="md" aria-label="批准红橡木板采购建议，金额2160元">批准</Button>
-                    <Button variant="danger" size="md" aria-label="驳回红橡木板采购建议">驳回</Button>
+                    {canApproveSuggestion && <Button variant="success" size="md" aria-label="批准红橡木板采购建议，金额2160元">批准</Button>}
+                    {canApproveSuggestion && <Button variant="danger" size="md" aria-label="驳回红橡木板采购建议">驳回</Button>}
                   </div>
                 </div>
               </article>
@@ -571,8 +579,8 @@ export default function DashboardPage() {
                   </div>
                   <div className={styles.suggestion_item__btns}>
                     <Button variant="ghost" size="sm">查看详情</Button>
-                    <Button variant="success" size="md" aria-label="批准五金铰链采购建议">批准</Button>
-                    <Button variant="danger" size="md" aria-label="驳回五金铰链采购建议">驳回</Button>
+                    {canApproveSuggestion && <Button variant="success" size="md" aria-label="批准五金铰链采购建议">批准</Button>}
+                    {canApproveSuggestion && <Button variant="danger" size="md" aria-label="驳回五金铰链采购建议">驳回</Button>}
                   </div>
                 </div>
               </article>
@@ -586,6 +594,7 @@ export default function DashboardPage() {
                   onApprove={handleApprove}
                   onReject={handleReject}
                   approving={approving}
+                  canApprove={canApproveSuggestion}
                 />
               ))}
             </div>
