@@ -22,7 +22,7 @@ router.post('/:id/activate',             requireRoles('boss', 'supervisor'), asy
 // BE-P1-001: BOM 操作补全
 router.put('/:id',                       requireRoles('boss', 'supervisor'), asyncHandler(bomController.update.bind(bomController)));
 router.delete('/:id/items/:itemId',      requireRoles('boss', 'supervisor'), asyncHandler(bomController.deleteBomItem.bind(bomController)));
-router.patch('/:bomId/items/:itemId',    requireRoles('boss', 'supervisor'), asyncHandler(bomController.updateBomItem.bind(bomController)));
+router.patch('/:id/items/:itemId',       requireRoles('boss', 'supervisor'), asyncHandler(bomController.updateBomItem.bind(bomController)));
 router.post('/:id/copy',                 requireRoles('boss', 'supervisor'), asyncHandler(bomController.copyBom.bind(bomController)));
 router.post('/:id/items',               requireRoles('boss', 'supervisor'), asyncHandler(bomController.addItem.bind(bomController)));
 

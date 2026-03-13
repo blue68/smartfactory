@@ -203,6 +203,7 @@ export function useUpdateBomItem() {
       bomApi.updateItem(bomId, itemId, data),
     onSuccess: (_data, { bomId }) => {
       void qc.invalidateQueries({ queryKey: bomKeys.expanded(bomId) });
+      void qc.invalidateQueries({ queryKey: bomKeys.detail(bomId) });
       void qc.invalidateQueries({ queryKey: bomKeys.lists() });
     },
   });

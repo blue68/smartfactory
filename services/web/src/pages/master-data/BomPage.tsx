@@ -585,11 +585,20 @@ function EditorView({ row, onBack }: EditorViewProps) {
         onClose={() => setEditQtyOpen(false)}
         onConfirm={async () => {
           if (!selectedItem) return;
+          const qtyRegex = /^\d+(\.\d{1,4})?$/;
+          if (!qtyRegex.test(editQtyValue.trim())) {
+            showToast({ type: 'error', message: '用量格式不正确，请输入正整数或最多4位小数的正数' });
+            return;
+          }
+          if (!editUnitValue.trim()) {
+            showToast({ type: 'error', message: '单位不能为空' });
+            return;
+          }
           try {
             await updateBomItem.mutateAsync({
               bomId: row.id,
               itemId: selectedItem.bomItemId,
-              data: { quantity: editQtyValue, unit: editUnitValue },
+              data: { quantity: editQtyValue.trim(), unit: editUnitValue.trim() },
             });
             showToast({ type: 'success', message: '用量已更新' });
             setEditQtyOpen(false);
@@ -916,9 +925,10 @@ function EditorView({ row, onBack }: EditorViewProps) {
                       variant="secondary"
                       size="sm"
                       style={{ background: 'var(--color-accent-500, #f97316)', color: '#fff', borderColor: 'transparent' }}
-                      onClick={() => showToast({ type: 'success', message: '✓ BOM结构已以草稿态导入，请逐一确认用量' })}
+                      disabled
+                      title="功能开发中，敬请期待"
                     >
-                      一键复用此BOM结构
+                      一键复用此BOM结构（开发中）
                     </Button>
                     <Button variant="ghost" size="sm">忽略建议</Button>
                   </div>
@@ -1190,8 +1200,7 @@ export default function BomPage() {
         code: sku.skuCode,
         name: sku.name,
         skuId: sku.id,
-        alertText: bomRow?.alertText
-          ?? (bomRow ? undefined : undefined),
+        alertText: bomRow?.alertText,
         hasBom: !!bomRow,
         bomStatus: bomRow?.status,
       };

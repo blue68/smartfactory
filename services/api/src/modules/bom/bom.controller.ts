@@ -146,8 +146,7 @@ export class BomController {
   // ── V2-S2: 更新 BOM 明细行字段 ───────────────────────────────
 
   async updateBomItem(req: Request, res: Response): Promise<void> {
-    // 路由参数：bomId 来自 :bomId，itemId 来自 :itemId
-    const { id: bomId } = IdParamSchema.parse({ id: req.params.bomId });
+    const { id: bomId } = IdParamSchema.parse(req.params);
     const { itemId }    = ItemIdParamSchema.parse(req.params);
     const body          = UpdateBomItemSchema.parse(req.body);
     await this.svc(req).updateBomItem(bomId, itemId, body);

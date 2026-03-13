@@ -34,6 +34,7 @@ export interface BomHeader {
   skuCode?: string;
   version: string;
   status: string;
+  description?: string;
   items: BomItemNode[];
   /** V2-S2: 明细行数量（列表接口聚合字段） */
   itemCount?: number;
@@ -653,7 +654,7 @@ export class BomService {
 
     const rows = await AppDataSource.query<AiSuggestionRow[]>(
       `SELECT bi.component_sku_id AS skuId, s.name AS skuName,
-              AVG(bi.quantity) AS avgQty, bi.unit,
+              AVG(CAST(bi.quantity AS DECIMAL(18,4))) AS avgQty, bi.unit,
               COUNT(*) AS usageCount
        FROM bom_items bi
        INNER JOIN bom_headers bh ON bh.id = bi.bom_header_id AND bh.tenant_id = bi.tenant_id
@@ -772,9 +773,9 @@ export class BomService {
       );
       if (!item) throw AppError.notFound('BOM明细不存在', ResponseCode.BOM_NOT_FOUND);
 
-      // 2. 校验 BOM header status 必须是 draft
+      // 2. 校验 BOM header status 必须是 draft（加行锁防止并发 activate 绕过）
       const [header] = await manager.query<Array<{ status: string; version: string }>>(
-        `SELECT status, version FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1`,
+        `SELECT status, version FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
         [bomId, this.tenantId],
       );
       if (!header) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
@@ -821,6 +822,6 @@ export class BomService {
       [bomId, this.tenantId],
     );
     if (!header) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
-    return { id: header.id, skuId: header.sku_id, skuName: header.sku_name, skuCode: header.sku_code, version: header.version, status: header.status, items: [] };
+    return { id: header.id, skuId: header.sku_id, skuName: header.sku_name, skuCode: header.sku_code, version: header.version, status: header.status, description: header.description ?? undefined, items: [] };
   }
 }
