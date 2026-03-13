@@ -338,7 +338,11 @@ export class SchedulerService {
   /**
    * 获取工人当日任务列表
    */
-  async getWorkerTasks(workerId: number, date: string): Promise<any[]> {
+  async getWorkerTasks(workerId: number, date: string): Promise<Array<{
+    id: number; task_no: string; status: string; planned_qty: string;
+    completed_qty: string | null; work_order_no: string; skuName: string;
+    processStepName: string; salesOrderNo: string;
+  }>> {
     return AppDataSource.query(
       `SELECT pt.*, po.work_order_no, s.name AS skuName,
               ps2.step_name AS processStepName, so.order_no AS salesOrderNo

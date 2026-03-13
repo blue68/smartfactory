@@ -23,6 +23,7 @@ import {
   type KeyboardEvent,
   type ChangeEvent,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { config } from '@/config';
 import { getAccessToken } from '@/utils/request';
 import AiThinkingState, { type ThinkingStep } from '@/components/ai/AiThinkingState';
@@ -266,6 +267,7 @@ function DateDivider({ label }: { label: string }) {
 // ─────────────────────────────────────────────
 
 export default function AiChatPage() {
+  const navigate = useNavigate();
   // ── 会话状态 ──
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     const loaded = loadConversations();
@@ -504,9 +506,8 @@ export default function AiChatPage() {
 
   // ── 手动处理（跳转报表页面） ──
   const handleManual = useCallback(() => {
-    // 模拟跳转：实际可替换为 navigate('/reports')
-    window.alert('正在跳转到报表页面…');
-  }, []);
+    navigate('/dashboard');
+  }, [navigate]);
 
   // ── 键盘：Enter 发送 ──
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
