@@ -3,7 +3,9 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
 import request from '@/utils/request';
+import { config } from '@/config';
 import type {
   InventoryItem,
   SkuAvailability,
@@ -26,12 +28,27 @@ export const inventoryKeys = {
     [...inventoryKeys.all, 'fifoDyeLot', skuId, qty] as const,
 };
 
+/**
+ * 将 InventoryListQuery 序列化为 Record<string, unknown>，
+ * 确保 belowSafety boolean 以字符串 'true'/'false' 传递（Axios params 序列化兼容）
+ */
+function serializeQuery(query: InventoryListQuery): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
+  if (query.page !== undefined) params.page = query.page;
+  if (query.pageSize !== undefined) params.pageSize = query.pageSize;
+  if (query.category1Id !== undefined) params.category1Id = query.category1Id;
+  if (query.category2Id !== undefined) params.category2Id = query.category2Id;
+  if (query.keyword !== undefined && query.keyword !== '') params.keyword = query.keyword;
+  if (query.belowSafety !== undefined) params.belowSafety = String(query.belowSafety);
+  return params;
+}
+
 // ── 原始请求函数 ─────────────────────────────
 export const inventoryApi = {
   getList: (query: InventoryListQuery) =>
     request.get<PaginatedData<InventoryItem>>(
       '/api/inventory',
-      query as Record<string, unknown>,
+      serializeQuery(query),
     ),
 
   getAvailable: (skuId: number) =>
@@ -48,6 +65,34 @@ export const inventoryApi = {
 
   outbound: (payload: OutboundPayload) =>
     request.postWithLockRetry<StockTransactionResult>('/api/inventory/outbound', payload),
+
+  /**
+   * 导出库存 CSV。
+   * 后端 GET /api/inventory/export/csv 直接流式返回文件内容（非 JSON）。
+   * 必须使用独立的 axios 实例绕过全局响应拦截器（拦截器会尝试解包 JSON，而 blob 不是 JSON）。
+   */
+  exportCsv: async (): Promise<void> => {
+    const token = localStorage.getItem(config.tokenKey);
+    const baseURL = config.apiBaseUrl;
+    const res = await axios.get(`${baseURL}/api/inventory/export/csv`, {
+      responseType: 'blob',
+      withCredentials: true,
+      timeout: 60_000,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const blob = new Blob([res.data as BlobPart], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    // 从响应头取文件名，fallback 到默认名
+    const disposition = res.headers['content-disposition'] as string | undefined;
+    const filenameMatch = disposition?.match(/filename=([^;]+)/);
+    a.download = filenameMatch ? filenameMatch[1].trim() : 'inventory.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };
 
 // ── React Query Hooks ────────────────────────

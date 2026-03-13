@@ -745,8 +745,8 @@ export class InventoryService {
     }));
     return {
       categories,
-      totalSkuCount: categories.reduce((a, c) => a + c.skuCount, 0),
-      totalAlertCount: categories.reduce((a, c) => a + c.alertCount, 0),
+      totalSkuCount: categories.reduce((a: number, c: { skuCount: number }) => a + c.skuCount, 0),
+      totalAlertCount: categories.reduce((a: number, c: { alertCount: number }) => a + c.alertCount, 0),
     };
   }
 

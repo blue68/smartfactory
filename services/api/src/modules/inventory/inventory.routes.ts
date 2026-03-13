@@ -71,7 +71,7 @@ router.get('/export/csv', asyncHandler(async (req: Request, res: Response) => {
   let hasMore = true;
   while (hasMore) {
     const { list } = await svc.listInventory({ page, pageSize: BATCH_SIZE });
-    for (const i of list as Array<Record<string, unknown>>) {
+    for (const i of list as unknown as Array<Record<string, unknown>>) {
       res.write([
         String(i.skuCode), String(i.skuName), String(i.qtyOnHand),
         String(i.qtyReserved), String(i.qtyAvailable), String(i.safetyStock), String(i.stockUnit),
