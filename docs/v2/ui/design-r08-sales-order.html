@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>[artifact:UI代码] R-08 — 销售订单 · 设计原型</title>
+  <style>
+    /* ═══════════════════════════════════════════
+       Design Tokens
+    ═══════════════════════════════════════════ */
+    :root {
+      --color-primary-50:  #EFF6FF;
+      --color-primary-100: #DBEAFE;
+      --color-primary-500: #3B82F6;
+      --color-primary-600: #2563EB;
+      --color-primary-700: #1D4ED8;
+      --color-success-50:  #F0FDF4;
+      --color-success-100: #DCFCE7;
+      --color-success-500: #22C55E;
+      --color-success-600: #16A34A;
+      --color-success-700: #15803D;
+      --color-warning-50:  #FFFBEB;
+      --color-warning-100: #FEF3C7;
+      --color-warning-500: #F59E0B;
+      --color-warning-600: #D97706;
+      --color-warning-700: #B45309;
+      --color-error-50:  #FEF2F2;
+      --color-error-100: #FEE2E2;
+      --color-error-500: #EF4444;
+      --color-error-600: #DC2626;
+      --color-error-700: #B91C1C;
+      --color-info-50:   #F0F9FF;
+      --color-info-100:  #E0F2FE;
+      --color-info-500:  #0EA5E9;
+      --color-info-600:  #0284C7;
+      --color-gray-0:   #FFFFFF;
+      --color-gray-50:  #F8FAFC;
+      --color-gray-100: #F1F5F9;
+      --color-gray-200: #E2E8F0;
+      --color-gray-300: #CBD5E1;
+      --color-gray-400: #94A3B8;
+      --color-gray-500: #64748B;
+      --color-gray-600: #475569;
+      --color-gray-700: #334155;
+      --color-gray-800: #1E293B;
+      --color-gray-900: #0F172A;
+      --bg-page:        #F8FAFC;
+      --bg-card:        #FFFFFF;
+      --bg-sidebar:     #1E293B;
+      --text-primary:   #1E293B;
+      --text-secondary: #64748B;
+      --text-disabled:  #94A3B8;
+      --border-default: #E2E8F0;
+      --border-strong:  #CBD5E1;
+      --border-focus:   #3B82F6;
+      --font-family-base: "PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,BlinkMacSystemFont,sans-serif;
+      --font-family-number: "DIN Alternate","Roboto Mono",var(--font-family-base);
+      --text-h2:       1.5rem;  --text-h3:       1.25rem;
+      --text-h4:       1.125rem; --text-body-l:   1rem;
+      --text-body-m:   0.875rem; --text-body-s:   0.75rem;
+      --text-caption:  0.6875rem; --text-number-l: 1.75rem;
+      --space-1: 0.25rem; --space-2: 0.5rem;  --space-3: 0.75rem;
+      --space-4: 1rem;    --space-5: 1.25rem; --space-6: 1.5rem;
+      --space-8: 2rem;    --space-10:2.5rem;  --space-12:3rem;
+      --layout-sidebar-width: 240px;
+      --layout-header-height: 64px;
+      --layout-page-padding:  24px;
+      --radius-sm:   4px; --radius-md:   8px; --radius-lg:   12px;
+      --radius-xl:   16px; --radius-2xl:  24px; --radius-full: 9999px;
+      --shadow-xs: 0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --shadow-xl: 0 20px 25px -5px rgba(0,0,0,.1),0 10px 10px -5px rgba(0,0,0,.04);
+      --transition-fast:   150ms ease;
+      --transition-base:   200ms ease;
+      --transition-slow:   300ms ease;
+      --transition-spring: 200ms cubic-bezier(0.34,1.56,0.64,1);
+      --z-dropdown:100; --z-sticky:200; --z-overlay:300; --z-modal:400; --z-toast:500;
+    }
+
+    /* ═══════════════════════════════════════════
+       全局重置
+    ═══════════════════════════════════════════ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
+    body { font-family: var(--font-family-base); font-size: var(--text-body-m); color: var(--text-primary); background: var(--bg-page); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+    :focus-visible { outline: 2px solid var(--color-primary-500); outline-offset: 2px; border-radius: var(--radius-sm); }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    input, select, textarea { font-family: inherit; font-size: inherit; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--color-gray-300); border-radius: var(--radius-full); }
+
+    /* ═══════════════════════════════════════════
+       布局骨架
+    ═══════════════════════════════════════════ */
+    .app-layout { display: flex; height: 100vh; overflow: hidden; }
+    .app-layout__sidebar { width: var(--layout-sidebar-width); flex-shrink: 0; background: var(--bg-sidebar); display: flex; flex-direction: column; overflow: hidden; }
+    .app-layout__main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+    .app-layout__header { height: var(--layout-header-height); flex-shrink: 0; background: var(--bg-card); border-bottom: 1px solid var(--border-default); box-shadow: var(--shadow-xs); display: flex; align-items: center; padding: 0 var(--layout-page-padding); z-index: var(--z-sticky); gap: var(--space-4); }
+    .app-layout__content { flex: 1; overflow-y: auto; padding: var(--layout-page-padding); }
+
+    /* ═══════════════════════════════════════════
+       侧边栏
+    ═══════════════════════════════════════════ */
+    .sidebar__logo { height: var(--layout-header-height); display: flex; align-items: center; padding: 0 var(--space-5); border-bottom: 1px solid rgba(255,255,255,.08); flex-shrink: 0; }
+    .sidebar__logo-mark { width: 2rem; height: 2rem; background: var(--color-primary-600); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; font-size: var(--text-body-s); font-weight: 700; color: #fff; flex-shrink: 0; }
+    .sidebar__logo-text { margin-left: var(--space-3); font-size: var(--text-body-l); font-weight: 700; color: #fff; }
+    .sidebar__nav { flex: 1; overflow-y: auto; padding: var(--space-4) 0; }
+    .sidebar__section { padding: 0 var(--space-3) var(--space-2); }
+    .sidebar__section-title { font-size: var(--text-caption); font-weight: 600; letter-spacing: .05em; color: var(--color-gray-500); text-transform: uppercase; padding: var(--space-2) var(--space-3); }
+    .sidebar__item { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); color: var(--color-gray-400); font-size: var(--text-body-m); cursor: pointer; transition: background var(--transition-fast), color var(--transition-fast); text-decoration: none; }
+    .sidebar__item:hover { background: rgba(255,255,255,.06); color: #fff; }
+    .sidebar__item--active { background: var(--color-primary-600); color: #fff; }
+    .sidebar__item-icon { width: 1rem; height: 1rem; opacity: .75; flex-shrink: 0; }
+    .sidebar__item--active .sidebar__item-icon { opacity: 1; }
+
+    /* ═══════════════════════════════════════════
+       页头
+    ═══════════════════════════════════════════ */
+    .page-header__breadcrumb { font-size: var(--text-body-s); color: var(--text-secondary); }
+    .page-header__breadcrumb span { color: var(--text-primary); font-weight: 500; }
+    .page-header__actions { margin-left: auto; display: flex; gap: var(--space-3); align-items: center; }
+
+    /* ═══════════════════════════════════════════
+       统计卡片行
+    ═══════════════════════════════════════════ */
+    .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-5); }
+    .stat-card { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); box-shadow: var(--shadow-xs); cursor: pointer; transition: box-shadow var(--transition-fast), border-color var(--transition-fast); }
+    .stat-card:hover { box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+    .stat-card--selected { border-color: var(--color-primary-500); box-shadow: 0 0 0 2px var(--color-primary-100); }
+    .stat-card__label { font-size: var(--text-body-s); color: var(--text-secondary); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2); }
+    .stat-card__value { font-family: var(--font-family-number); font-size: var(--text-number-l); font-weight: 700; color: var(--text-primary); line-height: 1.2; font-variant-numeric: tabular-nums; }
+    .stat-card__dot { width: 8px; height: 8px; border-radius: var(--radius-full); flex-shrink: 0; }
+
+    /* ═══════════════════════════════════════════
+       筛选工具栏
+    ═══════════════════════════════════════════ */
+    .toolbar { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; box-shadow: var(--shadow-xs); }
+    .search-field { position: relative; flex: 1; min-width: 200px; max-width: 280px; }
+    .search-field__input { width: 100%; height: 2.25rem; padding: 0 var(--space-4) 0 2.25rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--color-gray-50); transition: border-color var(--transition-fast), box-shadow var(--transition-fast); }
+    .search-field__input:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--color-primary-100); background: #fff; }
+    .search-field__icon { position: absolute; left: var(--space-3); top: 50%; transform: translateY(-50%); color: var(--text-disabled); pointer-events: none; }
+    .filter-select { height: 2.25rem; padding: 0 var(--space-8) 0 var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--color-gray-50) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394A3B8' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 10px center; appearance: none; cursor: pointer; transition: border-color var(--transition-fast); }
+    .filter-select:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--color-primary-100); }
+    .date-input { height: 2.25rem; padding: 0 var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--color-gray-50); }
+    .toolbar__spacer { flex: 1; }
+    .date-range { display: flex; align-items: center; gap: var(--space-2); }
+    .date-range__sep { color: var(--text-secondary); font-size: var(--text-body-s); }
+
+    /* ═══════════════════════════════════════════
+       按钮
+    ═══════════════════════════════════════════ */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); height: 2.25rem; padding: 0 var(--space-4); border-radius: var(--radius-md); font-size: var(--text-body-m); font-weight: 500; white-space: nowrap; transition: background var(--transition-fast), box-shadow var(--transition-fast); }
+    .btn--primary { background: var(--color-primary-600); color: #fff; }
+    .btn--primary:hover { background: var(--color-primary-700); box-shadow: var(--shadow-sm); }
+    .btn--secondary { background: #fff; color: var(--text-primary); border: 1px solid var(--border-default); }
+    .btn--secondary:hover { background: var(--color-gray-50); border-color: var(--border-strong); }
+    .btn--danger { background: var(--color-error-600); color: #fff; }
+    .btn--danger:hover { background: var(--color-error-700); }
+    .btn--success { background: var(--color-success-600); color: #fff; }
+    .btn--success:hover { background: var(--color-success-700); }
+    .btn--sm { height: 1.75rem; padding: 0 var(--space-3); font-size: var(--text-body-s); }
+    .btn--ghost { color: var(--color-primary-600); }
+    .btn--ghost:hover { background: var(--color-primary-50); }
+    .btn--icon { width: 2rem; height: 2rem; padding: 0; border-radius: var(--radius-md); }
+    .btn--urgent { background: var(--color-error-600); color: #fff; }
+    .btn--urgent:hover { background: var(--color-error-700); }
+
+    /* ═══════════════════════════════════════════
+       数据表格
+    ═══════════════════════════════════════════ */
+    .table-card { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); overflow: hidden; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-body-s); font-weight: 600; color: var(--text-secondary); background: var(--color-gray-50); border-bottom: 1px solid var(--border-default); white-space: nowrap; }
+    thead th:first-child { padding-left: var(--space-5); }
+    tbody tr { border-bottom: 1px solid var(--border-default); transition: background var(--transition-fast); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--color-primary-50); }
+    tbody td { padding: var(--space-3) var(--space-4); font-size: var(--text-body-m); color: var(--text-primary); vertical-align: middle; }
+    tbody td:first-child { padding-left: var(--space-5); }
+    /* 紧急行高亮 */
+    tbody tr.row--urgent { background: var(--color-error-50); }
+    tbody tr.row--urgent:hover { background: var(--color-error-100); }
+    .table-footer { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border-default); background: var(--color-gray-50); }
+    .pagination { display: flex; gap: var(--space-1); align-items: center; }
+    .pagination__btn { width: 2rem; height: 2rem; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-s); color: var(--text-secondary); cursor: pointer; transition: background var(--transition-fast); }
+    .pagination__btn:hover, .pagination__btn--active { background: var(--color-primary-600); color: #fff; border-color: var(--color-primary-600); }
+
+    /* ═══════════════════════════════════════════
+       状态标签
+    ═══════════════════════════════════════════ */
+    .status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px var(--space-2); border-radius: var(--radius-full); font-size: var(--text-body-s); font-weight: 500; white-space: nowrap; }
+    .status-badge__dot { width: 6px; height: 6px; border-radius: var(--radius-full); }
+    .status-badge--pending { background: var(--color-warning-100); color: var(--color-warning-700); }
+    .status-badge--pending .status-badge__dot { background: var(--color-warning-500); }
+    .status-badge--confirmed { background: var(--color-info-100); color: var(--color-info-600); }
+    .status-badge--confirmed .status-badge__dot { background: var(--color-info-500); }
+    .status-badge--producing { background: var(--color-primary-100); color: var(--color-primary-700); }
+    .status-badge--producing .status-badge__dot { background: var(--color-primary-500); }
+    .status-badge--done { background: var(--color-success-100); color: var(--color-success-700); }
+    .status-badge--done .status-badge__dot { background: var(--color-success-500); }
+    .status-badge--closed { background: var(--color-gray-100); color: var(--color-gray-500); }
+    .status-badge--closed .status-badge__dot { background: var(--color-gray-400); }
+    .status-badge--urgent-review { background: var(--color-error-100); color: var(--color-error-700); }
+    .status-badge--urgent-review .status-badge__dot { background: var(--color-error-500); }
+
+    /* 紧急标签（闪烁） */
+    .urgent-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px var(--space-2); background: var(--color-error-600); color: #fff; border-radius: var(--radius-full); font-size: var(--text-caption); font-weight: 700; letter-spacing: .02em; }
+    .urgent-tag__dot { width: 6px; height: 6px; border-radius: var(--radius-full); background: #fff; animation: urgent-pulse 1.2s infinite; }
+    @keyframes urgent-pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+
+    /* ═══════════════════════════════════════════
+       操作列
+    ═══════════════════════════════════════════ */
+    .action-group { display: flex; gap: var(--space-1); align-items: center; }
+    .action-btn { height: 1.75rem; padding: 0 var(--space-3); border-radius: var(--radius-sm); font-size: var(--text-body-s); font-weight: 500; cursor: pointer; border: none; transition: background var(--transition-fast); }
+    .action-btn--view { color: var(--color-primary-600); background: var(--color-primary-50); }
+    .action-btn--view:hover { background: var(--color-primary-100); }
+    .action-btn--approve { color: var(--color-error-600); background: var(--color-error-50); }
+    .action-btn--approve:hover { background: var(--color-error-100); }
+
+    /* ═══════════════════════════════════════════
+       全屏弹框（新增订单）
+    ═══════════════════════════════════════════ */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: var(--z-overlay); display: flex; align-items: center; justify-content: center; animation: fade-in .15s ease; }
+    .modal { background: var(--bg-card); border-radius: var(--radius-xl); box-shadow: var(--shadow-xl); width: 100%; max-width: 640px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; animation: modal-in .2s cubic-bezier(0.34,1.56,0.64,1); }
+    .modal--fullscreen { max-width: 900px; max-height: 95vh; }
+    .modal__header { padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--border-default); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .modal__title { font-size: var(--text-h4); font-weight: 600; color: var(--text-primary); }
+    .modal__close { width: 2rem; height: 2rem; border-radius: var(--radius-md); color: var(--text-secondary); display: flex; align-items: center; justify-content: center; transition: background var(--transition-fast); }
+    .modal__close:hover { background: var(--color-gray-100); color: var(--text-primary); }
+    .modal__body { flex: 1; overflow-y: auto; padding: var(--space-6); }
+    .modal__footer { padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border-default); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+
+    /* ═══════════════════════════════════════════
+       表单
+    ═══════════════════════════════════════════ */
+    .form-section { margin-bottom: var(--space-6); }
+    .form-section__title { font-size: var(--text-body-m); font-weight: 600; color: var(--text-primary); margin-bottom: var(--space-4); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-default); display: flex; align-items: center; gap: var(--space-2); }
+    .form-section__title::before { content: ''; width: 3px; height: 1rem; background: var(--color-primary-500); border-radius: var(--radius-full); }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+    .form-grid--3 { grid-template-columns: 1fr 1fr 1fr; }
+    .form-group { display: flex; flex-direction: column; gap: var(--space-2); }
+    .form-group--full { grid-column: 1 / -1; }
+    .form-label { font-size: var(--text-body-s); font-weight: 500; color: var(--text-secondary); }
+    .form-label--required::after { content: ' *'; color: var(--color-error-500); }
+    .form-input { height: 2.25rem; padding: 0 var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--color-gray-50); transition: border-color var(--transition-fast), box-shadow var(--transition-fast); width: 100%; }
+    .form-input:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--color-primary-100); background: #fff; }
+    .form-input--readonly { background: var(--color-gray-100); color: var(--text-secondary); cursor: default; }
+    .form-select { height: 2.25rem; padding: 0 var(--space-8) 0 var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--color-gray-50) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394A3B8' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 10px center; appearance: none; cursor: pointer; width: 100%; }
+    .form-select:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--color-primary-100); }
+    .form-textarea { min-height: 4rem; padding: var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--color-gray-50); resize: vertical; width: 100%; }
+    .form-textarea:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--color-primary-100); background: #fff; }
+    .form-hint { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1); }
+
+    /* 紧急开关 */
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--color-gray-50); grid-column: 1 / -1; }
+    .toggle-row--urgent { border-color: var(--color-error-300, #FCA5A5); background: var(--color-error-50); }
+    .toggle-row__info { display: flex; flex-direction: column; gap: 2px; }
+    .toggle-row__label { font-weight: 600; color: var(--text-primary); font-size: var(--text-body-m); }
+    .toggle-row__desc { font-size: var(--text-body-s); color: var(--text-secondary); }
+    .toggle { position: relative; width: 2.75rem; height: 1.5rem; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle__track { position: absolute; inset: 0; background: var(--color-gray-300); border-radius: var(--radius-full); transition: background var(--transition-base); cursor: pointer; }
+    .toggle input:checked + .toggle__track { background: var(--color-error-500); }
+    .toggle__thumb { position: absolute; top: 2px; left: 2px; width: 1.25rem; height: 1.25rem; background: #fff; border-radius: var(--radius-full); transition: transform var(--transition-spring); box-shadow: var(--shadow-sm); pointer-events: none; }
+    .toggle input:checked ~ .toggle__thumb { transform: translateX(1.25rem); }
+
+    /* ═══════════════════════════════════════════
+       明细行表格（订单产品明细）
+    ═══════════════════════════════════════════ */
+    .detail-table-wrap { border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; margin-bottom: var(--space-4); }
+    .detail-table { width: 100%; border-collapse: collapse; }
+    .detail-table th { padding: var(--space-2) var(--space-3); font-size: var(--text-body-s); font-weight: 600; color: var(--text-secondary); background: var(--color-gray-50); border-bottom: 1px solid var(--border-default); text-align: left; white-space: nowrap; }
+    .detail-table td { padding: var(--space-2) var(--space-3); font-size: var(--text-body-m); border-bottom: 1px solid var(--border-default); vertical-align: middle; }
+    .detail-table tr:last-child td { border-bottom: none; }
+    .detail-table__input { height: 2rem; padding: 0 var(--space-2); border: 1px solid var(--border-default); border-radius: var(--radius-sm); width: 100%; font-size: var(--text-body-m); background: #fff; }
+    .detail-table__input:focus { outline: none; border-color: var(--border-focus); }
+    .detail-table__select { height: 2rem; padding: 0 1.5rem 0 var(--space-2); border: 1px solid var(--border-default); border-radius: var(--radius-sm); width: 100%; font-size: var(--text-body-m); background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%2394A3B8' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 6px center; appearance: none; cursor: pointer; }
+    .detail-table__input--calc { background: var(--color-gray-50); color: var(--text-secondary); cursor: default; }
+    .order-total { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-4); padding: var(--space-3) var(--space-4); background: var(--color-primary-50); border: 1px solid var(--color-primary-100); border-radius: var(--radius-md); }
+    .order-total__label { font-size: var(--text-body-m); color: var(--text-secondary); font-weight: 500; }
+    .order-total__value { font-family: var(--font-family-number); font-size: var(--text-h3); font-weight: 700; color: var(--color-primary-700); font-variant-numeric: tabular-nums; }
+
+    /* 紧急插单影响提示横幅 */
+    .urgent-warning-banner { display: flex; gap: var(--space-3); padding: var(--space-4); background: var(--color-error-50); border: 1px solid var(--color-error-200, #FECACA); border-radius: var(--radius-md); margin-bottom: var(--space-4); }
+    .urgent-warning-banner__icon { font-size: 1.25rem; flex-shrink: 0; margin-top: 1px; }
+    .urgent-warning-banner__content { flex: 1; }
+    .urgent-warning-banner__title { font-weight: 600; color: var(--color-error-700); font-size: var(--text-body-m); margin-bottom: var(--space-2); }
+    .urgent-warning-banner__earliest { font-size: var(--text-body-s); color: var(--color-error-600); margin-bottom: var(--space-3); }
+    .impact-order-list { display: flex; flex-direction: column; gap: var(--space-2); }
+    .impact-order-item { background: #fff; border: 1px solid var(--color-error-200, #FECACA); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); display: flex; align-items: center; justify-content: space-between; font-size: var(--text-body-s); }
+    .impact-order-item__no { font-weight: 600; color: var(--color-error-700); }
+    .impact-order-item__delay { color: var(--color-error-600); }
+
+    /* ═══════════════════════════════════════════
+       审批弹框特定元素
+    ═══════════════════════════════════════════ */
+    .approval-summary { background: var(--color-gray-50); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-5); }
+    .approval-summary__row { display: flex; justify-content: space-between; padding: var(--space-2) 0; border-bottom: 1px solid var(--border-default); font-size: var(--text-body-m); }
+    .approval-summary__row:last-child { border-bottom: none; }
+    .approval-summary__key { color: var(--text-secondary); }
+    .approval-summary__val { font-weight: 600; color: var(--text-primary); }
+    .approval-impact-notice { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4); background: var(--color-error-50); border: 1px solid var(--color-error-200, #FECACA); border-radius: var(--radius-md); margin-bottom: var(--space-4); }
+    .approval-impact-notice__text { font-size: var(--text-body-m); color: var(--color-error-700); font-weight: 500; }
+    .reject-reason { display: none; }
+    .reject-reason.visible { display: block; }
+
+    /* ═══════════════════════════════════════════
+       详情侧边栏（订单详情）
+    ═══════════════════════════════════════════ */
+    .drawer-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.4); z-index: var(--z-overlay); }
+    .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: 520px; background: var(--bg-card); box-shadow: var(--shadow-xl); z-index: var(--z-modal); display: flex; flex-direction: column; animation: slide-in-right .3s ease; }
+    .drawer__header { padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--border-default); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
+    .drawer__title { font-size: var(--text-h3); font-weight: 700; color: var(--text-primary); }
+    .drawer__subtitle { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1); }
+    .drawer__body { flex: 1; overflow-y: auto; padding: var(--space-5) var(--space-6); }
+    .drawer__footer { padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border-default); display: flex; gap: var(--space-3); flex-shrink: 0; justify-content: flex-end; }
+
+    /* 时间线 */
+    .timeline { list-style: none; padding: 0; position: relative; }
+    .timeline::before { content: ''; position: absolute; left: 11px; top: 0; bottom: 0; width: 2px; background: var(--border-default); }
+    .timeline__item { position: relative; padding-left: var(--space-8); margin-bottom: var(--space-4); }
+    .timeline__dot { position: absolute; left: 0; top: 4px; width: 24px; height: 24px; border-radius: var(--radius-full); background: var(--bg-card); border: 2px solid var(--border-default); display: flex; align-items: center; justify-content: center; z-index: 1; }
+    .timeline__dot--active { border-color: var(--color-primary-500); background: var(--color-primary-500); }
+    .timeline__dot--done { border-color: var(--color-success-500); background: var(--color-success-500); }
+    .timeline__time { font-size: var(--text-body-s); color: var(--text-secondary); }
+    .timeline__label { font-weight: 600; color: var(--text-primary); font-size: var(--text-body-m); }
+    .timeline__desc { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: 2px; }
+
+    /* 信息块 */
+    .info-card { background: var(--color-gray-50); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-4); margin-bottom: var(--space-4); }
+    .info-card__title { font-size: var(--text-body-s); font-weight: 600; color: var(--text-secondary); margin-bottom: var(--space-3); text-transform: uppercase; letter-spacing: .05em; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+    .info-item__label { font-size: var(--text-body-s); color: var(--text-secondary); margin-bottom: 2px; }
+    .info-item__value { font-size: var(--text-body-m); color: var(--text-primary); font-weight: 500; }
+
+    /* 订单明细 mini 表 */
+    .mini-table { width: 100%; border-collapse: collapse; font-size: var(--text-body-s); }
+    .mini-table th { padding: var(--space-2) var(--space-3); color: var(--text-secondary); font-weight: 600; background: var(--color-gray-100); border-bottom: 1px solid var(--border-default); text-align: left; }
+    .mini-table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-default); }
+    .mini-table tr:last-child td { border-bottom: none; }
+
+    /* ═══════════════════════════════════════════
+       待审批列表（admin 专属视图）
+    ═══════════════════════════════════════════ */
+    .review-banner { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-5); background: var(--color-error-50); border: 1px solid var(--color-error-200, #FECACA); border-radius: var(--radius-lg); margin-bottom: var(--space-5); }
+    .review-banner__dot { width: 10px; height: 10px; border-radius: var(--radius-full); background: var(--color-error-500); animation: urgent-pulse 1.2s infinite; flex-shrink: 0; }
+    .review-banner__text { font-size: var(--text-body-m); font-weight: 600; color: var(--color-error-700); flex: 1; }
+    .review-banner__badge { background: var(--color-error-600); color: #fff; font-size: var(--text-body-s); font-weight: 700; padding: 2px var(--space-2); border-radius: var(--radius-full); }
+
+    /* ═══════════════════════════════════════════
+       Toast
+    ═══════════════════════════════════════════ */
+    .toast-container { position: fixed; top: var(--space-5); right: var(--space-5); z-index: var(--z-toast); display: flex; flex-direction: column; gap: var(--space-3); pointer-events: none; }
+    .toast { background: var(--color-gray-800); color: #fff; padding: var(--space-3) var(--space-5); border-radius: var(--radius-lg); font-size: var(--text-body-m); box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: var(--space-3); min-width: 240px; animation: fade-in .2s ease; pointer-events: auto; }
+    .toast--success { background: var(--color-success-600); }
+    .toast--error { background: var(--color-error-600); }
+
+    /* ═══════════════════════════════════════════
+       Keyframes
+    ═══════════════════════════════════════════ */
+    @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes modal-in { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
+    @keyframes slide-in-right { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    .num { font-family: var(--font-family-number); font-variant-numeric: tabular-nums; }
+    .section-divider { height: 1px; background: var(--border-default); margin: var(--space-5) 0; }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════
+     整体布局
+══════════════════════════════════════════════════════ -->
+<div class="app-layout">
+
+  <!-- 侧边栏 -->
+  <aside class="app-layout__sidebar">
+    <div class="sidebar__logo">
+      <div class="sidebar__logo-mark">智</div>
+      <span class="sidebar__logo-text">智造管家</span>
+    </div>
+    <nav class="sidebar__nav">
+      <div class="sidebar__section">
+        <div class="sidebar__section-title">主数据</div>
+        <a class="sidebar__item" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v2H2zm0 4h12v2H2zm0 4h8v2H2z"/></svg>
+          SKU 管理
+        </a>
+        <a class="sidebar__item" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1L1 5v6l7 4 7-4V5zm0 1.7l5 2.9v4.8L8 13.3l-5-2.9V5.6z"/></svg>
+          BOM 管理
+        </a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__section-title">销售管理</div>
+        <a class="sidebar__item" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M13 2H3a1 1 0 00-1 1v10a1 1 0 001 1h10a1 1 0 001-1V3a1 1 0 00-1-1zM6 10H4V7h2v3zm3 0H7V5h2v5zm3 0h-2V6h2v4z"/></svg>
+          客户管理
+        </a>
+        <a class="sidebar__item sidebar__item--active" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h12l-1 9H3L2 2zm2 10h8l1-2H3l1 2z"/></svg>
+          销售订单
+        </a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__section-title">生产管理</div>
+        <a class="sidebar__item" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2h14v3H1zm0 5h14v3H1zm0 5h14v2H1z"/></svg>
+          生产工单
+        </a>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- 主内容区 -->
+  <div class="app-layout__main">
+    <!-- 页头 -->
+    <header class="app-layout__header">
+      <div class="page-header__breadcrumb">销售管理 / <span>销售订单</span></div>
+      <div class="page-header__actions">
+        <button class="btn btn--secondary" onclick="openModal('modal-approve')">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="var(--color-error-500)"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4v4l3 2" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+          待审批 <span style="background:var(--color-error-500);color:#fff;border-radius:9999px;padding:0 6px;font-size:var(--text-caption);font-weight:700;margin-left:2px">3</span>
+        </button>
+        <button class="btn btn--primary" onclick="openModal('modal-order')">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          新增订单
+        </button>
+      </div>
+    </header>
+
+    <!-- 页面内容 -->
+    <main class="app-layout__content">
+
+      <!-- Admin 待审批横幅（仅 admin 可见） -->
+      <div class="review-banner">
+        <div class="review-banner__dot"></div>
+        <div class="review-banner__text">有 3 条紧急插单待您审批确认，审批后系统将自动创建生产工单。</div>
+        <span class="review-banner__badge">3 条待审批</span>
+        <button class="btn btn--sm btn--danger" onclick="openModal('modal-approve')">立即处理</button>
+      </div>
+
+      <!-- 统计卡片 -->
+      <div class="stat-row">
+        <div class="stat-card stat-card--selected">
+          <div class="stat-card__label"><span class="stat-card__dot" style="background:var(--color-gray-400)"></span>全部订单</div>
+          <div class="stat-card__value num">247</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card__label"><span class="stat-card__dot" style="background:var(--color-warning-500)"></span>待确认</div>
+          <div class="stat-card__value num" style="color:var(--color-warning-600)">18</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card__label"><span class="stat-card__dot" style="background:var(--color-primary-500)"></span>生产中</div>
+          <div class="stat-card__value num" style="color:var(--color-primary-600)">56</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card__label"><span class="stat-card__dot" style="background:var(--color-success-500)"></span>已完成</div>
+          <div class="stat-card__value num" style="color:var(--color-success-600)">173</div>
+        </div>
+      </div>
+
+      <!-- 筛选工具栏 -->
+      <div class="toolbar">
+        <div class="search-field">
+          <svg class="search-field__icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7 2a5 5 0 110 10A5 5 0 017 2zm4.32 8.91l3.38 3.38-.71.71-3.38-3.38A6 6 0 1111.32 10.91z"/></svg>
+          <input class="search-field__input" type="text" placeholder="搜索订单号…" />
+        </div>
+        <select class="filter-select" aria-label="客户筛选">
+          <option value="">全部客户</option>
+          <option>宜家家居</option>
+          <option>顾家家居</option>
+        </select>
+        <select class="filter-select" aria-label="状态筛选">
+          <option value="">全部状态</option>
+          <option>待确认</option>
+          <option>待排产确认</option>
+          <option>生产中</option>
+          <option>已完成</option>
+          <option>已关闭</option>
+        </select>
+        <div class="date-range">
+          <input class="date-input" type="date" value="2024-11-01" aria-label="开始日期" />
+          <span class="date-range__sep">至</span>
+          <input class="date-input" type="date" value="2024-12-31" aria-label="结束日期" />
+        </div>
+        <select class="filter-select" aria-label="紧急筛选">
+          <option value="">全部优先级</option>
+          <option>仅紧急订单</option>
+          <option>仅普通订单</option>
+        </select>
+        <div class="toolbar__spacer"></div>
+        <span style="font-size:var(--text-body-s);color:var(--text-secondary)">共 <strong>247</strong> 条</span>
+      </div>
+
+      <!-- 数据表格 -->
+      <div class="table-card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>订单号</th>
+                <th>客户名称</th>
+                <th>下单日期</th>
+                <th>交付日期</th>
+                <th>金额（元）</th>
+                <th>状态</th>
+                <th>优先级</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- 紧急行 1 -->
+              <tr class="row--urgent">
+                <td><span class="num" style="font-weight:600;color:var(--color-primary-600)">SO-2024-0108</span></td>
+                <td style="font-weight:600">宜家家居（上海）</td>
+                <td><span class="num">2024-12-10</span></td>
+                <td><span class="num" style="color:var(--color-error-600);font-weight:600">2025-01-05</span></td>
+                <td><span class="num">320,000</span></td>
+                <td><span class="status-badge status-badge--urgent-review"><span class="status-badge__dot"></span>待排产确认</span></td>
+                <td><span class="urgent-tag"><span class="urgent-tag__dot"></span>紧急</span></td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-btn action-btn--view" onclick="openDrawer()">详情</button>
+                    <button class="action-btn action-btn--approve" onclick="openModal('modal-approve')">审批</button>
+                  </div>
+                </td>
+              </tr>
+              <!-- 紧急行 2 -->
+              <tr class="row--urgent">
+                <td><span class="num" style="font-weight:600;color:var(--color-primary-600)">SO-2024-0107</span></td>
+                <td style="font-weight:600">顾家家居</td>
+                <td><span class="num">2024-12-09</span></td>
+                <td><span class="num" style="color:var(--color-error-600);font-weight:600">2024-12-28</span></td>
+                <td><span class="num">86,500</span></td>
+                <td><span class="status-badge status-badge--urgent-review"><span class="status-badge__dot"></span>待排产确认</span></td>
+                <td><span class="urgent-tag"><span class="urgent-tag__dot"></span>紧急</span></td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-btn action-btn--view" onclick="openDrawer()">详情</button>
+                    <button class="action-btn action-btn--approve" onclick="openModal('modal-approve')">审批</button>
+                  </div>
+                </td>
+              </tr>
+              <!-- 普通行 -->
+              <tr>
+                <td><span class="num" style="font-weight:600;color:var(--color-primary-600)">SO-2024-0106</span></td>
+                <td>曲美家居</td>
+                <td><span class="num">2024-12-08</span></td>
+                <td><span class="num">2025-01-20</span></td>
+                <td><span class="num">156,000</span></td>
+                <td><span class="status-badge status-badge--producing"><span class="status-badge__dot"></span>生产中</span></td>
+                <td style="color:var(--text-secondary)">—</td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-btn action-btn--view" onclick="openDrawer()">详情</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="num" style="font-weight:600;color:var(--color-primary-600)">SO-2024-0105</span></td>
+                <td>宜家家居（上海）</td>
+                <td><span class="num">2024-12-01</span></td>
+                <td><span class="num">2025-01-15</span></td>
+                <td><span class="num">245,000</span></td>
+                <td><span class="status-badge status-badge--confirmed"><span class="status-badge__dot"></span>已确认</span></td>
+                <td style="color:var(--text-secondary)">—</td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-btn action-btn--view" onclick="openDrawer()">详情</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="num" style="font-weight:600;color:var(--color-primary-600)">SO-2024-0089</span></td>
+                <td>宜家家居（上海）</td>
+                <td><span class="num">2024-11-20</span></td>
+                <td><span class="num">2024-12-15</span></td>
+                <td><span class="num">128,000</span></td>
+                <td><span class="status-badge status-badge--done"><span class="status-badge__dot"></span>已完成</span></td>
+                <td style="color:var(--text-secondary)">—</td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-btn action-btn--view" onclick="openDrawer()">详情</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-footer">
+          <span style="font-size:var(--text-body-s);color:var(--text-secondary)">显示 1-5 / 共 247 条</span>
+          <div class="pagination">
+            <button class="pagination__btn">‹</button>
+            <button class="pagination__btn pagination__btn--active">1</button>
+            <button class="pagination__btn">2</button>
+            <button class="pagination__btn">3</button>
+            <span style="color:var(--text-secondary);padding:0 var(--space-2);font-size:var(--text-body-s)">…</span>
+            <button class="pagination__btn">50</button>
+            <button class="pagination__btn">›</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     Modal — 新增订单（全屏弹框）
+══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-order" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-order-title">
+  <div class="modal modal--fullscreen">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-order-title">新增销售订单</h2>
+      <button class="modal__close" onclick="closeModal('modal-order')" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal__body">
+
+      <!-- 基本信息 -->
+      <div class="form-section">
+        <div class="form-section__title">基本信息</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label form-label--required">客户</label>
+            <input class="form-input" type="text" placeholder="搜索客户名称或编码…" list="customer-list" />
+            <datalist id="customer-list">
+              <option>宜家家居（上海）有限公司</option>
+              <option>顾家家居股份有限公司</option>
+              <option>曲美家居集团股份有限公司</option>
+            </datalist>
+          </div>
+          <div class="form-group">
+            <label class="form-label">订单号</label>
+            <input class="form-input form-input--readonly" type="text" value="SO-2024-0109（自动生成）" readonly />
+          </div>
+          <div class="form-group">
+            <label class="form-label form-label--required">下单日期</label>
+            <input class="form-input" type="date" value="2024-12-12" />
+          </div>
+          <div class="form-group">
+            <label class="form-label form-label--required">要求交付日期</label>
+            <input class="form-input" type="date" value="2025-02-01" onchange="checkUrgency(this)" />
+          </div>
+          <!-- 紧急开关 -->
+          <div class="toggle-row toggle-row--urgent" id="urgent-toggle-row">
+            <div class="toggle-row__info">
+              <div class="toggle-row__label" style="color:var(--color-error-700)">紧急插单</div>
+              <div class="toggle-row__desc">开启后需老板（admin）审批确认，审批通过后才能进入生产排产</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="urgent-chk" onchange="toggleUrgentWarning(this)" />
+              <span class="toggle__track"></span>
+              <span class="toggle__thumb"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- 紧急插单影响提示（条件展示） -->
+      <div class="urgent-warning-banner" id="urgent-warning" style="display:none">
+        <div class="urgent-warning-banner__icon">⚠️</div>
+        <div class="urgent-warning-banner__content">
+          <div class="urgent-warning-banner__title">产能影响预警</div>
+          <div class="urgent-warning-banner__earliest">系统评估：当前最早可排产日期为 <strong>2024-12-18</strong>，预计完工日期为 <strong>2025-01-08</strong>（距要求交期还差 3 天）</div>
+          <div class="impact-order-list">
+            <div style="font-size:var(--text-body-s);font-weight:600;color:var(--color-error-600);margin-bottom:var(--space-2)">确认此紧急订单可能影响以下 <strong>2</strong> 个在产工单的交期：</div>
+            <div class="impact-order-item">
+              <span class="impact-order-item__no">SO-2024-0106</span>
+              <span>曲美家居 · 软包床 × 20</span>
+              <span class="impact-order-item__delay">预计延期 3 天</span>
+            </div>
+            <div class="impact-order-item">
+              <span class="impact-order-item__no">SO-2024-0105</span>
+              <span>宜家家居 · 双人床 × 15</span>
+              <span class="impact-order-item__delay">预计延期 1 天</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 订单明细 -->
+      <div class="form-section">
+        <div class="form-section__title">订单明细</div>
+        <div class="detail-table-wrap">
+          <table class="detail-table">
+            <thead>
+              <tr>
+                <th style="width:36%">产品（成品 SKU）</th>
+                <th style="width:14%">数量</th>
+                <th style="width:18%">单价（元）</th>
+                <th style="width:18%">小计（元）</th>
+                <th style="width:14%">操作</th>
+              </tr>
+            </thead>
+            <tbody id="order-detail-body">
+              <tr>
+                <td>
+                  <select class="detail-table__select">
+                    <option>搜索/选择成品 SKU…</option>
+                    <option selected>FG-SOFA-2024-001 · 三人沙发（深灰）</option>
+                    <option>FG-BED-2024-003 · 1.8m 软包床</option>
+                  </select>
+                </td>
+                <td><input class="detail-table__input" type="number" value="20" min="1" onchange="calcRow(this)" /></td>
+                <td><input class="detail-table__input" type="number" value="3200" min="0" onchange="calcRow(this)" /></td>
+                <td><input class="detail-table__input detail-table__input--calc" type="text" value="64,000" readonly /></td>
+                <td><button class="btn btn--sm btn--secondary" onclick="removeRow(this)">删除</button></td>
+              </tr>
+              <tr>
+                <td>
+                  <select class="detail-table__select">
+                    <option>搜索/选择成品 SKU…</option>
+                    <option>FG-SOFA-2024-001 · 三人沙发（深灰）</option>
+                    <option selected>FG-BED-2024-003 · 1.8m 软包床</option>
+                  </select>
+                </td>
+                <td><input class="detail-table__input" type="number" value="10" min="1" onchange="calcRow(this)" /></td>
+                <td><input class="detail-table__input" type="number" value="5600" min="0" onchange="calcRow(this)" /></td>
+                <td><input class="detail-table__input detail-table__input--calc" type="text" value="56,000" readonly /></td>
+                <td><button class="btn btn--sm btn--secondary" onclick="removeRow(this)">删除</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <button class="btn btn--ghost btn--sm" onclick="addRow()">+ 添加明细行</button>
+      </div>
+
+      <!-- 合计 + 备注 -->
+      <div class="order-total" id="order-total">
+        <span class="order-total__label">合计金额</span>
+        <span class="order-total__value">￥<span class="num" id="total-val">120,000</span></span>
+      </div>
+
+      <div class="form-group" style="margin-top:var(--space-4)">
+        <label class="form-label">备注</label>
+        <textarea class="form-textarea" placeholder="交付要求、包装说明或其他注意事项…"></textarea>
+      </div>
+
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--secondary" onclick="closeModal('modal-order')">取消</button>
+      <div style="display:flex;gap:var(--space-3)">
+        <button class="btn btn--secondary" onclick="handleSaveDraft()">保存草稿</button>
+        <button class="btn btn--primary" onclick="handleSubmitOrder()">提交订单</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     Modal — 紧急插单审批
+══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-approve" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-approve-title">
+  <div class="modal" style="max-width:560px">
+    <div class="modal__header">
+      <div>
+        <h2 class="modal__title" id="modal-approve-title" style="display:flex;align-items:center;gap:var(--space-2)">
+          <span class="urgent-tag"><span class="urgent-tag__dot"></span>紧急</span>
+          审批 · SO-2024-0108
+        </h2>
+      </div>
+      <button class="modal__close" onclick="closeModal('modal-approve')" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal__body">
+
+      <!-- 订单摘要 -->
+      <div class="approval-summary">
+        <div class="approval-summary__row">
+          <span class="approval-summary__key">客户</span>
+          <span class="approval-summary__val">宜家家居（上海）有限公司</span>
+        </div>
+        <div class="approval-summary__row">
+          <span class="approval-summary__key">下单日期</span>
+          <span class="approval-summary__val"><span class="num">2024-12-10</span></span>
+        </div>
+        <div class="approval-summary__row">
+          <span class="approval-summary__key">要求交付</span>
+          <span class="approval-summary__val" style="color:var(--color-error-600)"><span class="num">2025-01-05</span>（距今 26 天）</span>
+        </div>
+        <div class="approval-summary__row">
+          <span class="approval-summary__key">订单金额</span>
+          <span class="approval-summary__val">￥<span class="num">320,000</span></span>
+        </div>
+        <div class="approval-summary__row">
+          <span class="approval-summary__key">产品明细</span>
+          <span class="approval-summary__val">三人沙发 × 50，软包床 × 20</span>
+        </div>
+      </div>
+
+      <!-- 影响提示 -->
+      <div class="approval-impact-notice">
+        <span style="font-size:1.25rem;flex-shrink:0">⚠️</span>
+        <div class="approval-impact-notice__text">
+          确认此紧急订单可能影响 <strong>2 个</strong>在产工单的交期（SO-2024-0106 延期 3 天，SO-2024-0105 延期 1 天）。请谨慎确认是否接单。
+        </div>
+      </div>
+
+      <!-- 驳回原因（条件展示） -->
+      <div class="reject-reason" id="reject-reason-area">
+        <div class="form-group">
+          <label class="form-label form-label--required">驳回原因</label>
+          <textarea class="form-textarea" id="reject-reason-input" placeholder="请填写驳回原因，将通知给提交的销售人员…" style="min-height:6rem"></textarea>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal__footer" style="justify-content:space-between">
+      <button class="btn btn--secondary" onclick="closeModal('modal-approve')">暂不处理</button>
+      <div style="display:flex;gap:var(--space-3)">
+        <button class="btn btn--secondary" id="reject-btn" onclick="toggleReject()">驳回</button>
+        <button class="btn btn--danger" id="approve-btn" onclick="handleApprove()">确认接单</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     Drawer — 订单详情
+══════════════════════════════════════════════════════ -->
+<div id="drawer-overlay" class="drawer-overlay" style="display:none" onclick="closeDrawer()"></div>
+<div class="drawer" id="detail-drawer" style="display:none">
+  <div class="drawer__header">
+    <div>
+      <div style="display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap">
+        <h3 class="drawer__title">SO-2024-0108</h3>
+        <span class="urgent-tag"><span class="urgent-tag__dot"></span>紧急</span>
+        <span class="status-badge status-badge--urgent-review"><span class="status-badge__dot"></span>待排产确认</span>
+      </div>
+      <div class="drawer__subtitle">宜家家居（上海）有限公司 · 下单：2024-12-10</div>
+    </div>
+    <button class="modal__close" onclick="closeDrawer()" aria-label="关闭">✕</button>
+  </div>
+
+  <div class="drawer__body">
+
+    <!-- 基本信息 -->
+    <div class="info-card">
+      <div class="info-card__title">订单信息</div>
+      <div class="info-grid">
+        <div class="info-item">
+          <div class="info-item__label">客户</div>
+          <div class="info-item__value">宜家家居（上海）</div>
+        </div>
+        <div class="info-item">
+          <div class="info-item__label">订单金额</div>
+          <div class="info-item__value">￥<span class="num">320,000</span></div>
+        </div>
+        <div class="info-item">
+          <div class="info-item__label">下单日期</div>
+          <div class="info-item__value"><span class="num">2024-12-10</span></div>
+        </div>
+        <div class="info-item">
+          <div class="info-item__label">要求交付</div>
+          <div class="info-item__value" style="color:var(--color-error-600);font-weight:700"><span class="num">2025-01-05</span></div>
+        </div>
+        <div class="info-item">
+          <div class="info-item__label">提交人</div>
+          <div class="info-item__value">王销售 · 2024-12-10 09:32</div>
+        </div>
+        <div class="info-item">
+          <div class="info-item__label">备注</div>
+          <div class="info-item__value">年底大促备货，需尽早排产</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 订单明细 -->
+    <div style="margin-bottom:var(--space-4)">
+      <div style="font-size:var(--text-body-m);font-weight:600;margin-bottom:var(--space-3)">订单明细</div>
+      <div style="border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden">
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th>产品</th>
+              <th>数量</th>
+              <th>单价</th>
+              <th>小计</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>三人沙发（深灰）</td>
+              <td class="num">50</td>
+              <td class="num">4,000</td>
+              <td class="num">200,000</td>
+            </tr>
+            <tr>
+              <td>1.8m 软包床</td>
+              <td class="num">20</td>
+              <td class="num">6,000</td>
+              <td class="num">120,000</td>
+            </tr>
+            <tr>
+              <td colspan="3" style="text-align:right;font-weight:600;color:var(--text-secondary)">合计</td>
+              <td class="num" style="font-weight:700;color:var(--color-primary-700)">320,000</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section-divider"></div>
+
+    <!-- 状态时间线 -->
+    <div style="margin-bottom:var(--space-4)">
+      <div style="font-size:var(--text-body-m);font-weight:600;margin-bottom:var(--space-4)">状态流转</div>
+      <ul class="timeline">
+        <li class="timeline__item">
+          <div class="timeline__dot timeline__dot--done">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="#fff"><path d="M2 5l2.5 2.5L8 3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+          </div>
+          <div class="timeline__time">2024-12-10 09:32</div>
+          <div class="timeline__label">订单提交</div>
+          <div class="timeline__desc">销售人员提交紧急插单申请</div>
+        </li>
+        <li class="timeline__item">
+          <div class="timeline__dot timeline__dot--active">
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="#fff"><circle cx="4" cy="4" r="3"/></svg>
+          </div>
+          <div class="timeline__time">当前节点</div>
+          <div class="timeline__label" style="color:var(--color-error-600)">待排产确认</div>
+          <div class="timeline__desc">等待老板（admin）审批确认</div>
+        </li>
+        <li class="timeline__item" style="opacity:.4">
+          <div class="timeline__dot"></div>
+          <div class="timeline__label">排产中</div>
+          <div class="timeline__desc">审批通过后自动创建生产工单</div>
+        </li>
+        <li class="timeline__item" style="opacity:.4">
+          <div class="timeline__dot"></div>
+          <div class="timeline__label">生产中</div>
+        </li>
+        <li class="timeline__item" style="opacity:.4">
+          <div class="timeline__dot"></div>
+          <div class="timeline__label">已完成</div>
+        </li>
+      </ul>
+    </div>
+
+  </div>
+
+  <div class="drawer__footer">
+    <!-- 按钮根据当前状态动态显示 -->
+    <button class="btn btn--secondary" onclick="closeDrawer()">关闭</button>
+    <button class="btn btn--danger" onclick="closeDrawer(); openModal('modal-approve')">审批此订单</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+  // ─── 弹框控制 ───
+  function openModal(id) {
+    document.getElementById(id).style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal(id) {
+    document.getElementById(id).style.display = 'none';
+    document.body.style.overflow = '';
+  }
+  function openDrawer() {
+    document.getElementById('drawer-overlay').style.display = 'block';
+    document.getElementById('detail-drawer').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  function closeDrawer() {
+    document.getElementById('drawer-overlay').style.display = 'none';
+    document.getElementById('detail-drawer').style.display = 'none';
+    document.body.style.overflow = '';
+  }
+
+  // ─── 紧急开关 ───
+  function toggleUrgentWarning(checkbox) {
+    const warning = document.getElementById('urgent-warning');
+    warning.style.display = checkbox.checked ? 'flex' : 'none';
+  }
+
+  // ─── 明细行操作 ───
+  function removeRow(btn) {
+    btn.closest('tr').remove();
+  }
+  function addRow() {
+    const tbody = document.getElementById('order-detail-body');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><select class="detail-table__select"><option>搜索/选择成品 SKU…</option></select></td>
+      <td><input class="detail-table__input" type="number" value="1" min="1" /></td>
+      <td><input class="detail-table__input" type="number" value="0" min="0" /></td>
+      <td><input class="detail-table__input detail-table__input--calc" type="text" value="0" readonly /></td>
+      <td><button class="btn btn--sm btn--secondary" onclick="removeRow(this)">删除</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  // ─── 审批驳回切换 ───
+  let isRejecting = false;
+  function toggleReject() {
+    isRejecting = !isRejecting;
+    const area = document.getElementById('reject-reason-area');
+    const rejectBtn = document.getElementById('reject-btn');
+    const approveBtn = document.getElementById('approve-btn');
+    area.classList.toggle('visible', isRejecting);
+    if (isRejecting) {
+      rejectBtn.textContent = '取消驳回';
+      approveBtn.textContent = '确认驳回';
+      approveBtn.className = 'btn btn--danger';
+    } else {
+      rejectBtn.textContent = '驳回';
+      approveBtn.textContent = '确认接单';
+    }
+  }
+  function handleApprove() {
+    const reason = document.getElementById('reject-reason-input').value;
+    if (isRejecting && !reason.trim()) {
+      showToast('请填写驳回原因', 'error');
+      return;
+    }
+    closeModal('modal-approve');
+    isRejecting = false;
+    showToast(isRejecting ? '已驳回插单申请' : '已确认接单，生产工单创建中…', 'success');
+  }
+  function handleSubmitOrder() {
+    const isUrgent = document.getElementById('urgent-chk').checked;
+    closeModal('modal-order');
+    showToast(isUrgent ? '紧急插单已提交，等待老板审批' : '订单已提交，等待确认', 'success');
+  }
+  function handleSaveDraft() {
+    closeModal('modal-order');
+    showToast('草稿已保存', 'default');
+  }
+
+  // ─── Toast ───
+  function showToast(msg, type = 'default') {
+    const c = document.getElementById('toast-container');
+    const t = document.createElement('div');
+    t.className = 'toast' + (type !== 'default' ? ' toast--' + type : '');
+    const prefix = type === 'success' ? '✓ ' : type === 'error' ? '✕ ' : '';
+    t.textContent = prefix + msg;
+    c.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
+  }
+
+  // ─── 键盘关闭 ───
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
+      closeDrawer();
+      document.body.style.overflow = '';
+    }
+  });
+
+  // ─── 点击遮罩关闭 ───
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', function(e) {
+      if (e.target === this) {
+        this.style.display = 'none';
+        document.body.style.overflow = '';
+      }
+    });
+  });
+</script>
+</body>
+</html>

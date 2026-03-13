@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>R-06 Web 端任务管理 — 智造管家 UI 原型</title>
+<style>
+/* ── Design Tokens ─────────────────────────────────────── */
+:root {
+  --color-primary-500: #3B82F6;
+  --color-primary-600: #2563EB;
+  --color-primary-50:  #EFF6FF;
+  --color-success-500: #22C55E;
+  --color-success-600: #16A34A;
+  --color-success-50:  #F0FDF4;
+  --color-success-100: #DCFCE7;
+  --color-warning-500: #F59E0B;
+  --color-warning-50:  #FFFBEB;
+  --color-warning-100: #FEF3C7;
+  --color-error-500:   #EF4444;
+  --color-error-600:   #DC2626;
+  --color-error-50:    #FEF2F2;
+  --color-error-100:   #FEE2E2;
+  --color-gray-0:   #FFFFFF;
+  --color-gray-50:  #F8FAFC;
+  --color-gray-100: #F1F5F9;
+  --color-gray-200: #E2E8F0;
+  --color-gray-300: #CBD5E1;
+  --color-gray-400: #94A3B8;
+  --color-gray-500: #64748B;
+  --color-gray-700: #334155;
+  --color-gray-800: #1E293B;
+  --bg-page:        #F8FAFC;
+  --bg-card:        #FFFFFF;
+  --bg-sidebar:     #1E293B;
+  --text-primary:   #1E293B;
+  --text-secondary: #64748B;
+  --text-disabled:  #94A3B8;
+  --border-default: #E2E8F0;
+  --border-focus:   #3B82F6;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1);
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+  --transition-base: 200ms ease;
+  --font-base: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  --font-number: "DIN Alternate", "Roboto Mono", var(--font-base);
+  --z-modal: 400;
+  --z-overlay: 300;
+  --z-toast: 500;
+  --z-sidebar: 250;
+}
+
+/* ── Reset & Base ──────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; }
+body {
+  font-family: var(--font-base);
+  background: var(--bg-page);
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+button { cursor: pointer; font-family: inherit; border: none; background: none; }
+input, select, textarea { font-family: inherit; }
+
+/* ── Layout ────────────────────────────────────────────── */
+.layout { display: flex; min-height: 100vh; }
+.layout__sidebar {
+  width: 240px; min-width: 240px;
+  background: var(--bg-sidebar);
+  display: flex; flex-direction: column;
+  position: fixed; top: 0; left: 0; bottom: 0;
+  z-index: var(--z-sidebar);
+}
+.layout__main {
+  flex: 1;
+  margin-left: 240px;
+  display: flex; flex-direction: column;
+  min-height: 100vh;
+}
+.layout__header {
+  height: 3.5rem;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-default);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 1.5rem;
+  position: sticky; top: 0; z-index: 200;
+  box-shadow: var(--shadow-sm);
+}
+.layout__content { flex: 1; padding: 1.5rem; }
+
+/* ── Sidebar ────────────────────────────────────────────── */
+.sidebar__logo {
+  height: 3.5rem;
+  display: flex; align-items: center; gap: .625rem;
+  padding: 0 1rem;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.sidebar__logo-icon {
+  width: 2rem; height: 2rem; border-radius: var(--radius-sm);
+  background: var(--color-primary-500);
+  display: flex; align-items: center; justify-content: center;
+  font-size: .875rem; color: #fff; font-weight: 700;
+}
+.sidebar__logo-text { color: #fff; font-size: .9375rem; font-weight: 600; }
+.sidebar__nav { flex: 1; padding: .75rem 0; overflow-y: auto; }
+.sidebar__section-label {
+  padding: .375rem 1rem .25rem;
+  font-size: .6875rem; color: var(--color-gray-400);
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.sidebar__item {
+  display: flex; align-items: center; gap: .625rem;
+  padding: .5rem 1rem;
+  color: #CBD5E1;
+  font-size: .875rem;
+  transition: background var(--transition-base), color var(--transition-base);
+  border-radius: 0;
+}
+.sidebar__item:hover { background: rgba(255,255,255,.06); color: #fff; }
+.sidebar__item--active { background: #2563EB; color: #fff; }
+.sidebar__item-icon { width: 1.25rem; text-align: center; font-size: .9375rem; flex-shrink: 0; }
+.sidebar__footer {
+  padding: .75rem 1rem;
+  border-top: 1px solid rgba(255,255,255,.08);
+  display: flex; align-items: center; gap: .625rem;
+}
+.sidebar__avatar {
+  width: 2rem; height: 2rem; border-radius: var(--radius-full);
+  background: var(--color-primary-500);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: .75rem; font-weight: 600; flex-shrink: 0;
+}
+.sidebar__user-info { flex: 1; min-width: 0; }
+.sidebar__user-name { color: #F1F5F9; font-size: .8125rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar__user-role { color: var(--color-gray-400); font-size: .6875rem; }
+
+/* ── Header ────────────────────────────────────────────── */
+.header__breadcrumb { display: flex; align-items: center; gap: .375rem; font-size: .875rem; color: var(--text-secondary); }
+.header__breadcrumb-current { color: var(--text-primary); font-weight: 500; }
+.header__actions { display: flex; align-items: center; gap: .75rem; }
+.header__icon-btn {
+  width: 2rem; height: 2rem; border-radius: var(--radius-full);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-secondary);
+  transition: background var(--transition-base);
+}
+.header__icon-btn:hover { background: var(--color-gray-100); color: var(--text-primary); }
+.header__badge { position: relative; }
+.header__badge-dot {
+  position: absolute; top: .125rem; right: .125rem;
+  width: .5rem; height: .5rem;
+  background: var(--color-error-500); border-radius: var(--radius-full);
+  border: 1.5px solid #fff;
+}
+
+/* ── Page Header ────────────────────────────────────────── */
+.page-header { margin-bottom: 1.25rem; }
+.page-header__title { font-size: 1.25rem; font-weight: 600; color: var(--text-primary); }
+.page-header__sub { font-size: .875rem; color: var(--text-secondary); margin-top: .25rem; }
+
+/* ── Stat Cards ─────────────────────────────────────────── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.stat-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 1.125rem 1.25rem;
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-sm);
+  display: flex; align-items: center; gap: 1rem;
+}
+.stat-card__icon {
+  width: 2.75rem; height: 2.75rem; border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.25rem; flex-shrink: 0;
+}
+.stat-card__icon--pending  { background: var(--color-gray-100); color: var(--color-gray-500); }
+.stat-card__icon--active   { background: var(--color-primary-50); color: var(--color-primary-500); }
+.stat-card__icon--done     { background: var(--color-success-50); color: var(--color-success-600); }
+.stat-card__icon--error    { background: var(--color-error-50); color: var(--color-error-500); }
+.stat-card__info { flex: 1; min-width: 0; }
+.stat-card__label { font-size: .75rem; color: var(--text-secondary); margin-bottom: .25rem; }
+.stat-card__value { font-size: 1.75rem; font-weight: 700; font-family: var(--font-number); line-height: 1; }
+.stat-card__value--pending { color: var(--color-gray-700); }
+.stat-card__value--active  { color: var(--color-primary-600); }
+.stat-card__value--done    { color: var(--color-success-600); }
+.stat-card__value--error   { color: var(--color-error-600); }
+
+/* ── Filter Bar ────────────────────────────────────────── */
+.filter-bar {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+}
+.filter-bar__group { display: flex; align-items: center; gap: .5rem; flex: 1; min-width: 12rem; }
+.filter-bar__label { font-size: .75rem; color: var(--text-secondary); white-space: nowrap; }
+.filter-input, .filter-select {
+  height: 2.125rem; border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); padding: 0 .75rem;
+  font-size: .875rem; color: var(--text-primary);
+  background: var(--bg-card); width: 100%;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+.filter-input:focus, .filter-select:focus {
+  outline: none; border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+}
+.filter-input--search { padding-left: 2rem; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: .625rem center; }
+.filter-input--date { padding-right: .5rem; }
+
+/* ── Table ──────────────────────────────────────────────── */
+.table-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.table-card__header {
+  padding: .875rem 1.25rem;
+  border-bottom: 1px solid var(--border-default);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.table-card__title { font-size: .9375rem; font-weight: 600; }
+.table-card__meta { font-size: .8125rem; color: var(--text-secondary); }
+.data-table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.data-table th {
+  padding: .625rem 1rem;
+  text-align: left; font-weight: 500; font-size: .75rem;
+  color: var(--text-secondary);
+  background: var(--color-gray-50);
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+.data-table td {
+  padding: .75rem 1rem;
+  border-bottom: 1px solid var(--border-default);
+  vertical-align: middle;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tbody tr { transition: background var(--transition-base); }
+.data-table tbody tr:hover { background: var(--color-gray-50); }
+.data-table tbody tr.is-overtime { background: #FFF5F5; }
+.data-table tbody tr.is-overtime td:first-child { border-left: 3px solid var(--color-error-500); }
+
+/* ── Badge / Tag ────────────────────────────────────────── */
+.badge {
+  display: inline-flex; align-items: center; gap: .25rem;
+  padding: .1875rem .5rem; border-radius: var(--radius-full);
+  font-size: .6875rem; font-weight: 500; white-space: nowrap;
+}
+.badge__dot { width: .375rem; height: .375rem; border-radius: 50%; }
+.badge--pending  { background: var(--color-gray-100); color: var(--color-gray-700); }
+.badge--pending .badge__dot  { background: var(--color-gray-500); }
+.badge--active   { background: var(--color-primary-50); color: var(--color-primary-600); }
+.badge--active .badge__dot   { background: var(--color-primary-500); }
+.badge--done     { background: var(--color-success-100); color: var(--color-success-700, #15803D); }
+.badge--done .badge__dot     { background: var(--color-success-500); }
+.badge--exception{ background: var(--color-error-100); color: var(--color-error-600); }
+.badge--exception .badge__dot{ background: var(--color-error-500); }
+.badge--urgent   { background: var(--color-error-100); color: var(--color-error-700, #B91C1C); border: 1px solid var(--color-error-500); }
+.badge--overtime { background: var(--color-error-50); color: var(--color-error-600); border: 1px dashed var(--color-error-500); }
+
+/* ── Buttons ────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: .375rem;
+  padding: .4375rem .875rem; border-radius: var(--radius-md);
+  font-size: .8125rem; font-weight: 500;
+  transition: all var(--transition-base); cursor: pointer;
+}
+.btn--primary { background: var(--color-primary-600); color: #fff; }
+.btn--primary:hover { background: var(--color-primary-500); }
+.btn--success { background: var(--color-success-600); color: #fff; }
+.btn--success:hover { background: var(--color-success-500); }
+.btn--danger  { background: var(--color-error-600); color: #fff; }
+.btn--danger:hover  { background: var(--color-error-500); }
+.btn--ghost   { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
+.btn--ghost:hover   { background: var(--color-gray-50); color: var(--text-primary); }
+.btn--sm { padding: .3125rem .625rem; font-size: .75rem; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-icon { width: 1.75rem; height: 1.75rem; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; color: var(--text-secondary); transition: background var(--transition-base); }
+.btn-icon:hover { background: var(--color-gray-100); color: var(--text-primary); }
+
+/* ── Modal Overlay ──────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(15,23,42,.5);
+  z-index: var(--z-overlay);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.modal {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%; max-width: 34rem;
+  max-height: 90vh; overflow-y: auto;
+  z-index: var(--z-modal);
+  animation: fadeIn .2s ease;
+}
+.modal--wide { max-width: 42rem; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+.modal__header {
+  padding: 1.125rem 1.25rem .875rem;
+  border-bottom: 1px solid var(--border-default);
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; background: var(--bg-card); z-index: 1;
+}
+.modal__title { font-size: 1rem; font-weight: 600; }
+.modal__close {
+  width: 1.75rem; height: 1.75rem; border-radius: var(--radius-full);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-secondary); font-size: 1.125rem;
+  transition: background var(--transition-base);
+}
+.modal__close:hover { background: var(--color-gray-100); color: var(--text-primary); }
+.modal__body { padding: 1.25rem; }
+.modal__footer {
+  padding: .875rem 1.25rem;
+  border-top: 1px solid var(--border-default);
+  display: flex; align-items: center; justify-content: flex-end; gap: .625rem;
+  position: sticky; bottom: 0; background: var(--bg-card);
+}
+
+/* ── Form ───────────────────────────────────────────────── */
+.form-group { margin-bottom: 1rem; }
+.form-group:last-child { margin-bottom: 0; }
+.form-label {
+  display: block; font-size: .8125rem; font-weight: 500;
+  color: var(--text-primary); margin-bottom: .375rem;
+}
+.form-label .required { color: var(--color-error-500); margin-left: .125rem; }
+.form-control {
+  width: 100%; height: 2.375rem;
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  padding: 0 .75rem; font-size: .875rem; color: var(--text-primary);
+  background: var(--bg-card);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+.form-control:focus {
+  outline: none; border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+}
+.form-control--readonly { background: var(--color-gray-50); color: var(--text-secondary); }
+textarea.form-control { height: auto; padding: .625rem .75rem; resize: vertical; }
+.form-hint { font-size: .75rem; color: var(--text-secondary); margin-top: .25rem; }
+.form-error { font-size: .75rem; color: var(--color-error-600); margin-top: .25rem; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.form-info-group {
+  background: var(--color-gray-50); border-radius: var(--radius-md);
+  padding: .875rem 1rem; margin-bottom: 1rem;
+  display: grid; grid-template-columns: 1fr 1fr; gap: .625rem;
+}
+.form-info-item__label { font-size: .75rem; color: var(--text-secondary); }
+.form-info-item__value { font-size: .875rem; color: var(--text-primary); font-weight: 500; margin-top: .125rem; }
+
+/* ── Wage Preview ────────────────────────────────────────── */
+.wage-preview {
+  background: var(--color-primary-50);
+  border: 1px solid var(--color-primary-500);
+  border-radius: var(--radius-md);
+  padding: .875rem 1rem;
+  margin-top: 1rem;
+}
+.wage-preview__label { font-size: .75rem; color: var(--color-primary-600); margin-bottom: .5rem; font-weight: 500; }
+.wage-preview__formula {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  font-size: .8125rem; color: var(--text-secondary);
+}
+.wage-preview__val { font-family: var(--font-number); font-weight: 600; color: var(--text-primary); }
+.wage-preview__total {
+  margin-top: .625rem; padding-top: .625rem;
+  border-top: 1px solid rgba(59,130,246,.2);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.wage-preview__total-label { font-size: .875rem; font-weight: 500; }
+.wage-preview__total-value { font-size: 1.375rem; font-weight: 700; font-family: var(--font-number); color: var(--color-primary-600); }
+
+/* ── Overtime Warning ────────────────────────────────────── */
+.overtime-warning {
+  display: flex; align-items: flex-start; gap: .5rem;
+  background: var(--color-warning-50);
+  border: 1px solid var(--color-warning-500);
+  border-radius: var(--radius-md);
+  padding: .75rem 1rem; margin-top: 1rem;
+}
+.overtime-warning__icon { font-size: 1rem; color: var(--color-warning-500); flex-shrink: 0; margin-top: .0625rem; }
+.overtime-warning__text { font-size: .8125rem; color: #92400E; line-height: 1.5; }
+
+/* ── Radio Group ─────────────────────────────────────────── */
+.radio-group { display: flex; gap: .75rem; flex-wrap: wrap; }
+.radio-item { display: flex; align-items: center; gap: .375rem; cursor: pointer; }
+.radio-item input[type="radio"] { width: 1rem; height: 1rem; accent-color: var(--color-primary-500); cursor: pointer; }
+.radio-item__label { font-size: .875rem; color: var(--text-primary); }
+.radio-group--card { gap: .625rem; }
+.radio-card {
+  flex: 1; min-width: 6.5rem;
+  border: 2px solid var(--border-default);
+  border-radius: var(--radius-md); padding: .625rem .875rem;
+  cursor: pointer; transition: all var(--transition-base);
+  display: flex; flex-direction: column; gap: .125rem;
+}
+.radio-card:has(input:checked) { border-color: var(--color-primary-500); background: var(--color-primary-50); }
+.radio-card input[type="radio"] { display: none; }
+.radio-card__title { font-size: .8125rem; font-weight: 500; }
+.radio-card__desc  { font-size: .6875rem; color: var(--text-secondary); line-height: 1.4; }
+.radio-card:has(input:checked) .radio-card__title { color: var(--color-primary-600); }
+
+/* ── Upload Zone ─────────────────────────────────────────── */
+.upload-zone {
+  border: 2px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 1.5rem 1rem;
+  text-align: center;
+  transition: border-color var(--transition-base), background var(--transition-base);
+  cursor: pointer;
+}
+.upload-zone:hover { border-color: var(--color-primary-500); background: var(--color-primary-50); }
+.upload-zone__icon { font-size: 2rem; margin-bottom: .5rem; color: var(--text-disabled); }
+.upload-zone__text { font-size: .875rem; color: var(--text-secondary); }
+.upload-zone__hint { font-size: .75rem; color: var(--text-disabled); margin-top: .25rem; }
+.upload-preview { display: flex; gap: .625rem; flex-wrap: wrap; margin-top: .75rem; }
+.upload-item {
+  position: relative; width: 5rem; height: 5rem;
+  border-radius: var(--radius-md); overflow: hidden;
+  border: 1px solid var(--border-default);
+}
+.upload-item img { width: 100%; height: 100%; object-fit: cover; }
+.upload-item__del {
+  position: absolute; top: .25rem; right: .25rem;
+  width: 1.25rem; height: 1.25rem; border-radius: var(--radius-full);
+  background: rgba(0,0,0,.55); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .75rem; cursor: pointer;
+}
+.upload-item__progress {
+  position: absolute; bottom: 0; left: 0; right: 0; height: .1875rem;
+  background: var(--color-gray-200);
+}
+.upload-item__progress-bar { height: 100%; background: var(--color-primary-500); width: 65%; }
+
+/* ── Detail Sidebar ──────────────────────────────────────── */
+.detail-sidebar {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 28rem;
+  background: var(--bg-card); box-shadow: var(--shadow-lg);
+  z-index: var(--z-sidebar); display: flex; flex-direction: column;
+  animation: slideIn .25s ease;
+}
+@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.detail-sidebar__header {
+  padding: 1.125rem 1.25rem .875rem;
+  border-bottom: 1px solid var(--border-default);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.detail-sidebar__title { font-size: 1rem; font-weight: 600; }
+.detail-sidebar__body { flex: 1; overflow-y: auto; padding: 1.25rem; }
+.detail-sidebar__footer {
+  padding: .875rem 1.25rem;
+  border-top: 1px solid var(--border-default);
+  display: flex; gap: .625rem;
+}
+.detail-section { margin-bottom: 1.5rem; }
+.detail-section__title { font-size: .8125rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; margin-bottom: .75rem; }
+.detail-kv { display: grid; grid-template-columns: 7rem 1fr; row-gap: .625rem; }
+.detail-kv__key { font-size: .8125rem; color: var(--text-secondary); }
+.detail-kv__val { font-size: .8125rem; color: var(--text-primary); }
+
+/* ── Timeline ────────────────────────────────────────────── */
+.timeline { position: relative; padding-left: 1.25rem; }
+.timeline::before { content: ''; position: absolute; left: .4375rem; top: .75rem; bottom: 0; width: 1px; background: var(--border-default); }
+.timeline-item { position: relative; margin-bottom: 1.125rem; }
+.timeline-item:last-child { margin-bottom: 0; }
+.timeline-item__dot {
+  position: absolute; left: -1.25rem; top: .3125rem;
+  width: .625rem; height: .625rem; border-radius: 50%;
+  border: 2px solid var(--bg-card);
+  box-shadow: 0 0 0 1.5px var(--border-default);
+}
+.timeline-item__dot--primary { background: var(--color-primary-500); box-shadow: 0 0 0 1.5px var(--color-primary-500); }
+.timeline-item__dot--success { background: var(--color-success-500); box-shadow: 0 0 0 1.5px var(--color-success-500); }
+.timeline-item__dot--warning { background: var(--color-warning-500); box-shadow: 0 0 0 1.5px var(--color-warning-500); }
+.timeline-item__dot--error   { background: var(--color-error-500);   box-shadow: 0 0 0 1.5px var(--color-error-500); }
+.timeline-item__time { font-size: .6875rem; color: var(--text-disabled); margin-bottom: .125rem; }
+.timeline-item__action { font-size: .8125rem; color: var(--text-primary); font-weight: 500; }
+.timeline-item__detail { font-size: .75rem; color: var(--text-secondary); margin-top: .125rem; line-height: 1.5; }
+
+/* ── Toast ───────────────────────────────────────────────── */
+.toast-stack { position: fixed; top: 1rem; right: 1rem; z-index: var(--z-toast); display: flex; flex-direction: column; gap: .5rem; pointer-events: none; }
+.toast {
+  display: flex; align-items: center; gap: .625rem;
+  background: var(--color-gray-800); color: #fff;
+  border-radius: var(--radius-md); padding: .75rem 1rem;
+  font-size: .875rem; box-shadow: var(--shadow-md);
+  max-width: 20rem; pointer-events: all;
+  animation: toastIn .25s ease;
+}
+@keyframes toastIn { from { opacity:0; transform:translateX(1rem); } to { opacity:1; transform:translateX(0); } }
+.toast--success { background: var(--color-success-600); }
+.toast--error   { background: var(--color-error-600); }
+.toast--warning { background: #B45309; }
+.toast__icon { font-size: 1rem; flex-shrink: 0; }
+
+/* ── Tooltip ─────────────────────────────────────────────── */
+.tooltip-wrap { position: relative; display: inline-flex; }
+.tooltip {
+  position: absolute; bottom: calc(100% + .375rem); left: 50%; transform: translateX(-50%);
+  background: var(--color-gray-800); color: #fff;
+  font-size: .6875rem; padding: .375rem .625rem; border-radius: var(--radius-sm);
+  white-space: nowrap; max-width: 14rem; white-space: normal;
+  opacity: 0; pointer-events: none; z-index: var(--z-tooltip, 600);
+  transition: opacity var(--transition-base);
+  box-shadow: var(--shadow-sm);
+}
+.tooltip-wrap:hover .tooltip { opacity: 1; }
+
+/* ── Section Divider ─────────────────────────────────────── */
+.modal-divider { height: 1px; background: var(--border-default); margin: 1rem 0; }
+
+/* ── Severity Radio ──────────────────────────────────────── */
+.severity-group { display: flex; gap: .5rem; }
+.severity-btn {
+  flex: 1; padding: .5rem; border-radius: var(--radius-md);
+  border: 2px solid var(--border-default);
+  font-size: .8125rem; font-weight: 500; text-align: center;
+  transition: all var(--transition-base); cursor: pointer; background: none;
+}
+.severity-btn--yes.active  { border-color: var(--color-error-500); background: var(--color-error-50); color: var(--color-error-600); }
+.severity-btn--no.active   { border-color: var(--color-success-500); background: var(--color-success-50); color: var(--color-success-600); }
+.severity-btn:not(.active):hover { background: var(--color-gray-50); }
+
+/* ── Pagination ──────────────────────────────────────────── */
+.pagination { display: flex; align-items: center; justify-content: flex-end; gap: .375rem; padding: .875rem 1.25rem; border-top: 1px solid var(--border-default); }
+.page-btn {
+  min-width: 2rem; height: 2rem; border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  font-size: .8125rem; color: var(--text-secondary);
+  border: 1px solid var(--border-default); background: var(--bg-card);
+  transition: all var(--transition-base); cursor: pointer;
+}
+.page-btn:hover { background: var(--color-gray-50); color: var(--text-primary); }
+.page-btn--active { background: var(--color-primary-600); color: #fff; border-color: var(--color-primary-600); }
+.page-info { font-size: .8125rem; color: var(--text-secondary); margin-right: .375rem; }
+
+/* ── Demo Controls ───────────────────────────────────────── */
+.demo-controls {
+  position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%);
+  background: var(--color-gray-800); border-radius: var(--radius-full);
+  padding: .5rem .875rem; display: flex; align-items: center; gap: .5rem;
+  z-index: calc(var(--z-toast) + 10); box-shadow: var(--shadow-lg);
+}
+.demo-controls__label { font-size: .75rem; color: var(--color-gray-400); }
+.demo-btn {
+  padding: .25rem .75rem; border-radius: var(--radius-full);
+  font-size: .75rem; font-weight: 500;
+  background: rgba(255,255,255,.12); color: #fff;
+  border: 1px solid rgba(255,255,255,.2);
+  transition: background var(--transition-base); cursor: pointer;
+}
+.demo-btn:hover { background: rgba(255,255,255,.22); }
+.demo-btn--active { background: var(--color-primary-600); border-color: var(--color-primary-600); }
+
+/* ── Responsive ──────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+  .layout__sidebar { width: 0; overflow: hidden; }
+  .layout__main { margin-left: 0; }
+  .stat-grid { grid-template-columns: 1fr 1fr; gap: .75rem; }
+  .filter-bar { flex-direction: column; }
+  .filter-bar__group { min-width: 100%; }
+  .data-table { font-size: .8125rem; }
+  .data-table td, .data-table th { padding: .625rem .75rem; }
+  .detail-sidebar { width: 100%; }
+  .form-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .stat-grid { grid-template-columns: 1fr; }
+  .layout__content { padding: .875rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ================================================================
+     DEMO PANEL — VISIBLE STATE SWITCHER
+     ================================================================ -->
+<div class="demo-controls">
+  <span class="demo-controls__label">预览视图：</span>
+  <button class="demo-btn demo-btn--active" onclick="showView('main')">任务看板</button>
+  <button class="demo-btn" onclick="showView('complete')">完工上报</button>
+  <button class="demo-btn" onclick="showView('exception')">异常上报</button>
+  <button class="demo-btn" onclick="showView('detail')">任务详情</button>
+</div>
+
+<!-- ================================================================
+     LAYOUT
+     ================================================================ -->
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="layout__sidebar">
+    <div class="sidebar__logo">
+      <div class="sidebar__logo-icon">智</div>
+      <span class="sidebar__logo-text">智造管家</span>
+    </div>
+    <nav class="sidebar__nav">
+      <div class="sidebar__section-label">工作台</div>
+      <a class="sidebar__item" href="#">
+        <span class="sidebar__item-icon">⊞</span> 数据总览
+      </a>
+      <div class="sidebar__section-label">生产管理</div>
+      <a class="sidebar__item sidebar__item--active" href="#">
+        <span class="sidebar__item-icon">☑</span> 我的任务
+      </a>
+      <a class="sidebar__item" href="#">
+        <span class="sidebar__item-icon">📋</span> 工单管理
+      </a>
+      <a class="sidebar__item" href="#">
+        <span class="sidebar__item-icon">⚙</span> 工序配置
+      </a>
+      <div class="sidebar__section-label">采购管理</div>
+      <a class="sidebar__item" href="#">
+        <span class="sidebar__item-icon">🏭</span> 供应商管理
+      </a>
+      <a class="sidebar__item" href="#">
+        <span class="sidebar__item-icon">💰</span> 采购价格
+      </a>
+      <div class="sidebar__section-label">系统</div>
+      <a class="sidebar__item" href="#">
+        <span class="sidebar__item-icon">🗂</span> 类目管理
+      </a>
+      <a class="sidebar__item" href="#">
+        <span class="sidebar__item-icon">👥</span> 用户管理
+      </a>
+    </nav>
+    <div class="sidebar__footer">
+      <div class="sidebar__avatar">王</div>
+      <div class="sidebar__user-info">
+        <div class="sidebar__user-name">王小明</div>
+        <div class="sidebar__user-role">熟练工</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="layout__main">
+
+    <!-- Header -->
+    <header class="layout__header">
+      <div class="header__breadcrumb">
+        <span>生产管理</span>
+        <span>/</span>
+        <span class="header__breadcrumb-current">我的任务</span>
+      </div>
+      <div class="header__actions">
+        <button class="header__icon-btn header__badge">
+          🔔
+          <span class="header__badge-dot"></span>
+        </button>
+        <button class="header__icon-btn">⚙</button>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="layout__content">
+
+      <!-- Page Header -->
+      <div class="page-header">
+        <div class="page-header__title">任务看板</div>
+        <div class="page-header__sub">共 24 个任务 · 最后同步：刚刚</div>
+      </div>
+
+      <!-- Stat Cards -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-card__icon stat-card__icon--pending">📭</div>
+          <div class="stat-card__info">
+            <div class="stat-card__label">待领取</div>
+            <div class="stat-card__value stat-card__value--pending">8</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card__icon stat-card__icon--active">⚡</div>
+          <div class="stat-card__info">
+            <div class="stat-card__label">进行中</div>
+            <div class="stat-card__value stat-card__value--active">3</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card__icon stat-card__icon--done">✅</div>
+          <div class="stat-card__info">
+            <div class="stat-card__label">已完工</div>
+            <div class="stat-card__value stat-card__value--done">11</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card__icon stat-card__icon--error">⚠</div>
+          <div class="stat-card__info">
+            <div class="stat-card__label">异常待处理</div>
+            <div class="stat-card__value stat-card__value--error">2</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="filter-bar">
+        <div class="filter-bar__group">
+          <input class="filter-input filter-input--search" style="min-width:11rem;" placeholder="搜索工单号 / 任务编号…" />
+        </div>
+        <div class="filter-bar__group" style="flex:0 0 auto;min-width:8rem;">
+          <span class="filter-bar__label">工序</span>
+          <select class="filter-select">
+            <option>全部工序</option>
+            <option>裁料</option>
+            <option>缝合</option>
+            <option>组装</option>
+            <option>质检</option>
+          </select>
+        </div>
+        <div class="filter-bar__group" style="flex:0 0 auto;min-width:9rem;">
+          <span class="filter-bar__label">状态</span>
+          <select class="filter-select">
+            <option>全部状态</option>
+            <option>待开始</option>
+            <option>进行中</option>
+            <option>已完成</option>
+            <option>异常待处理</option>
+          </select>
+        </div>
+        <div class="filter-bar__group" style="flex:0 0 auto;min-width:9.5rem;">
+          <span class="filter-bar__label">日期</span>
+          <input type="date" class="filter-input filter-input--date" value="2026-03-01" style="width:7.5rem;">
+          <span style="color:var(--text-disabled);font-size:.75rem;">—</span>
+          <input type="date" class="filter-input filter-input--date" value="2026-03-12" style="width:7.5rem;">
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="table-card">
+        <div class="table-card__header">
+          <div class="table-card__title">任务列表</div>
+          <div class="table-card__meta">共 24 条</div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>任务编号</th>
+                <th>工单号</th>
+                <th>产品名</th>
+                <th>工序</th>
+                <th>计划完成</th>
+                <th>状态</th>
+                <th>优先级</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr onclick="showView('detail')" style="cursor:pointer;">
+                <td style="font-family:var(--font-number);font-size:.8125rem;">TK-2026031201</td>
+                <td style="font-family:var(--font-number);font-size:.8125rem;">WO-20260312-001</td>
+                <td>现代三人沙发</td>
+                <td>布料裁剪</td>
+                <td style="font-size:.8125rem;">2026-03-13 18:00</td>
+                <td><span class="badge badge--active"><span class="badge__dot"></span>进行中</span></td>
+                <td><span class="badge badge--urgent">紧急</span></td>
+                <td>
+                  <div style="display:flex;gap:.375rem;">
+                    <button class="btn btn--success btn--sm" onclick="event.stopPropagation();showView('complete')">完工上报</button>
+                    <button class="btn btn--danger btn--sm" onclick="event.stopPropagation();showView('exception')">异常上报</button>
+                  </div>
+                </td>
+              </tr>
+              <tr class="is-overtime" onclick="showView('detail')" style="cursor:pointer;">
+                <td style="font-family:var(--font-number);font-size:.8125rem;">TK-2026031202</td>
+                <td style="font-family:var(--font-number);font-size:.8125rem;">WO-20260312-001</td>
+                <td>现代三人沙发</td>
+                <td>海绵填充</td>
+                <td style="font-size:.8125rem;">2026-03-12 17:00</td>
+                <td><span class="badge badge--exception"><span class="badge__dot"></span>异常待处理</span></td>
+                <td><span class="badge badge--overtime">超时</span></td>
+                <td>
+                  <div style="display:flex;gap:.375rem;">
+                    <button class="btn btn--ghost btn--sm" onclick="event.stopPropagation();showView('detail')">查看详情</button>
+                  </div>
+                </td>
+              </tr>
+              <tr onclick="showView('detail')" style="cursor:pointer;">
+                <td style="font-family:var(--font-number);font-size:.8125rem;">TK-2026031203</td>
+                <td style="font-family:var(--font-number);font-size:.8125rem;">WO-20260311-005</td>
+                <td>实木餐桌</td>
+                <td>打磨抛光</td>
+                <td style="font-size:.8125rem;">2026-03-14 12:00</td>
+                <td><span class="badge badge--pending"><span class="badge__dot"></span>待开始</span></td>
+                <td>—</td>
+                <td>
+                  <div style="display:flex;gap:.375rem;">
+                    <button class="btn btn--primary btn--sm" onclick="event.stopPropagation()">开始生产</button>
+                  </div>
+                </td>
+              </tr>
+              <tr onclick="showView('detail')" style="cursor:pointer;">
+                <td style="font-family:var(--font-number);font-size:.8125rem;">TK-2026031204</td>
+                <td style="font-family:var(--font-number);font-size:.8125rem;">WO-20260311-005</td>
+                <td>实木餐桌</td>
+                <td>组装</td>
+                <td style="font-size:.8125rem;">2026-03-15 18:00</td>
+                <td><span class="badge badge--pending"><span class="badge__dot"></span>待开始</span></td>
+                <td>—</td>
+                <td>
+                  <div style="display:flex;gap:.375rem;">
+                    <button class="btn btn--primary btn--sm" disabled>开始生产</button>
+                  </div>
+                </td>
+              </tr>
+              <tr onclick="showView('detail')" style="cursor:pointer;">
+                <td style="font-family:var(--font-number);font-size:.8125rem;">TK-2026031005</td>
+                <td style="font-family:var(--font-number);font-size:.8125rem;">WO-20260310-002</td>
+                <td>布艺双人床</td>
+                <td>缝合包边</td>
+                <td style="font-size:.8125rem;">2026-03-11 18:00</td>
+                <td><span class="badge badge--done"><span class="badge__dot"></span>已完成</span></td>
+                <td>—</td>
+                <td>
+                  <button class="btn-icon" title="查看详情">👁</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination">
+          <span class="page-info">共 24 条，每页 10 条</span>
+          <button class="page-btn">‹</button>
+          <button class="page-btn page-btn--active">1</button>
+          <button class="page-btn">2</button>
+          <button class="page-btn">3</button>
+          <button class="page-btn">›</button>
+        </div>
+      </div>
+
+    </main>
+  </div><!-- /layout__main -->
+</div><!-- /layout -->
+
+<!-- ================================================================
+     MODAL: 完工上报
+     ================================================================ -->
+<div id="modal-complete" class="modal-overlay" style="display:none;" onclick="closeIfOverlay(event,'modal-complete')">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-complete-title">
+    <div class="modal__header">
+      <span class="modal__title" id="modal-complete-title">完工上报</span>
+      <button class="modal__close" onclick="showView('main')" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal__body">
+
+      <!-- 工序只读信息 -->
+      <div class="form-info-group">
+        <div>
+          <div class="form-info-item__label">任务编号</div>
+          <div class="form-info-item__value">TK-2026031201</div>
+        </div>
+        <div>
+          <div class="form-info-item__label">所属工单</div>
+          <div class="form-info-item__value">WO-20260312-001</div>
+        </div>
+        <div>
+          <div class="form-info-item__label">产品名称</div>
+          <div class="form-info-item__value">现代三人沙发</div>
+        </div>
+        <div>
+          <div class="form-info-item__label">工序名称</div>
+          <div class="form-info-item__value">布料裁剪</div>
+        </div>
+        <div>
+          <div class="form-info-item__label">工人等级</div>
+          <div class="form-info-item__value">熟练工</div>
+        </div>
+        <div>
+          <div class="form-info-item__label">计件单价</div>
+          <div class="form-info-item__value" style="font-family:var(--font-number);">¥12.50 / 件</div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">完成件数<span class="required">*</span></label>
+          <input class="form-control" type="number" min="1" placeholder="请输入正整数" value="20" id="qty-input" oninput="calcWage()">
+          <div class="form-hint">最小值：1 件</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">实际工时（小时）<span class="required">*</span></label>
+          <input class="form-control" type="number" min="0.1" step="0.1" placeholder="如：4.5" value="5.5" id="hours-input" oninput="calcWage()">
+          <div class="form-hint">精确到 0.1 小时</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">备注</label>
+        <textarea class="form-control" rows="2" placeholder="选填，最多 200 字…"></textarea>
+      </div>
+
+      <!-- 超时预警 -->
+      <div class="overtime-warning" id="overtime-warning">
+        <span class="overtime-warning__icon">⚠</span>
+        <div class="overtime-warning__text">
+          本次完工人均工时为 <strong>0.275 小时/件</strong>，超出极限工时（0.2小时/件）约 <strong>37.5%</strong>，系统将记录超时预警。确认提交后会标记异常，主管将收到通知。
+        </div>
+      </div>
+
+      <!-- 实时工资预览 -->
+      <div class="wage-preview">
+        <div class="wage-preview__label">预计工资核算</div>
+        <div class="wage-preview__formula">
+          <span>工人等级</span><strong class="wage-preview__val">熟练工</strong>
+          <span>×</span>
+          <span>完成件数</span><strong class="wage-preview__val" id="preview-qty">20</strong><span>件</span>
+          <span>×</span>
+          <span>单价</span><strong class="wage-preview__val">¥12.50</strong>
+        </div>
+        <div class="wage-preview__total">
+          <span class="wage-preview__total-label">本次预计工资</span>
+          <span class="wage-preview__total-value" id="preview-wage">¥250.00</span>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="showView('main')">取消</button>
+      <button class="btn btn--success" onclick="showToast('success','完工上报已提交，本次工资：¥250.00')">确认提交</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     MODAL: 异常上报
+     ================================================================ -->
+<div id="modal-exception" class="modal-overlay" style="display:none;" onclick="closeIfOverlay(event,'modal-exception')">
+  <div class="modal modal--wide" role="dialog" aria-modal="true" aria-labelledby="modal-exception-title">
+    <div class="modal__header">
+      <span class="modal__title" id="modal-exception-title">异常上报</span>
+      <button class="modal__close" onclick="showView('main')" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal__body">
+
+      <div class="form-info-group">
+        <div>
+          <div class="form-info-item__label">任务编号</div>
+          <div class="form-info-item__value">TK-2026031201</div>
+        </div>
+        <div>
+          <div class="form-info-item__label">工序名称</div>
+          <div class="form-info-item__value">布料裁剪</div>
+        </div>
+      </div>
+
+      <!-- 异常类型 -->
+      <div class="form-group">
+        <label class="form-label">异常类型<span class="required">*</span></label>
+        <div class="radio-group radio-group--card">
+          <label class="radio-card">
+            <input type="radio" name="exc-type" value="device" checked>
+            <span class="radio-card__title">
+              设备故障
+              <span class="tooltip-wrap">
+                <span style="color:var(--text-disabled);font-size:.75rem;cursor:help;"> ?</span>
+                <span class="tooltip">生产设备无法正常运行，需要维修介入</span>
+              </span>
+            </span>
+            <span class="radio-card__desc">设备无法正常运行</span>
+          </label>
+          <label class="radio-card">
+            <input type="radio" name="exc-type" value="material">
+            <span class="radio-card__title">
+              物料缺失
+              <span class="tooltip-wrap">
+                <span style="color:var(--text-disabled);font-size:.75rem;cursor:help;"> ?</span>
+                <span class="tooltip">所需原材料或半成品不足，无法继续生产</span>
+              </span>
+            </span>
+            <span class="radio-card__desc">原材料不足</span>
+          </label>
+          <label class="radio-card">
+            <input type="radio" name="exc-type" value="quality">
+            <span class="radio-card__title">
+              质量问题
+              <span class="tooltip-wrap">
+                <span style="color:var(--text-disabled);font-size:.75rem;cursor:help;"> ?</span>
+                <span class="tooltip">发现产品质量不符合生产标准要求</span>
+              </span>
+            </span>
+            <span class="radio-card__desc">产品质量不达标</span>
+          </label>
+          <label class="radio-card">
+            <input type="radio" name="exc-type" value="other">
+            <span class="radio-card__title">
+              其他
+              <span class="tooltip-wrap">
+                <span style="color:var(--text-disabled);font-size:.75rem;cursor:help;"> ?</span>
+                <span class="tooltip">以上类型之外的其他异常情况</span>
+              </span>
+            </span>
+            <span class="radio-card__desc">其他异常情况</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 异常描述 -->
+      <div class="form-group">
+        <label class="form-label">异常描述<span class="required">*</span></label>
+        <textarea class="form-control" rows="3" placeholder="请详细描述异常情况，至少 10 字，最多 500 字…">裁剪机出现异响，刀头有明显偏移，裁出的布料边缘不整齐，可能影响后续缝合工序的精度。</textarea>
+        <div class="form-hint">已输入 51 字（最少 10 字，最多 500 字）</div>
+      </div>
+
+      <!-- 图片上传 -->
+      <div class="form-group">
+        <label class="form-label">附件图片 <span style="color:var(--text-disabled);font-weight:400;">（选填，最多 3 张，JPG/PNG，单张 ≤5MB）</span></label>
+        <div class="upload-zone" onclick="this.style.borderColor='var(--color-primary-500)'">
+          <div class="upload-zone__icon">📷</div>
+          <div class="upload-zone__text">点击上传或拖拽图片至此处</div>
+          <div class="upload-zone__hint">支持 JPG、PNG 格式</div>
+        </div>
+        <div class="upload-preview">
+          <div class="upload-item">
+            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='80' height='80' fill='%23E2E8F0'/%3E%3Ctext x='40' y='44' text-anchor='middle' fill='%2394A3B8' font-size='10'%3E图片1%3C/text%3E%3C/svg%3E" alt="异常图片1">
+            <button class="upload-item__del" title="删除">✕</button>
+          </div>
+          <div class="upload-item">
+            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='80' height='80' fill='%23E2E8F0'/%3E%3Ctext x='40' y='44' text-anchor='middle' fill='%2394A3B8' font-size='10'%3E上传中%3C/text%3E%3C/svg%3E" alt="上传中">
+            <button class="upload-item__del" title="删除">✕</button>
+            <div class="upload-item__progress"><div class="upload-item__progress-bar"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-divider"></div>
+
+      <!-- 是否影响进度 -->
+      <div class="form-group">
+        <label class="form-label">是否影响生产进度<span class="required">*</span></label>
+        <div class="severity-group">
+          <button class="severity-btn severity-btn--yes active" onclick="toggleSeverity(this,'yes')">影响生产进度</button>
+          <button class="severity-btn severity-btn--no" onclick="toggleSeverity(this,'no')">不影响进度</button>
+        </div>
+        <div class="form-hint" style="color:var(--color-warning-600);">⚠ 标记"影响进度"后，车间主管将收到优先级通知</div>
+      </div>
+
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="showView('main')">取消</button>
+      <button class="btn btn--danger" onclick="showToast('warning','异常已上报，等待主管处理')">提交异常上报</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     SIDEBAR: 任务详情
+     ================================================================ -->
+<div id="sidebar-detail" style="display:none;">
+  <!-- overlay -->
+  <div style="position:fixed;inset:0;background:rgba(15,23,42,.3);z-index:240;" onclick="showView('main')"></div>
+  <aside class="detail-sidebar" role="complementary" aria-label="任务详情">
+    <div class="detail-sidebar__header">
+      <div>
+        <div class="detail-sidebar__title">TK-2026031201</div>
+        <div style="font-size:.75rem;color:var(--text-secondary);margin-top:.125rem;">现代三人沙发 · 布料裁剪</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:.5rem;">
+        <span class="badge badge--active"><span class="badge__dot"></span>进行中</span>
+        <button class="modal__close" onclick="showView('main')" aria-label="关闭">✕</button>
+      </div>
+    </div>
+    <div class="detail-sidebar__body">
+
+      <!-- 基本信息 -->
+      <div class="detail-section">
+        <div class="detail-section__title">基本信息</div>
+        <div class="detail-kv">
+          <span class="detail-kv__key">任务编号</span><span class="detail-kv__val" style="font-family:var(--font-number);">TK-2026031201</span>
+          <span class="detail-kv__key">所属工单</span><span class="detail-kv__val" style="font-family:var(--font-number);">WO-20260312-001</span>
+          <span class="detail-kv__key">产品名称</span><span class="detail-kv__val">现代三人沙发</span>
+          <span class="detail-kv__key">工序名称</span><span class="detail-kv__val">布料裁剪</span>
+          <span class="detail-kv__key">执行工人</span><span class="detail-kv__val">王小明（熟练工）</span>
+          <span class="detail-kv__key">计划件数</span><span class="detail-kv__val" style="font-family:var(--font-number);">20 件</span>
+          <span class="detail-kv__key">计件单价</span><span class="detail-kv__val" style="font-family:var(--font-number);">¥12.50 / 件</span>
+          <span class="detail-kv__key">极限工时</span><span class="detail-kv__val" style="font-family:var(--font-number);">0.20 小时 / 件</span>
+          <span class="detail-kv__key">计划开始</span><span class="detail-kv__val">2026-03-12 08:00</span>
+          <span class="detail-kv__key">计划完成</span><span class="detail-kv__val">2026-03-13 18:00</span>
+          <span class="detail-kv__key">优先级</span><span class="detail-kv__val"><span class="badge badge--urgent">紧急</span></span>
+        </div>
+      </div>
+
+      <!-- BOM 快照 -->
+      <div class="detail-section">
+        <div class="detail-section__title">原材料 BOM（只读快照）</div>
+        <table class="data-table" style="font-size:.75rem;">
+          <thead>
+            <tr>
+              <th>物料名称</th>
+              <th>SKU编码</th>
+              <th>用量</th>
+              <th>单位</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>绒布面料（灰色）</td>
+              <td style="font-family:var(--font-number);">RM-0023</td>
+              <td style="font-family:var(--font-number);">5.6</td>
+              <td>米</td>
+            </tr>
+            <tr>
+              <td>裁剪辅料衬布</td>
+              <td style="font-family:var(--font-number);">RM-0047</td>
+              <td style="font-family:var(--font-number);">2.0</td>
+              <td>米</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 操作日志时间线 -->
+      <div class="detail-section">
+        <div class="detail-section__title">操作时间线</div>
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="timeline-item__dot timeline-item__dot--primary"></div>
+            <div class="timeline-item__time">2026-03-12 08:05</div>
+            <div class="timeline-item__action">开始生产</div>
+            <div class="timeline-item__detail">王小明 点击「开始生产」，任务进入进行中状态</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-item__dot timeline-item__dot--warning"></div>
+            <div class="timeline-item__time">2026-03-12 10:22</div>
+            <div class="timeline-item__action">系统预警触发</div>
+            <div class="timeline-item__detail">当前任务已超过极限工时 120% 阈值，系统自动标记超时预警</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-item__dot"></div>
+            <div class="timeline-item__time">2026-03-12 09:00</div>
+            <div class="timeline-item__action">任务分配</div>
+            <div class="timeline-item__detail">车间主管 李建国 将任务分配给 王小明</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-item__dot"></div>
+            <div class="timeline-item__time">2026-03-12 07:50</div>
+            <div class="timeline-item__action">工单创建</div>
+            <div class="timeline-item__detail">工单 WO-20260312-001 由系统自动生成生产任务</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="detail-sidebar__footer">
+      <button class="btn btn--success" style="flex:1;" onclick="showView('complete')">完工上报</button>
+      <button class="btn btn--danger" style="flex:1;" onclick="showView('exception')">异常上报</button>
+    </div>
+  </aside>
+</div>
+
+<!-- ================================================================
+     TOAST CONTAINER
+     ================================================================ -->
+<div class="toast-stack" id="toast-stack"></div>
+
+<!-- ================================================================
+     SCRIPTS — Demo interaction only
+     ================================================================ -->
+<script>
+function showView(view) {
+  document.getElementById('modal-complete').style.display = 'none';
+  document.getElementById('modal-exception').style.display = 'none';
+  document.getElementById('sidebar-detail').style.display = 'none';
+
+  document.querySelectorAll('.demo-btn').forEach(b => b.classList.remove('demo-btn--active'));
+
+  if (view === 'complete') {
+    document.getElementById('modal-complete').style.display = 'flex';
+    document.querySelectorAll('.demo-btn')[1].classList.add('demo-btn--active');
+  } else if (view === 'exception') {
+    document.getElementById('modal-exception').style.display = 'flex';
+    document.querySelectorAll('.demo-btn')[2].classList.add('demo-btn--active');
+  } else if (view === 'detail') {
+    document.getElementById('sidebar-detail').style.display = 'block';
+    document.querySelectorAll('.demo-btn')[3].classList.add('demo-btn--active');
+  } else {
+    document.querySelectorAll('.demo-btn')[0].classList.add('demo-btn--active');
+  }
+}
+
+function closeIfOverlay(e, id) {
+  if (e.target === e.currentTarget) showView('main');
+}
+
+function calcWage() {
+  const qty = parseFloat(document.getElementById('qty-input').value) || 0;
+  const hours = parseFloat(document.getElementById('hours-input').value) || 0;
+  const unitPrice = 12.5;
+  const limitHours = 0.2;
+
+  document.getElementById('preview-qty').textContent = qty;
+  document.getElementById('preview-wage').textContent = '¥' + (qty * unitPrice).toFixed(2);
+
+  const avgHours = qty > 0 ? hours / qty : 0;
+  const overtimeEl = document.getElementById('overtime-warning');
+  overtimeEl.style.display = (avgHours > limitHours * 1.2) ? 'flex' : 'none';
+}
+
+function toggleSeverity(btn, type) {
+  const parent = btn.closest('.severity-group');
+  parent.querySelectorAll('.severity-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+let toastTimer;
+function showToast(type, msg) {
+  const stack = document.getElementById('toast-stack');
+  const icons = { success: '✅', error: '❌', warning: '⚠' };
+  const toast = document.createElement('div');
+  toast.className = 'toast toast--' + type;
+  toast.innerHTML = '<span class="toast__icon">' + icons[type] + '</span><span>' + msg + '</span>';
+  stack.appendChild(toast);
+  showView('main');
+  setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity .3s'; setTimeout(() => toast.remove(), 300); }, 3000);
+}
+
+// Init wage preview
+calcWage();
+</script>
+</body>
+</html>

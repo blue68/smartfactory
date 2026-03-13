@@ -1,0 +1,2193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>[artifact:UI代码] R-01 — SKU 类目管理 · 设计原型</title>
+  <style>
+    /* ═══════════════════════════════════════════
+       Design Tokens（与 variables.css 严格对应）
+    ═══════════════════════════════════════════ */
+    :root {
+      /* 主色 */
+      --color-primary-50:  #EFF6FF;
+      --color-primary-100: #DBEAFE;
+      --color-primary-200: #BFDBFE;
+      --color-primary-500: #3B82F6;
+      --color-primary-600: #2563EB;
+      --color-primary-700: #1D4ED8;
+      /* 成功 */
+      --color-success-50:  #F0FDF4;
+      --color-success-500: #22C55E;
+      --color-success-600: #16A34A;
+      /* 警告 */
+      --color-warning-50:  #FFFBEB;
+      --color-warning-100: #FEF3C7;
+      --color-warning-500: #F59E0B;
+      --color-warning-600: #D97706;
+      --color-warning-700: #B45309;
+      /* 错误 */
+      --color-error-50:  #FEF2F2;
+      --color-error-100: #FEE2E2;
+      --color-error-500: #EF4444;
+      --color-error-600: #DC2626;
+      --color-error-700: #B91C1C;
+      /* 中性色 */
+      --color-gray-0:   #FFFFFF;
+      --color-gray-50:  #F8FAFC;
+      --color-gray-100: #F1F5F9;
+      --color-gray-200: #E2E8F0;
+      --color-gray-300: #CBD5E1;
+      --color-gray-400: #94A3B8;
+      --color-gray-500: #64748B;
+      --color-gray-600: #475569;
+      --color-gray-700: #334155;
+      --color-gray-800: #1E293B;
+      --color-gray-900: #0F172A;
+      /* 语义别名 */
+      --bg-page:         #F8FAFC;
+      --bg-card:         #FFFFFF;
+      --bg-sidebar:      #1E293B;
+      --text-primary:    #1E293B;
+      --text-secondary:  #64748B;
+      --text-disabled:   #94A3B8;
+      --border-default:  #E2E8F0;
+      --border-strong:   #CBD5E1;
+      --border-focus:    #3B82F6;
+      /* 字体 */
+      --font-family-base: "PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,BlinkMacSystemFont,sans-serif;
+      --font-family-mono: "JetBrains Mono","SF Mono","Consolas",monospace;
+      /* 字号 */
+      --text-h2:     1.5rem;
+      --text-h3:     1.25rem;
+      --text-h4:     1.125rem;
+      --text-body-l: 1rem;
+      --text-body-m: 0.875rem;
+      --text-body-s: 0.75rem;
+      --text-caption:0.6875rem;
+      /* 间距（4px 基准网格） */
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.25rem;
+      --space-6: 1.5rem;
+      --space-8: 2rem;
+      --space-10:2.5rem;
+      --space-12:3rem;
+      /* 布局 */
+      --layout-sidebar-width:  240px;
+      --layout-header-height:  64px;
+      --layout-page-padding:   24px;
+      /* 圆角 */
+      --radius-sm:   4px;
+      --radius-md:   8px;
+      --radius-lg:   12px;
+      --radius-xl:   16px;
+      --radius-full: 9999px;
+      /* 阴影 */
+      --shadow-xs: 0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --shadow-xl: 0 20px 25px -5px rgba(0,0,0,.1),0 10px 10px -5px rgba(0,0,0,.04);
+      /* 动画时长 */
+      --transition-fast:   150ms ease;
+      --transition-base:   200ms ease;
+      --transition-slow:   300ms ease;
+      --transition-spring: 200ms cubic-bezier(0.34,1.56,0.64,1);
+      /* z-index */
+      --z-dropdown: 100;
+      --z-sticky:   200;
+      --z-overlay:  300;
+      --z-modal:    400;
+      --z-toast:    500;
+    }
+
+    /* ═══════════════════════════════════════════
+       全局重置
+    ═══════════════════════════════════════════ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-family-base);
+      font-size: var(--text-body-m);
+      color: var(--text-primary);
+      background: var(--bg-page);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    :focus-visible {
+      outline: 2px solid var(--color-primary-500);
+      outline-offset: 2px;
+      border-radius: var(--radius-sm);
+    }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    input, textarea, select { font-family: inherit; font-size: inherit; }
+    ::-webkit-scrollbar        { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track  { background: transparent; }
+    ::-webkit-scrollbar-thumb  { background: var(--color-gray-300); border-radius: var(--radius-full); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--color-gray-400); }
+
+    /* ═══════════════════════════════════════════
+       布局骨架（复用 global.css 命名）
+    ═══════════════════════════════════════════ */
+    .app-layout {
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .app-layout__sidebar {
+      width: var(--layout-sidebar-width);
+      flex-shrink: 0;
+      background: var(--bg-sidebar);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .app-layout__main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .app-layout__header {
+      height: var(--layout-header-height);
+      flex-shrink: 0;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-default);
+      box-shadow: var(--shadow-xs);
+      display: flex;
+      align-items: center;
+      padding: 0 var(--layout-page-padding);
+      z-index: var(--z-sticky);
+      gap: var(--space-4);
+    }
+    .app-layout__content {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--layout-page-padding);
+    }
+
+    /* ═══════════════════════════════════════════
+       侧边栏
+    ═══════════════════════════════════════════ */
+    .sidebar__logo {
+      height: var(--layout-header-height);
+      display: flex;
+      align-items: center;
+      padding: 0 var(--space-5);
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      flex-shrink: 0;
+    }
+    .sidebar__logo-mark {
+      width: 2rem; height: 2rem;
+      background: var(--color-primary-600);
+      border-radius: var(--radius-md);
+      display: flex; align-items: center; justify-content: center;
+      font-size: var(--text-body-s);
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .sidebar__logo-text {
+      margin-left: var(--space-3);
+      font-size: var(--text-body-l);
+      font-weight: 700;
+      color: #fff;
+    }
+    .sidebar__nav {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--space-4) 0;
+    }
+    .sidebar__nav-section {
+      margin-bottom: var(--space-6);
+    }
+    .sidebar__nav-label {
+      font-size: var(--text-caption);
+      color: var(--color-gray-500);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      padding: 0 var(--space-5);
+      margin-bottom: var(--space-2);
+    }
+    .sidebar__nav-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-2) var(--space-5);
+      color: var(--color-gray-400);
+      font-size: var(--text-body-m);
+      cursor: pointer;
+      border-radius: 0;
+      transition: background var(--transition-fast), color var(--transition-fast);
+      border-left: 3px solid transparent;
+    }
+    .sidebar__nav-item:hover {
+      background: rgba(255,255,255,.06);
+      color: #fff;
+    }
+    .sidebar__nav-item--active {
+      background: rgba(37,99,235,.2);
+      color: #fff;
+      border-left-color: var(--color-primary-500);
+    }
+    .sidebar__nav-item--sub {
+      padding-left: calc(var(--space-5) + var(--space-6));
+      font-size: var(--text-body-s);
+    }
+    .sidebar__nav-icon { width: 1rem; flex-shrink: 0; text-align: center; }
+
+    /* ═══════════════════════════════════════════
+       顶栏
+    ═══════════════════════════════════════════ */
+    .header__breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-body-s);
+      color: var(--text-secondary);
+    }
+    .header__breadcrumb-sep { color: var(--color-gray-300); }
+    .header__breadcrumb-current { color: var(--text-primary); font-weight: 500; }
+    .header__right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+    }
+    .header__avatar {
+      width: 2rem; height: 2rem;
+      border-radius: var(--radius-full);
+      background: var(--color-primary-100);
+      color: var(--color-primary-700);
+      display: flex; align-items: center; justify-content: center;
+      font-size: var(--text-body-s);
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* ═══════════════════════════════════════════
+       页面头（复用 global.css .page-header 命名）
+    ═══════════════════════════════════════════ */
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-6);
+      gap: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .page-header__title {
+      font-size: var(--text-h2);
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .page-header__subtitle {
+      font-size: var(--text-body-m);
+      color: var(--text-secondary);
+      margin-top: var(--space-1);
+    }
+    .page-header__actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+    }
+
+    /* ═══════════════════════════════════════════
+       按钮（BEM：.btn--{variant}--{size}）
+    ═══════════════════════════════════════════ */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: 0.5rem 1rem;
+      font-size: var(--text-body-m);
+      font-weight: 500;
+      border-radius: var(--radius-md);
+      transition: background var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition-fast);
+      white-space: nowrap;
+      line-height: 1.5;
+    }
+    .btn--primary {
+      background: var(--color-primary-600);
+      color: #fff;
+      box-shadow: var(--shadow-xs);
+    }
+    .btn--primary:hover:not(:disabled) { background: var(--color-primary-700); }
+    .btn--secondary {
+      background: var(--bg-card);
+      color: var(--text-primary);
+      border: 1px solid var(--border-default);
+      box-shadow: var(--shadow-xs);
+    }
+    .btn--secondary:hover:not(:disabled) { background: var(--color-gray-50); border-color: var(--border-strong); }
+    .btn--danger {
+      background: var(--color-error-600);
+      color: #fff;
+    }
+    .btn--danger:hover:not(:disabled) { background: var(--color-error-700); }
+    .btn--ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-default);
+    }
+    .btn--ghost:hover:not(:disabled) { background: var(--color-gray-100); color: var(--text-primary); }
+    .btn--text {
+      background: transparent;
+      color: var(--color-primary-600);
+      padding: 0.25rem 0.5rem;
+    }
+    .btn--text:hover:not(:disabled) { color: var(--color-primary-700); text-decoration: underline; }
+    .btn--sm { padding: 0.25rem 0.625rem; font-size: var(--text-body-s); }
+    .btn--lg { padding: 0.625rem 1.25rem; font-size: var(--text-body-l); }
+    .btn--icon-only { padding: 0.5rem; width: 2.25rem; height: 2.25rem; justify-content: center; }
+    .btn--icon-only.btn--sm { width: 1.875rem; height: 1.875rem; padding: 0.25rem; }
+
+    /* ═══════════════════════════════════════════
+       卡片
+    ═══════════════════════════════════════════ */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+    }
+    .card__header {
+      padding: var(--space-4) var(--space-6);
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+    }
+    .card__title {
+      font-size: var(--text-body-l);
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .card__body { padding: var(--space-4) var(--space-6); }
+
+    /* ═══════════════════════════════════════════
+       Badge / Tag
+    ═══════════════════════════════════════════ */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      padding: 0.125rem 0.5rem;
+      border-radius: var(--radius-full);
+      font-size: var(--text-body-s);
+      font-weight: 500;
+      line-height: 1.5;
+    }
+    .badge--system {
+      background: var(--color-primary-100);
+      color: var(--color-primary-700);
+      border: 1px solid var(--color-primary-200);
+    }
+    .badge--custom {
+      background: var(--color-success-50);
+      color: var(--color-success-600);
+    }
+    .badge--count {
+      background: var(--color-gray-100);
+      color: var(--text-secondary);
+    }
+    .badge--warn {
+      background: var(--color-warning-100);
+      color: var(--color-warning-700);
+    }
+
+    /* ═══════════════════════════════════════════
+       类目管理主区域 — 左右面板布局
+    ═══════════════════════════════════════════ */
+    .category-layout {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: var(--space-4);
+      min-height: calc(100vh - var(--layout-header-height) - var(--layout-page-padding) * 2 - 5rem);
+    }
+
+    /* ── 左侧一级类目面板 ── */
+    .cat1-panel { }
+    .cat1-panel__search-wrap {
+      padding: var(--space-4) var(--space-5);
+      border-bottom: 1px solid var(--border-default);
+    }
+    .cat1-panel__search {
+      width: 100%;
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      font-size: var(--text-body-m);
+      background: var(--bg-page);
+      color: var(--text-primary);
+      transition: border-color var(--transition-fast);
+    }
+    .cat1-panel__search:focus {
+      outline: none;
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--color-primary-100);
+    }
+    .cat1-panel__list {
+      list-style: none;
+      padding: var(--space-2) 0;
+      overflow-y: auto;
+      max-height: calc(100vh - var(--layout-header-height) - 14rem);
+    }
+    .cat1-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-3) var(--space-5);
+      cursor: pointer;
+      transition: background var(--transition-fast);
+      position: relative;
+      border-left: 3px solid transparent;
+    }
+    .cat1-item:hover { background: var(--color-gray-50); }
+    .cat1-item--active {
+      background: var(--color-primary-50);
+      border-left-color: var(--color-primary-500);
+    }
+    .cat1-item--active .cat1-item__name { color: var(--color-primary-700); font-weight: 600; }
+    .cat1-item__drag-handle {
+      color: var(--color-gray-300);
+      cursor: grab;
+      font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+    .cat1-item__name {
+      flex: 1;
+      font-size: var(--text-body-m);
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cat1-item__meta {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      flex-shrink: 0;
+    }
+    .cat1-item__actions {
+      display: none;
+      align-items: center;
+      gap: var(--space-1);
+      flex-shrink: 0;
+    }
+    .cat1-item:hover .cat1-item__actions,
+    .cat1-item--active .cat1-item__actions { display: flex; }
+    .cat1-item:hover .cat1-item__meta { display: none; }
+    .cat1-item--active .cat1-item__meta { display: none; }
+    /* 拖拽中状态 */
+    .cat1-item--dragging {
+      opacity: .5;
+      background: var(--color-primary-50);
+    }
+    /* 拖拽占位 */
+    .cat1-item--drop-target {
+      border-top: 2px solid var(--color-primary-500);
+    }
+    .cat1-panel__empty {
+      padding: var(--space-10) var(--space-6);
+      text-align: center;
+      color: var(--text-secondary);
+    }
+    .cat1-panel__empty-icon {
+      font-size: 2.5rem;
+      margin-bottom: var(--space-3);
+    }
+    .cat1-panel__empty-title {
+      font-size: var(--text-body-m);
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: var(--space-2);
+    }
+    .cat1-panel__add-btn-wrap {
+      padding: var(--space-3) var(--space-5);
+      border-top: 1px solid var(--border-default);
+    }
+
+    /* ── 右侧二级类目面板 ── */
+    .cat2-panel { display: flex; flex-direction: column; }
+    .cat2-panel__header {
+      padding: var(--space-4) var(--space-6);
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+    }
+    .cat2-panel__title {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+    }
+    .cat2-panel__title-text {
+      font-size: var(--text-body-l);
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .cat2-panel__subtitle {
+      font-size: var(--text-body-s);
+      color: var(--text-secondary);
+    }
+    .cat2-panel__actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+    }
+    /* 二级类目表格 */
+    .cat2-table { width: 100%; border-collapse: collapse; }
+    .cat2-table th {
+      text-align: left;
+      font-size: var(--text-body-s);
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      padding: var(--space-3) var(--space-6);
+      background: var(--color-gray-50);
+      border-bottom: 1px solid var(--border-default);
+    }
+    .cat2-table th:last-child { text-align: right; }
+    .cat2-table td {
+      padding: var(--space-4) var(--space-6);
+      font-size: var(--text-body-m);
+      border-bottom: 1px solid var(--border-default);
+      vertical-align: middle;
+    }
+    .cat2-table tr:last-child td { border-bottom: none; }
+    .cat2-table tr:hover td { background: var(--color-gray-50); }
+    .cat2-table td:last-child { text-align: right; }
+    .cat2-table__name {
+      font-weight: 500;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .cat2-table__code {
+      font-size: var(--text-body-s);
+      color: var(--text-secondary);
+      font-family: var(--font-family-mono);
+    }
+    .cat2-table__sku-count {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      font-size: var(--text-body-m);
+      color: var(--text-primary);
+    }
+    .cat2-table__date {
+      font-size: var(--text-body-s);
+      color: var(--text-secondary);
+    }
+    .cat2-table__row-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: var(--space-2);
+    }
+    /* 内联编辑状态 */
+    .cat2-table__inline-input {
+      padding: var(--space-1) var(--space-3);
+      border: 1px solid var(--border-focus);
+      border-radius: var(--radius-md);
+      font-size: var(--text-body-m);
+      box-shadow: 0 0 0 3px var(--color-primary-100);
+      width: 12rem;
+    }
+    /* 空状态 */
+    .cat2-panel__empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-12);
+      color: var(--text-secondary);
+    }
+    .cat2-panel__empty-icon { font-size: 3rem; margin-bottom: var(--space-4); }
+    .cat2-panel__empty-title {
+      font-size: var(--text-h4);
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: var(--space-2);
+    }
+    .cat2-panel__empty-desc {
+      font-size: var(--text-body-m);
+      color: var(--text-secondary);
+      margin-bottom: var(--space-6);
+      text-align: center;
+    }
+    /* 未选中提示 */
+    .cat2-panel__placeholder {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-12);
+      color: var(--text-secondary);
+    }
+    .cat2-panel__placeholder-icon {
+      font-size: 3rem;
+      margin-bottom: var(--space-4);
+      opacity: .4;
+    }
+
+    /* 加载骨架屏 */
+    .skeleton {
+      background: linear-gradient(
+        90deg,
+        var(--color-gray-100) 25%,
+        var(--color-gray-200) 50%,
+        var(--color-gray-100) 75%
+      );
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: var(--radius-md);
+    }
+    .skeleton--text-sm { height: .75rem; border-radius: var(--radius-sm); }
+    .skeleton--text    { height: 1rem;   border-radius: var(--radius-sm); }
+    .skeleton--text-lg { height: 1.25rem; border-radius: var(--radius-sm); }
+    .skeleton--rect    { border-radius: var(--radius-md); }
+
+    /* ═══════════════════════════════════════════
+       Modal（对应 Modal.tsx 样式）
+    ═══════════════════════════════════════════ */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: var(--z-modal);
+      padding: var(--space-4);
+      animation: fade-in .2s ease;
+    }
+    .modal {
+      background: var(--bg-card);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-xl);
+      width: 100%;
+      max-height: calc(100vh - var(--space-8));
+      display: flex;
+      flex-direction: column;
+      animation: modal-scale-in .2s var(--transition-spring);
+      overflow: hidden;
+    }
+    .modal--sm { max-width: 400px; }
+    .modal--md { max-width: 560px; }
+    .modal--lg { max-width: 720px; }
+    .modal__header {
+      padding: var(--space-5) var(--space-6);
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .modal__title {
+      font-size: var(--text-h4);
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .modal__close {
+      width: 2rem; height: 2rem;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: var(--radius-md);
+      font-size: 1.25rem;
+      color: var(--text-secondary);
+      transition: background var(--transition-fast), color var(--transition-fast);
+    }
+    .modal__close:hover { background: var(--color-gray-100); color: var(--text-primary); }
+    .modal__body {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--space-6);
+    }
+    .modal__footer {
+      padding: var(--space-4) var(--space-6);
+      border-top: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: var(--space-3);
+      flex-shrink: 0;
+    }
+
+    /* ═══════════════════════════════════════════
+       表单元素
+    ═══════════════════════════════════════════ */
+    .form-group { margin-bottom: var(--space-5); }
+    .form-label {
+      display: block;
+      font-size: var(--text-body-m);
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: var(--space-2);
+    }
+    .form-label__required {
+      color: var(--color-error-500);
+      margin-left: var(--space-1);
+    }
+    .form-label__hint {
+      font-size: var(--text-body-s);
+      font-weight: 400;
+      color: var(--text-secondary);
+      margin-left: var(--space-2);
+    }
+    .form-input {
+      width: 100%;
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      font-size: var(--text-body-m);
+      color: var(--text-primary);
+      background: var(--bg-card);
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--color-primary-100);
+    }
+    .form-input--error {
+      border-color: var(--color-error-500);
+    }
+    .form-input--error:focus {
+      box-shadow: 0 0 0 3px var(--color-error-100);
+    }
+    .form-error {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      margin-top: var(--space-1);
+      font-size: var(--text-body-s);
+      color: var(--color-error-600);
+    }
+    .form-textarea {
+      resize: vertical;
+      min-height: 5rem;
+    }
+    .form-hint {
+      font-size: var(--text-body-s);
+      color: var(--text-secondary);
+      margin-top: var(--space-1);
+    }
+    .form-count {
+      text-align: right;
+      font-size: var(--text-caption);
+      color: var(--text-secondary);
+      margin-top: var(--space-1);
+    }
+    .form-divider {
+      border: none;
+      border-top: 1px solid var(--border-default);
+      margin: var(--space-5) 0;
+    }
+    /* 只读字段 */
+    .form-readonly {
+      padding: var(--space-2) var(--space-3);
+      background: var(--color-gray-50);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      font-size: var(--text-body-m);
+      color: var(--text-secondary);
+    }
+
+    /* ═══════════════════════════════════════════
+       删除确认 Modal — 危险区域样式
+    ═══════════════════════════════════════════ */
+    .danger-alert {
+      background: var(--color-error-50);
+      border: 1px solid var(--color-error-100);
+      border-radius: var(--radius-md);
+      padding: var(--space-4);
+      display: flex;
+      gap: var(--space-3);
+      margin-bottom: var(--space-5);
+    }
+    .danger-alert__icon { font-size: 1.25rem; flex-shrink: 0; }
+    .danger-alert__body { flex: 1; }
+    .danger-alert__title {
+      font-weight: 600;
+      font-size: var(--text-body-m);
+      color: var(--color-error-700);
+      margin-bottom: var(--space-2);
+    }
+    .danger-alert__desc {
+      font-size: var(--text-body-m);
+      color: var(--color-error-600);
+      line-height: 1.7;
+    }
+    .danger-alert__stat {
+      display: flex;
+      gap: var(--space-6);
+      margin-top: var(--space-3);
+    }
+    .danger-alert__stat-item { text-align: center; }
+    .danger-alert__stat-num {
+      font-size: var(--text-h3);
+      font-weight: 700;
+      color: var(--color-error-600);
+    }
+    .danger-alert__stat-label {
+      font-size: var(--text-body-s);
+      color: var(--color-error-500);
+    }
+    .warning-alert {
+      background: var(--color-warning-50);
+      border: 1px solid var(--color-warning-100);
+      border-radius: var(--radius-md);
+      padding: var(--space-4);
+      display: flex;
+      gap: var(--space-3);
+      margin-bottom: var(--space-5);
+    }
+    .warning-alert__title {
+      font-weight: 600;
+      font-size: var(--text-body-m);
+      color: var(--color-warning-700);
+    }
+    .warning-alert__desc {
+      font-size: var(--text-body-m);
+      color: var(--color-warning-600);
+      margin-top: var(--space-1);
+    }
+
+    /* ═══════════════════════════════════════════
+       操作日志抽屉（Drawer）
+    ═══════════════════════════════════════════ */
+    .drawer-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.35);
+      z-index: var(--z-overlay);
+      animation: fade-in .2s ease;
+    }
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 480px;
+      max-width: 100vw;
+      background: var(--bg-card);
+      box-shadow: var(--shadow-xl);
+      z-index: calc(var(--z-overlay) + 1);
+      display: flex;
+      flex-direction: column;
+      animation: slide-in-right .3s ease;
+    }
+    .drawer__header {
+      padding: var(--space-5) var(--space-6);
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .drawer__title {
+      font-size: var(--text-h4);
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .drawer__close {
+      width: 2rem; height: 2rem;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: var(--radius-md);
+      font-size: 1.25rem;
+      color: var(--text-secondary);
+    }
+    .drawer__close:hover { background: var(--color-gray-100); color: var(--text-primary); }
+    .drawer__filter {
+      padding: var(--space-4) var(--space-6);
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      gap: var(--space-3);
+    }
+    .drawer__body {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--space-4) var(--space-6);
+    }
+
+    /* 操作日志时间线 */
+    .log-timeline { display: flex; flex-direction: column; }
+    .log-entry {
+      display: flex;
+      gap: var(--space-4);
+      padding-bottom: var(--space-5);
+      position: relative;
+    }
+    .log-entry::before {
+      content: '';
+      position: absolute;
+      left: 15px;
+      top: 32px;
+      bottom: 0;
+      width: 2px;
+      background: var(--border-default);
+    }
+    .log-entry:last-child::before { display: none; }
+    .log-entry__dot {
+      width: 32px; height: 32px;
+      border-radius: var(--radius-full);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      font-size: .75rem;
+      z-index: 1;
+    }
+    .log-entry__dot--create { background: var(--color-success-500); color: #fff; }
+    .log-entry__dot--update { background: var(--color-primary-500); color: #fff; }
+    .log-entry__dot--delete { background: var(--color-error-500); color: #fff; }
+    .log-entry__content {
+      flex: 1;
+      background: var(--color-gray-50);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: var(--space-3) var(--space-4);
+    }
+    .log-entry__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-2);
+    }
+    .log-entry__action {
+      font-weight: 600;
+      font-size: var(--text-body-m);
+      color: var(--text-primary);
+    }
+    .log-entry__time {
+      font-size: var(--text-body-s);
+      color: var(--text-secondary);
+    }
+    .log-entry__user {
+      font-size: var(--text-body-s);
+      color: var(--text-secondary);
+      margin-bottom: var(--space-2);
+    }
+    .log-entry__diff {
+      display: flex;
+      gap: var(--space-2);
+      align-items: center;
+      font-size: var(--text-body-s);
+    }
+    .log-entry__diff-before {
+      background: var(--color-error-50);
+      color: var(--color-error-600);
+      padding: .125rem var(--space-2);
+      border-radius: var(--radius-sm);
+      text-decoration: line-through;
+    }
+    .log-entry__diff-arrow { color: var(--text-secondary); }
+    .log-entry__diff-after {
+      background: var(--color-success-50);
+      color: var(--color-success-600);
+      padding: .125rem var(--space-2);
+      border-radius: var(--radius-sm);
+    }
+
+    /* ═══════════════════════════════════════════
+       Toast
+    ═══════════════════════════════════════════ */
+    .toast-container {
+      position: fixed;
+      top: var(--space-6);
+      right: var(--space-6);
+      z-index: var(--z-toast);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+      pointer-events: none;
+    }
+    .toast {
+      min-width: 300px; max-width: 400px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      padding: var(--space-4);
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-3);
+      pointer-events: all;
+      animation: slide-in-right .3s ease;
+    }
+    .toast--success { border-left: 4px solid var(--color-success-500); }
+    .toast--error   { border-left: 4px solid var(--color-error-500); }
+    .toast--warning { border-left: 4px solid var(--color-warning-500); }
+    .toast--info    { border-left: 4px solid var(--color-primary-500); }
+    .toast__icon { font-size: 1.25rem; flex-shrink: 0; }
+    .toast__body { flex: 1; }
+    .toast__title { font-weight: 600; font-size: var(--text-body-m); color: var(--text-primary); }
+    .toast__desc  { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1); }
+    .toast__close {
+      flex-shrink: 0;
+      color: var(--text-secondary);
+      font-size: 1rem;
+      padding: var(--space-1);
+      border-radius: var(--radius-sm);
+    }
+    .toast__close:hover { background: var(--color-gray-100); color: var(--text-primary); }
+
+    /* ═══════════════════════════════════════════
+       状态展示区域（原型多状态切换 Tab）
+    ═══════════════════════════════════════════ */
+    .proto-nav {
+      position: fixed;
+      bottom: var(--space-6);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--color-gray-800);
+      border-radius: var(--radius-full);
+      padding: var(--space-2) var(--space-3);
+      display: flex;
+      gap: var(--space-2);
+      z-index: calc(var(--z-toast) + 1);
+      box-shadow: var(--shadow-xl);
+    }
+    .proto-nav__item {
+      padding: var(--space-2) var(--space-4);
+      border-radius: var(--radius-full);
+      font-size: var(--text-body-s);
+      color: var(--color-gray-300);
+      cursor: pointer;
+      transition: background var(--transition-fast), color var(--transition-fast);
+      white-space: nowrap;
+    }
+    .proto-nav__item:hover { background: rgba(255,255,255,.1); color: #fff; }
+    .proto-nav__item--active { background: var(--color-primary-600); color: #fff; }
+
+    /* 状态面板显示控制 */
+    .state-panel { display: none; }
+    .state-panel--active { display: contents; }
+
+    /* ═══════════════════════════════════════════
+       动画
+    ═══════════════════════════════════════════ */
+    @keyframes shimmer {
+      0%   { background-position: -200% 0; }
+      100% { background-position:  200% 0; }
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    @keyframes modal-scale-in {
+      from { opacity: 0; transform: scale(.96) translateY(8px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    @keyframes slide-in-right {
+      from { transform: translateX(100%); opacity: 0; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+    .spinner {
+      display: inline-block;
+      width: 1rem; height: 1rem;
+      border: 2px solid var(--color-primary-200);
+      border-top-color: var(--color-primary-500);
+      border-radius: var(--radius-full);
+      animation: spin .7s linear infinite;
+    }
+    .spinner--sm { width: .875rem; height: .875rem; }
+
+    /* ═══════════════════════════════════════════
+       响应式
+    ═══════════════════════════════════════════ */
+    @media (max-width: 1100px) {
+      .category-layout { grid-template-columns: 240px 1fr; }
+    }
+    @media (max-width: 900px) {
+      .app-layout__sidebar { display: none; }
+      .category-layout { grid-template-columns: 1fr; }
+      .cat1-panel { margin-bottom: var(--space-4); }
+      .cat2-panel { display: none; }
+      .cat2-panel--mobile-visible { display: flex; }
+    }
+    @media (max-width: 640px) {
+      .drawer { width: 100vw; }
+      .toast { min-width: unset; max-width: unset; }
+      .toast-container { left: var(--space-3); right: var(--space-3); top: var(--space-3); }
+      .proto-nav { width: calc(100vw - var(--space-8)); justify-content: center; flex-wrap: wrap; bottom: var(--space-4); border-radius: var(--radius-xl); }
+    }
+
+    /* 权限遮罩：非 admin 不可编辑 */
+    .perm-shield {
+      position: relative;
+    }
+    .perm-shield::after {
+      content: '仅管理员可操作';
+      position: absolute;
+      inset: 0;
+      background: rgba(248,250,252,.85);
+      border-radius: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-body-s);
+      color: var(--text-secondary);
+      cursor: not-allowed;
+      backdrop-filter: blur(2px);
+    }
+    /* 权限提示条 */
+    .perm-banner {
+      background: var(--color-warning-50);
+      border: 1px solid var(--color-warning-100);
+      border-radius: var(--radius-md);
+      padding: var(--space-3) var(--space-4);
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      font-size: var(--text-body-m);
+      color: var(--color-warning-700);
+      margin-bottom: var(--space-4);
+    }
+  </style>
+</head>
+<body>
+
+<!-- ████████████████████████████████████████████████
+     应用骨架
+████████████████████████████████████████████████ -->
+<div class="app-layout">
+
+  <!-- 侧边栏 -->
+  <aside class="app-layout__sidebar" aria-label="主导航">
+    <div class="sidebar__logo">
+      <div class="sidebar__logo-mark" aria-hidden="true">智</div>
+      <span class="sidebar__logo-text">智造管家</span>
+    </div>
+    <nav class="sidebar__nav">
+      <div class="sidebar__nav-section">
+        <div class="sidebar__nav-label">主数据</div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">📦</span>SKU 主数据
+        </div>
+        <div class="sidebar__nav-item sidebar__nav-item--sub sidebar__nav-item--active"
+             aria-current="page">
+          <span class="sidebar__nav-icon">🗂</span>类目管理
+        </div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">📋</span>BOM 管理
+        </div>
+      </div>
+      <div class="sidebar__nav-section">
+        <div class="sidebar__nav-label">生产管理</div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">⚙️</span>工序配置
+        </div>
+        <div class="sidebar__nav-item sidebar__nav-item--sub">
+          <span class="sidebar__nav-icon">💰</span>工资核算
+        </div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">📊</span>生产看板
+        </div>
+      </div>
+      <div class="sidebar__nav-section">
+        <div class="sidebar__nav-label">采购管理</div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">🏭</span>供应商管理
+        </div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">💵</span>采购价格
+        </div>
+      </div>
+      <div class="sidebar__nav-section">
+        <div class="sidebar__nav-label">系统配置</div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">👤</span>用户管理
+        </div>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- 主区域 -->
+  <div class="app-layout__main">
+
+    <!-- 顶栏 -->
+    <header class="app-layout__header">
+      <div class="header__breadcrumb" aria-label="面包屑导航">
+        <span>主数据</span>
+        <span class="header__breadcrumb-sep" aria-hidden="true">›</span>
+        <span class="header__breadcrumb-current">类目管理</span>
+      </div>
+      <div class="header__right">
+        <!-- 权限徽标（原型演示用） -->
+        <span class="badge badge--system" style="font-size:.75rem;">👤 管理员</span>
+        <div class="header__avatar" role="img" aria-label="当前用户：张管理">张</div>
+      </div>
+    </header>
+
+    <!-- 页面内容 -->
+    <main class="app-layout__content" id="main-content">
+
+      <!-- 页面标题行 -->
+      <div class="page-header">
+        <div>
+          <h1 class="page-header__title">
+            <span aria-hidden="true">🗂</span>
+            SKU 类目管理
+          </h1>
+          <p class="page-header__subtitle">管理 SKU 的一级类目与二级子类目，支持自定义扩展与排序</p>
+        </div>
+        <div class="page-header__actions">
+          <button class="btn btn--ghost" onclick="showDrawer()" aria-label="查看操作日志">
+            📋 操作日志
+          </button>
+          <button class="btn btn--secondary" aria-label="返回 SKU 主数据页">
+            ← 返回 SKU 列表
+          </button>
+        </div>
+      </div>
+
+      <!-- ━━━ 状态 0：加载中 ━━━ -->
+      <div class="state-panel" id="state-loading">
+        <div class="category-layout">
+          <div class="card cat1-panel">
+            <div class="card__header">
+              <div class="skeleton skeleton--text-lg" style="width:7rem;"></div>
+              <div class="skeleton skeleton--rect" style="width:4rem;height:1.75rem;"></div>
+            </div>
+            <div style="padding: var(--space-4) var(--space-5);">
+              <div class="skeleton skeleton--rect" style="height:2.25rem;"></div>
+            </div>
+            <ul style="list-style:none;padding:var(--space-2) 0;">
+              <li style="padding:var(--space-3) var(--space-5);display:flex;align-items:center;gap:var(--space-3);">
+                <div class="skeleton skeleton--rect" style="width:1rem;height:1rem;border-radius:50%;flex-shrink:0;"></div>
+                <div class="skeleton skeleton--text" style="flex:1;"></div>
+                <div class="skeleton skeleton--rect" style="width:2.5rem;height:1.25rem;border-radius:var(--radius-full);"></div>
+              </li>
+              <li style="padding:var(--space-3) var(--space-5);display:flex;align-items:center;gap:var(--space-3);">
+                <div class="skeleton skeleton--rect" style="width:1rem;height:1rem;border-radius:50%;flex-shrink:0;"></div>
+                <div class="skeleton skeleton--text" style="flex:1;width:70%;"></div>
+                <div class="skeleton skeleton--rect" style="width:2.5rem;height:1.25rem;border-radius:var(--radius-full);"></div>
+              </li>
+              <li style="padding:var(--space-3) var(--space-5);display:flex;align-items:center;gap:var(--space-3);">
+                <div class="skeleton skeleton--rect" style="width:1rem;height:1rem;border-radius:50%;flex-shrink:0;"></div>
+                <div class="skeleton skeleton--text" style="flex:1;width:55%;"></div>
+                <div class="skeleton skeleton--rect" style="width:2.5rem;height:1.25rem;border-radius:var(--radius-full);"></div>
+              </li>
+              <li style="padding:var(--space-3) var(--space-5);display:flex;align-items:center;gap:var(--space-3);">
+                <div class="skeleton skeleton--rect" style="width:1rem;height:1rem;border-radius:50%;flex-shrink:0;"></div>
+                <div class="skeleton skeleton--text" style="flex:1;width:65%;"></div>
+                <div class="skeleton skeleton--rect" style="width:2.5rem;height:1.25rem;border-radius:var(--radius-full);"></div>
+              </li>
+            </ul>
+          </div>
+          <div class="card cat2-panel">
+            <div class="card__header">
+              <div class="skeleton skeleton--text-lg" style="width:10rem;"></div>
+              <div class="skeleton skeleton--rect" style="width:5rem;height:1.75rem;"></div>
+            </div>
+            <div style="padding:var(--space-3) var(--space-6);border-bottom:1px solid var(--border-default);background:var(--color-gray-50);">
+              <div style="display:flex;gap:var(--space-6);">
+                <div class="skeleton skeleton--text-sm" style="width:4rem;"></div>
+                <div class="skeleton skeleton--text-sm" style="width:5rem;"></div>
+                <div class="skeleton skeleton--text-sm" style="width:6rem;"></div>
+                <div class="skeleton skeleton--text-sm" style="width:4rem;"></div>
+              </div>
+            </div>
+            <div style="padding:var(--space-4) var(--space-6);border-bottom:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-4);">
+              <div class="skeleton skeleton--rect" style="width:1rem;height:1rem;border-radius:50%;flex-shrink:0;"></div>
+              <div class="skeleton skeleton--text" style="flex:1;max-width:12rem;"></div>
+              <div class="skeleton skeleton--text" style="width:5rem;"></div>
+              <div class="skeleton skeleton--text" style="width:4rem;"></div>
+              <div class="skeleton skeleton--text" style="width:6rem;"></div>
+              <div class="skeleton skeleton--rect" style="width:5rem;height:1.75rem;margin-left:auto;"></div>
+            </div>
+            <div style="padding:var(--space-4) var(--space-6);border-bottom:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-4);">
+              <div class="skeleton skeleton--rect" style="width:1rem;height:1rem;border-radius:50%;flex-shrink:0;"></div>
+              <div class="skeleton skeleton--text" style="flex:1;max-width:9rem;"></div>
+              <div class="skeleton skeleton--text" style="width:5rem;"></div>
+              <div class="skeleton skeleton--text" style="width:4rem;"></div>
+              <div class="skeleton skeleton--text" style="width:6rem;"></div>
+              <div class="skeleton skeleton--rect" style="width:5rem;height:1.75rem;margin-left:auto;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ━━━ 状态 1：正常（已选一级类目，右侧显示二级列表）━━━ -->
+      <div class="state-panel state-panel--active" id="state-normal">
+        <div class="category-layout">
+
+          <!-- 左侧：一级类目列表 -->
+          <div class="card cat1-panel">
+            <div class="card__header">
+              <span class="card__title">一级类目</span>
+              <button class="btn btn--primary btn--sm" onclick="showModal('modal-add-cat1')" aria-label="新增一级类目">
+                + 新增
+              </button>
+            </div>
+            <div class="cat1-panel__search-wrap">
+              <input class="cat1-panel__search"
+                     type="search"
+                     placeholder="搜索类目名称..."
+                     aria-label="搜索一级类目" />
+            </div>
+            <ul class="cat1-panel__list" role="listbox" aria-label="一级类目列表">
+              <!-- 系统预置类目（不可删除） -->
+              <li class="cat1-item" role="option" aria-selected="false"
+                  onclick="selectCat1(this,'原材料',true)">
+                <span class="cat1-item__drag-handle" aria-hidden="true" title="拖拽排序">⠿</span>
+                <span class="cat1-item__name">原材料</span>
+                <div class="cat1-item__meta">
+                  <span class="badge badge--system">预置</span>
+                  <span class="badge badge--count">8 子</span>
+                </div>
+                <div class="cat1-item__actions">
+                  <button class="btn btn--ghost btn--sm btn--icon-only" title="编辑" aria-label="编辑原材料" onclick="event.stopPropagation();showModal('modal-edit-cat1')">✏️</button>
+                  <button class="btn btn--ghost btn--sm btn--icon-only" title="不可删除系统预置类目" disabled aria-disabled="true" aria-label="系统预置类目不可删除">🗑</button>
+                </div>
+              </li>
+              <li class="cat1-item" role="option" aria-selected="false"
+                  onclick="selectCat1(this,'半成品',true)">
+                <span class="cat1-item__drag-handle" aria-hidden="true">⠿</span>
+                <span class="cat1-item__name">半成品</span>
+                <div class="cat1-item__meta">
+                  <span class="badge badge--system">预置</span>
+                  <span class="badge badge--count">3 子</span>
+                </div>
+                <div class="cat1-item__actions">
+                  <button class="btn btn--ghost btn--sm btn--icon-only" title="编辑" aria-label="编辑半成品" onclick="event.stopPropagation();showModal('modal-edit-cat1')">✏️</button>
+                  <button class="btn btn--ghost btn--sm btn--icon-only" disabled aria-disabled="true" aria-label="系统预置类目不可删除">🗑</button>
+                </div>
+              </li>
+              <li class="cat1-item cat1-item--active" role="option" aria-selected="true"
+                  onclick="selectCat1(this,'成品',true)">
+                <span class="cat1-item__drag-handle" aria-hidden="true">⠿</span>
+                <span class="cat1-item__name">成品</span>
+                <div class="cat1-item__meta">
+                  <span class="badge badge--system">预置</span>
+                  <span class="badge badge--count">5 子</span>
+                </div>
+                <div class="cat1-item__actions">
+                  <button class="btn btn--ghost btn--sm btn--icon-only" title="编辑" aria-label="编辑成品" onclick="event.stopPropagation();showModal('modal-edit-cat1')">✏️</button>
+                  <button class="btn btn--ghost btn--sm btn--icon-only" disabled aria-disabled="true">🗑</button>
+                </div>
+              </li>
+              <li class="cat1-item" role="option" aria-selected="false"
+                  onclick="selectCat1(this,'辅料',true)">
+                <span class="cat1-item__drag-handle" aria-hidden="true">⠿</span>
+                <span class="cat1-item__name">辅料</span>
+                <div class="cat1-item__meta">
+                  <span class="badge badge--system">预置</span>
+                  <span class="badge badge--count">2 子</span>
+                </div>
+                <div class="cat1-item__actions">
+                  <button class="btn btn--ghost btn--sm btn--icon-only" title="编辑" aria-label="编辑辅料" onclick="event.stopPropagation();showModal('modal-edit-cat1')">✏️</button>
+                  <button class="btn btn--ghost btn--sm btn--icon-only" disabled aria-disabled="true">🗑</button>
+                </div>
+              </li>
+              <!-- 自定义类目（可删除） -->
+              <li class="cat1-item" role="option" aria-selected="false"
+                  onclick="selectCat1(this,'包材',false)">
+                <span class="cat1-item__drag-handle" aria-hidden="true">⠿</span>
+                <span class="cat1-item__name">包材</span>
+                <div class="cat1-item__meta">
+                  <span class="badge badge--custom">自定义</span>
+                  <span class="badge badge--count">4 子</span>
+                </div>
+                <div class="cat1-item__actions">
+                  <button class="btn btn--ghost btn--sm btn--icon-only" title="编辑" aria-label="编辑包材" onclick="event.stopPropagation();showModal('modal-edit-cat1')">✏️</button>
+                  <button class="btn btn--ghost btn--sm btn--icon-only" title="删除包材" aria-label="删除包材" style="color:var(--color-error-500);" onclick="event.stopPropagation();showModal('modal-delete-cascade')">🗑</button>
+                </div>
+              </li>
+              <li class="cat1-item" role="option" aria-selected="false"
+                  onclick="selectCat1(this,'设备配件',false)">
+                <span class="cat1-item__drag-handle" aria-hidden="true">⠿</span>
+                <span class="cat1-item__name">设备配件</span>
+                <div class="cat1-item__meta">
+                  <span class="badge badge--custom">自定义</span>
+                  <span class="badge badge--count">0 子</span>
+                </div>
+                <div class="cat1-item__actions">
+                  <button class="btn btn--ghost btn--sm btn--icon-only" title="编辑" aria-label="编辑设备配件" onclick="event.stopPropagation();showModal('modal-edit-cat1')">✏️</button>
+                  <button class="btn btn--ghost btn--sm btn--icon-only" style="color:var(--color-error-500);" title="删除设备配件" onclick="event.stopPropagation();showModal('modal-delete-simple')">🗑</button>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <!-- 右侧：二级类目列表（当前选中：成品） -->
+          <div class="card cat2-panel" id="cat2-panel-content">
+            <div class="cat2-panel__header">
+              <div class="cat2-panel__title">
+                <span class="cat2-panel__title-text" id="cat2-title">成品</span>
+                <span class="badge badge--system">预置</span>
+                <span class="cat2-panel__subtitle" id="cat2-subtitle">共 5 个子类目</span>
+              </div>
+              <div class="cat2-panel__actions">
+                <button class="btn btn--primary btn--sm" onclick="showModal('modal-add-cat2')" aria-label="新增子类目">
+                  + 新增子类目
+                </button>
+              </div>
+            </div>
+            <div style="overflow-x:auto;">
+              <table class="cat2-table" aria-label="二级类目列表">
+                <thead>
+                  <tr>
+                    <th style="width:2rem;"></th>
+                    <th>类目名称</th>
+                    <th>类目编码</th>
+                    <th>关联 SKU 数</th>
+                    <th>创建时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><span style="color:var(--color-gray-300);cursor:grab;" title="拖拽排序" aria-hidden="true">⠿</span></td>
+                    <td>
+                      <div class="cat2-table__name">沙发</div>
+                    </td>
+                    <td><span class="cat2-table__code">FG-SOFA</span></td>
+                    <td>
+                      <span class="cat2-table__sku-count">
+                        <span style="font-weight:600;">42</span>
+                        <span style="font-size:var(--text-body-s);color:var(--text-secondary);">件</span>
+                      </span>
+                    </td>
+                    <td><span class="cat2-table__date">2025-01-08</span></td>
+                    <td>
+                      <div class="cat2-table__row-actions">
+                        <button class="btn btn--ghost btn--sm" onclick="showModal('modal-edit-cat2')" aria-label="编辑沙发">编辑</button>
+                        <button class="btn btn--ghost btn--sm" style="color:var(--color-error-500);" onclick="showModal('modal-delete-cat2-has-sku')" aria-label="删除沙发">删除</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><span style="color:var(--color-gray-300);cursor:grab;" aria-hidden="true">⠿</span></td>
+                    <td>
+                      <div class="cat2-table__name">柜类</div>
+                    </td>
+                    <td><span class="cat2-table__code">FG-CABINET</span></td>
+                    <td>
+                      <span class="cat2-table__sku-count">
+                        <span style="font-weight:600;">28</span>
+                        <span style="font-size:var(--text-body-s);color:var(--text-secondary);">件</span>
+                      </span>
+                    </td>
+                    <td><span class="cat2-table__date">2025-01-08</span></td>
+                    <td>
+                      <div class="cat2-table__row-actions">
+                        <!-- 内联编辑中状态展示 -->
+                        <input type="text" class="cat2-table__inline-input" value="柜类" aria-label="编辑类目名称：柜类" />
+                        <button class="btn btn--primary btn--sm">保存</button>
+                        <button class="btn btn--ghost btn--sm">取消</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><span style="color:var(--color-gray-300);cursor:grab;" aria-hidden="true">⠿</span></td>
+                    <td>
+                      <div class="cat2-table__name">桌几</div>
+                    </td>
+                    <td><span class="cat2-table__code">FG-TABLE</span></td>
+                    <td>
+                      <span class="cat2-table__sku-count">
+                        <span style="font-weight:600;">15</span>
+                        <span style="font-size:var(--text-body-s);color:var(--text-secondary);">件</span>
+                      </span>
+                    </td>
+                    <td><span class="cat2-table__date">2025-01-08</span></td>
+                    <td>
+                      <div class="cat2-table__row-actions">
+                        <button class="btn btn--ghost btn--sm" onclick="showModal('modal-edit-cat2')">编辑</button>
+                        <button class="btn btn--ghost btn--sm" style="color:var(--color-error-500);" onclick="showModal('modal-delete-cat2-has-sku')">删除</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><span style="color:var(--color-gray-300);cursor:grab;" aria-hidden="true">⠿</span></td>
+                    <td>
+                      <div class="cat2-table__name">床品</div>
+                    </td>
+                    <td><span class="cat2-table__code">FG-BED</span></td>
+                    <td>
+                      <span class="cat2-table__sku-count">
+                        <span style="font-weight:600;">9</span>
+                        <span style="font-size:var(--text-body-s);color:var(--text-secondary);">件</span>
+                      </span>
+                    </td>
+                    <td><span class="cat2-table__date">2025-02-14</span></td>
+                    <td>
+                      <div class="cat2-table__row-actions">
+                        <button class="btn btn--ghost btn--sm" onclick="showModal('modal-edit-cat2')">编辑</button>
+                        <button class="btn btn--ghost btn--sm" style="color:var(--color-error-500);" onclick="showModal('modal-delete-cat2-has-sku')">删除</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><span style="color:var(--color-gray-300);cursor:grab;" aria-hidden="true">⠿</span></td>
+                    <td>
+                      <div class="cat2-table__name">定制产品</div>
+                    </td>
+                    <td><span class="cat2-table__code">FG-CUSTOM</span></td>
+                    <td>
+                      <span class="cat2-table__sku-count">
+                        <span style="font-weight:600;">0</span>
+                        <span style="font-size:var(--text-body-s);color:var(--text-secondary);">件</span>
+                      </span>
+                    </td>
+                    <td><span class="cat2-table__date">2026-01-20</span></td>
+                    <td>
+                      <div class="cat2-table__row-actions">
+                        <button class="btn btn--ghost btn--sm" onclick="showModal('modal-edit-cat2')">编辑</button>
+                        <button class="btn btn--ghost btn--sm" style="color:var(--color-error-500);" onclick="showModal('modal-delete-cat2-empty')">删除</button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ━━━ 状态 2：空状态（一级类目无子类目时右侧展示）━━━ -->
+      <div class="state-panel" id="state-empty">
+        <div class="category-layout">
+          <div class="card cat1-panel">
+            <div class="card__header">
+              <span class="card__title">一级类目</span>
+              <button class="btn btn--primary btn--sm">+ 新增</button>
+            </div>
+            <div class="cat1-panel__search-wrap">
+              <input class="cat1-panel__search" type="search" placeholder="搜索类目名称..." />
+            </div>
+            <ul class="cat1-panel__list">
+              <li class="cat1-item cat1-item--active" onclick="">
+                <span class="cat1-item__drag-handle" aria-hidden="true">⠿</span>
+                <span class="cat1-item__name">设备配件</span>
+                <div class="cat1-item__meta">
+                  <span class="badge badge--custom">自定义</span>
+                  <span class="badge badge--count">0 子</span>
+                </div>
+                <div class="cat1-item__actions">
+                  <button class="btn btn--ghost btn--sm btn--icon-only">✏️</button>
+                  <button class="btn btn--ghost btn--sm btn--icon-only" style="color:var(--color-error-500);">🗑</button>
+                </div>
+              </li>
+            </ul>
+          </div>
+          <div class="card cat2-panel">
+            <div class="cat2-panel__header">
+              <div class="cat2-panel__title">
+                <span class="cat2-panel__title-text">设备配件</span>
+                <span class="badge badge--custom">自定义</span>
+                <span class="cat2-panel__subtitle">共 0 个子类目</span>
+              </div>
+              <div class="cat2-panel__actions">
+                <button class="btn btn--primary btn--sm" onclick="showModal('modal-add-cat2')">+ 新增子类目</button>
+              </div>
+            </div>
+            <div class="cat2-panel__empty" role="status" aria-live="polite">
+              <div class="cat2-panel__empty-icon" aria-hidden="true">📂</div>
+              <div class="cat2-panel__empty-title">暂无子类目</div>
+              <p class="cat2-panel__empty-desc">该一级类目下还没有二级子类目，<br>点击「新增子类目」开始配置</p>
+              <button class="btn btn--primary" onclick="showModal('modal-add-cat2')">
+                + 新增子类目
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ━━━ 状态 3：非 admin 权限视图 ━━━ -->
+      <div class="state-panel" id="state-readonly">
+        <div class="perm-banner" role="alert">
+          <span aria-hidden="true">⚠️</span>
+          当前账号为<strong style="margin:0 var(--space-1);">车间主管</strong>角色，类目管理仅支持查看，如需修改请联系管理员。
+        </div>
+        <div class="category-layout">
+          <div class="card cat1-panel">
+            <div class="card__header">
+              <span class="card__title">一级类目</span>
+              <!-- 新增按钮对非 admin 不渲染 -->
+            </div>
+            <div class="cat1-panel__search-wrap">
+              <input class="cat1-panel__search" type="search" placeholder="搜索类目名称..." aria-label="搜索一级类目（只读）" />
+            </div>
+            <ul class="cat1-panel__list">
+              <li class="cat1-item cat1-item--active">
+                <span class="cat1-item__name">成品</span>
+                <div class="cat1-item__meta">
+                  <span class="badge badge--system">预置</span>
+                  <span class="badge badge--count">5 子</span>
+                </div>
+                <!-- 非 admin：操作按钮不渲染 -->
+              </li>
+              <li class="cat1-item">
+                <span class="cat1-item__name">原材料</span>
+                <div class="cat1-item__meta">
+                  <span class="badge badge--system">预置</span>
+                  <span class="badge badge--count">8 子</span>
+                </div>
+              </li>
+            </ul>
+          </div>
+          <div class="card cat2-panel">
+            <div class="cat2-panel__header">
+              <div class="cat2-panel__title">
+                <span class="cat2-panel__title-text">成品</span>
+                <span class="badge badge--count">5 子</span>
+              </div>
+              <!-- 非 admin：无新增按钮 -->
+            </div>
+            <table class="cat2-table">
+              <thead>
+                <tr>
+                  <th>类目名称</th>
+                  <th>类目编码</th>
+                  <th>关联 SKU 数</th>
+                  <th>创建时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="cat2-table__name">沙发</span></td>
+                  <td><span class="cat2-table__code">FG-SOFA</span></td>
+                  <td>42</td>
+                  <td><span class="cat2-table__date">2025-01-08</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cat2-table__name">柜类</span></td>
+                  <td><span class="cat2-table__code">FG-CABINET</span></td>
+                  <td>28</td>
+                  <td><span class="cat2-table__date">2025-01-08</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ████████████████████████████████████████████████
+     Modal 集合
+████████████████████████████████████████████████ -->
+
+<!-- Modal：新增一级类目 -->
+<div class="modal-overlay" id="modal-add-cat1" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-add-cat1-title"
+     onclick="if(event.target===this)closeModal('modal-add-cat1')">
+  <div class="modal modal--md">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-add-cat1-title">新增一级类目</h2>
+      <button class="modal__close" onclick="closeModal('modal-add-cat1')" aria-label="关闭弹框">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label" for="cat1-name">
+          类目名称<span class="form-label__required" aria-hidden="true">*</span>
+          <span class="form-label__hint">最多 20 字</span>
+        </label>
+        <input class="form-input" id="cat1-name" type="text" placeholder="如：工装配件" maxlength="20"
+               aria-required="true" autocomplete="off" />
+        <!-- 错误态（名称重复时展示） -->
+        <div class="form-error" id="cat1-name-error" style="display:none;" role="alert">
+          <span aria-hidden="true">⚠</span> 该类目名称已存在
+        </div>
+        <div class="form-count" aria-live="polite"><span id="cat1-name-count">0</span>/20</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="cat1-sort">
+          排序权重
+          <span class="form-label__hint">数字越小越靠前，不填则排在末尾</span>
+        </label>
+        <input class="form-input" id="cat1-sort" type="number" min="0" max="9999"
+               placeholder="如：10" />
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label" for="cat1-remark">
+          备注
+          <span class="form-label__hint">最多 100 字</span>
+        </label>
+        <textarea class="form-input form-textarea" id="cat1-remark"
+                  placeholder="可填写该类目的用途说明..." maxlength="100" rows="3"></textarea>
+        <div class="form-count"><span id="cat1-remark-count">0</span>/100</div>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('modal-add-cat1')">取消</button>
+      <button class="btn btn--primary" onclick="simulateSuccess('modal-add-cat1','toast-success-create')">
+        确认新增
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal：编辑一级类目 -->
+<div class="modal-overlay" id="modal-edit-cat1" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-edit-cat1-title"
+     onclick="if(event.target===this)closeModal('modal-edit-cat1')">
+  <div class="modal modal--md">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-edit-cat1-title">编辑一级类目</h2>
+      <button class="modal__close" onclick="closeModal('modal-edit-cat1')" aria-label="关闭">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label">类目编码 <span class="form-label__hint">不可修改</span></label>
+        <div class="form-readonly">CAT-FG-001</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="edit-cat1-name">
+          类目名称<span class="form-label__required" aria-hidden="true">*</span>
+        </label>
+        <input class="form-input" id="edit-cat1-name" type="text" value="成品" maxlength="20" aria-required="true" />
+        <div class="form-count">2/20</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="edit-cat1-sort">排序权重</label>
+        <input class="form-input" id="edit-cat1-sort" type="number" value="3" />
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label" for="edit-cat1-remark">备注</label>
+        <textarea class="form-input form-textarea" id="edit-cat1-remark" rows="3">工厂出货的最终成品，包含沙发、柜类、桌几等品类</textarea>
+        <div class="form-count">23/100</div>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('modal-edit-cat1')">取消</button>
+      <button class="btn btn--primary" onclick="simulateSuccess('modal-edit-cat1','toast-success-edit')">
+        保存修改
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal：新增二级类目 -->
+<div class="modal-overlay" id="modal-add-cat2" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-add-cat2-title"
+     onclick="if(event.target===this)closeModal('modal-add-cat2')">
+  <div class="modal modal--md">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-add-cat2-title">新增子类目</h2>
+      <button class="modal__close" onclick="closeModal('modal-add-cat2')" aria-label="关闭">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label">所属一级类目 <span class="form-label__hint">不可修改</span></label>
+        <div class="form-readonly">成品</div>
+      </div>
+      <hr class="form-divider" />
+      <div class="form-group">
+        <label class="form-label" for="cat2-name">
+          子类目名称<span class="form-label__required" aria-hidden="true">*</span>
+          <span class="form-label__hint">同一父类目下不允许重复，最多 20 字</span>
+        </label>
+        <input class="form-input" id="cat2-name" type="text" placeholder="如：办公椅" maxlength="20" aria-required="true" autocomplete="off" />
+        <div class="form-count">0/20</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="cat2-sort">排序权重</label>
+        <input class="form-input" id="cat2-sort" type="number" min="0" placeholder="如：10" />
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label" for="cat2-remark">备注</label>
+        <textarea class="form-input form-textarea" id="cat2-remark" rows="3" placeholder="可填写该子类目的说明..." maxlength="100"></textarea>
+        <div class="form-count">0/100</div>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('modal-add-cat2')">取消</button>
+      <button class="btn btn--primary" onclick="simulateSuccess('modal-add-cat2','toast-success-create')">确认新增</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal：编辑二级类目 -->
+<div class="modal-overlay" id="modal-edit-cat2" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-edit-cat2-title"
+     onclick="if(event.target===this)closeModal('modal-edit-cat2')">
+  <div class="modal modal--md">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-edit-cat2-title">编辑子类目</h2>
+      <button class="modal__close" onclick="closeModal('modal-edit-cat2')" aria-label="关闭">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label">所属一级类目 <span class="form-label__hint">不可修改父类目归属</span></label>
+        <div class="form-readonly">成品</div>
+      </div>
+      <hr class="form-divider" />
+      <div class="form-group">
+        <label class="form-label" for="edit-cat2-name">
+          子类目名称<span class="form-label__required" aria-hidden="true">*</span>
+        </label>
+        <input class="form-input" id="edit-cat2-name" type="text" value="沙发" maxlength="20" aria-required="true" />
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label" for="edit-cat2-remark">备注</label>
+        <textarea class="form-input form-textarea" id="edit-cat2-remark" rows="3"></textarea>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('modal-edit-cat2')">取消</button>
+      <button class="btn btn--primary" onclick="simulateSuccess('modal-edit-cat2','toast-success-edit')">保存修改</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal：删除确认 — 简单（无关联 SKU，无子类目）-->
+<div class="modal-overlay" id="modal-delete-simple" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-delete-simple-title"
+     onclick="if(event.target===this)closeModal('modal-delete-simple')">
+  <div class="modal modal--sm">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-delete-simple-title">删除确认</h2>
+      <button class="modal__close" onclick="closeModal('modal-delete-simple')" aria-label="关闭">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="warning-alert" role="alert">
+        <span style="font-size:1.25rem;flex-shrink:0;" aria-hidden="true">⚠️</span>
+        <div>
+          <div class="warning-alert__title">确认删除「设备配件」？</div>
+          <p class="warning-alert__desc">该类目下无子类目及关联 SKU，删除后不可恢复。</p>
+        </div>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('modal-delete-simple')">取消</button>
+      <button class="btn btn--danger" onclick="simulateSuccess('modal-delete-simple','toast-success-delete')">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal：删除确认 — 级联（有子类目 + 关联 SKU）-->
+<div class="modal-overlay" id="modal-delete-cascade" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-delete-cascade-title"
+     onclick="if(event.target===this)closeModal('modal-delete-cascade')">
+  <div class="modal modal--md">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-delete-cascade-title">删除类目 — 需要确认</h2>
+      <button class="modal__close" onclick="closeModal('modal-delete-cascade')" aria-label="关闭">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="danger-alert" role="alert">
+        <span class="danger-alert__icon" aria-hidden="true">🚨</span>
+        <div class="danger-alert__body">
+          <div class="danger-alert__title">高危操作：将触发级联删除</div>
+          <p class="danger-alert__desc">
+            「包材」类目下有 <strong>4 个子类目</strong>，删除将同时删除所有子类目。<br>
+            子类目下共有 <strong>17 条 SKU</strong> 将取消类目关联，变为「未分类」状态。
+          </p>
+          <div class="danger-alert__stat" aria-label="影响数据统计">
+            <div class="danger-alert__stat-item">
+              <div class="danger-alert__stat-num">4</div>
+              <div class="danger-alert__stat-label">子类目</div>
+            </div>
+            <div class="danger-alert__stat-item">
+              <div class="danger-alert__stat-num">17</div>
+              <div class="danger-alert__stat-label">受影响 SKU</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p style="font-size:var(--text-body-m);color:var(--text-secondary);">
+        此操作执行软删除，历史数据仍可在审计日志中追溯。请在下方输入类目名称以确认删除。
+      </p>
+      <div style="margin-top:var(--space-4);">
+        <label class="form-label" for="confirm-delete-input">
+          请输入 <code style="background:var(--color-gray-100);padding:.125rem .375rem;border-radius:var(--radius-sm);">包材</code> 以确认
+        </label>
+        <input class="form-input" id="confirm-delete-input" type="text"
+               placeholder="输入类目名称确认删除"
+               aria-label="输入类目名称以确认级联删除" />
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('modal-delete-cascade')">取消，不删除</button>
+      <button class="btn btn--danger" onclick="simulateSuccess('modal-delete-cascade','toast-success-delete')">确认级联删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal：删除二级类目 — 有关联 SKU -->
+<div class="modal-overlay" id="modal-delete-cat2-has-sku" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-delete-cat2-sku-title"
+     onclick="if(event.target===this)closeModal('modal-delete-cat2-has-sku')">
+  <div class="modal modal--sm">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-delete-cat2-sku-title">删除子类目确认</h2>
+      <button class="modal__close" onclick="closeModal('modal-delete-cat2-has-sku')" aria-label="关闭">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="danger-alert" role="alert">
+        <span class="danger-alert__icon" aria-hidden="true">⚠️</span>
+        <div class="danger-alert__body">
+          <div class="danger-alert__title">该子类目下有关联 SKU</div>
+          <p class="danger-alert__desc">
+            「沙发」子类目下有 <strong>42 条 SKU</strong>，删除后这些 SKU 的二级类目将变为空（未分类）。
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('modal-delete-cat2-has-sku')">取消</button>
+      <button class="btn btn--danger" onclick="simulateSuccess('modal-delete-cat2-has-sku','toast-success-delete')">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal：删除二级类目 — 无关联 SKU -->
+<div class="modal-overlay" id="modal-delete-cat2-empty" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-delete-cat2-empty-title"
+     onclick="if(event.target===this)closeModal('modal-delete-cat2-empty')">
+  <div class="modal modal--sm">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-delete-cat2-empty-title">删除子类目确认</h2>
+      <button class="modal__close" onclick="closeModal('modal-delete-cat2-empty')" aria-label="关闭">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="warning-alert" role="alert">
+        <span style="font-size:1.25rem;flex-shrink:0;" aria-hidden="true">⚠️</span>
+        <div>
+          <div class="warning-alert__title">确认删除「定制产品」子类目？</div>
+          <p class="warning-alert__desc">该子类目下无关联 SKU，删除后不可恢复。</p>
+        </div>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('modal-delete-cat2-empty')">取消</button>
+      <button class="btn btn--danger" onclick="simulateSuccess('modal-delete-cat2-empty','toast-success-delete')">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- ████████████████████████████████████████████████
+     操作日志抽屉
+████████████████████████████████████████████████ -->
+<div class="drawer-overlay" id="drawer-overlay" style="display:none;" onclick="closeDrawer()"></div>
+<div class="drawer" id="log-drawer" style="display:none;" role="complementary" aria-label="操作日志">
+  <div class="drawer__header">
+    <span class="drawer__title">📋 类目操作日志</span>
+    <button class="drawer__close" onclick="closeDrawer()" aria-label="关闭抽屉">×</button>
+  </div>
+  <div class="drawer__filter">
+    <select class="form-input" style="flex:1;" aria-label="按操作类型筛选">
+      <option>全部操作</option>
+      <option>新增</option>
+      <option>修改</option>
+      <option>删除</option>
+    </select>
+    <input type="date" class="form-input" style="width:8rem;" aria-label="开始日期" />
+    <input type="date" class="form-input" style="width:8rem;" aria-label="结束日期" />
+  </div>
+  <div class="drawer__body">
+    <div class="log-timeline" role="list" aria-label="操作日志列表">
+      <div class="log-entry" role="listitem">
+        <div class="log-entry__dot log-entry__dot--update" aria-hidden="true">✏</div>
+        <div class="log-entry__content">
+          <div class="log-entry__header">
+            <span class="log-entry__action">修改一级类目</span>
+            <span class="log-entry__time">2026-03-12 14:23</span>
+          </div>
+          <div class="log-entry__user">操作人：张管理 (admin)</div>
+          <div class="log-entry__diff">
+            <span class="log-entry__diff-before">包装材料</span>
+            <span class="log-entry__diff-arrow" aria-label="改为">→</span>
+            <span class="log-entry__diff-after">包材</span>
+          </div>
+        </div>
+      </div>
+      <div class="log-entry" role="listitem">
+        <div class="log-entry__dot log-entry__dot--create" aria-hidden="true">+</div>
+        <div class="log-entry__content">
+          <div class="log-entry__header">
+            <span class="log-entry__action">新增二级类目</span>
+            <span class="log-entry__time">2026-03-11 09:15</span>
+          </div>
+          <div class="log-entry__user">操作人：张管理 (admin)</div>
+          <div class="log-entry__diff">
+            <span class="log-entry__diff-after">成品 &gt; 定制产品</span>
+          </div>
+        </div>
+      </div>
+      <div class="log-entry" role="listitem">
+        <div class="log-entry__dot log-entry__dot--create" aria-hidden="true">+</div>
+        <div class="log-entry__content">
+          <div class="log-entry__header">
+            <span class="log-entry__action">新增一级类目</span>
+            <span class="log-entry__time">2026-01-20 11:40</span>
+          </div>
+          <div class="log-entry__user">操作人：张管理 (admin)</div>
+          <div class="log-entry__diff">
+            <span class="log-entry__diff-after">设备配件</span>
+          </div>
+        </div>
+      </div>
+      <div class="log-entry" role="listitem">
+        <div class="log-entry__dot log-entry__dot--delete" aria-hidden="true">🗑</div>
+        <div class="log-entry__content">
+          <div class="log-entry__header">
+            <span class="log-entry__action">删除二级类目</span>
+            <span class="log-entry__time">2025-11-05 16:52</span>
+          </div>
+          <div class="log-entry__user">操作人：张管理 (admin)</div>
+          <div class="log-entry__diff">
+            <span class="log-entry__diff-before">原材料 &gt; 其他</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ████████████████████████████████████████████████
+     Toast 集合（原型演示，使用时动态显示）
+████████████████████████████████████████████████ -->
+<div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="false">
+  <!-- toast--success-create -->
+  <div class="toast toast--success" id="toast-success-create" style="display:none;" role="status">
+    <span class="toast__icon" aria-hidden="true">✅</span>
+    <div class="toast__body">
+      <div class="toast__title">新增成功</div>
+      <div class="toast__desc">类目已新增并在 SKU 下拉中即时生效</div>
+    </div>
+    <button class="toast__close" onclick="hideToast('toast-success-create')" aria-label="关闭提示">×</button>
+  </div>
+  <div class="toast toast--success" id="toast-success-edit" style="display:none;" role="status">
+    <span class="toast__icon" aria-hidden="true">✅</span>
+    <div class="toast__body">
+      <div class="toast__title">修改成功</div>
+      <div class="toast__desc">关联 SKU 展示名称已自动同步更新</div>
+    </div>
+    <button class="toast__close" onclick="hideToast('toast-success-edit')" aria-label="关闭提示">×</button>
+  </div>
+  <div class="toast toast--success" id="toast-success-delete" style="display:none;" role="status">
+    <span class="toast__icon" aria-hidden="true">✅</span>
+    <div class="toast__body">
+      <div class="toast__title">删除成功</div>
+      <div class="toast__desc">类目已删除，受影响 SKU 已变为未分类</div>
+    </div>
+    <button class="toast__close" onclick="hideToast('toast-success-delete')" aria-label="关闭提示">×</button>
+  </div>
+  <div class="toast toast--error" id="toast-error-dupe" style="display:none;" role="alert">
+    <span class="toast__icon" aria-hidden="true">❌</span>
+    <div class="toast__body">
+      <div class="toast__title">新增失败</div>
+      <div class="toast__desc">该类目名称已存在，请更换名称</div>
+    </div>
+    <button class="toast__close" onclick="hideToast('toast-error-dupe')" aria-label="关闭提示">×</button>
+  </div>
+  <div class="toast toast--error" id="toast-error-server" style="display:none;" role="alert">
+    <span class="toast__icon" aria-hidden="true">❌</span>
+    <div class="toast__body">
+      <div class="toast__title">操作失败</div>
+      <div class="toast__desc">服务器异常，请稍后重试</div>
+    </div>
+    <button class="toast__close" onclick="hideToast('toast-error-server')" aria-label="关闭提示">×</button>
+  </div>
+</div>
+
+<!-- 原型状态导航 -->
+<nav class="proto-nav" aria-label="原型状态切换（仅设计评审用）">
+  <div class="proto-nav__item proto-nav__item--active" onclick="switchState('normal',this)">正常态</div>
+  <div class="proto-nav__item" onclick="switchState('loading',this)">加载中</div>
+  <div class="proto-nav__item" onclick="switchState('empty',this)">空状态</div>
+  <div class="proto-nav__item" onclick="switchState('readonly',this)">只读权限</div>
+  <div class="proto-nav__item" onclick="showModal('modal-add-cat1')">新增类目</div>
+  <div class="proto-nav__item" onclick="showModal('modal-delete-cascade')">级联删除</div>
+  <div class="proto-nav__item" onclick="showModal('modal-delete-simple')">普通删除</div>
+  <div class="proto-nav__item" onclick="showDrawer()">操作日志</div>
+  <div class="proto-nav__item" onclick="showToast('toast-error-dupe')">名称重复</div>
+</nav>
+
+<script>
+  /* ── 状态切换 ── */
+  function switchState(name, el) {
+    document.querySelectorAll('.state-panel').forEach(p => p.classList.remove('state-panel--active'));
+    document.getElementById('state-' + name).classList.add('state-panel--active');
+    document.querySelectorAll('.proto-nav__item').forEach(i => i.classList.remove('proto-nav__item--active'));
+    el.classList.add('proto-nav__item--active');
+  }
+
+  /* ── Modal 控制 ── */
+  function showModal(id) {
+    const el = document.getElementById(id);
+    if (el) { el.style.display = 'flex'; el.focus(); }
+  }
+  function closeModal(id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
+  function simulateSuccess(modalId, toastId) {
+    closeModal(modalId);
+    showToast(toastId);
+  }
+
+  /* ── Drawer 控制 ── */
+  function showDrawer() {
+    document.getElementById('drawer-overlay').style.display = 'block';
+    document.getElementById('log-drawer').style.display = 'flex';
+  }
+  function closeDrawer() {
+    document.getElementById('drawer-overlay').style.display = 'none';
+    document.getElementById('log-drawer').style.display = 'none';
+  }
+
+  /* ── Toast 控制 ── */
+  function showToast(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.display = 'flex';
+    setTimeout(() => hideToast(id), 3500);
+  }
+  function hideToast(id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
+
+  /* ── 一级类目选中 ── */
+  function selectCat1(el, name, isSystem) {
+    document.querySelectorAll('.cat1-item').forEach(i => {
+      i.classList.remove('cat1-item--active');
+      i.setAttribute('aria-selected','false');
+    });
+    el.classList.add('cat1-item--active');
+    el.setAttribute('aria-selected','true');
+    const titleEl = document.getElementById('cat2-title');
+    const subEl   = document.getElementById('cat2-subtitle');
+    if (titleEl) titleEl.textContent = name;
+    if (subEl)   subEl.textContent   = isSystem ? '系统预置类目' : '自定义类目';
+  }
+
+  /* ── 字符计数 ── */
+  document.getElementById('cat1-name')?.addEventListener('input', function() {
+    document.getElementById('cat1-name-count').textContent = this.value.length;
+  });
+  document.getElementById('cat1-remark')?.addEventListener('input', function() {
+    document.getElementById('cat1-remark-count').textContent = this.value.length;
+  });
+
+  /* ── ESC 关闭 modal ── */
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
+      closeDrawer();
+    }
+  });
+</script>
+</body>
+</html>

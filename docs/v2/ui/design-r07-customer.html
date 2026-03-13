@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>[artifact:UI代码] R-07 — 销售客户管理 · 设计原型</title>
+  <style>
+    /* ═══════════════════════════════════════════
+       Design Tokens
+    ═══════════════════════════════════════════ */
+    :root {
+      --color-primary-50:  #EFF6FF;
+      --color-primary-100: #DBEAFE;
+      --color-primary-500: #3B82F6;
+      --color-primary-600: #2563EB;
+      --color-primary-700: #1D4ED8;
+      --color-success-50:  #F0FDF4;
+      --color-success-100: #DCFCE7;
+      --color-success-500: #22C55E;
+      --color-success-600: #16A34A;
+      --color-success-700: #15803D;
+      --color-warning-50:  #FFFBEB;
+      --color-warning-100: #FEF3C7;
+      --color-warning-500: #F59E0B;
+      --color-warning-700: #B45309;
+      --color-error-50:  #FEF2F2;
+      --color-error-100: #FEE2E2;
+      --color-error-500: #EF4444;
+      --color-error-600: #DC2626;
+      --color-error-700: #B91C1C;
+      --color-gray-0:   #FFFFFF;
+      --color-gray-50:  #F8FAFC;
+      --color-gray-100: #F1F5F9;
+      --color-gray-200: #E2E8F0;
+      --color-gray-300: #CBD5E1;
+      --color-gray-400: #94A3B8;
+      --color-gray-500: #64748B;
+      --color-gray-600: #475569;
+      --color-gray-700: #334155;
+      --color-gray-800: #1E293B;
+      --color-gray-900: #0F172A;
+      --bg-page:        #F8FAFC;
+      --bg-card:        #FFFFFF;
+      --bg-sidebar:     #1E293B;
+      --text-primary:   #1E293B;
+      --text-secondary: #64748B;
+      --text-disabled:  #94A3B8;
+      --border-default: #E2E8F0;
+      --border-strong:  #CBD5E1;
+      --border-focus:   #3B82F6;
+      /* 客户等级语义色 */
+      --grade-vip-bg:   #FFF0F9; --grade-vip-text:   #9D174D; --grade-vip-border: #F9A8D4;
+      --grade-a-bg:     #EFF6FF; --grade-a-text:     #1D4ED8; --grade-a-border:   #BFDBFE;
+      --grade-b-bg:     #F0FDF4; --grade-b-text:     #166534; --grade-b-border:   #BBF7D0;
+      --grade-c-bg:     #F8FAFC; --grade-c-text:     #475569; --grade-c-border:   #CBD5E1;
+      --font-family-base: "PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,BlinkMacSystemFont,sans-serif;
+      --font-family-number: "DIN Alternate","Roboto Mono",var(--font-family-base);
+      --text-h2:       1.5rem;
+      --text-h3:       1.25rem;
+      --text-h4:       1.125rem;
+      --text-body-l:   1rem;
+      --text-body-m:   0.875rem;
+      --text-body-s:   0.75rem;
+      --text-caption:  0.6875rem;
+      --text-number-xl:2.5rem;
+      --text-number-l: 1.75rem;
+      --space-1: 0.25rem; --space-2: 0.5rem;  --space-3: 0.75rem;
+      --space-4: 1rem;    --space-5: 1.25rem; --space-6: 1.5rem;
+      --space-8: 2rem;    --space-10:2.5rem;  --space-12:3rem;
+      --layout-sidebar-width: 240px;
+      --layout-header-height: 64px;
+      --layout-page-padding:  24px;
+      --radius-sm:   4px; --radius-md:   8px;
+      --radius-lg:   12px; --radius-xl:  16px; --radius-full: 9999px;
+      --shadow-xs: 0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --shadow-xl: 0 20px 25px -5px rgba(0,0,0,.1),0 10px 10px -5px rgba(0,0,0,.04);
+      --transition-fast:   150ms ease;
+      --transition-base:   200ms ease;
+      --transition-slow:   300ms ease;
+      --transition-spring: 200ms cubic-bezier(0.34,1.56,0.64,1);
+      --z-dropdown:100; --z-sticky:200; --z-overlay:300; --z-modal:400; --z-toast:500;
+    }
+
+    /* ═══════════════════════════════════════════
+       全局重置
+    ═══════════════════════════════════════════ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
+    body { font-family: var(--font-family-base); font-size: var(--text-body-m); color: var(--text-primary); background: var(--bg-page); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+    :focus-visible { outline: 2px solid var(--color-primary-500); outline-offset: 2px; border-radius: var(--radius-sm); }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    input, select, textarea { font-family: inherit; font-size: inherit; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--color-gray-300); border-radius: var(--radius-full); }
+
+    /* ═══════════════════════════════════════════
+       布局骨架
+    ═══════════════════════════════════════════ */
+    .app-layout { display: flex; height: 100vh; overflow: hidden; }
+    .app-layout__sidebar { width: var(--layout-sidebar-width); flex-shrink: 0; background: var(--bg-sidebar); display: flex; flex-direction: column; overflow: hidden; }
+    .app-layout__main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+    .app-layout__header { height: var(--layout-header-height); flex-shrink: 0; background: var(--bg-card); border-bottom: 1px solid var(--border-default); box-shadow: var(--shadow-xs); display: flex; align-items: center; padding: 0 var(--layout-page-padding); z-index: var(--z-sticky); gap: var(--space-4); }
+    .app-layout__content { flex: 1; overflow-y: auto; padding: var(--layout-page-padding); }
+
+    /* ═══════════════════════════════════════════
+       侧边栏
+    ═══════════════════════════════════════════ */
+    .sidebar__logo { height: var(--layout-header-height); display: flex; align-items: center; padding: 0 var(--space-5); border-bottom: 1px solid rgba(255,255,255,.08); flex-shrink: 0; }
+    .sidebar__logo-mark { width: 2rem; height: 2rem; background: var(--color-primary-600); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; font-size: var(--text-body-s); font-weight: 700; color: #fff; flex-shrink: 0; }
+    .sidebar__logo-text { margin-left: var(--space-3); font-size: var(--text-body-l); font-weight: 700; color: #fff; }
+    .sidebar__nav { flex: 1; overflow-y: auto; padding: var(--space-4) 0; }
+    .sidebar__section { padding: 0 var(--space-3) var(--space-2); }
+    .sidebar__section-title { font-size: var(--text-caption); font-weight: 600; letter-spacing: .05em; color: var(--color-gray-500); text-transform: uppercase; padding: var(--space-2) var(--space-3); }
+    .sidebar__item { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); color: var(--color-gray-400); font-size: var(--text-body-m); cursor: pointer; transition: background var(--transition-fast), color var(--transition-fast); text-decoration: none; }
+    .sidebar__item:hover { background: rgba(255,255,255,.06); color: #fff; }
+    .sidebar__item--active { background: var(--color-primary-600); color: #fff; }
+    .sidebar__item-icon { width: 1rem; height: 1rem; opacity: .75; flex-shrink: 0; }
+    .sidebar__item--active .sidebar__item-icon { opacity: 1; }
+
+    /* ═══════════════════════════════════════════
+       页头
+    ═══════════════════════════════════════════ */
+    .page-header__breadcrumb { font-size: var(--text-body-s); color: var(--text-secondary); }
+    .page-header__breadcrumb span { color: var(--text-primary); font-weight: 500; }
+    .page-header__actions { margin-left: auto; display: flex; gap: var(--space-3); align-items: center; }
+
+    /* ═══════════════════════════════════════════
+       统计卡片行
+    ═══════════════════════════════════════════ */
+    .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); margin-bottom: var(--space-5); }
+    .stat-card { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-5); box-shadow: var(--shadow-xs); }
+    .stat-card__label { font-size: var(--text-body-s); color: var(--text-secondary); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2); }
+    .stat-card__value { font-family: var(--font-family-number); font-size: var(--text-number-l); font-weight: 700; color: var(--text-primary); line-height: 1.2; font-variant-numeric: tabular-nums; }
+    .stat-card__dot { width: 8px; height: 8px; border-radius: var(--radius-full); flex-shrink: 0; }
+    .stat-card--active .stat-card__value { color: var(--color-success-600); }
+    .stat-card--vip .stat-card__value { color: #9D174D; }
+
+    /* ═══════════════════════════════════════════
+       筛选工具栏
+    ═══════════════════════════════════════════ */
+    .toolbar { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; box-shadow: var(--shadow-xs); }
+    .search-field { position: relative; flex: 1; min-width: 200px; max-width: 320px; }
+    .search-field__input { width: 100%; height: 2.25rem; padding: 0 var(--space-4) 0 2.25rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--color-gray-50); transition: border-color var(--transition-fast), box-shadow var(--transition-fast); }
+    .search-field__input:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--color-primary-100); background: #fff; }
+    .search-field__icon { position: absolute; left: var(--space-3); top: 50%; transform: translateY(-50%); color: var(--text-disabled); pointer-events: none; }
+    .filter-select { height: 2.25rem; padding: 0 var(--space-8) 0 var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--color-gray-50) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394A3B8' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 10px center; appearance: none; cursor: pointer; transition: border-color var(--transition-fast); }
+    .filter-select:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--color-primary-100); }
+    .toolbar__spacer { flex: 1; }
+
+    /* ═══════════════════════════════════════════
+       按钮
+    ═══════════════════════════════════════════ */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); height: 2.25rem; padding: 0 var(--space-4); border-radius: var(--radius-md); font-size: var(--text-body-m); font-weight: 500; white-space: nowrap; transition: background var(--transition-fast), box-shadow var(--transition-fast); }
+    .btn--primary { background: var(--color-primary-600); color: #fff; }
+    .btn--primary:hover { background: var(--color-primary-700); box-shadow: var(--shadow-sm); }
+    .btn--secondary { background: #fff; color: var(--text-primary); border: 1px solid var(--border-default); }
+    .btn--secondary:hover { background: var(--color-gray-50); border-color: var(--border-strong); }
+    .btn--danger { background: var(--color-error-600); color: #fff; }
+    .btn--danger:hover { background: var(--color-error-700); }
+    .btn--sm { height: 1.75rem; padding: 0 var(--space-3); font-size: var(--text-body-s); }
+    .btn--ghost { color: var(--color-primary-600); }
+    .btn--ghost:hover { background: var(--color-primary-50); }
+    .btn--icon { width: 2rem; height: 2rem; padding: 0; border-radius: var(--radius-md); }
+
+    /* ═══════════════════════════════════════════
+       数据表格
+    ═══════════════════════════════════════════ */
+    .table-card { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); overflow: hidden; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-body-s); font-weight: 600; color: var(--text-secondary); background: var(--color-gray-50); border-bottom: 1px solid var(--border-default); white-space: nowrap; }
+    thead th:first-child { border-radius: 0; padding-left: var(--space-5); }
+    tbody tr { border-bottom: 1px solid var(--border-default); transition: background var(--transition-fast); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--color-primary-50); }
+    tbody td { padding: var(--space-3) var(--space-4); font-size: var(--text-body-m); color: var(--text-primary); vertical-align: middle; }
+    tbody td:first-child { padding-left: var(--space-5); }
+    .table-footer { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border-default); background: var(--color-gray-50); }
+    .pagination { display: flex; gap: var(--space-1); align-items: center; }
+    .pagination__btn { width: 2rem; height: 2rem; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-s); color: var(--text-secondary); cursor: pointer; transition: background var(--transition-fast); }
+    .pagination__btn:hover, .pagination__btn--active { background: var(--color-primary-600); color: #fff; border-color: var(--color-primary-600); }
+
+    /* ═══════════════════════════════════════════
+       等级标签
+    ═══════════════════════════════════════════ */
+    .grade-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px var(--space-2); border-radius: var(--radius-full); font-size: var(--text-body-s); font-weight: 600; border: 1px solid; line-height: 1.4; }
+    .grade-tag--vip { background: var(--grade-vip-bg); color: var(--grade-vip-text); border-color: var(--grade-vip-border); }
+    .grade-tag--a   { background: var(--grade-a-bg);   color: var(--grade-a-text);   border-color: var(--grade-a-border); }
+    .grade-tag--b   { background: var(--grade-b-bg);   color: var(--grade-b-text);   border-color: var(--grade-b-border); }
+    .grade-tag--c   { background: var(--grade-c-bg);   color: var(--grade-c-text);   border-color: var(--grade-c-border); }
+
+    /* ═══════════════════════════════════════════
+       状态标签
+    ═══════════════════════════════════════════ */
+    .status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px var(--space-2); border-radius: var(--radius-full); font-size: var(--text-body-s); font-weight: 500; }
+    .status-badge__dot { width: 6px; height: 6px; border-radius: var(--radius-full); }
+    .status-badge--active { background: var(--color-success-100); color: var(--color-success-700); }
+    .status-badge--active .status-badge__dot { background: var(--color-success-500); }
+    .status-badge--inactive { background: var(--color-gray-100); color: var(--color-gray-500); }
+    .status-badge--inactive .status-badge__dot { background: var(--color-gray-400); }
+
+    /* ═══════════════════════════════════════════
+       操作列
+    ═══════════════════════════════════════════ */
+    .action-group { display: flex; gap: var(--space-1); align-items: center; }
+    .action-btn { height: 1.75rem; padding: 0 var(--space-3); border-radius: var(--radius-sm); font-size: var(--text-body-s); font-weight: 500; cursor: pointer; border: none; transition: background var(--transition-fast); }
+    .action-btn--view { color: var(--color-primary-600); background: var(--color-primary-50); }
+    .action-btn--view:hover { background: var(--color-primary-100); }
+    .action-btn--edit { color: var(--color-gray-600); background: var(--color-gray-100); }
+    .action-btn--edit:hover { background: var(--color-gray-200); }
+    .action-btn--disable { color: var(--color-warning-700); background: var(--color-warning-100); }
+    .action-btn--disable:hover { background: var(--color-warning-50); }
+    .action-btn--enable { color: var(--color-success-600); background: var(--color-success-100); }
+    .action-btn--enable:hover { background: var(--color-success-50); }
+
+    /* ═══════════════════════════════════════════
+       Modal — 通用弹框
+    ═══════════════════════════════════════════ */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: var(--z-overlay); display: flex; align-items: center; justify-content: center; animation: fade-in .15s ease; }
+    .modal { background: var(--bg-card); border-radius: var(--radius-xl); box-shadow: var(--shadow-xl); width: 100%; max-width: 640px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; animation: modal-in .2s cubic-bezier(0.34,1.56,0.64,1); }
+    .modal--lg { max-width: 760px; }
+    .modal__header { padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--border-default); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .modal__title { font-size: var(--text-h4); font-weight: 600; color: var(--text-primary); }
+    .modal__close { width: 2rem; height: 2rem; border-radius: var(--radius-md); color: var(--text-secondary); display: flex; align-items: center; justify-content: center; transition: background var(--transition-fast); }
+    .modal__close:hover { background: var(--color-gray-100); color: var(--text-primary); }
+    .modal__body { flex: 1; overflow-y: auto; padding: var(--space-6); }
+    .modal__footer { padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border-default); display: flex; justify-content: flex-end; gap: var(--space-3); flex-shrink: 0; }
+
+    /* ═══════════════════════════════════════════
+       表单
+    ═══════════════════════════════════════════ */
+    .form-section { margin-bottom: var(--space-6); }
+    .form-section__title { font-size: var(--text-body-m); font-weight: 600; color: var(--text-primary); margin-bottom: var(--space-4); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-default); display: flex; align-items: center; gap: var(--space-2); }
+    .form-section__title::before { content: ''; width: 3px; height: 1rem; background: var(--color-primary-500); border-radius: var(--radius-full); }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+    .form-grid--3 { grid-template-columns: 1fr 1fr 1fr; }
+    .form-group { display: flex; flex-direction: column; gap: var(--space-2); }
+    .form-group--full { grid-column: 1 / -1; }
+    .form-label { font-size: var(--text-body-s); font-weight: 500; color: var(--text-secondary); }
+    .form-label--required::after { content: ' *'; color: var(--color-error-500); }
+    .form-input { height: 2.25rem; padding: 0 var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--color-gray-50); transition: border-color var(--transition-fast), box-shadow var(--transition-fast); width: 100%; }
+    .form-input:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--color-primary-100); background: #fff; }
+    .form-input--readonly { background: var(--color-gray-100); color: var(--text-secondary); cursor: default; }
+    .form-select { height: 2.25rem; padding: 0 var(--space-8) 0 var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--color-gray-50) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394A3B8' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 10px center; appearance: none; cursor: pointer; width: 100%; transition: border-color var(--transition-fast); }
+    .form-select:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--color-primary-100); }
+    .form-textarea { min-height: 5rem; padding: var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--color-gray-50); resize: vertical; transition: border-color var(--transition-fast); width: 100%; }
+    .form-textarea:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--color-primary-100); background: #fff; }
+    .form-hint { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1); }
+
+    /* ═══════════════════════════════════════════
+       详情侧边栏 (Drawer)
+    ═══════════════════════════════════════════ */
+    .drawer-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.4); z-index: var(--z-overlay); }
+    .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: 480px; background: var(--bg-card); box-shadow: var(--shadow-xl); z-index: var(--z-modal); display: flex; flex-direction: column; animation: slide-in-right .3s ease; }
+    .drawer__header { padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--border-default); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
+    .drawer__title { font-size: var(--text-h3); font-weight: 700; color: var(--text-primary); }
+    .drawer__subtitle { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1); }
+    .drawer__body { flex: 1; overflow-y: auto; padding: var(--space-5) var(--space-6); }
+    .drawer__footer { padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border-default); display: flex; gap: var(--space-3); flex-shrink: 0; }
+
+    /* 详情信息块 */
+    .info-card { background: var(--color-gray-50); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-4); margin-bottom: var(--space-4); }
+    .info-card__title { font-size: var(--text-body-s); font-weight: 600; color: var(--text-secondary); margin-bottom: var(--space-3); text-transform: uppercase; letter-spacing: .05em; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+    .info-item__label { font-size: var(--text-body-s); color: var(--text-secondary); margin-bottom: 2px; }
+    .info-item__value { font-size: var(--text-body-m); color: var(--text-primary); font-weight: 500; }
+
+    /* 联系人列表 */
+    .contact-list { display: flex; flex-direction: column; gap: var(--space-3); }
+    .contact-item { background: #fff; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); display: flex; align-items: center; gap: var(--space-3); }
+    .contact-item__avatar { width: 2.25rem; height: 2.25rem; border-radius: var(--radius-full); background: var(--color-primary-100); color: var(--color-primary-600); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-body-m); flex-shrink: 0; }
+    .contact-item__info { flex: 1; min-width: 0; }
+    .contact-item__name { font-weight: 600; color: var(--text-primary); font-size: var(--text-body-m); display: flex; align-items: center; gap: var(--space-2); }
+    .contact-item__detail { font-size: var(--text-body-s); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .contact-primary-badge { background: var(--color-primary-100); color: var(--color-primary-700); font-size: var(--text-caption); font-weight: 600; padding: 1px 6px; border-radius: var(--radius-full); }
+    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3); }
+    .section-title { font-size: var(--text-body-m); font-weight: 600; color: var(--text-primary); }
+
+    /* 简历订单列表 */
+    .order-mini-list { display: flex; flex-direction: column; gap: var(--space-2); }
+    .order-mini-item { background: #fff; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+    .order-mini-item__no { font-size: var(--text-body-s); font-weight: 600; color: var(--color-primary-600); }
+    .order-mini-item__date { font-size: var(--text-body-s); color: var(--text-secondary); }
+    .order-mini-item__amount { font-family: var(--font-family-number); font-size: var(--text-body-m); font-weight: 600; color: var(--text-primary); }
+
+    /* ═══════════════════════════════════════════
+       Toast
+    ═══════════════════════════════════════════ */
+    .toast-container { position: fixed; top: var(--space-5); right: var(--space-5); z-index: var(--z-toast); display: flex; flex-direction: column; gap: var(--space-3); pointer-events: none; }
+    .toast { background: var(--color-gray-800); color: #fff; padding: var(--space-3) var(--space-5); border-radius: var(--radius-lg); font-size: var(--text-body-m); box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: var(--space-3); min-width: 240px; animation: fade-in .2s ease; pointer-events: auto; }
+    .toast--success { background: var(--color-success-600); }
+    .toast--error { background: var(--color-error-600); }
+
+    /* ═══════════════════════════════════════════
+       数字文本
+    ═══════════════════════════════════════════ */
+    .num { font-family: var(--font-family-number); font-variant-numeric: tabular-nums; }
+
+    /* ═══════════════════════════════════════════
+       Keyframes
+    ═══════════════════════════════════════════ */
+    @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes modal-in { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
+    @keyframes slide-in-right { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* ═══════════════════════════════════════════
+       空态
+    ═══════════════════════════════════════════ */
+    .empty-state { padding: var(--space-12) var(--space-6); text-align: center; color: var(--text-secondary); }
+    .empty-state__icon { font-size: 3rem; margin-bottom: var(--space-3); opacity: .5; }
+    .empty-state__text { font-size: var(--text-body-m); }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════
+     整体布局
+══════════════════════════════════════════════════════ -->
+<div class="app-layout">
+
+  <!-- 侧边栏 -->
+  <aside class="app-layout__sidebar">
+    <div class="sidebar__logo">
+      <div class="sidebar__logo-mark">智</div>
+      <span class="sidebar__logo-text">智造管家</span>
+    </div>
+    <nav class="sidebar__nav">
+      <div class="sidebar__section">
+        <div class="sidebar__section-title">主数据</div>
+        <a class="sidebar__item" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v2H2zm0 4h12v2H2zm0 4h8v2H2z"/></svg>
+          SKU 管理
+        </a>
+        <a class="sidebar__item" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1L1 5v6l7 4 7-4V5zm0 1.7l5 2.9v4.8L8 13.3l-5-2.9V5.6z"/></svg>
+          BOM 管理
+        </a>
+        <a class="sidebar__item" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a3 3 0 100 6A3 3 0 008 2zM3 11c0-2.2 2.2-4 5-4s5 1.8 5 4v1H3v-1z"/></svg>
+          供应商管理
+        </a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__section-title">销售管理</div>
+        <a class="sidebar__item sidebar__item--active" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M13 2H3a1 1 0 00-1 1v10a1 1 0 001 1h10a1 1 0 001-1V3a1 1 0 00-1-1zM6 10H4V7h2v3zm3 0H7V5h2v5zm3 0h-2V6h2v4z"/></svg>
+          客户管理
+        </a>
+        <a class="sidebar__item" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h12l-1 9H3L2 2zm2 10h8l1-2H3l1 2z"/></svg>
+          销售订单
+        </a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__section-title">生产管理</div>
+        <a class="sidebar__item" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2h14v3H1zm0 5h14v3H1zm0 5h14v2H1z"/></svg>
+          生产工单
+        </a>
+        <a class="sidebar__item" href="#">
+          <svg class="sidebar__item-icon" viewBox="0 0 16 16" fill="currentColor"><circle cx="4" cy="8" r="2"/><circle cx="12" cy="8" r="2"/><path d="M6 8h4"/></svg>
+          我的任务
+        </a>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- 主内容区 -->
+  <div class="app-layout__main">
+    <!-- 页头 -->
+    <header class="app-layout__header">
+      <div class="page-header__breadcrumb">销售管理 / <span>客户管理</span></div>
+      <div class="page-header__actions">
+        <button class="btn btn--secondary" onclick="alert('导出 Excel')">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2h10v3h-1V3H4v10h8v-2h1v3H3z"/><path d="M6 8l5-3v2h3v2h-3v2z"/></svg>
+          导出
+        </button>
+        <button class="btn btn--primary" onclick="openModal('modal-add')">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          新增客户
+        </button>
+      </div>
+    </header>
+
+    <!-- 页面内容 -->
+    <main class="app-layout__content">
+
+      <!-- 统计卡片 -->
+      <div class="stat-row">
+        <div class="stat-card">
+          <div class="stat-card__label">
+            <span class="stat-card__dot" style="background:#94A3B8"></span>
+            全部客户
+          </div>
+          <div class="stat-card__value num">128</div>
+        </div>
+        <div class="stat-card stat-card--active">
+          <div class="stat-card__label">
+            <span class="stat-card__dot" style="background:var(--color-success-500)"></span>
+            活跃客户
+          </div>
+          <div class="stat-card__value num">96</div>
+        </div>
+        <div class="stat-card stat-card--vip">
+          <div class="stat-card__label">
+            <span class="stat-card__dot" style="background:#EC4899"></span>
+            VIP 客户
+          </div>
+          <div class="stat-card__value num">12</div>
+        </div>
+      </div>
+
+      <!-- 筛选工具栏 -->
+      <div class="toolbar">
+        <div class="search-field">
+          <svg class="search-field__icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7 2a5 5 0 110 10A5 5 0 017 2zm4.32 8.91l3.38 3.38-.71.71-3.38-3.38A6 6 0 1111.32 10.91z"/></svg>
+          <input class="search-field__input" type="text" placeholder="搜索客户名称、编码…" />
+        </div>
+        <select class="filter-select" aria-label="等级筛选">
+          <option value="">全部等级</option>
+          <option>VIP</option>
+          <option>A 级</option>
+          <option>B 级</option>
+          <option>C 级</option>
+        </select>
+        <select class="filter-select" aria-label="状态筛选">
+          <option value="">全部状态</option>
+          <option>启用</option>
+          <option>停用</option>
+        </select>
+        <div class="toolbar__spacer"></div>
+        <span style="font-size:var(--text-body-s);color:var(--text-secondary)">共 <strong>128</strong> 条</span>
+      </div>
+
+      <!-- 数据表格 -->
+      <div class="table-card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>编码</th>
+                <th>客户名称</th>
+                <th>等级</th>
+                <th>主要联系人</th>
+                <th>联系电话</th>
+                <th>信用额度（元）</th>
+                <th>账期（天）</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="num" style="color:var(--text-secondary);font-size:var(--text-body-s)">CUS-2024-001</span></td>
+                <td style="font-weight:600">宜家家居（上海）有限公司</td>
+                <td><span class="grade-tag grade-tag--vip">★ VIP</span></td>
+                <td>张伟</td>
+                <td><span class="num">138-0000-1234</span></td>
+                <td><span class="num">500,000</span></td>
+                <td><span class="num">60</span></td>
+                <td><span class="status-badge status-badge--active"><span class="status-badge__dot"></span>启用</span></td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-btn action-btn--view" onclick="openDrawer()">详情</button>
+                    <button class="action-btn action-btn--edit" onclick="openModal('modal-edit')">编辑</button>
+                    <button class="action-btn action-btn--disable">停用</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="num" style="color:var(--text-secondary);font-size:var(--text-body-s)">CUS-2024-002</span></td>
+                <td style="font-weight:600">顾家家居股份有限公司</td>
+                <td><span class="grade-tag grade-tag--a">A 级</span></td>
+                <td>李梅</td>
+                <td><span class="num">139-0000-5678</span></td>
+                <td><span class="num">300,000</span></td>
+                <td><span class="num">45</span></td>
+                <td><span class="status-badge status-badge--active"><span class="status-badge__dot"></span>启用</span></td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-btn action-btn--view" onclick="openDrawer()">详情</button>
+                    <button class="action-btn action-btn--edit" onclick="openModal('modal-edit')">编辑</button>
+                    <button class="action-btn action-btn--disable">停用</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="num" style="color:var(--text-secondary);font-size:var(--text-body-s)">CUS-2024-003</span></td>
+                <td style="font-weight:600">曲美家居集团股份有限公司</td>
+                <td><span class="grade-tag grade-tag--b">B 级</span></td>
+                <td>王强</td>
+                <td><span class="num">136-0000-9012</span></td>
+                <td><span class="num">150,000</span></td>
+                <td><span class="num">30</span></td>
+                <td><span class="status-badge status-badge--active"><span class="status-badge__dot"></span>启用</span></td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-btn action-btn--view" onclick="openDrawer()">详情</button>
+                    <button class="action-btn action-btn--edit" onclick="openModal('modal-edit')">编辑</button>
+                    <button class="action-btn action-btn--disable">停用</button>
+                  </div>
+                </td>
+              </tr>
+              <tr style="opacity:.7">
+                <td><span class="num" style="color:var(--text-secondary);font-size:var(--text-body-s)">CUS-2024-015</span></td>
+                <td style="font-weight:600;color:var(--text-secondary)">华润家居（深圳）有限公司</td>
+                <td><span class="grade-tag grade-tag--c">C 级</span></td>
+                <td>陈莉</td>
+                <td><span class="num">137-0000-3456</span></td>
+                <td><span class="num">50,000</span></td>
+                <td><span class="num">15</span></td>
+                <td><span class="status-badge status-badge--inactive"><span class="status-badge__dot"></span>停用</span></td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-btn action-btn--view" onclick="openDrawer()">详情</button>
+                    <button class="action-btn action-btn--enable">启用</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-footer">
+          <span style="font-size:var(--text-body-s);color:var(--text-secondary)">显示 1-4 / 共 128 条</span>
+          <div class="pagination">
+            <button class="pagination__btn" aria-label="上一页">‹</button>
+            <button class="pagination__btn pagination__btn--active">1</button>
+            <button class="pagination__btn">2</button>
+            <button class="pagination__btn">3</button>
+            <span style="font-size:var(--text-body-s);color:var(--text-secondary);padding:0 var(--space-2)">…</span>
+            <button class="pagination__btn">32</button>
+            <button class="pagination__btn" aria-label="下一页">›</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     Modal — 新增 / 编辑客户
+══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-add" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-add-title">
+  <div class="modal modal--lg">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-add-title">新增客户</h2>
+      <button class="modal__close" onclick="closeModal('modal-add')" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal__body">
+
+      <!-- 基本信息 -->
+      <div class="form-section">
+        <div class="form-section__title">基本信息</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label form-label--required">客户名称</label>
+            <input class="form-input" type="text" placeholder="请输入客户全称" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">客户编码</label>
+            <input class="form-input form-input--readonly" type="text" value="CUS-2024-129（系统自动生成）" readonly />
+          </div>
+          <div class="form-group">
+            <label class="form-label form-label--required">客户等级</label>
+            <select class="form-select">
+              <option value="">请选择等级</option>
+              <option>VIP</option>
+              <option>A 级</option>
+              <option>B 级</option>
+              <option>C 级</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">所在地区</label>
+            <input class="form-input" type="text" placeholder="如：上海市浦东新区" />
+          </div>
+          <div class="form-group form-group--full">
+            <label class="form-label">详细地址</label>
+            <input class="form-input" type="text" placeholder="街道、楼栋等详细地址" />
+          </div>
+        </div>
+      </div>
+
+      <!-- 主要联系人 -->
+      <div class="form-section">
+        <div class="form-section__title">主要联系人</div>
+        <div class="form-grid form-grid--3">
+          <div class="form-group">
+            <label class="form-label form-label--required">姓名</label>
+            <input class="form-input" type="text" placeholder="联系人姓名" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">职位</label>
+            <input class="form-input" type="text" placeholder="如：采购总监" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">手机号码</label>
+            <input class="form-input" type="tel" placeholder="138-0000-0000" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">邮箱</label>
+            <input class="form-input" type="email" placeholder="name@company.com" />
+          </div>
+        </div>
+      </div>
+
+      <!-- 财务信息 -->
+      <div class="form-section">
+        <div class="form-section__title">财务信息</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">信用额度（元）</label>
+            <input class="form-input" type="number" placeholder="0" min="0" />
+            <span class="form-hint">客户最大允许赊账金额</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">账期（天）</label>
+            <input class="form-input" type="number" placeholder="30" min="0" />
+            <span class="form-hint">发票开具后允许付款天数</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 备注 -->
+      <div class="form-section" style="margin-bottom:0">
+        <div class="form-section__title">备注</div>
+        <div class="form-group">
+          <textarea class="form-textarea" placeholder="客户特殊要求、合作历史等补充信息…"></textarea>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--secondary" onclick="closeModal('modal-add')">取消</button>
+      <button class="btn btn--primary" onclick="handleSave()">保存客户</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal — 编辑（复用结构，标题不同） -->
+<div class="modal-overlay" id="modal-edit" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-edit-title">
+  <div class="modal modal--lg">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-edit-title">编辑客户 — 宜家家居（上海）有限公司</h2>
+      <button class="modal__close" onclick="closeModal('modal-edit')" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-section">
+        <div class="form-section__title">基本信息</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label form-label--required">客户名称</label>
+            <input class="form-input" type="text" value="宜家家居（上海）有限公司" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">客户编码</label>
+            <input class="form-input form-input--readonly" type="text" value="CUS-2024-001" readonly />
+          </div>
+          <div class="form-group">
+            <label class="form-label form-label--required">客户等级</label>
+            <select class="form-select">
+              <option>VIP</option><option>A 级</option><option>B 级</option><option>C 级</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">所在地区</label>
+            <input class="form-input" type="text" value="上海市浦东新区" />
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="form-section__title">财务信息</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">信用额度（元）</label>
+            <input class="form-input" type="number" value="500000" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">账期（天）</label>
+            <input class="form-input" type="number" value="60" />
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--secondary" onclick="closeModal('modal-edit')">取消</button>
+      <button class="btn btn--primary" onclick="handleSave()">保存修改</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     Drawer — 客户详情侧边栏
+══════════════════════════════════════════════════════ -->
+<div id="drawer-overlay" class="drawer-overlay" style="display:none" onclick="closeDrawer()"></div>
+<div class="drawer" id="detail-drawer" style="display:none">
+  <div class="drawer__header">
+    <div>
+      <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-2)">
+        <h3 class="drawer__title">宜家家居（上海）有限公司</h3>
+        <span class="grade-tag grade-tag--vip">★ VIP</span>
+      </div>
+      <div class="drawer__subtitle">编码：CUS-2024-001 · 创建于 2024-01-15</div>
+    </div>
+    <button class="modal__close" onclick="closeDrawer()" aria-label="关闭">✕</button>
+  </div>
+
+  <div class="drawer__body">
+
+    <!-- 基本信息 -->
+    <div class="info-card">
+      <div class="info-card__title">基本信息</div>
+      <div class="info-grid">
+        <div class="info-item">
+          <div class="info-item__label">所在地区</div>
+          <div class="info-item__value">上海市浦东新区</div>
+        </div>
+        <div class="info-item">
+          <div class="info-item__label">状态</div>
+          <div class="info-item__value"><span class="status-badge status-badge--active"><span class="status-badge__dot"></span>启用</span></div>
+        </div>
+        <div class="info-item">
+          <div class="info-item__label">信用额度</div>
+          <div class="info-item__value"><span class="num">￥500,000</span></div>
+        </div>
+        <div class="info-item">
+          <div class="info-item__label">账期</div>
+          <div class="info-item__value"><span class="num">60</span> 天</div>
+        </div>
+        <div class="info-item" style="grid-column:1/-1">
+          <div class="info-item__label">详细地址</div>
+          <div class="info-item__value">浦东新区张江高科技园区博云路 2 号</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 联系人列表 -->
+    <div style="margin-bottom:var(--space-4)">
+      <div class="section-header">
+        <span class="section-title">联系人 <span style="font-size:var(--text-body-s);color:var(--text-secondary);font-weight:400">（3人）</span></span>
+        <button class="btn btn--ghost btn--sm">+ 添加联系人</button>
+      </div>
+      <div class="contact-list">
+        <div class="contact-item">
+          <div class="contact-item__avatar">张</div>
+          <div class="contact-item__info">
+            <div class="contact-item__name">
+              张伟
+              <span class="contact-primary-badge">主要联系人</span>
+            </div>
+            <div class="contact-item__detail">采购总监 · 138-0000-1234 · zhang.wei@ikea.cn</div>
+          </div>
+          <div class="action-group">
+            <button class="btn btn--icon btn--secondary" title="编辑">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M12.3 2.3a1 1 0 011.4 1.4l-9 9L2 13l.3-2.7 9-8z"/></svg>
+            </button>
+            <button class="btn btn--icon btn--secondary" title="删除">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6 2h4v1H6zm-3 2h10v1H3zm2 2h6l-.5 7h-5z"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="contact-item">
+          <div class="contact-item__avatar">刘</div>
+          <div class="contact-item__info">
+            <div class="contact-item__name">刘芳</div>
+            <div class="contact-item__detail">采购专员 · 139-0000-2345 · liu.fang@ikea.cn</div>
+          </div>
+          <div class="action-group">
+            <button class="btn btn--icon btn--secondary" title="编辑">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M12.3 2.3a1 1 0 011.4 1.4l-9 9L2 13l.3-2.7 9-8z"/></svg>
+            </button>
+            <button class="btn btn--icon btn--secondary" title="删除">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6 2h4v1H6zm-3 2h10v1H3zm2 2h6l-.5 7h-5z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 历史订单 -->
+    <div>
+      <div class="section-header">
+        <span class="section-title">历史订单 <span style="font-size:var(--text-body-s);color:var(--text-secondary);font-weight:400">（共 24 单）</span></span>
+        <button class="btn btn--ghost btn--sm">查看全部</button>
+      </div>
+      <div class="order-mini-list">
+        <div class="order-mini-item">
+          <div>
+            <div class="order-mini-item__no">SO-2024-0089</div>
+            <div class="order-mini-item__date">2024-11-20 · 交付日：2024-12-15</div>
+          </div>
+          <div style="text-align:right">
+            <div class="order-mini-item__amount">￥<span class="num">128,000</span></div>
+            <span class="status-badge status-badge--active" style="font-size:var(--text-caption)"><span class="status-badge__dot"></span>已完成</span>
+          </div>
+        </div>
+        <div class="order-mini-item">
+          <div>
+            <div class="order-mini-item__no">SO-2024-0076</div>
+            <div class="order-mini-item__date">2024-10-05 · 交付日：2024-11-10</div>
+          </div>
+          <div style="text-align:right">
+            <div class="order-mini-item__amount">￥<span class="num">96,500</span></div>
+            <span class="status-badge status-badge--active" style="font-size:var(--text-caption)"><span class="status-badge__dot"></span>已完成</span>
+          </div>
+        </div>
+        <div class="order-mini-item">
+          <div>
+            <div class="order-mini-item__no">SO-2024-0102</div>
+            <div class="order-mini-item__date">2024-12-01 · 交付日：2025-01-20</div>
+          </div>
+          <div style="text-align:right">
+            <div class="order-mini-item__amount">￥<span class="num">245,000</span></div>
+            <span class="status-badge" style="background:var(--color-warning-100);color:var(--color-warning-700);font-size:var(--text-caption)"><span class="status-badge__dot" style="background:var(--color-warning-500)"></span>生产中</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="drawer__footer">
+    <button class="btn btn--secondary" onclick="closeDrawer()">关闭</button>
+    <button class="btn btn--primary" onclick="closeDrawer(); openModal('modal-edit')">编辑客户</button>
+  </div>
+</div>
+
+<!-- Toast 示例 -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+  function openModal(id) {
+    document.getElementById(id).style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal(id) {
+    document.getElementById(id).style.display = 'none';
+    document.body.style.overflow = '';
+  }
+  function openDrawer() {
+    document.getElementById('drawer-overlay').style.display = 'block';
+    document.getElementById('detail-drawer').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  function closeDrawer() {
+    document.getElementById('drawer-overlay').style.display = 'none';
+    document.getElementById('detail-drawer').style.display = 'none';
+    document.body.style.overflow = '';
+  }
+  function handleSave() {
+    const modals = document.querySelectorAll('.modal-overlay');
+    modals.forEach(m => m.style.display = 'none');
+    document.body.style.overflow = '';
+    showToast('客户信息已保存', 'success');
+  }
+  function showToast(msg, type = 'default') {
+    const c = document.getElementById('toast-container');
+    const t = document.createElement('div');
+    t.className = 'toast' + (type !== 'default' ? ' toast--' + type : '');
+    t.textContent = (type === 'success' ? '✓ ' : type === 'error' ? '✕ ' : '') + msg;
+    c.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  }
+  // 键盘关闭
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
+      closeDrawer();
+      document.body.style.overflow = '';
+    }
+  });
+  // 点击遮罩关闭 modal
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', function(e) {
+      if (e.target === this) {
+        this.style.display = 'none';
+        document.body.style.overflow = '';
+      }
+    });
+  });
+</script>
+</body>
+</html>

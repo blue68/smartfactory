@@ -1,0 +1,1584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>R-03 采购价格批量导入 — 智造管家 UI 原型</title>
+  <style>
+    /* ═══════════════════════════════════════════════
+       Design Tokens（与 variables.css 完全对齐）
+    ═══════════════════════════════════════════════ */
+    :root {
+      --color-primary-50:  #EFF6FF;
+      --color-primary-100: #DBEAFE;
+      --color-primary-200: #BFDBFE;
+      --color-primary-500: #3B82F6;
+      --color-primary-600: #2563EB;
+      --color-primary-700: #1D4ED8;
+      --color-primary-800: #1E40AF;
+
+      --color-accent-50:  #FFF7ED;
+      --color-accent-500: #F97316;
+      --color-accent-600: #EA580C;
+
+      --color-success-50:  #F0FDF4;
+      --color-success-100: #DCFCE7;
+      --color-success-500: #22C55E;
+      --color-success-600: #16A34A;
+      --color-success-700: #15803D;
+
+      --color-warning-50:  #FFFBEB;
+      --color-warning-100: #FEF3C7;
+      --color-warning-200: #FDE68A;
+      --color-warning-500: #F59E0B;
+      --color-warning-600: #D97706;
+      --color-warning-700: #B45309;
+
+      --color-error-50:  #FEF2F2;
+      --color-error-100: #FEE2E2;
+      --color-error-500: #EF4444;
+      --color-error-600: #DC2626;
+      --color-error-700: #B91C1C;
+
+      --color-info-50:  #F0F9FF;
+      --color-info-100: #E0F2FE;
+      --color-info-500: #0EA5E9;
+      --color-info-600: #0284C7;
+
+      --color-gray-0:   #FFFFFF;
+      --color-gray-50:  #F8FAFC;
+      --color-gray-100: #F1F5F9;
+      --color-gray-200: #E2E8F0;
+      --color-gray-300: #CBD5E1;
+      --color-gray-400: #94A3B8;
+      --color-gray-500: #64748B;
+      --color-gray-600: #475569;
+      --color-gray-700: #334155;
+      --color-gray-800: #1E293B;
+      --color-gray-900: #0F172A;
+
+      --bg-page:         #F8FAFC;
+      --bg-card:         #FFFFFF;
+      --bg-sidebar:      #1E293B;
+      --text-primary:    #1E293B;
+      --text-secondary:  #64748B;
+      --text-disabled:   #94A3B8;
+      --text-on-primary: #FFFFFF;
+      --border-default:  #E2E8F0;
+      --border-strong:   #CBD5E1;
+      --border-focus:    #3B82F6;
+
+      --font-family-base:   "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", -apple-system, sans-serif;
+      --font-family-mono:   "JetBrains Mono", "SF Mono", "Consolas", monospace;
+      --font-family-number: "DIN Alternate", "Roboto Mono", var(--font-family-base);
+
+      --text-h2:      1.5rem;
+      --text-h3:      1.25rem;
+      --text-h4:      1.125rem;
+      --text-body-l:  1rem;
+      --text-body-m:  0.875rem;
+      --text-body-s:  0.75rem;
+      --text-label:   0.75rem;
+      --text-caption: 0.6875rem;
+
+      --space-1:  0.25rem;
+      --space-2:  0.5rem;
+      --space-3:  0.75rem;
+      --space-4:  1rem;
+      --space-5:  1.25rem;
+      --space-6:  1.5rem;
+      --space-8:  2rem;
+      --space-10: 2.5rem;
+      --space-12: 3rem;
+      --space-16: 4rem;
+
+      --layout-sidebar-width: 240px;
+      --layout-header-height: 64px;
+      --layout-page-padding:  24px;
+
+      --radius-sm:   4px;
+      --radius-md:   8px;
+      --radius-lg:   12px;
+      --radius-xl:   16px;
+      --radius-full: 9999px;
+
+      --shadow-xs: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.10), 0 1px 2px rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.10), 0 2px 4px -1px rgba(0,0,0,0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.10), 0 4px 6px -2px rgba(0,0,0,0.05);
+
+      --transition-fast:   150ms ease;
+      --transition-base:   200ms ease;
+      --transition-slow:   300ms ease;
+      --transition-spring: 200ms cubic-bezier(0.34,1.56,0.64,1);
+
+      --z-modal:  400;
+      --z-toast:  500;
+    }
+
+    /* ═══ 重置 ═══ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-family-base);
+      font-size: var(--text-body-m);
+      color: var(--text-primary);
+      background: var(--bg-page);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; }
+    button:disabled { cursor: not-allowed; }
+    :focus-visible { outline: 2px solid var(--color-primary-500); outline-offset: 2px; border-radius: var(--radius-sm); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--color-gray-300); border-radius: var(--radius-full); }
+
+    /* ═══ 关键帧 ═══ */
+    @keyframes spin    { to { transform: rotate(360deg); } }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slide-in-right { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes progress-fill  { from { width: 0%; } to { width: var(--target-width, 72%); } }
+    @keyframes pulse-glow     { 0%,100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.3); } 50% { box-shadow: 0 0 0 6px rgba(59,130,246,0); } }
+    @keyframes drop-bounce    { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+    @keyframes checkmark-draw { from { stroke-dashoffset: 60; } to { stroke-dashoffset: 0; } }
+
+    /* ═══ 布局 ═══ */
+    .app-layout { display: flex; height: 100vh; overflow: hidden; }
+
+    .app-layout__sidebar {
+      width: var(--layout-sidebar-width); flex-shrink: 0;
+      background: var(--bg-sidebar); display: flex; flex-direction: column;
+    }
+    .sidebar__logo {
+      height: var(--layout-header-height);
+      display: flex; align-items: center; padding: 0 var(--space-6); gap: var(--space-3);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .sidebar__logo-icon {
+      width: 32px; height: 32px; background: var(--color-primary-600);
+      border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; color: #fff; font-weight: 700;
+    }
+    .sidebar__logo-text { color: #fff; font-size: var(--text-body-l); font-weight: 600; }
+    .sidebar__nav { flex: 1; padding: var(--space-4) 0; overflow-y: auto; }
+    .sidebar__nav-item {
+      display: flex; align-items: center; gap: var(--space-3);
+      padding: var(--space-3) var(--space-6);
+      color: rgba(203,213,225,0.75); font-size: var(--text-body-m); cursor: pointer;
+      transition: background var(--transition-fast), color var(--transition-fast);
+    }
+    .sidebar__nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+    .sidebar__nav-item--active { background: var(--color-primary-600); color: #fff; }
+
+    .app-layout__main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+    .app-layout__header {
+      height: var(--layout-header-height); flex-shrink: 0;
+      background: var(--bg-card); border-bottom: 1px solid var(--border-default);
+      box-shadow: var(--shadow-xs);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 var(--space-6);
+    }
+    .header__breadcrumb {
+      display: flex; align-items: center; gap: var(--space-2);
+      font-size: var(--text-body-m); color: var(--text-secondary);
+    }
+    .header__breadcrumb span:last-child { color: var(--text-primary); font-weight: 500; }
+    .header__avatar {
+      width: 32px; height: 32px; border-radius: var(--radius-full);
+      background: var(--color-primary-600);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: var(--text-body-s); font-weight: 600;
+    }
+    .app-layout__content { flex: 1; overflow-y: auto; padding: var(--layout-page-padding); }
+
+    /* ═══ 按钮 ═══ */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+      padding: 0 var(--space-4); height: 2.25rem;
+      font-size: var(--text-body-m); font-weight: 500;
+      border-radius: var(--radius-md); transition: all var(--transition-fast);
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .btn--sm  { height: 1.875rem; padding: 0 var(--space-3); font-size: var(--text-body-s); }
+    .btn--lg  { height: 2.75rem; padding: 0 var(--space-6); font-size: var(--text-body-l); }
+    .btn--primary  { background: var(--color-primary-600); color: #fff; border: 1px solid var(--color-primary-600); }
+    .btn--primary:hover:not(:disabled) { background: var(--color-primary-700); }
+    .btn--secondary { background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-strong); }
+    .btn--secondary:hover:not(:disabled) { background: var(--color-gray-50); }
+    .btn--ghost  { background: transparent; color: var(--text-secondary); border: 1px solid transparent; }
+    .btn--ghost:hover:not(:disabled) { background: var(--color-gray-100); color: var(--text-primary); }
+    .btn--success { background: var(--color-success-600); color: #fff; border: 1px solid var(--color-success-600); }
+    .btn--success:hover:not(:disabled) { background: var(--color-success-700); }
+    .btn--danger { background: var(--color-error-600); color: #fff; border: 1px solid var(--color-error-600); }
+    .btn:disabled { background: var(--color-gray-100); color: var(--text-disabled); border-color: var(--border-default); cursor: not-allowed; }
+    .btn__spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: var(--radius-full); animation: spin 0.7s linear infinite; opacity: 0.7; }
+
+    /* ═══ 向导步骤条 ═══ */
+    .wizard-steps {
+      display: flex; align-items: center; justify-content: center;
+      padding: var(--space-6) var(--space-8);
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-default);
+    }
+    .wizard-step {
+      display: flex; align-items: center; flex: 1; max-width: 200px;
+    }
+    .wizard-step__inner {
+      display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+      position: relative; flex: 1;
+    }
+    .wizard-step__circle {
+      width: 40px; height: 40px;
+      border-radius: var(--radius-full);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: var(--text-body-m);
+      transition: all var(--transition-base);
+      position: relative; z-index: 1;
+    }
+    .wizard-step--done .wizard-step__circle {
+      background: var(--color-success-600); color: #fff;
+    }
+    .wizard-step--active .wizard-step__circle {
+      background: var(--color-primary-600); color: #fff;
+      box-shadow: 0 0 0 4px var(--color-primary-100);
+      animation: pulse-glow 2s ease infinite;
+    }
+    .wizard-step--pending .wizard-step__circle {
+      background: var(--color-gray-100); color: var(--text-disabled);
+      border: 2px solid var(--border-default);
+    }
+    .wizard-step__label {
+      font-size: var(--text-body-s); font-weight: 500;
+      white-space: nowrap;
+    }
+    .wizard-step--done   .wizard-step__label   { color: var(--color-success-700); }
+    .wizard-step--active .wizard-step__label   { color: var(--color-primary-700); }
+    .wizard-step--pending .wizard-step__label  { color: var(--text-disabled); }
+
+    /* 连接线 */
+    .wizard-connector {
+      flex: 1; height: 2px; max-width: 80px;
+      margin-bottom: 22px; /* 对齐圆形中心 */
+      transition: background var(--transition-slow);
+    }
+    .wizard-connector--done    { background: var(--color-success-500); }
+    .wizard-connector--pending { background: var(--border-default); }
+
+    /* ═══ 步骤内容区 ═══ */
+    .wizard-body {
+      flex: 1; overflow-y: auto;
+      padding: var(--space-8) var(--space-12);
+      display: flex; flex-direction: column; gap: var(--space-6);
+    }
+    .wizard-footer {
+      flex-shrink: 0; padding: var(--space-4) var(--space-12);
+      background: var(--bg-card); border-top: 1px solid var(--border-default);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--space-4);
+    }
+    .wizard-footer__left  { display: flex; gap: var(--space-3); }
+    .wizard-footer__right { display: flex; gap: var(--space-3); }
+
+    /* ═══ 步骤卡片 ═══ */
+    .step-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-sm);
+      padding: var(--space-8);
+      animation: fade-in 0.2s ease;
+    }
+    .step-card__title {
+      font-size: var(--text-h4); font-weight: 700;
+      margin-bottom: var(--space-2);
+      display: flex; align-items: center; gap: var(--space-3);
+    }
+    .step-card__title-icon {
+      width: 36px; height: 36px;
+      border-radius: var(--radius-lg); background: var(--color-primary-50);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem;
+    }
+    .step-card__desc { font-size: var(--text-body-m); color: var(--text-secondary); margin-bottom: var(--space-6); }
+
+    /* ═══ Step1 — 模板下载 ═══ */
+    .template-download-box {
+      display: flex; align-items: stretch; gap: var(--space-6); flex-wrap: wrap;
+    }
+    .template-file-card {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: var(--space-4);
+      padding: var(--space-8) var(--space-10);
+      background: var(--color-success-50);
+      border: 2px solid var(--color-success-500);
+      border-radius: var(--radius-xl);
+      text-align: center; cursor: pointer;
+      transition: all var(--transition-base);
+      min-width: 220px;
+    }
+    .template-file-card:hover {
+      background: var(--color-success-100);
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+    }
+    .template-file-card__icon { font-size: 3rem; }
+    .template-file-card__name { font-size: var(--text-body-m); font-weight: 600; color: var(--color-success-700); }
+    .template-file-card__size { font-size: var(--text-body-s); color: var(--text-secondary); }
+
+    /* 模板说明表格 */
+    .template-spec {
+      flex: 1; min-width: 360px;
+    }
+    .template-spec__title {
+      font-size: var(--text-body-m); font-weight: 600;
+      margin-bottom: var(--space-4);
+      display: flex; align-items: center; gap: var(--space-2);
+    }
+    .spec-table { width: 100%; border-collapse: collapse; font-size: var(--text-body-s); }
+    .spec-table th {
+      background: var(--color-gray-50); padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--border-default); font-weight: 500;
+      color: var(--text-secondary); white-space: nowrap; text-align: left;
+    }
+    .spec-table td {
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--border-default);
+      vertical-align: top; color: var(--text-primary);
+    }
+    .spec-table .required-dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--color-error-500); margin-right: 4px; vertical-align: middle;
+    }
+    .spec-tag {
+      display: inline-flex; align-items: center;
+      padding: 1px 6px; border-radius: var(--radius-full);
+      font-size: var(--text-caption); font-weight: 500;
+    }
+    .spec-tag--required { background: var(--color-error-100); color: var(--color-error-700); }
+    .spec-tag--optional { background: var(--color-gray-100); color: var(--color-gray-600); }
+
+    /* ═══ Step2 — 文件上传区 ═══ */
+    .upload-zone {
+      border: 2px dashed var(--border-strong);
+      border-radius: var(--radius-xl);
+      padding: var(--space-12) var(--space-8);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: var(--space-4); text-align: center;
+      cursor: pointer;
+      transition: all var(--transition-base);
+      background: var(--bg-page);
+    }
+    .upload-zone:hover {
+      border-color: var(--color-primary-500);
+      background: var(--color-primary-50);
+    }
+    .upload-zone--dragover {
+      border-color: var(--color-primary-500);
+      background: var(--color-primary-50);
+      box-shadow: 0 0 0 4px rgba(59,130,246,0.15);
+      transform: scale(1.01);
+    }
+    .upload-zone__icon {
+      font-size: 3.5rem;
+      animation: drop-bounce 2.5s ease infinite;
+    }
+    .upload-zone__title { font-size: var(--text-body-l); font-weight: 600; color: var(--text-primary); }
+    .upload-zone__subtitle { font-size: var(--text-body-m); color: var(--text-secondary); }
+    .upload-zone__btn { margin-top: var(--space-2); }
+    .upload-zone__note { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-2); }
+
+    /* 上传限制提示 */
+    .upload-limits {
+      display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap;
+      padding: var(--space-4) var(--space-6);
+      background: var(--color-info-50);
+      border: 1px solid var(--color-info-100);
+      border-radius: var(--radius-lg);
+    }
+    .upload-limit-item {
+      display: flex; align-items: center; gap: var(--space-2);
+      font-size: var(--text-body-s); color: var(--color-info-600);
+    }
+
+    /* 已选文件卡片 -->
+    .file-selected-card {
+      display: flex; align-items: center; gap: var(--space-4);
+      padding: var(--space-4) var(--space-5);
+      background: var(--color-success-50);
+      border: 1px solid var(--color-success-500);
+      border-radius: var(--radius-lg);
+      animation: fade-in 0.2s ease;
+    }
+    .file-selected-icon { font-size: 2rem; flex-shrink: 0; }
+    .file-selected-info { flex: 1; min-width: 0; }
+    .file-selected-name { font-weight: 600; color: var(--text-primary); font-size: var(--text-body-m); }
+    .file-selected-meta { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1); }
+    .file-selected-badge {
+      display: inline-flex; align-items: center; gap: var(--space-1);
+      padding: var(--space-1) var(--space-2);
+      background: var(--color-success-100); color: var(--color-success-700);
+      border-radius: var(--radius-full); font-size: var(--text-label); font-weight: 500;
+    }
+
+    /* 超大文件进度条 */
+    .upload-progress {
+      margin-top: var(--space-4);
+    }
+    .upload-progress__header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: var(--space-2); font-size: var(--text-body-s);
+    }
+    .upload-progress__label { color: var(--text-primary); font-weight: 500; }
+    .upload-progress__pct   { color: var(--color-primary-600); font-weight: 600; font-family: var(--font-family-number); }
+    .progress-bar {
+      height: 8px; background: var(--color-gray-200); border-radius: var(--radius-full); overflow: hidden;
+    }
+    .progress-bar__fill {
+      height: 100%; border-radius: var(--radius-full);
+      background: linear-gradient(90deg, var(--color-primary-500), var(--color-primary-400));
+      transition: width 0.3s ease;
+    }
+    .progress-bar__fill--success { background: linear-gradient(90deg, var(--color-success-500), var(--color-success-400)); }
+    .progress-bar__fill--warning { background: linear-gradient(90deg, var(--color-warning-500), var(--color-warning-400)); }
+
+    /* ═══ Step3 — 预览校验 ═══ */
+    .preview-stats {
+      display: flex; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-5);
+    }
+    .stat-chip {
+      display: flex; align-items: center; gap: var(--space-2);
+      padding: var(--space-3) var(--space-4);
+      border-radius: var(--radius-lg); border: 1px solid;
+      font-size: var(--text-body-m); font-weight: 500;
+    }
+    .stat-chip__num { font-family: var(--font-family-number); font-size: var(--text-h4); font-weight: 700; }
+    .stat-chip--total   { background: var(--color-gray-50);       border-color: var(--border-default);     color: var(--text-primary); }
+    .stat-chip--success { background: var(--color-success-50);    border-color: var(--color-success-500); color: var(--color-success-700); }
+    .stat-chip--error   { background: var(--color-error-50);      border-color: var(--color-error-500);   color: var(--color-error-700); }
+    .stat-chip--warning { background: var(--color-warning-50);    border-color: var(--color-warning-500); color: var(--color-warning-700); }
+    .stat-chip--info    { background: var(--color-info-50);        border-color: var(--color-info-500);    color: var(--color-info-600); }
+
+    /* 处理方式单选 */
+    .handle-options {
+      display: flex; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-5);
+    }
+    .handle-option {
+      display: flex; align-items: center; gap: var(--space-3);
+      padding: var(--space-4) var(--space-5);
+      border: 2px solid var(--border-default);
+      border-radius: var(--radius-lg); cursor: pointer;
+      transition: all var(--transition-fast); flex: 1; min-width: 240px;
+    }
+    .handle-option:hover { border-color: var(--color-primary-400); background: var(--color-primary-50); }
+    .handle-option--selected {
+      border-color: var(--color-primary-600);
+      background: var(--color-primary-50);
+    }
+    .handle-option input[type="radio"] { accent-color: var(--color-primary-600); width: 16px; height: 16px; flex-shrink: 0; }
+    .handle-option__text { flex: 1; }
+    .handle-option__label { font-weight: 600; font-size: var(--text-body-m); }
+    .handle-option__desc  { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1); }
+
+    /* 预览表格 */
+    .preview-table-wrap {
+      border: 1px solid var(--border-default); border-radius: var(--radius-lg); overflow: hidden;
+    }
+    .preview-table-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: var(--space-3) var(--space-4);
+      background: var(--color-gray-50); border-bottom: 1px solid var(--border-default);
+      font-size: var(--text-body-s); color: var(--text-secondary);
+    }
+    .preview-scroll { overflow-x: auto; max-height: 360px; overflow-y: auto; }
+    .preview-table { width: 100%; border-collapse: collapse; font-size: var(--text-body-s); white-space: nowrap; }
+    .preview-table th {
+      position: sticky; top: 0; z-index: 2;
+      background: var(--color-gray-50); padding: var(--space-2) var(--space-3);
+      border-bottom: 1px solid var(--border-default);
+      font-weight: 500; color: var(--text-secondary); text-align: left;
+    }
+    .preview-table td {
+      padding: var(--space-2) var(--space-3);
+      border-bottom: 1px solid var(--border-default);
+      vertical-align: middle;
+      font-family: var(--font-family-number);
+    }
+    .preview-table td:first-child { font-family: var(--font-family-base); color: var(--text-secondary); }
+
+    /* 行状态 */
+    .row--error   { background: var(--color-error-50); }
+    .row--warning { background: var(--color-warning-50); }
+    .row--duplicate { background: #FEFCE8; } /* yellow-50 */
+    .row--ok      { /* 默认 */ }
+
+    /* 单元格错误 */
+    .cell--error-field {
+      background: var(--color-error-100);
+      border-radius: var(--radius-sm);
+      padding: 1px 6px;
+      color: var(--color-error-700);
+    }
+    .cell--warn-field {
+      background: var(--color-warning-100);
+      border-radius: var(--radius-sm);
+      padding: 1px 6px;
+      color: var(--color-warning-700);
+    }
+
+    /* 错误原因列 */
+    .error-reason {
+      display: flex; align-items: flex-start; gap: var(--space-1);
+      font-size: var(--text-caption); color: var(--color-error-700); max-width: 240px; white-space: normal;
+    }
+    .warn-reason {
+      display: flex; align-items: flex-start; gap: var(--space-1);
+      font-size: var(--text-caption); color: var(--color-warning-700); max-width: 240px; white-space: normal;
+    }
+    .duplicate-reason {
+      font-size: var(--text-caption); color: #A16207; max-width: 240px; white-space: normal;
+    }
+
+    /* 折叠提示 */
+    .preview-fold-hint {
+      display: flex; align-items: center; justify-content: center;
+      padding: var(--space-3);
+      background: var(--color-gray-50);
+      font-size: var(--text-body-s); color: var(--text-secondary);
+      border-top: 1px solid var(--border-default);
+      gap: var(--space-2);
+    }
+
+    /* ═══ Step4 — 导入结果 ═══ */
+    .result-summary {
+      display: flex; gap: var(--space-6); flex-wrap: wrap; justify-content: center;
+      padding: var(--space-8) 0; margin-bottom: var(--space-6);
+    }
+    .result-stat-card {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: var(--space-2); padding: var(--space-8) var(--space-10);
+      border-radius: var(--radius-xl); min-width: 180px;
+      text-align: center;
+    }
+    .result-stat-card--success { background: var(--color-success-50); border: 2px solid var(--color-success-500); }
+    .result-stat-card--skip    { background: var(--color-gray-50);    border: 2px solid var(--border-strong); }
+    .result-stat-card--fail    { background: var(--color-error-50);   border: 2px solid var(--color-error-500); }
+    .result-stat-card__num  {
+      font-family: var(--font-family-number); font-size: 2.5rem; font-weight: 700; line-height: 1;
+    }
+    .result-stat-card--success .result-stat-card__num { color: var(--color-success-600); }
+    .result-stat-card--skip    .result-stat-card__num { color: var(--text-secondary); }
+    .result-stat-card--fail    .result-stat-card__num { color: var(--color-error-600); }
+    .result-stat-card__label {
+      font-size: var(--text-body-m); font-weight: 500; color: var(--text-secondary);
+    }
+    .result-stat-card__icon { font-size: 2rem; }
+
+    /* 价格异常告警 */
+    .price-alert-section {
+      background: var(--color-warning-50);
+      border: 1px solid var(--color-warning-200);
+      border-radius: var(--radius-xl);
+      padding: var(--space-6);
+      margin-bottom: var(--space-6);
+    }
+    .price-alert-header {
+      display: flex; align-items: center; gap: var(--space-3);
+      margin-bottom: var(--space-4);
+    }
+    .price-alert-title {
+      font-size: var(--text-body-l); font-weight: 600; color: var(--color-warning-700);
+    }
+    .price-alert-count {
+      display: inline-flex; padding: var(--space-1) var(--space-2);
+      background: var(--color-warning-500); color: #fff;
+      border-radius: var(--radius-full); font-size: var(--text-label); font-weight: 600;
+    }
+    .price-alert-desc { font-size: var(--text-body-s); color: var(--color-warning-700); margin-bottom: var(--space-4); }
+
+    .alert-table { width: 100%; border-collapse: collapse; font-size: var(--text-body-s); }
+    .alert-table th {
+      background: rgba(0,0,0,0.04); padding: var(--space-2) var(--space-3);
+      border-bottom: 1px solid var(--color-warning-200); font-weight: 500; text-align: left;
+    }
+    .alert-table td {
+      padding: var(--space-2) var(--space-3);
+      border-bottom: 1px solid rgba(251,191,36,0.2);
+      font-family: var(--font-family-number);
+    }
+    .alert-table td:first-child { font-family: var(--font-family-base); }
+    .alert-table tr:last-child td { border-bottom: none; }
+    .price-high-tag {
+      display: inline-flex; align-items: center; gap: var(--space-1);
+      padding: 2px 6px; background: var(--color-warning-100);
+      color: var(--color-warning-700); border-radius: var(--radius-full);
+      font-size: var(--text-caption); font-weight: 600;
+    }
+
+    /* 成功完成动画 */
+    .success-checkmark {
+      display: flex; flex-direction: column; align-items: center; gap: var(--space-4);
+      margin-bottom: var(--space-6);
+    }
+    .checkmark-svg {
+      width: 72px; height: 72px;
+    }
+    .checkmark-circle { stroke: var(--color-success-500); stroke-width: 3; fill: none; stroke-dasharray: 230; stroke-dashoffset: 0; }
+    .checkmark-path   { stroke: var(--color-success-600); stroke-width: 4; fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 60; animation: checkmark-draw 0.5s ease forwards 0.3s; stroke-dashoffset: 60; }
+    .success-title { font-size: var(--text-h3); font-weight: 700; color: var(--color-success-700); }
+    .success-desc  { font-size: var(--text-body-m); color: var(--text-secondary); text-align: center; }
+
+    /* ═══ 进度条（大文件上传解析） ═══ */
+    .parse-progress {
+      padding: var(--space-8) var(--space-6);
+      text-align: center; display: flex; flex-direction: column; align-items: center; gap: var(--space-5);
+    }
+    .parse-progress__icon {
+      width: 64px; height: 64px; border-radius: var(--radius-full);
+      background: var(--color-primary-50);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 2rem;
+    }
+    .parse-progress__spinner {
+      width: 48px; height: 48px;
+      border: 4px solid var(--color-primary-200);
+      border-top-color: var(--color-primary-600);
+      border-radius: var(--radius-full);
+      animation: spin 0.8s linear infinite;
+    }
+    .parse-progress__title { font-size: var(--text-h4); font-weight: 600; }
+    .parse-progress__subtitle { font-size: var(--text-body-s); color: var(--text-secondary); }
+    .parse-progress__bar { width: 100%; max-width: 480px; }
+
+    /* ═══ Toast ═══ */
+    .toast-container { position: fixed; top: var(--space-6); right: var(--space-6); z-index: var(--z-toast); display: flex; flex-direction: column; gap: var(--space-3); pointer-events: none; }
+    .toast { min-width: 280px; max-width: 400px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: var(--space-4); display: flex; align-items: flex-start; gap: var(--space-3); pointer-events: all; animation: slide-in-right 0.3s ease; }
+    .toast--success { border-left: 4px solid var(--color-success-500); }
+    .toast--error   { border-left: 4px solid var(--color-error-500); }
+    .toast--warning { border-left: 4px solid var(--color-warning-500); }
+    .toast--info    { border-left: 4px solid var(--color-info-500); }
+    .toast__icon { font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+    .toast__body { flex: 1; }
+    .toast__title { font-size: var(--text-body-m); font-weight: 600; }
+    .toast__desc  { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1); }
+
+    /* ═══ 原型标注 ═══ */
+    .proto-section { margin-bottom: var(--space-12); }
+    .proto-section__title {
+      font-size: var(--text-h3); font-weight: 700; color: var(--text-primary);
+      padding: var(--space-4) var(--space-6);
+      background: var(--color-primary-50); border: 1px solid var(--color-primary-200);
+      border-radius: var(--radius-lg); margin-bottom: var(--space-6);
+      display: flex; align-items: center; gap: var(--space-3);
+    }
+    .proto-section__tag {
+      display: inline-flex; align-items: center;
+      padding: var(--space-1) var(--space-3);
+      background: var(--color-primary-600); color: #fff;
+      font-size: var(--text-label); border-radius: var(--radius-full); font-weight: 600;
+    }
+    .proto-note {
+      font-size: var(--text-body-s); color: var(--color-primary-700);
+      background: var(--color-primary-50); border-left: 3px solid var(--color-primary-500);
+      padding: var(--space-2) var(--space-4); margin: var(--space-3) 0;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    }
+    .proto-frame {
+      background: var(--bg-card); border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
+      overflow: hidden; margin-bottom: var(--space-6);
+    }
+    .proto-frame__label {
+      padding: var(--space-2) var(--space-4); background: var(--color-gray-50);
+      border-bottom: 1px solid var(--border-default);
+      font-size: var(--text-body-s); color: var(--text-secondary); font-weight: 500;
+      display: flex; align-items: center; gap: var(--space-2);
+    }
+    .proto-frame__dot { width: 8px; height: 8px; border-radius: 50%; }
+    .proto-frame__dot--blue   { background: var(--color-primary-500); }
+    .proto-frame__dot--green  { background: var(--color-success-500); }
+    .proto-frame__dot--orange { background: var(--color-accent-500); }
+    .proto-frame__dot--red    { background: var(--color-error-500); }
+
+    /* ═══ 工具 ═══ */
+    .text-secondary { color: var(--text-secondary); }
+    .text-small { font-size: var(--text-body-s); }
+    .font-mono  { font-family: var(--font-family-mono); }
+    .flex { display: flex; }
+    .items-center { align-items: center; }
+    .gap-2 { gap: var(--space-2); }
+    .gap-3 { gap: var(--space-3); }
+    .mt-4  { margin-top: var(--space-4); }
+    .mb-4  { margin-bottom: var(--space-4); }
+    .page-outer { padding: var(--space-6); max-width: 1100px; margin: 0 auto; }
+  </style>
+</head>
+<body>
+<div class="page-outer">
+
+<!-- ═══════════════════════════════════════════════
+     全局说明
+═══════════════════════════════════════════════ -->
+<div style="padding: var(--space-6) var(--space-8); background: var(--color-primary-50); border: 1px solid var(--color-primary-200); border-radius: var(--radius-xl); margin-bottom: var(--space-10);">
+  <div style="font-size: var(--text-h4); font-weight: 700; color: var(--color-primary-800); margin-bottom: var(--space-3); display:flex; align-items:center; gap: var(--space-3);">
+    <span style="font-size:1.5rem;">📦</span>
+    R-03 采购价格批量导入 — 4 步向导完整原型
+  </div>
+  <div style="font-size: var(--text-body-m); color: var(--color-primary-700);">
+    本页面包含：Step 1 下载模板 · Step 2 上传文件（含拖拽状态/已选文件/大文件进度） · Step 3 预览校验（含错误/警告/重复行高亮） · Step 4 导入结果（含价格异常告警）· 错误边界提示场景。
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     Step 0：采购价格管理页 — 批量导入入口
+═══════════════════════════════════════════════ -->
+<div class="proto-section">
+  <div class="proto-section__title">
+    <span class="proto-section__tag">入口</span>
+    采购价格管理页 — 批量导入按钮入口
+  </div>
+  <div class="proto-note">AC-005-01：采购价格管理页顶部提供「批量导入」按钮，点击后弹出导入向导。</div>
+
+  <div class="proto-frame">
+    <div class="proto-frame__label"><span class="proto-frame__dot proto-frame__dot--blue"></span> 采购价格管理 — 顶部操作区</div>
+    <div style="padding: var(--space-5);">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap: var(--space-3);">
+        <div>
+          <div style="font-size: var(--text-h4); font-weight:700; display:flex; align-items:center; gap: var(--space-2);">
+            <span>💰</span> 采购价格管理
+          </div>
+          <div style="font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1);">共 3,248 条有效协议 · 12 条即将到期 · <span style="color:var(--color-error-600);">5 条价格预警</span></div>
+        </div>
+        <div style="display:flex; gap: var(--space-3);">
+          <button class="btn btn--ghost btn--sm">筛选</button>
+          <button class="btn btn--secondary btn--sm">新增价格协议</button>
+          <!-- 核心入口 -->
+          <button class="btn btn--primary btn--sm" onclick="scrollToWizard()">
+            <span>📥</span> 批量导入
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     向导框架 — Step 1：下载模板
+═══════════════════════════════════════════════ -->
+<div class="proto-section" id="wizard-anchor">
+  <div class="proto-section__title">
+    <span class="proto-section__tag">Step 1</span>
+    下载模板
+  </div>
+  <div class="proto-note">AC-005-02：提供 .xlsx 模板下载，内含 7 列字段说明、示例数据行和 Excel 数据有效性校验。</div>
+
+  <div class="proto-frame">
+    <div class="proto-frame__label"><span class="proto-frame__dot proto-frame__dot--blue"></span> 导入向导 — Step 1 / 4（当前激活）</div>
+
+    <!-- 步骤条 -->
+    <div class="wizard-steps">
+      <div class="wizard-step">
+        <div class="wizard-step__inner">
+          <div class="wizard-step__circle wizard-step--active">1</div>
+          <div class="wizard-step__label wizard-step--active">下载模板</div>
+        </div>
+      </div>
+      <div class="wizard-connector wizard-connector--pending"></div>
+      <div class="wizard-step">
+        <div class="wizard-step__inner">
+          <div class="wizard-step__circle wizard-step--pending">2</div>
+          <div class="wizard-step__label wizard-step--pending">上传文件</div>
+        </div>
+      </div>
+      <div class="wizard-connector wizard-connector--pending"></div>
+      <div class="wizard-step">
+        <div class="wizard-step__inner">
+          <div class="wizard-step__circle wizard-step--pending">3</div>
+          <div class="wizard-step__label wizard-step--pending">预览校验</div>
+        </div>
+      </div>
+      <div class="wizard-connector wizard-connector--pending"></div>
+      <div class="wizard-step">
+        <div class="wizard-step__inner">
+          <div class="wizard-step__circle wizard-step--pending">4</div>
+          <div class="wizard-step__label wizard-step--pending">确认导入</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 内容 -->
+    <div class="wizard-body">
+      <div class="step-card">
+        <div class="step-card__title">
+          <div class="step-card__title-icon">📋</div>
+          第一步：下载导入模板
+        </div>
+        <div class="step-card__desc">
+          请先下载标准 Excel 模板，按照模板格式填写历史采购价格数据后，再进行上传。模板内已预设数据有效性校验（货币单位、含税标记为下拉选项）。
+        </div>
+
+        <div class="template-download-box">
+          <!-- 模板文件卡 -->
+          <div class="template-file-card" onclick="showToast('success', '模板下载中', '采购价格导入模板_v1.xlsx')">
+            <div class="template-file-card__icon">📊</div>
+            <div class="template-file-card__name">采购价格导入模板_v1.xlsx</div>
+            <div class="template-file-card__size">约 28 KB · 含示例数据</div>
+            <button class="btn btn--success btn--sm">
+              <span>⬇</span> 立即下载
+            </button>
+          </div>
+
+          <!-- 字段说明表格 -->
+          <div class="template-spec">
+            <div class="template-spec__title">
+              <span>📌</span> 模板字段说明（7 列，列顺序固定）
+            </div>
+            <table class="spec-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>列名</th>
+                  <th>必填</th>
+                  <th>格式要求</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>A</td>
+                  <td>SKU 编码</td>
+                  <td><span class="spec-tag spec-tag--required">必填</span></td>
+                  <td>与系统 SKU 编码精确匹配，文本格式</td>
+                </tr>
+                <tr>
+                  <td>B</td>
+                  <td>供应商编码</td>
+                  <td><span class="spec-tag spec-tag--required">必填</span></td>
+                  <td>与系统供应商编码精确匹配，文本格式</td>
+                </tr>
+                <tr>
+                  <td>C</td>
+                  <td>单价</td>
+                  <td><span class="spec-tag spec-tag--required">必填</span></td>
+                  <td>正数，保留 2 位小数，不允许负数</td>
+                </tr>
+                <tr>
+                  <td>D</td>
+                  <td>货币单位</td>
+                  <td><span class="spec-tag spec-tag--required">必填</span></td>
+                  <td>枚举：CNY / USD / EUR（下拉选项）</td>
+                </tr>
+                <tr>
+                  <td>E</td>
+                  <td>含税标记</td>
+                  <td><span class="spec-tag spec-tag--required">必填</span></td>
+                  <td>枚举：是 / 否（下拉选项）</td>
+                </tr>
+                <tr>
+                  <td>F</td>
+                  <td>报价日期</td>
+                  <td><span class="spec-tag spec-tag--required">必填</span></td>
+                  <td>日期格式：YYYY-MM-DD</td>
+                </tr>
+                <tr>
+                  <td>G</td>
+                  <td>备注</td>
+                  <td><span class="spec-tag spec-tag--optional">选填</span></td>
+                  <td>文本，最大 200 字</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="margin-top: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--color-warning-50); border-radius: var(--radius-md); font-size: var(--text-body-s); color: var(--color-warning-700); display:flex; align-items:flex-start; gap: var(--space-2);">
+              <span>⚠️</span>
+              <span>请勿修改模板中的列名和顺序；第一行为表头（加粗），第二行为示例（灰色），从第三行填写数据。</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 向导底部 -->
+    <div class="wizard-footer">
+      <div class="wizard-footer__left">
+        <button class="btn btn--ghost" disabled>← 上一步</button>
+      </div>
+      <div class="wizard-footer__right">
+        <button class="btn btn--ghost" onclick="showToast('info', '已取消导入', '')">取消</button>
+        <button class="btn btn--primary" onclick="scrollToStep2()">
+          下一步：上传文件 →
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     Step 2：上传文件
+═══════════════════════════════════════════════ -->
+<div class="proto-section" id="step2-anchor">
+  <div class="proto-section__title">
+    <span class="proto-section__tag">Step 2</span>
+    上传文件 — 3 种状态
+  </div>
+  <div class="proto-note">AC-005-03：支持拖拽上传 / 点击选择；仅接受 .xlsx / .xls；最大 10MB / 5000 行；大文件显示解析进度条。</div>
+
+  <!-- 2a 默认空态 -->
+  <div class="proto-frame">
+    <div class="proto-frame__label"><span class="proto-frame__dot proto-frame__dot--blue"></span> Step 2 — 默认空态（等待选择文件）</div>
+
+    <div class="wizard-steps">
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--done">✓</div><div class="wizard-step__label wizard-step--done">下载模板</div></div></div>
+      <div class="wizard-connector wizard-connector--done"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--active">2</div><div class="wizard-step__label wizard-step--active">上传文件</div></div></div>
+      <div class="wizard-connector wizard-connector--pending"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--pending">3</div><div class="wizard-step__label wizard-step--pending">预览校验</div></div></div>
+      <div class="wizard-connector wizard-connector--pending"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--pending">4</div><div class="wizard-step__label wizard-step--pending">确认导入</div></div></div>
+    </div>
+
+    <div class="wizard-body">
+      <div class="step-card">
+        <div class="step-card__title"><div class="step-card__title-icon">📁</div> 第二步：上传价格文件</div>
+        <div class="step-card__desc">上传填写好的 Excel 文件，系统将自动解析并校验数据。</div>
+
+        <!-- 上传区 -->
+        <div class="upload-zone" id="upload-zone">
+          <div class="upload-zone__icon">📂</div>
+          <div class="upload-zone__title">拖拽文件到此处，或点击选择</div>
+          <div class="upload-zone__subtitle">仅支持 .xlsx / .xls 格式</div>
+          <button class="btn btn--primary upload-zone__btn" onclick="simulateFileSelected()">
+            <span>📎</span> 选择文件
+          </button>
+          <div class="upload-zone__note">单次上传最大 10 MB · 最多 5000 行数据</div>
+        </div>
+
+        <!-- 限制说明 -->
+        <div class="upload-limits mt-4">
+          <div class="upload-limit-item"><span>📋</span> 格式：.xlsx / .xls</div>
+          <div class="upload-limit-item"><span>📏</span> 大小：≤ 10 MB</div>
+          <div class="upload-limit-item"><span>🔢</span> 行数：≤ 5000 行（含表头不算）</div>
+          <div class="upload-limit-item"><span>🌐</span> 编码：UTF-8</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wizard-footer">
+      <div class="wizard-footer__left"><button class="btn btn--ghost">← 上一步</button></div>
+      <div class="wizard-footer__right">
+        <button class="btn btn--ghost">取消</button>
+        <button class="btn btn--primary" disabled>下一步：预览校验 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2b 已选文件状态 -->
+  <div class="proto-frame">
+    <div class="proto-frame__label"><span class="proto-frame__dot proto-frame__dot--green"></span> Step 2 — 已选中文件（准备上传）</div>
+    <div style="padding: var(--space-5);">
+      <div class="step-card">
+        <div class="step-card__title"><div class="step-card__title-icon">📁</div> 第二步：上传价格文件</div>
+        <div class="step-card__desc">已选择文件，点击「下一步」开始解析校验。</div>
+
+        <div class="file-selected-card">
+          <div class="file-selected-icon">📊</div>
+          <div class="file-selected-info">
+            <div class="file-selected-name">采购价格数据_2026Q1.xlsx</div>
+            <div class="file-selected-meta">2.4 MB · 共 <strong>1,208</strong> 行 · .xlsx 格式</div>
+          </div>
+          <span class="file-selected-badge">✓ 格式正确</span>
+          <button class="btn btn--ghost btn--sm" onclick="showToast('info', '已清除文件', '请重新选择')">✕ 移除</button>
+        </div>
+      </div>
+    </div>
+    <div class="wizard-footer">
+      <div class="wizard-footer__left"><button class="btn btn--ghost">← 上一步</button></div>
+      <div class="wizard-footer__right">
+        <button class="btn btn--ghost">取消</button>
+        <button class="btn btn--primary">下一步：预览校验 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2c 大文件解析中（>1000行，进度条） -->
+  <div class="proto-frame">
+    <div class="proto-frame__label"><span class="proto-frame__dot proto-frame__dot--orange"></span> Step 2 — 大文件解析中（1208 行，显示进度条）</div>
+    <div style="padding: var(--space-5);">
+      <div class="step-card">
+        <div class="parse-progress">
+          <div class="parse-progress__spinner"></div>
+          <div class="parse-progress__title">正在解析文件…</div>
+          <div class="parse-progress__subtitle">共 1,208 行，已解析 832 行，请稍候</div>
+          <div class="parse-progress__bar">
+            <div class="upload-progress">
+              <div class="upload-progress__header">
+                <span class="upload-progress__label">解析进度</span>
+                <span class="upload-progress__pct">69%</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-bar__fill" style="width: 69%;"></div>
+              </div>
+            </div>
+          </div>
+          <div style="font-size: var(--text-body-s); color: var(--text-secondary);">正在校验 SKU 编码和供应商编码是否存在于系统中…</div>
+        </div>
+      </div>
+    </div>
+    <div class="wizard-footer">
+      <div class="wizard-footer__left"><button class="btn btn--ghost" disabled>← 上一步</button></div>
+      <div class="wizard-footer__right">
+        <button class="btn btn--danger btn--sm">终止解析</button>
+        <button class="btn btn--primary" disabled><span class="btn__spinner"></span> 解析中…</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2d 超限错误 -->
+  <div class="proto-frame">
+    <div class="proto-frame__label"><span class="proto-frame__dot proto-frame__dot--red"></span> Step 2 — 超出行数上限（5001 行）</div>
+    <div style="padding: var(--space-5);">
+      <div class="step-card">
+        <div style="padding: var(--space-4); background: var(--color-error-50); border: 1px solid var(--color-error-200); border-radius: var(--radius-lg); display:flex; align-items:flex-start; gap: var(--space-3);">
+          <span style="font-size:1.25rem; flex-shrink:0;">❌</span>
+          <div>
+            <div style="font-weight:600; color: var(--color-error-700); margin-bottom: var(--space-1);">文件超出单次导入上限</div>
+            <div style="font-size: var(--text-body-s); color: var(--color-error-600);">
+              当前文件共 <strong>5,001 行</strong>，超出单次上限（最多 5000 条）。<br/>
+              请将文件拆分为多批次上传，每批不超过 5000 行数据。
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="wizard-footer">
+      <div class="wizard-footer__left"><button class="btn btn--ghost">← 返回重新选择</button></div>
+      <div class="wizard-footer__right">
+        <button class="btn btn--ghost">取消</button>
+        <button class="btn btn--primary" disabled>下一步 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     Step 3：预览校验
+═══════════════════════════════════════════════ -->
+<div class="proto-section">
+  <div class="proto-section__title">
+    <span class="proto-section__tag">Step 3</span>
+    预览校验 — 含错误行/警告行/重复行高亮
+  </div>
+  <div class="proto-note">AC-005-04 / 005-05 / 005-07：错误行红色背景 + 行级原因；重复追加行黄色背景；价格偏高行橙色警告；顶部统计汇总；处理方式单选。</div>
+
+  <div class="proto-frame">
+    <div class="proto-frame__label"><span class="proto-frame__dot proto-frame__dot--blue"></span> Step 3 — 预览校验（含混合错误状态）</div>
+
+    <div class="wizard-steps">
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--done">✓</div><div class="wizard-step__label wizard-step--done">下载模板</div></div></div>
+      <div class="wizard-connector wizard-connector--done"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--done">✓</div><div class="wizard-step__label wizard-step--done">上传文件</div></div></div>
+      <div class="wizard-connector wizard-connector--done"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--active">3</div><div class="wizard-step__label wizard-step--active">预览校验</div></div></div>
+      <div class="wizard-connector wizard-connector--pending"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--pending">4</div><div class="wizard-step__label wizard-step--pending">确认导入</div></div></div>
+    </div>
+
+    <div class="wizard-body">
+      <div class="step-card">
+        <div class="step-card__title"><div class="step-card__title-icon">🔍</div> 第三步：数据预览与校验</div>
+        <div class="step-card__desc">系统已完成校验，请查看下方结果并选择处理方式。</div>
+
+        <!-- 统计汇总 -->
+        <div class="preview-stats">
+          <div class="stat-chip stat-chip--total">
+            <div class="stat-chip__num">1,208</div>
+            <div>共 X 行</div>
+          </div>
+          <div class="stat-chip stat-chip--success">
+            <div class="stat-chip__num">1,183</div>
+            <div>正确行</div>
+          </div>
+          <div class="stat-chip stat-chip--error">
+            <div class="stat-chip__num">14</div>
+            <div>错误行</div>
+          </div>
+          <div class="stat-chip stat-chip--info">
+            <div class="stat-chip__num">8</div>
+            <div>重复追加</div>
+          </div>
+          <div class="stat-chip stat-chip--warning">
+            <div class="stat-chip__num">3</div>
+            <div>价格偏高警告</div>
+          </div>
+        </div>
+
+        <!-- 处理方式 -->
+        <div class="handle-options">
+          <label class="handle-option handle-option--selected">
+            <input type="radio" name="handle-mode" value="skip-errors" checked />
+            <div class="handle-option__text">
+              <div class="handle-option__label">跳过错误行，仅导入正确行</div>
+              <div class="handle-option__desc">将导入 1,183 条正确数据，跳过 14 条错误行（推荐）</div>
+            </div>
+          </label>
+          <label class="handle-option">
+            <input type="radio" name="handle-mode" value="cancel-all" />
+            <div class="handle-option__text">
+              <div class="handle-option__label">取消导入，修正后重新上传</div>
+              <div class="handle-option__desc">放弃本次操作，下载错误明细后修正 Excel 再重新上传</div>
+            </div>
+          </label>
+        </div>
+
+        <!-- 预览表格 -->
+        <div class="preview-table-wrap">
+          <div class="preview-table-header">
+            <span>共 1,208 行，当前显示前 100 行（折叠显示）</span>
+            <button class="btn btn--ghost btn--sm">⬇ 下载错误明细</button>
+          </div>
+          <div class="preview-scroll">
+            <table class="preview-table">
+              <thead>
+                <tr>
+                  <th>行号</th>
+                  <th>SKU 编码</th>
+                  <th>供应商编码</th>
+                  <th>单价</th>
+                  <th>货币单位</th>
+                  <th>含税标记</th>
+                  <th>报价日期</th>
+                  <th>备注</th>
+                  <th>状态 / 原因</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- 正确行 -->
+                <tr class="row--ok">
+                  <td class="text-secondary">1</td>
+                  <td>SKU-0023</td>
+                  <td>SUP-001</td>
+                  <td>12.50</td>
+                  <td>CNY</td>
+                  <td>是</td>
+                  <td>2026-01-15</td>
+                  <td>Q1 季度价</td>
+                  <td style="color: var(--color-success-600); font-family: var(--font-family-base);">✓ 正确</td>
+                </tr>
+                <!-- 错误行 — SKU编码不存在 -->
+                <tr class="row--error">
+                  <td class="text-secondary">2</td>
+                  <td><span class="cell--error-field">SKU-9999</span></td>
+                  <td>SUP-001</td>
+                  <td>35.00</td>
+                  <td>CNY</td>
+                  <td>否</td>
+                  <td>2026-01-10</td>
+                  <td></td>
+                  <td>
+                    <div class="error-reason">❌ SKU 编码不存在：SKU-9999</div>
+                  </td>
+                </tr>
+                <!-- 错误行 — 供应商不存在 -->
+                <tr class="row--error">
+                  <td class="text-secondary">3</td>
+                  <td>SKU-0024</td>
+                  <td><span class="cell--error-field">SUP-999</span></td>
+                  <td>18.80</td>
+                  <td>CNY</td>
+                  <td>是</td>
+                  <td>2026-02-01</td>
+                  <td></td>
+                  <td>
+                    <div class="error-reason">❌ 供应商编码不存在：SUP-999</div>
+                  </td>
+                </tr>
+                <!-- 错误行 — 单价为负 -->
+                <tr class="row--error">
+                  <td class="text-secondary">4</td>
+                  <td>SKU-0025</td>
+                  <td>SUP-002</td>
+                  <td><span class="cell--error-field">-5.00</span></td>
+                  <td>CNY</td>
+                  <td>是</td>
+                  <td>2026-01-20</td>
+                  <td></td>
+                  <td>
+                    <div class="error-reason">❌ 单价格式错误（不允许负数）</div>
+                  </td>
+                </tr>
+                <!-- 错误行 — 必填为空 -->
+                <tr class="row--error">
+                  <td class="text-secondary">5</td>
+                  <td>SKU-0026</td>
+                  <td>SUP-003</td>
+                  <td><span class="cell--error-field"></span></td>
+                  <td>CNY</td>
+                  <td>是</td>
+                  <td>2026-01-18</td>
+                  <td></td>
+                  <td>
+                    <div class="error-reason">❌ 字段「单价」不可为空</div>
+                  </td>
+                </tr>
+                <!-- 错误行 — 货币单位非法 -->
+                <tr class="row--error">
+                  <td class="text-secondary">6</td>
+                  <td>SKU-0027</td>
+                  <td>SUP-001</td>
+                  <td>22.00</td>
+                  <td><span class="cell--error-field">RMB</span></td>
+                  <td>是</td>
+                  <td>2026-01-22</td>
+                  <td></td>
+                  <td>
+                    <div class="error-reason">❌ 货币单位须为 CNY / USD / EUR</div>
+                  </td>
+                </tr>
+                <!-- 错误行 — 日期格式错误 -->
+                <tr class="row--error">
+                  <td class="text-secondary">7</td>
+                  <td>SKU-0028</td>
+                  <td>SUP-002</td>
+                  <td>9.90</td>
+                  <td>USD</td>
+                  <td>否</td>
+                  <td><span class="cell--error-field">20260125</span></td>
+                  <td></td>
+                  <td>
+                    <div class="error-reason">❌ 日期格式须为 YYYY-MM-DD</div>
+                  </td>
+                </tr>
+                <!-- 重复追加行 -->
+                <tr class="row--duplicate">
+                  <td class="text-secondary">8</td>
+                  <td>SKU-0023</td>
+                  <td>SUP-001</td>
+                  <td>12.50</td>
+                  <td>CNY</td>
+                  <td>是</td>
+                  <td>2026-01-15</td>
+                  <td>重复提交</td>
+                  <td>
+                    <div class="duplicate-reason">⚠ 已有相同报价记录，将追加为新版本</div>
+                  </td>
+                </tr>
+                <!-- 价格偏高警告行 -->
+                <tr class="row--warning">
+                  <td class="text-secondary">9</td>
+                  <td>SKU-0029</td>
+                  <td>SUP-001</td>
+                  <td><span class="cell--warn-field">⚠ 980.00</span></td>
+                  <td>CNY</td>
+                  <td>是</td>
+                  <td>2026-03-01</td>
+                  <td>季节性上涨</td>
+                  <td>
+                    <div class="warn-reason">⚠ 价格偏高，超历史最高价 3 倍，请确认</div>
+                  </td>
+                </tr>
+                <!-- 正确行若干 -->
+                <tr class="row--ok">
+                  <td class="text-secondary">10</td>
+                  <td>SKU-0030</td>
+                  <td>SUP-003</td>
+                  <td>56.20</td>
+                  <td>CNY</td>
+                  <td>是</td>
+                  <td>2026-02-10</td>
+                  <td></td>
+                  <td style="color: var(--color-success-600); font-family: var(--font-family-base);">✓ 正确</td>
+                </tr>
+                <tr class="row--ok">
+                  <td class="text-secondary">11</td>
+                  <td>SKU-0031</td>
+                  <td>SUP-002</td>
+                  <td>33.00</td>
+                  <td>USD</td>
+                  <td>否</td>
+                  <td>2026-02-15</td>
+                  <td></td>
+                  <td style="color: var(--color-success-600); font-family: var(--font-family-base);">✓ 正确</td>
+                </tr>
+                <tr class="row--ok">
+                  <td class="text-secondary">12</td>
+                  <td>SKU-0032</td>
+                  <td>SUP-004</td>
+                  <td>7.80</td>
+                  <td>CNY</td>
+                  <td>是</td>
+                  <td>2026-01-05</td>
+                  <td>年初报价</td>
+                  <td style="color: var(--color-success-600); font-family: var(--font-family-base);">✓ 正确</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="preview-fold-hint">
+            <span>⋯</span> 共 1,208 行，已显示前 100 行。
+            <button class="btn btn--ghost btn--sm">展开全部</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="wizard-footer">
+      <div class="wizard-footer__left"><button class="btn btn--ghost">← 上一步</button></div>
+      <div class="wizard-footer__right">
+        <button class="btn btn--ghost">取消</button>
+        <button class="btn btn--primary">下一步：确认导入 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     Step 4：确认导入 — 处理中（进度条）
+═══════════════════════════════════════════════ -->
+<div class="proto-section">
+  <div class="proto-section__title">
+    <span class="proto-section__tag">Step 4a</span>
+    确认导入 — 导入执行中（进度轮询）
+  </div>
+  <div class="proto-note">AC-005-06：点击「确认导入」后展示进度条，每 2 秒轮询后端进度接口，总处理时间 &lt; 60 秒。</div>
+
+  <div class="proto-frame">
+    <div class="proto-frame__label"><span class="proto-frame__dot proto-frame__dot--blue"></span> Step 4 — 导入执行中</div>
+    <div class="wizard-steps">
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--done">✓</div><div class="wizard-step__label wizard-step--done">下载模板</div></div></div>
+      <div class="wizard-connector wizard-connector--done"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--done">✓</div><div class="wizard-step__label wizard-step--done">上传文件</div></div></div>
+      <div class="wizard-connector wizard-connector--done"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--done">✓</div><div class="wizard-step__label wizard-step--done">预览校验</div></div></div>
+      <div class="wizard-connector wizard-connector--done"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--active">4</div><div class="wizard-step__label wizard-step--active">确认导入</div></div></div>
+    </div>
+    <div class="wizard-body">
+      <div class="step-card">
+        <!-- 导入概况 -->
+        <div style="background: var(--color-gray-50); border-radius: var(--radius-lg); padding: var(--space-5); margin-bottom: var(--space-6);">
+          <div style="font-weight:600; margin-bottom: var(--space-3);">本次导入概况</div>
+          <div style="display:flex; gap: var(--space-6); flex-wrap: wrap; font-size: var(--text-body-m);">
+            <div>将导入 <strong style="color:var(--color-success-700);">1,183</strong> 行</div>
+            <div>跳过错误 <strong style="color:var(--color-error-700);">14</strong> 行</div>
+            <div>追加重复 <strong style="color:var(--color-warning-700);">8</strong> 行</div>
+          </div>
+        </div>
+        <!-- 进度 -->
+        <div class="parse-progress" style="padding: var(--space-6) 0;">
+          <div class="parse-progress__spinner"></div>
+          <div class="parse-progress__title">正在写入数据库…</div>
+          <div class="parse-progress__subtitle">已写入 723 / 1,183 条，请勿关闭页面</div>
+          <div class="parse-progress__bar">
+            <div class="upload-progress">
+              <div class="upload-progress__header">
+                <span class="upload-progress__label">导入进度</span>
+                <span class="upload-progress__pct">61%</span>
+              </div>
+              <div class="progress-bar"><div class="progress-bar__fill" style="width:61%;"></div></div>
+            </div>
+          </div>
+          <div style="font-size: var(--text-body-s); color: var(--text-secondary);">每 2 秒自动刷新进度 · 预计剩余约 18 秒</div>
+        </div>
+      </div>
+    </div>
+    <div class="wizard-footer">
+      <div class="wizard-footer__left"><button class="btn btn--ghost" disabled>← 上一步</button></div>
+      <div class="wizard-footer__right">
+        <button class="btn btn--danger btn--sm">终止导入</button>
+        <button class="btn btn--primary" disabled><span class="btn__spinner"></span> 导入中…</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     Step 4：导入结果
+═══════════════════════════════════════════════ -->
+<div class="proto-section">
+  <div class="proto-section__title">
+    <span class="proto-section__tag">Step 4b</span>
+    导入结果 — 含价格异常告警
+  </div>
+  <div class="proto-note">AC-005-06 / 005-07：成功/跳过/失败统计；价格偏高行标黄展示；提供「下载失败明细」和「查看导入数据」操作。</div>
+
+  <div class="proto-frame">
+    <div class="proto-frame__label"><span class="proto-frame__dot proto-frame__dot--green"></span> Step 4 — 导入完成结果页</div>
+    <div class="wizard-steps">
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--done">✓</div><div class="wizard-step__label wizard-step--done">下载模板</div></div></div>
+      <div class="wizard-connector wizard-connector--done"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--done">✓</div><div class="wizard-step__label wizard-step--done">上传文件</div></div></div>
+      <div class="wizard-connector wizard-connector--done"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--done">✓</div><div class="wizard-step__label wizard-step--done">预览校验</div></div></div>
+      <div class="wizard-connector wizard-connector--done"></div>
+      <div class="wizard-step"><div class="wizard-step__inner"><div class="wizard-step__circle wizard-step--done">✓</div><div class="wizard-step__label wizard-step--done">确认导入</div></div></div>
+    </div>
+    <div class="wizard-body">
+      <div class="step-card">
+        <!-- 完成图标 -->
+        <div class="success-checkmark">
+          <svg class="checkmark-svg" viewBox="0 0 72 72">
+            <circle class="checkmark-circle" cx="36" cy="36" r="34" />
+            <path class="checkmark-path" d="M22 37 L32 47 L52 26" />
+          </svg>
+          <div class="success-title">导入完成！</div>
+          <div class="success-desc">采购价格数据已成功写入系统，可在价格管理页查看最新数据。</div>
+        </div>
+
+        <!-- 结果统计 -->
+        <div class="result-summary">
+          <div class="result-stat-card result-stat-card--success">
+            <div class="result-stat-card__icon">✅</div>
+            <div class="result-stat-card__num">1,181</div>
+            <div class="result-stat-card__label">成功导入</div>
+          </div>
+          <div class="result-stat-card result-stat-card--skip">
+            <div class="result-stat-card__icon">⏭</div>
+            <div class="result-stat-card__num">14</div>
+            <div class="result-stat-card__label">跳过错误行</div>
+          </div>
+          <div class="result-stat-card result-stat-card--fail">
+            <div class="result-stat-card__icon">❌</div>
+            <div class="result-stat-card__num">2</div>
+            <div class="result-stat-card__label">意外失败</div>
+          </div>
+        </div>
+
+        <!-- 价格异常告警 -->
+        <div class="price-alert-section">
+          <div class="price-alert-header">
+            <span style="font-size:1.25rem;">⚠️</span>
+            <div class="price-alert-title">价格偏高告警</div>
+            <span class="price-alert-count">3 条</span>
+          </div>
+          <div class="price-alert-desc">
+            以下导入数据的单价超过该 SKU 历史最高价的 3 倍，已标注为告警（不影响导入，请人工确认）：
+          </div>
+          <table class="alert-table">
+            <thead>
+              <tr>
+                <th>行号</th>
+                <th>SKU 编码</th>
+                <th>供应商</th>
+                <th>导入单价</th>
+                <th>历史最高价</th>
+                <th>偏高倍数</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>9</td>
+                <td>SKU-0029</td>
+                <td>佛山宏远木业</td>
+                <td>980.00</td>
+                <td>245.00</td>
+                <td>4.0 倍</td>
+                <td><span class="price-high-tag">⚠ 价格偏高</span></td>
+              </tr>
+              <tr>
+                <td>45</td>
+                <td>SKU-0087</td>
+                <td>广州恒达五金</td>
+                <td>2,200.00</td>
+                <td>620.00</td>
+                <td>3.5 倍</td>
+                <td><span class="price-high-tag">⚠ 价格偏高</span></td>
+              </tr>
+              <tr>
+                <td>102</td>
+                <td>SKU-0112</td>
+                <td>中山新纺面料</td>
+                <td>880.00</td>
+                <td>280.00</td>
+                <td>3.1 倍</td>
+                <td><span class="price-high-tag">⚠ 价格偏高</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 意外失败操作 -->
+        <div style="background: var(--color-error-50); border: 1px solid var(--color-error-200); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); display:flex; align-items:center; justify-content:space-between; gap: var(--space-4);">
+          <div>
+            <div style="font-weight:600; color: var(--color-error-700);">2 条意外失败</div>
+            <div style="font-size: var(--text-body-s); color: var(--color-error-600); margin-top: var(--space-1);">数据库写入时发生异常，可下载失败明细后人工核实并重试。</div>
+          </div>
+          <button class="btn btn--danger btn--sm" onclick="showToast('info', '下载中', '失败明细.xlsx')">
+            ⬇ 下载失败明细
+          </button>
+        </div>
+
+      </div>
+    </div>
+    <div class="wizard-footer">
+      <div class="wizard-footer__left"></div>
+      <div class="wizard-footer__right">
+        <button class="btn btn--secondary" onclick="showToast('info', '已重置', '可重新开始新一轮导入')">再次导入</button>
+        <button class="btn btn--primary" onclick="showToast('success', '已跳转', '正在打开价格管理页…')">
+          查看导入数据 →
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast 容器 -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+  function scrollToWizard() {
+    document.getElementById('wizard-anchor').scrollIntoView({ behavior: 'smooth' });
+    showToast('info', '已打开批量导入向导', '当前步骤：Step 1 下载模板');
+  }
+  function scrollToStep2() {
+    document.getElementById('step2-anchor').scrollIntoView({ behavior: 'smooth' });
+    showToast('info', '进入 Step 2', '请上传 Excel 文件');
+  }
+  function simulateFileSelected() {
+    showToast('success', '文件已选择', '采购价格数据_2026Q1.xlsx · 2.4 MB');
+  }
+
+  function showToast(type, title, desc) {
+    const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+    const c = document.getElementById('toast-container');
+    const t = document.createElement('div');
+    t.className = `toast toast--${type}`;
+    t.innerHTML = `
+      <span class="toast__icon">${icons[type]}</span>
+      <div class="toast__body">
+        <div class="toast__title">${title}</div>
+        ${desc ? `<div class="toast__desc">${desc}</div>` : ''}
+      </div>`;
+    c.appendChild(t);
+    setTimeout(() => { t.style.animation = 'slide-in-right 0.3s ease reverse'; setTimeout(() => t.remove(), 280); }, 3500);
+  }
+
+  // 进度条动画演示
+  const fills = document.querySelectorAll('.progress-bar__fill');
+  fills.forEach(f => {
+    const w = f.style.width;
+    f.style.width = '0%';
+    setTimeout(() => { f.style.width = w; }, 400);
+  });
+
+  // 拖拽区演示
+  const zone = document.getElementById('upload-zone');
+  if (zone) {
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('upload-zone--dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('upload-zone--dragover'));
+    zone.addEventListener('drop', e => {
+      e.preventDefault(); zone.classList.remove('upload-zone--dragover');
+      showToast('info', '文件已拖入', '正在解析…');
+    });
+  }
+
+  // 处理方式单选交互
+  document.querySelectorAll('.handle-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      document.querySelectorAll('.handle-option').forEach(o => o.classList.remove('handle-option--selected'));
+      opt.classList.add('handle-option--selected');
+    });
+  });
+</script>
+</div>
+</body>
+</html>

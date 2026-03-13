@@ -1,0 +1,1380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>[artifact:UI代码] R-05 — 工序极限工时 + 工价计算 · 设计原型</title>
+  <style>
+    /* ═══════════════════════════════════════════
+       Design Tokens（与 variables.css 严格对应）
+    ═══════════════════════════════════════════ */
+    :root {
+      --color-primary-50:  #EFF6FF;
+      --color-primary-100: #DBEAFE;
+      --color-primary-200: #BFDBFE;
+      --color-primary-500: #3B82F6;
+      --color-primary-600: #2563EB;
+      --color-primary-700: #1D4ED8;
+      --color-success-50:  #F0FDF4;
+      --color-success-100: #DCFCE7;
+      --color-success-500: #22C55E;
+      --color-success-600: #16A34A;
+      --color-success-700: #15803D;
+      --color-warning-50:  #FFFBEB;
+      --color-warning-100: #FEF3C7;
+      --color-warning-500: #F59E0B;
+      --color-warning-600: #D97706;
+      --color-warning-700: #B45309;
+      --color-error-50:  #FEF2F2;
+      --color-error-100: #FEE2E2;
+      --color-error-500: #EF4444;
+      --color-error-600: #DC2626;
+      --color-error-700: #B91C1C;
+      --color-info-50:  #F0F9FF;
+      --color-info-100: #E0F2FE;
+      --color-info-500: #0EA5E9;
+      --color-gray-0:   #FFFFFF;
+      --color-gray-50:  #F8FAFC;
+      --color-gray-100: #F1F5F9;
+      --color-gray-200: #E2E8F0;
+      --color-gray-300: #CBD5E1;
+      --color-gray-400: #94A3B8;
+      --color-gray-500: #64748B;
+      --color-gray-600: #475569;
+      --color-gray-700: #334155;
+      --color-gray-800: #1E293B;
+      --color-gray-900: #0F172A;
+      --bg-page:         #F8FAFC;
+      --bg-card:         #FFFFFF;
+      --bg-sidebar:      #1E293B;
+      --text-primary:    #1E293B;
+      --text-secondary:  #64748B;
+      --text-disabled:   #94A3B8;
+      --border-default:  #E2E8F0;
+      --border-strong:   #CBD5E1;
+      --border-focus:    #3B82F6;
+      --font-family-base:   "PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,BlinkMacSystemFont,sans-serif;
+      --font-family-mono:   "JetBrains Mono","SF Mono","Consolas",monospace;
+      --font-family-number: "DIN Alternate","Roboto Mono",var(--font-family-base);
+      --text-h2:     1.5rem;
+      --text-h3:     1.25rem;
+      --text-h4:     1.125rem;
+      --text-body-l: 1rem;
+      --text-body-m: 0.875rem;
+      --text-body-s: 0.75rem;
+      --text-caption:0.6875rem;
+      --text-number-xl: 2.5rem;
+      --text-number-l:  1.75rem;
+      --text-number-m:  1.25rem;
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.25rem;
+      --space-6: 1.5rem;
+      --space-8: 2rem;
+      --space-10:2.5rem;
+      --space-12:3rem;
+      --layout-sidebar-width:  240px;
+      --layout-header-height:  64px;
+      --layout-page-padding:   24px;
+      --layout-card-gap:       16px;
+      --radius-sm:   4px;
+      --radius-md:   8px;
+      --radius-lg:   12px;
+      --radius-xl:   16px;
+      --radius-full: 9999px;
+      --shadow-xs: 0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --shadow-xl: 0 20px 25px -5px rgba(0,0,0,.1),0 10px 10px -5px rgba(0,0,0,.04);
+      --transition-fast:   150ms ease;
+      --transition-base:   200ms ease;
+      --transition-slow:   300ms ease;
+      --transition-spring: 200ms cubic-bezier(0.34,1.56,0.64,1);
+      --z-dropdown: 100;
+      --z-sticky:   200;
+      --z-overlay:  300;
+      --z-modal:    400;
+      --z-toast:    500;
+    }
+
+    /* ── 全局重置 ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-family-base);
+      font-size: var(--text-body-m);
+      color: var(--text-primary);
+      background: var(--bg-page);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    :focus-visible {
+      outline: 2px solid var(--color-primary-500);
+      outline-offset: 2px;
+      border-radius: var(--radius-sm);
+    }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    input, select, textarea { font-family: inherit; font-size: inherit; }
+    ::-webkit-scrollbar        { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track  { background: transparent; }
+    ::-webkit-scrollbar-thumb  { background: var(--color-gray-300); border-radius: var(--radius-full); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--color-gray-400); }
+    .font-tabular {
+      font-family: var(--font-family-number);
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
+    }
+
+    /* ── 布局骨架 ── */
+    .app-layout { display: flex; height: 100vh; overflow: hidden; }
+    .app-layout__sidebar { width: var(--layout-sidebar-width); flex-shrink: 0; background: var(--bg-sidebar); display: flex; flex-direction: column; overflow: hidden; }
+    .app-layout__main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+    .app-layout__header { height: var(--layout-header-height); flex-shrink: 0; background: var(--bg-card); border-bottom: 1px solid var(--border-default); box-shadow: var(--shadow-xs); display: flex; align-items: center; padding: 0 var(--layout-page-padding); z-index: var(--z-sticky); gap: var(--space-4); }
+    .app-layout__content { flex: 1; overflow-y: auto; padding: var(--layout-page-padding); }
+
+    /* ── 侧边栏 ── */
+    .sidebar__logo { height: var(--layout-header-height); display: flex; align-items: center; padding: 0 var(--space-5); border-bottom: 1px solid rgba(255,255,255,.08); flex-shrink: 0; }
+    .sidebar__logo-mark { width: 2rem; height: 2rem; background: var(--color-primary-600); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; font-size: var(--text-body-s); font-weight: 700; color: #fff; }
+    .sidebar__logo-text { margin-left: var(--space-3); font-size: var(--text-body-l); font-weight: 700; color: #fff; }
+    .sidebar__nav { flex: 1; overflow-y: auto; padding: var(--space-4) 0; }
+    .sidebar__nav-section { margin-bottom: var(--space-6); }
+    .sidebar__nav-label { font-size: var(--text-caption); color: var(--color-gray-500); text-transform: uppercase; letter-spacing: .06em; padding: 0 var(--space-5); margin-bottom: var(--space-2); }
+    .sidebar__nav-item { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-5); color: var(--color-gray-400); font-size: var(--text-body-m); cursor: pointer; border-left: 3px solid transparent; transition: background var(--transition-fast), color var(--transition-fast); }
+    .sidebar__nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
+    .sidebar__nav-item--active { background: rgba(37,99,235,.2); color: #fff; border-left-color: var(--color-primary-500); }
+    .sidebar__nav-item--sub { padding-left: calc(var(--space-5) + var(--space-6)); font-size: var(--text-body-s); }
+    .sidebar__nav-icon { width: 1rem; flex-shrink: 0; text-align: center; }
+
+    /* ── 顶栏 ── */
+    .header__breadcrumb { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-body-s); color: var(--text-secondary); }
+    .header__breadcrumb-current { color: var(--text-primary); font-weight: 500; }
+    .header__right { margin-left: auto; display: flex; align-items: center; gap: var(--space-4); }
+    .header__avatar { width: 2rem; height: 2rem; border-radius: var(--radius-full); background: var(--color-primary-100); color: var(--color-primary-700); display: flex; align-items: center; justify-content: center; font-size: var(--text-body-s); font-weight: 600; cursor: pointer; }
+
+    /* ── 页面标题 ── */
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: var(--space-6); gap: var(--space-4); flex-wrap: wrap; }
+    .page-header__title { font-size: var(--text-h2); font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: var(--space-2); }
+    .page-header__subtitle { font-size: var(--text-body-m); color: var(--text-secondary); margin-top: var(--space-1); }
+    .page-header__actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+
+    /* ── 按钮 ── */
+    .btn { display: inline-flex; align-items: center; gap: var(--space-2); padding: .5rem 1rem; font-size: var(--text-body-m); font-weight: 500; border-radius: var(--radius-md); transition: background var(--transition-fast), box-shadow var(--transition-fast); white-space: nowrap; line-height: 1.5; }
+    .btn--primary { background: var(--color-primary-600); color: #fff; box-shadow: var(--shadow-xs); }
+    .btn--primary:hover:not(:disabled) { background: var(--color-primary-700); }
+    .btn--secondary { background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-default); box-shadow: var(--shadow-xs); }
+    .btn--secondary:hover:not(:disabled) { background: var(--color-gray-50); }
+    .btn--success { background: var(--color-success-600); color: #fff; }
+    .btn--success:hover:not(:disabled) { background: var(--color-success-700); }
+    .btn--danger { background: var(--color-error-600); color: #fff; }
+    .btn--danger:hover:not(:disabled) { background: var(--color-error-700); }
+    .btn--ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
+    .btn--ghost:hover:not(:disabled) { background: var(--color-gray-100); color: var(--text-primary); }
+    .btn--text { background: transparent; color: var(--color-primary-600); padding: .25rem .5rem; }
+    .btn--text:hover:not(:disabled) { color: var(--color-primary-700); text-decoration: underline; }
+    .btn--sm { padding: .25rem .625rem; font-size: var(--text-body-s); }
+    .btn--lg { padding: .625rem 1.25rem; font-size: var(--text-body-l); }
+    .btn--icon-only { padding: .5rem; width: 2.25rem; height: 2.25rem; justify-content: center; }
+    .btn--loading { opacity: .8; cursor: wait; }
+
+    /* ── 卡片 ── */
+    .card { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+    .card__header { padding: var(--space-4) var(--space-6); border-bottom: 1px solid var(--border-default); display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+    .card__title { font-size: var(--text-body-l); font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: var(--space-2); }
+    .card__body { padding: var(--space-5) var(--space-6); }
+
+    /* ── Badge ── */
+    .badge { display: inline-flex; align-items: center; gap: var(--space-1); padding: .125rem .5rem; border-radius: var(--radius-full); font-size: var(--text-body-s); font-weight: 500; }
+    .badge--skilled  { background: var(--color-primary-100); color: var(--color-primary-700); }
+    .badge--apprentice { background: var(--color-warning-100); color: var(--color-warning-700); }
+    .badge--unconfigured { background: var(--color-gray-100); color: var(--text-secondary); }
+    .badge--overtime { background: var(--color-error-100); color: var(--color-error-700); border: 1px solid var(--color-error-200); }
+    .badge--ok { background: var(--color-success-100); color: var(--color-success-700); }
+
+    /* ── 页面 Tab 导航 ── */
+    .page-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border-default); margin-bottom: var(--space-6); }
+    .page-tab { padding: var(--space-3) var(--space-5); font-size: var(--text-body-m); font-weight: 500; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color var(--transition-fast), border-color var(--transition-fast); display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+    .page-tab:hover { color: var(--text-primary); }
+    .page-tab--active { color: var(--color-primary-600); border-bottom-color: var(--color-primary-600); }
+
+    /* ── 数据表格（工序列表）── */
+    .data-table { width: 100%; border-collapse: collapse; }
+    .data-table th {
+      text-align: left;
+      font-size: var(--text-body-s);
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      padding: var(--space-3) var(--space-5);
+      background: var(--color-gray-50);
+      border-bottom: 1px solid var(--border-default);
+      white-space: nowrap;
+    }
+    .data-table th.col-right { text-align: right; }
+    .data-table td { padding: var(--space-4) var(--space-5); font-size: var(--text-body-m); border-bottom: 1px solid var(--border-default); vertical-align: middle; }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover td { background: var(--color-gray-50); }
+    .data-table td.col-right { text-align: right; }
+    /* 内联编辑中的行高亮 */
+    .data-table tr.row--editing td { background: var(--color-primary-50); }
+
+    .cell-name { font-weight: 500; color: var(--text-primary); }
+    .cell-code { font-size: var(--text-body-s); color: var(--text-secondary); font-family: var(--font-family-mono); margin-top: 2px; }
+    .cell-number { font-family: var(--font-family-number); font-variant-numeric: tabular-nums; }
+    .cell-unconfigured { color: var(--text-disabled); font-style: italic; }
+    .cell-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+
+    /* 内联编辑输入框 */
+    .inline-input {
+      width: 6rem;
+      padding: var(--space-1) var(--space-2);
+      border: 1px solid var(--border-focus);
+      border-radius: var(--radius-md);
+      font-size: var(--text-body-m);
+      box-shadow: 0 0 0 2px var(--color-primary-100);
+      text-align: right;
+    }
+    .inline-input:focus { outline: none; }
+
+    /* 工价字段（仅 admin 可见，非 admin 不渲染） */
+    .admin-only { /* 在非 admin 视图下 display:none */ }
+
+    /* ── 表单 ── */
+    .form-group { margin-bottom: var(--space-5); }
+    .form-label { display: block; font-size: var(--text-body-m); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); }
+    .form-label__required { color: var(--color-error-500); margin-left: var(--space-1); }
+    .form-label__hint { font-size: var(--text-body-s); font-weight: 400; color: var(--text-secondary); margin-left: var(--space-2); }
+    .form-input { width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-primary); background: var(--bg-card); transition: border-color var(--transition-fast), box-shadow var(--transition-fast); }
+    .form-input:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--color-primary-100); }
+    .form-input--error { border-color: var(--color-error-500); }
+    .form-error { display: flex; align-items: center; gap: var(--space-1); margin-top: var(--space-1); font-size: var(--text-body-s); color: var(--color-error-600); }
+    .form-hint { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1); }
+    .form-readonly { padding: var(--space-2) var(--space-3); background: var(--color-gray-50); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-m); color: var(--text-secondary); }
+    .form-divider { border: none; border-top: 1px solid var(--border-default); margin: var(--space-4) 0; }
+    /* 价格输入前缀/后缀 */
+    .input-group { position: relative; }
+    .input-group__addon {
+      position: absolute;
+      top: 50%; transform: translateY(-50%);
+      font-size: var(--text-body-m);
+      color: var(--text-secondary);
+      pointer-events: none;
+    }
+    .input-group__addon--left  { left: var(--space-3); }
+    .input-group__addon--right { right: var(--space-3); }
+    .input-group .form-input--prefix { padding-left: 2rem; }
+    .input-group .form-input--suffix { padding-right: 2.5rem; }
+
+    /* ── Modal ── */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: var(--z-modal); padding: var(--space-4); animation: fade-in .2s ease; }
+    .modal { background: var(--bg-card); border-radius: var(--radius-xl); box-shadow: var(--shadow-xl); width: 100%; max-height: calc(100vh - var(--space-8)); display: flex; flex-direction: column; animation: modal-scale-in .2s var(--transition-spring); overflow: hidden; }
+    .modal--sm { max-width: 400px; }
+    .modal--md { max-width: 560px; }
+    .modal--lg { max-width: 720px; }
+    .modal__header { padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--border-default); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .modal__title { font-size: var(--text-h4); font-weight: 600; color: var(--text-primary); }
+    .modal__close { width: 2rem; height: 2rem; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-md); font-size: 1.25rem; color: var(--text-secondary); }
+    .modal__close:hover { background: var(--color-gray-100); color: var(--text-primary); }
+    .modal__body { flex: 1; overflow-y: auto; padding: var(--space-6); }
+    .modal__footer { padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border-default); display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); flex-shrink: 0; }
+
+    /* 工资核算弹框 — 实时预览区域 */
+    .wage-preview {
+      background: var(--color-primary-50);
+      border: 1px solid var(--color-primary-200);
+      border-radius: var(--radius-md);
+      padding: var(--space-4);
+      margin-top: var(--space-4);
+    }
+    .wage-preview__label { font-size: var(--text-body-s); color: var(--text-secondary); margin-bottom: var(--space-1); }
+    .wage-preview__amount { font-family: var(--font-family-number); font-size: var(--text-number-m); font-weight: 700; color: var(--color-primary-600); }
+    .wage-preview__desc { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1); }
+    .wage-preview--no-price {
+      background: var(--color-gray-50);
+      border-color: var(--border-default);
+    }
+    .wage-preview--no-price .wage-preview__desc { color: var(--color-warning-600); }
+
+    /* 超时预警 */
+    .overtime-alert {
+      background: var(--color-error-50);
+      border: 1px solid var(--color-error-100);
+      border-radius: var(--radius-md);
+      padding: var(--space-4);
+      display: flex;
+      gap: var(--space-3);
+      margin: var(--space-4) 0;
+    }
+    .overtime-alert__icon { font-size: 1.25rem; flex-shrink: 0; }
+    .overtime-alert__title { font-weight: 600; font-size: var(--text-body-m); color: var(--color-error-700); margin-bottom: var(--space-1); }
+    .overtime-alert__desc { font-size: var(--text-body-m); color: var(--color-error-600); }
+
+    /* ── Toast ── */
+    .toast-container { position: fixed; top: var(--space-6); right: var(--space-6); z-index: var(--z-toast); display: flex; flex-direction: column; gap: var(--space-3); pointer-events: none; }
+    .toast { min-width: 300px; max-width: 400px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: var(--space-4); display: flex; align-items: flex-start; gap: var(--space-3); pointer-events: all; animation: slide-in-right .3s ease; }
+    .toast--success { border-left: 4px solid var(--color-success-500); }
+    .toast--error   { border-left: 4px solid var(--color-error-500); }
+    .toast--warning { border-left: 4px solid var(--color-warning-500); }
+    .toast--info    { border-left: 4px solid var(--color-primary-500); }
+    .toast__icon { font-size: 1.25rem; flex-shrink: 0; }
+    .toast__body { flex: 1; }
+    .toast__title { font-weight: 600; font-size: var(--text-body-m); color: var(--text-primary); }
+    .toast__desc  { font-size: var(--text-body-s); color: var(--text-secondary); margin-top: var(--space-1); }
+    .toast__close { flex-shrink: 0; color: var(--text-secondary); font-size: 1rem; padding: var(--space-1); border-radius: var(--radius-sm); }
+    .toast__close:hover { background: var(--color-gray-100); }
+
+    /* ── 筛选栏 ── */
+    .filter-bar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-4) var(--space-6); border-bottom: 1px solid var(--border-default); background: var(--color-gray-50); }
+    .filter-bar__item { display: flex; align-items: center; gap: var(--space-2); }
+    .filter-bar__label { font-size: var(--text-body-s); color: var(--text-secondary); white-space: nowrap; }
+    .filter-select { padding: var(--space-2) var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-s); background: var(--bg-card); color: var(--text-primary); min-width: 9rem; }
+    .filter-date { padding: var(--space-2) var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); font-size: var(--text-body-s); background: var(--bg-card); color: var(--text-primary); }
+
+    /* ── 报表汇总行 ── */
+    .table-summary tr td {
+      font-weight: 600;
+      background: var(--color-gray-50);
+      border-top: 2px solid var(--border-strong);
+      color: var(--text-primary);
+    }
+    .table-summary .summary-note {
+      font-size: var(--text-body-s);
+      color: var(--color-warning-600);
+      font-weight: 400;
+    }
+
+    /* ── 报表图表区域（纯 CSS 模拟柱状图）── */
+    .bar-chart { display: flex; align-items: flex-end; gap: var(--space-4); height: 200px; padding: 0 var(--space-4); }
+    .bar-group { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); flex: 1; height: 100%; justify-content: flex-end; }
+    .bar-group__bars { display: flex; gap: var(--space-1); align-items: flex-end; width: 100%; justify-content: center; }
+    .bar { width: 1.5rem; border-radius: var(--radius-sm) var(--radius-sm) 0 0; transition: opacity var(--transition-fast); }
+    .bar:hover { opacity: .8; }
+    .bar--skilled    { background: var(--color-primary-500); }
+    .bar--apprentice { background: var(--color-warning-500); }
+    .bar-group__label { font-size: var(--text-caption); color: var(--text-secondary); text-align: center; white-space: nowrap; }
+    .bar-legend { display: flex; gap: var(--space-5); padding: var(--space-3) var(--space-4); }
+    .bar-legend__item { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-body-s); color: var(--text-secondary); }
+    .bar-legend__dot { width: .75rem; height: .75rem; border-radius: var(--radius-sm); }
+
+    /* ── Spinner ── */
+    .spinner { display: inline-block; width: 1rem; height: 1rem; border: 2px solid var(--color-primary-200); border-top-color: var(--color-primary-500); border-radius: var(--radius-full); animation: spin .7s linear infinite; }
+
+    /* ── 原型导航 ── */
+    .proto-nav { position: fixed; bottom: var(--space-6); left: 50%; transform: translateX(-50%); background: var(--color-gray-800); border-radius: var(--radius-full); padding: var(--space-2) var(--space-3); display: flex; gap: var(--space-2); z-index: calc(var(--z-toast) + 1); box-shadow: var(--shadow-xl); flex-wrap: wrap; max-width: calc(100vw - var(--space-8)); justify-content: center; }
+    .proto-nav__item { padding: var(--space-2) var(--space-4); border-radius: var(--radius-full); font-size: var(--text-body-s); color: var(--color-gray-300); cursor: pointer; transition: background var(--transition-fast), color var(--transition-fast); white-space: nowrap; }
+    .proto-nav__item:hover { background: rgba(255,255,255,.1); color: #fff; }
+    .proto-nav__item--active { background: var(--color-primary-600); color: #fff; }
+
+    /* ── 状态切换 ── */
+    .state-panel { display: none; }
+    .state-panel--active { display: block; }
+
+    /* ── 权限提示 ── */
+    .perm-banner { background: var(--color-warning-50); border: 1px solid var(--color-warning-100); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-body-m); color: var(--color-warning-700); margin-bottom: var(--space-4); }
+
+    /* ── 动画 ── */
+    @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+    @keyframes spin { to{transform:rotate(360deg)} }
+    @keyframes fade-in { from{opacity:0} to{opacity:1} }
+    @keyframes modal-scale-in { from{opacity:0;transform:scale(.96) translateY(8px)} to{opacity:1;transform:scale(1) translateY(0)} }
+    @keyframes slide-in-right { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+
+    /* ── 响应式 ── */
+    @media (max-width: 900px) {
+      .app-layout__sidebar { display: none; }
+      .filter-bar { padding: var(--space-3); }
+    }
+    @media (max-width: 640px) {
+      .toast { min-width: unset; max-width: unset; }
+      .toast-container { left: var(--space-3); right: var(--space-3); top: var(--space-3); }
+    }
+    @media (max-width: 768px) {
+      .data-table th:nth-child(4),
+      .data-table td:nth-child(4) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-layout">
+
+  <!-- 侧边栏 -->
+  <aside class="app-layout__sidebar" aria-label="主导航">
+    <div class="sidebar__logo">
+      <div class="sidebar__logo-mark" aria-hidden="true">智</div>
+      <span class="sidebar__logo-text">智造管家</span>
+    </div>
+    <nav class="sidebar__nav">
+      <div class="sidebar__nav-section">
+        <div class="sidebar__nav-label">生产管理</div>
+        <div class="sidebar__nav-item sidebar__nav-item--active" aria-current="page">
+          <span class="sidebar__nav-icon">⚙️</span>工序配置
+        </div>
+        <div class="sidebar__nav-item sidebar__nav-item--sub">
+          <span class="sidebar__nav-icon">💰</span>工资核算
+        </div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">📊</span>生产看板
+        </div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">📋</span>我的任务
+        </div>
+      </div>
+      <div class="sidebar__nav-section">
+        <div class="sidebar__nav-label">主数据</div>
+        <div class="sidebar__nav-item"><span class="sidebar__nav-icon">📦</span>SKU 主数据</div>
+        <div class="sidebar__nav-item"><span class="sidebar__nav-icon">🗂</span>类目管理</div>
+        <div class="sidebar__nav-item"><span class="sidebar__nav-icon">📋</span>BOM 管理</div>
+      </div>
+      <div class="sidebar__nav-section">
+        <div class="sidebar__nav-label">采购管理</div>
+        <div class="sidebar__nav-item"><span class="sidebar__nav-icon">🏭</span>供应商管理</div>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- 主区域 -->
+  <div class="app-layout__main">
+    <header class="app-layout__header">
+      <div class="header__breadcrumb">
+        <span>生产管理</span>
+        <span style="color:var(--color-gray-300);">›</span>
+        <span class="header__breadcrumb-current" id="page-breadcrumb">工序配置</span>
+      </div>
+      <div class="header__right">
+        <span class="badge badge--skilled" style="font-size:.75rem;">👤 管理员</span>
+        <div class="header__avatar" aria-label="当前用户：张管理">张</div>
+      </div>
+    </header>
+
+    <main class="app-layout__content">
+
+      <!-- ━━━ 页面 Tab 导航 ━━━ -->
+      <div class="page-tabs" role="tablist" aria-label="功能模块切换">
+        <div class="page-tab page-tab--active" id="tab-process" role="tab" aria-selected="true"
+             onclick="switchTab('process',this)">
+          <span aria-hidden="true">⚙️</span>工序配置
+        </div>
+        <div class="page-tab" id="tab-wage" role="tab" aria-selected="false"
+             onclick="switchTab('wage',this)">
+          <span aria-hidden="true">💰</span>工资核算报表
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════
+           Tab 1：工序配置页
+      ═══════════════════════════════════════ -->
+      <div id="tab-panel-process" role="tabpanel" aria-labelledby="tab-process">
+
+        <!-- ━━━ 状态切换：正常 / 非admin ━━━ -->
+        <div class="state-panel state-panel--active" id="state-process-normal">
+
+          <div class="page-header">
+            <div>
+              <h1 class="page-header__title"><span aria-hidden="true">⚙️</span>工序配置</h1>
+              <p class="page-header__subtitle">管理生产工序模板，配置极限工时与工人计件单价（仅管理员可见工价字段）</p>
+            </div>
+            <div class="page-header__actions">
+              <button class="btn btn--secondary" aria-label="导出工序配置">
+                ↗ 导出
+              </button>
+              <button class="btn btn--primary" onclick="showModal('modal-add-process')" aria-label="新增工序">
+                + 新增工序
+              </button>
+            </div>
+          </div>
+
+          <div class="card">
+            <!-- 筛选栏 -->
+            <div class="filter-bar" role="search" aria-label="工序搜索筛选">
+              <div class="filter-bar__item">
+                <input type="search" class="filter-select" placeholder="搜索工序名称/编码..."
+                       style="min-width:12rem;" aria-label="搜索工序" />
+              </div>
+              <div class="filter-bar__item">
+                <span class="filter-bar__label">极限工时：</span>
+                <select class="filter-select" aria-label="筛选极限工时配置状态">
+                  <option>全部</option>
+                  <option>已配置</option>
+                  <option>未配置</option>
+                </select>
+              </div>
+              <div class="filter-bar__item" style="margin-left:auto;">
+                <span style="font-size:var(--text-body-s);color:var(--text-secondary);">共 <strong>7</strong> 条</span>
+              </div>
+            </div>
+
+            <!-- 工序表格 -->
+            <div style="overflow-x:auto;">
+              <table class="data-table" aria-label="工序列表">
+                <thead>
+                  <tr>
+                    <th>工序名称</th>
+                    <th>工序编码</th>
+                    <th>
+                      极限工时
+                      <span title="超出该工时 20% 触发超时预警" style="cursor:help;color:var(--color-primary-500);">ⓘ</span>
+                    </th>
+                    <th class="admin-only">
+                      熟练工单价
+                      <span title="元/件，仅管理员可见" style="cursor:help;color:var(--color-primary-500);">🔒</span>
+                    </th>
+                    <th class="admin-only">
+                      学徒工单价
+                      <span title="元/件，仅管理员可见" style="cursor:help;color:var(--color-primary-500);">🔒</span>
+                    </th>
+                    <th>排序</th>
+                    <th class="col-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- 行 1：已配置极限工时 + 工价 -->
+                  <tr>
+                    <td>
+                      <div class="cell-name">开料</div>
+                      <div class="cell-code">PS-001</div>
+                    </td>
+                    <td><span class="cell-code">PS-001</span></td>
+                    <td>
+                      <span class="cell-number">0.50</span>
+                      <span style="font-size:var(--text-body-s);color:var(--text-secondary);margin-left:2px;">h/件</span>
+                    </td>
+                    <td class="admin-only">
+                      <span style="color:var(--text-secondary);font-size:var(--text-body-s);">¥</span>
+                      <span class="cell-number">12.00</span>
+                    </td>
+                    <td class="admin-only">
+                      <span style="color:var(--text-secondary);font-size:var(--text-body-s);">¥</span>
+                      <span class="cell-number">8.00</span>
+                    </td>
+                    <td><span class="cell-number">1</span></td>
+                    <td class="col-right">
+                      <div class="cell-actions">
+                        <button class="btn btn--text btn--sm" onclick="showModal('modal-edit-process')" aria-label="配置工价">配置工价</button>
+                        <button class="btn btn--ghost btn--sm" aria-label="编辑开料">编辑</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <!-- 行 2：内联编辑极限工时中 -->
+                  <tr class="row--editing">
+                    <td>
+                      <div class="cell-name">弯曲</div>
+                      <div class="cell-code">PS-002</div>
+                    </td>
+                    <td><span class="cell-code">PS-002</span></td>
+                    <td>
+                      <div style="display:flex;align-items:center;gap:var(--space-2);">
+                        <input type="number" class="inline-input" value="0.75" min="0.01" step="0.01"
+                               aria-label="编辑极限工时（小时/件）" />
+                        <span style="font-size:var(--text-body-s);color:var(--text-secondary);">h/件</span>
+                        <button class="btn btn--primary btn--sm" onclick="showToast('toast-save-success')" aria-label="保存极限工时">✓</button>
+                        <button class="btn btn--ghost btn--sm" aria-label="取消编辑">✕</button>
+                      </div>
+                    </td>
+                    <td class="admin-only">
+                      <span style="color:var(--text-secondary);font-size:var(--text-body-s);">¥</span>
+                      <span class="cell-number">10.50</span>
+                    </td>
+                    <td class="admin-only">
+                      <span style="color:var(--text-secondary);font-size:var(--text-body-s);">¥</span>
+                      <span class="cell-number">7.00</span>
+                    </td>
+                    <td><span class="cell-number">2</span></td>
+                    <td class="col-right">
+                      <div class="cell-actions">
+                        <button class="btn btn--text btn--sm" onclick="showModal('modal-edit-process')">配置工价</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <!-- 行 3：未配置极限工时 -->
+                  <tr>
+                    <td>
+                      <div class="cell-name">打磨</div>
+                      <div class="cell-code">PS-003</div>
+                    </td>
+                    <td><span class="cell-code">PS-003</span></td>
+                    <td>
+                      <span class="cell-unconfigured">未配置</span>
+                      <button class="btn btn--text btn--sm" style="margin-left:4px;"
+                              title="点击配置极限工时" aria-label="配置打磨工序极限工时">+ 配置</button>
+                    </td>
+                    <td class="admin-only">
+                      <span style="color:var(--text-secondary);font-size:var(--text-body-s);">¥</span>
+                      <span class="cell-number">9.00</span>
+                    </td>
+                    <td class="admin-only">
+                      <span class="cell-unconfigured">—</span>
+                    </td>
+                    <td><span class="cell-number">3</span></td>
+                    <td class="col-right">
+                      <div class="cell-actions">
+                        <button class="btn btn--text btn--sm" onclick="showModal('modal-edit-process')">配置工价</button>
+                        <button class="btn btn--ghost btn--sm">编辑</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <!-- 行 4：已配置 -->
+                  <tr>
+                    <td>
+                      <div class="cell-name">贴皮</div>
+                      <div class="cell-code">PS-004</div>
+                    </td>
+                    <td><span class="cell-code">PS-004</span></td>
+                    <td>
+                      <span class="cell-number">1.50</span>
+                      <span style="font-size:var(--text-body-s);color:var(--text-secondary);margin-left:2px;">h/件</span>
+                    </td>
+                    <td class="admin-only">
+                      <span style="color:var(--text-secondary);font-size:var(--text-body-s);">¥</span>
+                      <span class="cell-number">15.00</span>
+                    </td>
+                    <td class="admin-only">
+                      <span style="color:var(--text-secondary);font-size:var(--text-body-s);">¥</span>
+                      <span class="cell-number">10.00</span>
+                    </td>
+                    <td><span class="cell-number">4</span></td>
+                    <td class="col-right">
+                      <div class="cell-actions">
+                        <button class="btn btn--text btn--sm" onclick="showModal('modal-edit-process')">配置工价</button>
+                        <button class="btn btn--ghost btn--sm">编辑</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <!-- 行 5：未配置极限工时 & 工价 -->
+                  <tr>
+                    <td>
+                      <div class="cell-name">组装</div>
+                      <div class="cell-code">PS-005</div>
+                    </td>
+                    <td><span class="cell-code">PS-005</span></td>
+                    <td><span class="cell-unconfigured">未配置</span><button class="btn btn--text btn--sm" style="margin-left:4px;">+ 配置</button></td>
+                    <td class="admin-only"><span class="cell-unconfigured">—</span></td>
+                    <td class="admin-only"><span class="cell-unconfigured">—</span></td>
+                    <td><span class="cell-number">5</span></td>
+                    <td class="col-right">
+                      <div class="cell-actions">
+                        <button class="btn btn--text btn--sm" onclick="showModal('modal-edit-process')">配置工价</button>
+                        <button class="btn btn--ghost btn--sm">编辑</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <!-- 行 6 -->
+                  <tr>
+                    <td>
+                      <div class="cell-name">喷漆</div>
+                      <div class="cell-code">PS-006</div>
+                    </td>
+                    <td><span class="cell-code">PS-006</span></td>
+                    <td>
+                      <span class="cell-number">0.25</span>
+                      <span style="font-size:var(--text-body-s);color:var(--text-secondary);margin-left:2px;">h/件</span>
+                    </td>
+                    <td class="admin-only">
+                      <span style="color:var(--text-secondary);font-size:var(--text-body-s);">¥</span>
+                      <span class="cell-number">6.50</span>
+                    </td>
+                    <td class="admin-only">
+                      <span style="color:var(--text-secondary);font-size:var(--text-body-s);">¥</span>
+                      <span class="cell-number">4.50</span>
+                    </td>
+                    <td><span class="cell-number">6</span></td>
+                    <td class="col-right">
+                      <div class="cell-actions">
+                        <button class="btn btn--text btn--sm" onclick="showModal('modal-edit-process')">配置工价</button>
+                        <button class="btn btn--ghost btn--sm">编辑</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <!-- 行 7：质检，极限工时已配置，无工价 -->
+                  <tr>
+                    <td>
+                      <div class="cell-name">质检</div>
+                      <div class="cell-code">PS-007</div>
+                    </td>
+                    <td><span class="cell-code">PS-007</span></td>
+                    <td>
+                      <span class="cell-number">0.10</span>
+                      <span style="font-size:var(--text-body-s);color:var(--text-secondary);margin-left:2px;">h/件</span>
+                    </td>
+                    <td class="admin-only"><span class="cell-unconfigured">—</span></td>
+                    <td class="admin-only"><span class="cell-unconfigured">—</span></td>
+                    <td><span class="cell-number">7</span></td>
+                    <td class="col-right">
+                      <div class="cell-actions">
+                        <button class="btn btn--text btn--sm" onclick="showModal('modal-edit-process')">配置工价</button>
+                        <button class="btn btn--ghost btn--sm">编辑</button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+          </div><!-- /card -->
+
+        </div><!-- /state-process-normal -->
+
+        <!-- ━━━ 非 admin 视图（工价列隐藏）━━━ -->
+        <div class="state-panel" id="state-process-readonly">
+          <div class="perm-banner" role="alert">
+            <span aria-hidden="true">⚠️</span>
+            当前账号为<strong style="margin:0 var(--space-1);">车间主管</strong>角色，工价字段已隐藏。如需修改工价请联系管理员。
+          </div>
+          <div class="page-header">
+            <div>
+              <h1 class="page-header__title"><span aria-hidden="true">⚙️</span>工序配置</h1>
+            </div>
+          </div>
+          <div class="card">
+            <div style="overflow-x:auto;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>工序名称</th>
+                    <th>工序编码</th>
+                    <th>极限工时</th>
+                    <th>排序</th>
+                    <!-- 工价列对非 admin 不渲染 -->
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><div class="cell-name">开料</div></td>
+                    <td><span class="cell-code">PS-001</span></td>
+                    <td><span class="cell-number">0.50</span> <span style="font-size:var(--text-body-s);color:var(--text-secondary);">h/件</span></td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td><div class="cell-name">弯曲</div></td>
+                    <td><span class="cell-code">PS-002</span></td>
+                    <td><span class="cell-number">0.75</span> <span style="font-size:var(--text-body-s);color:var(--text-secondary);">h/件</span></td>
+                    <td>2</td>
+                  </tr>
+                  <tr>
+                    <td><div class="cell-name">打磨</div></td>
+                    <td><span class="cell-code">PS-003</span></td>
+                    <td><span class="cell-unconfigured">未配置</span></td>
+                    <td>3</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /tab-panel-process -->
+
+      <!-- ═══════════════════════════════════════
+           Tab 2：工资核算报表
+      ═══════════════════════════════════════ -->
+      <div id="tab-panel-wage" style="display:none;" role="tabpanel" aria-labelledby="tab-wage">
+
+        <div class="page-header">
+          <div>
+            <h1 class="page-header__title"><span aria-hidden="true">💰</span>工资核算报表</h1>
+            <p class="page-header__subtitle">按工人、工序、时间范围汇总计件工资，支持导出</p>
+          </div>
+          <div class="page-header__actions">
+            <button class="btn btn--secondary" onclick="showToast('toast-export-loading')" aria-label="导出 Excel 报表">
+              ↗ 导出 Excel
+            </button>
+          </div>
+        </div>
+
+        <!-- 筛选器 -->
+        <div class="card" style="margin-bottom:var(--space-4);">
+          <div style="padding:var(--space-5) var(--space-6);">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--space-4);">
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" for="filter-start-date">
+                  时间范围<span class="form-label__required">*</span>
+                </label>
+                <div style="display:flex;align-items:center;gap:var(--space-2);">
+                  <input type="date" class="form-input" id="filter-start-date" value="2026-03-01" style="flex:1;" aria-label="开始日期" />
+                  <span style="color:var(--text-secondary);">—</span>
+                  <input type="date" class="form-input" id="filter-end-date" value="2026-03-12" style="flex:1;" aria-label="结束日期" />
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" for="filter-worker">工人</label>
+                <select class="form-input" id="filter-worker" aria-label="筛选工人">
+                  <option value="">全部工人</option>
+                  <option>李小明</option>
+                  <option>王大力</option>
+                  <option>陈小兰</option>
+                  <option>张三丰</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" for="filter-grade">工人等级</label>
+                <select class="form-input" id="filter-grade" aria-label="筛选工人等级">
+                  <option value="">全部等级</option>
+                  <option value="skilled">仅熟练工</option>
+                  <option value="apprentice">仅学徒工</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" for="filter-process">工序</label>
+                <select class="form-input" id="filter-process" aria-label="筛选工序">
+                  <option value="">全部工序</option>
+                  <option>开料</option>
+                  <option>弯曲</option>
+                  <option>打磨</option>
+                  <option>贴皮</option>
+                </select>
+              </div>
+            </div>
+            <div style="margin-top:var(--space-4);display:flex;gap:var(--space-3);">
+              <button class="btn btn--primary" onclick="showToast('toast-query-success')">查询</button>
+              <button class="btn btn--ghost">重置</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 图表/表格切换 -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-4);">
+          <div style="display:flex;gap:var(--space-2);">
+            <button class="btn btn--secondary btn--sm" id="view-table-btn" onclick="switchView('table',this)" aria-pressed="true">
+              📋 表格视图
+            </button>
+            <button class="btn btn--ghost btn--sm" id="view-chart-btn" onclick="switchView('chart',this)" aria-pressed="false">
+              📊 图表视图
+            </button>
+          </div>
+          <span style="font-size:var(--text-body-s);color:var(--text-secondary);">
+            <strong style="color:var(--color-error-500);">*</strong>
+            含 2 条未配置单价的记录，未计入合计
+          </span>
+        </div>
+
+        <!-- 表格视图 -->
+        <div id="view-table" class="card">
+          <div style="overflow-x:auto;">
+            <table class="data-table" aria-label="工资核算报表">
+              <thead>
+                <tr>
+                  <th>工人姓名</th>
+                  <th>等级</th>
+                  <th>工序名称</th>
+                  <th>完成件数</th>
+                  <th>单价（元/件）</th>
+                  <th class="col-right">工资小计（元）</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- 工人 1：李小明（熟练工） -->
+                <tr>
+                  <td rowspan="3" style="font-weight:500;vertical-align:top;padding-top:1rem;">李小明</td>
+                  <td><span class="badge badge--skilled">熟练工</span></td>
+                  <td>开料</td>
+                  <td><span class="cell-number">120</span></td>
+                  <td><span class="cell-number">12.00</span></td>
+                  <td class="col-right"><span class="cell-number font-tabular">1,440.00</span></td>
+                </tr>
+                <tr>
+                  <td><span class="badge badge--skilled">熟练工</span></td>
+                  <td>弯曲</td>
+                  <td><span class="cell-number">85</span></td>
+                  <td><span class="cell-number">10.50</span></td>
+                  <td class="col-right"><span class="cell-number font-tabular">892.50</span></td>
+                </tr>
+                <tr>
+                  <td><span class="badge badge--skilled">熟练工</span></td>
+                  <td>打磨</td>
+                  <td><span class="cell-number">60</span></td>
+                  <td style="color:var(--color-warning-600);">—</td>
+                  <td class="col-right" style="color:var(--color-warning-600);">—</td>
+                </tr>
+                <!-- 工人 2：王大力（学徒工） -->
+                <tr style="border-top:2px solid var(--color-gray-100);">
+                  <td rowspan="2" style="font-weight:500;vertical-align:top;padding-top:1rem;">王大力</td>
+                  <td><span class="badge badge--apprentice">学徒工</span></td>
+                  <td>开料</td>
+                  <td><span class="cell-number">98</span></td>
+                  <td><span class="cell-number">8.00</span></td>
+                  <td class="col-right"><span class="cell-number font-tabular">784.00</span></td>
+                </tr>
+                <tr>
+                  <td><span class="badge badge--apprentice">学徒工</span></td>
+                  <td>贴皮</td>
+                  <td><span class="cell-number">42</span></td>
+                  <td><span class="cell-number">10.00</span></td>
+                  <td class="col-right"><span class="cell-number font-tabular">420.00</span></td>
+                </tr>
+                <!-- 工人 3：陈小兰 -->
+                <tr style="border-top:2px solid var(--color-gray-100);">
+                  <td rowspan="2" style="font-weight:500;vertical-align:top;padding-top:1rem;">陈小兰</td>
+                  <td><span class="badge badge--skilled">熟练工</span></td>
+                  <td>贴皮</td>
+                  <td><span class="cell-number">75</span></td>
+                  <td><span class="cell-number">15.00</span></td>
+                  <td class="col-right"><span class="cell-number font-tabular">1,125.00</span></td>
+                </tr>
+                <tr>
+                  <td><span class="badge badge--skilled">熟练工</span></td>
+                  <td>喷漆</td>
+                  <td><span class="cell-number">200</span></td>
+                  <td><span class="cell-number">6.50</span></td>
+                  <td class="col-right"><span class="cell-number font-tabular">1,300.00</span></td>
+                </tr>
+              </tbody>
+              <!-- 汇总行 -->
+              <tfoot class="table-summary">
+                <tr>
+                  <td colspan="3" style="font-weight:700;">
+                    合计
+                    <span class="summary-note">（*含 2 条未配置单价记录，未计入合计）</span>
+                  </td>
+                  <td style="font-weight:700;"><span class="cell-number">680</span> 件</td>
+                  <td>—</td>
+                  <td class="col-right" style="font-weight:700;font-family:var(--font-family-number);font-size:var(--text-body-l);color:var(--color-primary-600);">
+                    ¥ 5,961.50
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- 图表视图（默认隐藏） -->
+        <div id="view-chart" style="display:none;" class="card">
+          <div style="padding:var(--space-5) var(--space-6);">
+            <div style="font-weight:600;font-size:var(--text-body-l);margin-bottom:var(--space-4);">各工人工资总额（2026-03-01 至 2026-03-12）</div>
+            <div class="bar-chart" role="img" aria-label="柱状图：各工人工资总额，熟练工与学徒工分色堆叠">
+              <!-- 李小明 熟2332.5，学0 -->
+              <div class="bar-group">
+                <div class="bar-group__bars">
+                  <div class="bar bar--skilled" style="height:140px;" title="熟练工：¥2,332.50"></div>
+                  <div class="bar bar--apprentice" style="height:5px;" title="学徒工：—"></div>
+                </div>
+                <div class="bar-group__label">李小明</div>
+              </div>
+              <!-- 王大力 熟0，学1204 -->
+              <div class="bar-group">
+                <div class="bar-group__bars">
+                  <div class="bar bar--skilled" style="height:5px;" title="熟练工：—"></div>
+                  <div class="bar bar--apprentice" style="height:72px;" title="学徒工：¥1,204.00"></div>
+                </div>
+                <div class="bar-group__label">王大力</div>
+              </div>
+              <!-- 陈小兰 熟2425 学0 -->
+              <div class="bar-group">
+                <div class="bar-group__bars">
+                  <div class="bar bar--skilled" style="height:145px;" title="熟练工：¥2,425.00"></div>
+                  <div class="bar bar--apprentice" style="height:5px;" title="学徒工：—"></div>
+                </div>
+                <div class="bar-group__label">陈小兰</div>
+              </div>
+            </div>
+            <div class="bar-legend" role="list">
+              <div class="bar-legend__item" role="listitem">
+                <div class="bar-legend__dot" style="background:var(--color-primary-500);"></div>
+                熟练工
+              </div>
+              <div class="bar-legend__item" role="listitem">
+                <div class="bar-legend__dot" style="background:var(--color-warning-500);"></div>
+                学徒工
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /tab-panel-wage -->
+
+    </main>
+  </div>
+</div>
+
+<!-- ████████████████████████████████████████████████
+     Modal 集合
+████████████████████████████████████████████████ -->
+
+<!-- Modal：新增 / 编辑工序 -->
+<div class="modal-overlay" id="modal-add-process" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-add-process-title"
+     onclick="if(event.target===this)closeModal('modal-add-process')">
+  <div class="modal modal--md">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-add-process-title">新增工序</h2>
+      <button class="modal__close" onclick="closeModal('modal-add-process')" aria-label="关闭">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label" for="proc-name">工序名称<span class="form-label__required">*</span></label>
+        <input class="form-input" id="proc-name" type="text" placeholder="如：抛光" maxlength="20" aria-required="true" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="proc-code">工序编码</label>
+        <input class="form-input" id="proc-code" type="text" placeholder="如：PS-008" maxlength="20" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="proc-sort">排序号</label>
+        <input class="form-input" id="proc-sort" type="number" min="1" placeholder="数字越小越靠前" />
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label" for="proc-remark">备注</label>
+        <textarea class="form-input" id="proc-remark" rows="2" style="resize:vertical;" maxlength="200"></textarea>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('modal-add-process')">取消</button>
+      <button class="btn btn--primary" onclick="simulateSuccess('modal-add-process','toast-save-success')">确认新增</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal：工价配置弹框（核心功能弹框）-->
+<div class="modal-overlay" id="modal-edit-process" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-edit-process-title"
+     onclick="if(event.target===this)closeModal('modal-edit-process')">
+  <div class="modal modal--md">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-edit-process-title">工序工价配置</h2>
+      <button class="modal__close" onclick="closeModal('modal-edit-process')" aria-label="关闭">×</button>
+    </div>
+    <div class="modal__body">
+
+      <!-- 只读信息区 -->
+      <div style="background:var(--color-gray-50);border-radius:var(--radius-md);padding:var(--space-4) var(--space-5);margin-bottom:var(--space-5);display:flex;gap:var(--space-6);">
+        <div>
+          <div style="font-size:var(--text-body-s);color:var(--text-secondary);margin-bottom:var(--space-1);">工序名称</div>
+          <div style="font-weight:600;font-size:var(--text-body-l);">开料</div>
+        </div>
+        <div>
+          <div style="font-size:var(--text-body-s);color:var(--text-secondary);margin-bottom:var(--space-1);">工序编码</div>
+          <div style="font-family:var(--font-family-mono);color:var(--text-secondary);">PS-001</div>
+        </div>
+      </div>
+
+      <!-- 极限工时 -->
+      <div class="form-group">
+        <label class="form-label" for="edit-max-hours">
+          极限工时
+          <span class="form-label__hint">小时/件，超出 20% 触发超时预警，选填</span>
+        </label>
+        <div class="input-group">
+          <input class="form-input form-input--suffix" id="edit-max-hours" type="number"
+                 min="0.01" step="0.01" placeholder="如：0.50"
+                 value="0.50"
+                 oninput="updateWageCalc()"
+                 aria-label="极限工时（小时/件）" />
+          <span class="input-group__addon input-group__addon--right">h/件</span>
+        </div>
+        <p class="form-hint">⚠ 极限工时 × 1.2 = <strong id="overtime-threshold">0.60</strong> h/件（超出触发预警）</p>
+      </div>
+
+      <hr class="form-divider" />
+      <div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);">
+        <span style="font-weight:600;font-size:var(--text-body-m);">🔒 计件单价配置</span>
+        <span class="badge badge--unconfigured" style="font-size:var(--text-caption);">仅管理员可见</span>
+      </div>
+
+      <!-- 熟练工单价 -->
+      <div class="form-group">
+        <label class="form-label" for="edit-price-skilled">
+          熟练工单价
+          <span class="form-label__hint">元/件，选填</span>
+        </label>
+        <div class="input-group">
+          <span class="input-group__addon input-group__addon--left">¥</span>
+          <input class="form-input form-input--prefix" id="edit-price-skilled" type="number"
+                 min="0.01" step="0.01" placeholder="如：12.00"
+                 value="12.00"
+                 oninput="updateWageCalc()"
+                 aria-label="熟练工计件单价（元/件）" />
+        </div>
+      </div>
+
+      <!-- 学徒工单价 -->
+      <div class="form-group" style="margin-bottom:var(--space-2);">
+        <label class="form-label" for="edit-price-apprentice">
+          学徒工单价
+          <span class="form-label__hint">元/件，选填</span>
+        </label>
+        <div class="input-group">
+          <span class="input-group__addon input-group__addon--left">¥</span>
+          <input class="form-input form-input--prefix" id="edit-price-apprentice" type="number"
+                 min="0.01" step="0.01" placeholder="如：8.00"
+                 value="8.00"
+                 oninput="updateWageCalc()"
+                 aria-label="学徒工计件单价（元/件）" />
+        </div>
+      </div>
+
+      <!-- 工价单差预览 -->
+      <div style="background:var(--color-info-50);border:1px solid var(--color-info-100);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--text-body-s);color:var(--color-info-500);margin-top:var(--space-3);">
+        ℹ 工价差：熟练工比学徒工多 <strong id="price-diff">¥4.00</strong>/件（差值 <strong id="price-diff-pct">50.0%</strong>）
+      </div>
+
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('modal-edit-process')">取消</button>
+      <button class="btn btn--primary" onclick="simulateSuccess('modal-edit-process','toast-save-success')">保存配置</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal：完工上报（含超时预警 + 实时工资核算预览）-->
+<div class="modal-overlay" id="modal-complete-task" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="modal-complete-title"
+     onclick="if(event.target===this)closeModal('modal-complete-task')">
+  <div class="modal modal--md">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-complete-title">完工上报</h2>
+      <button class="modal__close" onclick="closeModal('modal-complete-task')" aria-label="关闭">×</button>
+    </div>
+    <div class="modal__body">
+
+      <!-- 任务信息 -->
+      <div style="background:var(--color-gray-50);border-radius:var(--radius-md);padding:var(--space-4) var(--space-5);margin-bottom:var(--space-5);display:flex;flex-wrap:wrap;gap:var(--space-4);">
+        <div>
+          <div style="font-size:var(--text-body-s);color:var(--text-secondary);">任务编号</div>
+          <div style="font-weight:600;">TASK-20260312-001</div>
+        </div>
+        <div>
+          <div style="font-size:var(--text-body-s);color:var(--text-secondary);">工序</div>
+          <div style="font-weight:600;">开料</div>
+        </div>
+        <div>
+          <div style="font-size:var(--text-body-s);color:var(--text-secondary);">工人等级</div>
+          <div><span class="badge badge--skilled">熟练工</span></div>
+        </div>
+        <div>
+          <div style="font-size:var(--text-body-s);color:var(--text-secondary);">极限工时</div>
+          <div style="font-weight:600;">0.50 h/件</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);">
+        <div class="form-group">
+          <label class="form-label" for="complete-qty">
+            完成件数<span class="form-label__required">*</span>
+          </label>
+          <input class="form-input" id="complete-qty" type="number"
+                 min="1" step="1" placeholder="正整数"
+                 oninput="updateCompleteCalc()"
+                 aria-required="true" aria-label="完成件数（正整数）" />
+          <div class="form-error" id="qty-error" style="display:none;" role="alert">请输入正整数</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="complete-hours">
+            实际工时（小时）<span class="form-label__required">*</span>
+          </label>
+          <input class="form-input" id="complete-hours" type="number"
+                 min="0.1" step="0.1" placeholder="如：4.5"
+                 oninput="updateCompleteCalc()"
+                 aria-required="true" aria-label="实际工时（小时，最多1位小数）" />
+        </div>
+      </div>
+
+      <!-- 超时预警（条件显示）-->
+      <div class="overtime-alert" id="overtime-warning" style="display:none;" role="alert">
+        <span class="overtime-alert__icon" aria-hidden="true">⏱</span>
+        <div>
+          <div class="overtime-alert__title">超时预警</div>
+          <p class="overtime-alert__desc" id="overtime-desc">
+            本次完工人均工时为 <strong>0.75</strong> h/件，超出极限工时 <strong>50.0%</strong>，系统将记录超时预警标记，提交后在看板中高亮显示。
+          </p>
+        </div>
+      </div>
+
+      <!-- 实时工资核算预览 -->
+      <div class="wage-preview" id="wage-preview">
+        <div class="wage-preview__label">预计工资（实时核算）</div>
+        <div class="wage-preview__amount" id="wage-amount">— 元</div>
+        <div class="wage-preview__desc" id="wage-desc">填写完成件数后自动计算（熟练工单价 ¥12.00/件）</div>
+      </div>
+
+      <div class="form-group" style="margin-top:var(--space-4);margin-bottom:0;">
+        <label class="form-label" for="complete-remark">备注</label>
+        <textarea class="form-input" id="complete-remark" rows="2" style="resize:vertical;" maxlength="200" placeholder="可选填，最多 200 字"></textarea>
+      </div>
+
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" onclick="closeModal('modal-complete-task')">取消</button>
+      <button class="btn btn--primary" onclick="simulateSuccess('modal-complete-task','toast-complete-success')" aria-label="提交完工上报">
+        提交完工
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ████████████████████████████████████████████████
+     Toast 集合
+████████████████████████████████████████████████ -->
+<div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="false">
+  <div class="toast toast--success" id="toast-save-success" style="display:none;" role="status">
+    <span class="toast__icon" aria-hidden="true">✅</span>
+    <div class="toast__body">
+      <div class="toast__title">保存成功</div>
+      <div class="toast__desc">工序配置已更新，变更已写入审计日志</div>
+    </div>
+    <button class="toast__close" onclick="hideToast('toast-save-success')" aria-label="关闭">×</button>
+  </div>
+  <div class="toast toast--success" id="toast-complete-success" style="display:none;" role="status">
+    <span class="toast__icon" aria-hidden="true">✅</span>
+    <div class="toast__body">
+      <div class="toast__title">完工上报已提交</div>
+      <div class="toast__desc">本次工资：¥1,440.00 元，任务状态已变为「已完成」</div>
+    </div>
+    <button class="toast__close" onclick="hideToast('toast-complete-success')" aria-label="关闭">×</button>
+  </div>
+  <div class="toast toast--info" id="toast-query-success" style="display:none;" role="status">
+    <span class="toast__icon" aria-hidden="true">📊</span>
+    <div class="toast__body">
+      <div class="toast__title">报表已刷新</div>
+      <div class="toast__desc">当前筛选范围：2026-03-01 至 2026-03-12，共 7 条记录</div>
+    </div>
+    <button class="toast__close" onclick="hideToast('toast-query-success')" aria-label="关闭">×</button>
+  </div>
+  <div class="toast toast--info" id="toast-export-loading" style="display:none;" role="status">
+    <span class="toast__icon" aria-hidden="true"><span class="spinner"></span></span>
+    <div class="toast__body">
+      <div class="toast__title">正在导出...</div>
+      <div class="toast__desc">工资核算报表 2026-03-01_2026-03-12.xlsx</div>
+    </div>
+    <button class="toast__close" onclick="hideToast('toast-export-loading')" aria-label="关闭">×</button>
+  </div>
+  <div class="toast toast--error" id="toast-grade-missing" style="display:none;" role="alert">
+    <span class="toast__icon" aria-hidden="true">❌</span>
+    <div class="toast__body">
+      <div class="toast__title">工人等级未配置</div>
+      <div class="toast__desc">工人「李小明」的等级未配置，请先在用户管理中设置工人等级后重试</div>
+    </div>
+    <button class="toast__close" onclick="hideToast('toast-grade-missing')" aria-label="关闭">×</button>
+  </div>
+</div>
+
+<!-- 原型导航 -->
+<nav class="proto-nav" aria-label="原型状态切换（仅设计评审用）">
+  <div class="proto-nav__item proto-nav__item--active" onclick="setProcessView('normal',this)">工序配置（Admin）</div>
+  <div class="proto-nav__item" onclick="setProcessView('readonly',this)">工序配置（主管）</div>
+  <div class="proto-nav__item" onclick="showWageTab()">工资核算报表</div>
+  <div class="proto-nav__item" onclick="showModal('modal-edit-process')">工价配置弹框</div>
+  <div class="proto-nav__item" onclick="showModal('modal-complete-task')">完工上报弹框</div>
+  <div class="proto-nav__item" onclick="demoOvertime()">超时预警效果</div>
+  <div class="proto-nav__item" onclick="showToast('toast-grade-missing')">等级未配置报错</div>
+  <div class="proto-nav__item" onclick="switchView('chart', document.getElementById('view-chart-btn'))">柱状图视图</div>
+</nav>
+
+<script>
+  /* ── Tab 切换 ── */
+  function switchTab(name, el) {
+    document.getElementById('tab-panel-process').style.display = name === 'process' ? '' : 'none';
+    document.getElementById('tab-panel-wage').style.display    = name === 'wage'    ? '' : 'none';
+    document.querySelectorAll('.page-tab').forEach(t => {
+      t.classList.remove('page-tab--active');
+      t.setAttribute('aria-selected','false');
+    });
+    el.classList.add('page-tab--active');
+    el.setAttribute('aria-selected','true');
+    document.getElementById('page-breadcrumb').textContent = name === 'wage' ? '工资核算报表' : '工序配置';
+  }
+
+  /* ── 工序视图切换（admin vs 主管）── */
+  function setProcessView(name, el) {
+    document.getElementById('state-process-normal').classList.toggle('state-panel--active', name === 'normal');
+    document.getElementById('state-process-readonly').classList.toggle('state-panel--active', name === 'readonly');
+    document.querySelectorAll('.proto-nav__item').forEach(i => i.classList.remove('proto-nav__item--active'));
+    el.classList.add('proto-nav__item--active');
+  }
+
+  /* ── 工资核算报表快捷显示 ── */
+  function showWageTab() {
+    switchTab('wage', document.getElementById('tab-wage'));
+    document.querySelectorAll('.proto-nav__item').forEach(i => i.classList.remove('proto-nav__item--active'));
+  }
+
+  /* ── 表格/图表切换 ── */
+  function switchView(name, el) {
+    document.getElementById('view-table').style.display = name === 'table' ? '' : 'none';
+    document.getElementById('view-chart').style.display = name === 'chart' ? '' : 'none';
+    document.getElementById('view-table-btn').className = 'btn btn--sm ' + (name==='table'?'btn--secondary':'btn--ghost');
+    document.getElementById('view-chart-btn').className = 'btn btn--sm ' + (name==='chart'?'btn--secondary':'btn--ghost');
+    document.getElementById('view-table-btn').setAttribute('aria-pressed', name==='table');
+    document.getElementById('view-chart-btn').setAttribute('aria-pressed', name==='chart');
+  }
+
+  /* ── Modal 控制 ── */
+  function showModal(id) { const el=document.getElementById(id); if(el){el.style.display='flex'; el.querySelector('[role="dialog"]')?.focus();} }
+  function closeModal(id) { const el=document.getElementById(id); if(el)el.style.display='none'; }
+  function simulateSuccess(modalId, toastId) { closeModal(modalId); showToast(toastId); }
+
+  /* ── Toast 控制 ── */
+  function showToast(id) { const el=document.getElementById(id); if(!el)return; el.style.display='flex'; setTimeout(()=>hideToast(id),4000); }
+  function hideToast(id) { const el=document.getElementById(id); if(el)el.style.display='none'; }
+
+  /* ── 工价弹框实时计算 ── */
+  function updateWageCalc() {
+    const skilled    = parseFloat(document.getElementById('edit-price-skilled')?.value) || 0;
+    const apprentice = parseFloat(document.getElementById('edit-price-apprentice')?.value) || 0;
+    const maxHours   = parseFloat(document.getElementById('edit-max-hours')?.value) || 0;
+    const diffEl     = document.getElementById('price-diff');
+    const diffPctEl  = document.getElementById('price-diff-pct');
+    const threshEl   = document.getElementById('overtime-threshold');
+    if(diffEl && skilled && apprentice){
+      const diff = skilled - apprentice;
+      const pct  = apprentice > 0 ? (diff/apprentice*100).toFixed(1) : '—';
+      diffEl.textContent    = '¥' + diff.toFixed(2);
+      diffPctEl.textContent = pct + '%';
+    }
+    if(threshEl && maxHours) threshEl.textContent = (maxHours * 1.2).toFixed(2);
+  }
+
+  /* ── 完工上报实时核算 ── */
+  function updateCompleteCalc() {
+    const qty         = parseInt(document.getElementById('complete-qty')?.value) || 0;
+    const hours       = parseFloat(document.getElementById('complete-hours')?.value) || 0;
+    const unitPrice   = 12.00; // 熟练工单价（模拟）
+    const maxHours    = 0.50;  // 极限工时（模拟）
+    const wageEl      = document.getElementById('wage-amount');
+    const descEl      = document.getElementById('wage-desc');
+    const warningEl   = document.getElementById('overtime-warning');
+    const overtimeEl  = document.getElementById('overtime-desc');
+
+    if(wageEl && qty > 0){
+      const wage = qty * unitPrice;
+      wageEl.textContent = '¥ ' + wage.toFixed(2) + ' 元';
+      if(descEl) descEl.textContent = qty + ' 件 × ¥' + unitPrice.toFixed(2) + '/件（熟练工）';
+    } else if(wageEl) {
+      wageEl.textContent = '— 元';
+      if(descEl) descEl.textContent = '填写完成件数后自动计算（熟练工单价 ¥12.00/件）';
+    }
+
+    if(hours > 0 && qty > 0 && warningEl){
+      const avgHours = hours / qty;
+      if(avgHours > maxHours * 1.2){
+        warningEl.style.display = 'flex';
+        const overPct = ((avgHours/maxHours - 1)*100).toFixed(1);
+        if(overtimeEl) overtimeEl.innerHTML =
+          '本次完工人均工时为 <strong>' + avgHours.toFixed(2) + '</strong> h/件，超出极限工时 <strong>' + overPct + '%</strong>，系统将记录超时预警标记。';
+      } else {
+        warningEl.style.display = 'none';
+      }
+    } else if(warningEl){
+      warningEl.style.display = 'none';
+    }
+  }
+
+  /* ── 演示超时预警 ── */
+  function demoOvertime() {
+    showModal('modal-complete-task');
+    setTimeout(() => {
+      const qtyEl   = document.getElementById('complete-qty');
+      const hoursEl = document.getElementById('complete-hours');
+      if(qtyEl)   qtyEl.value   = '10';
+      if(hoursEl) hoursEl.value = '8';
+      updateCompleteCalc();
+    }, 300);
+  }
+
+  /* ── ESC 关闭 ── */
+  document.addEventListener('keydown', e => {
+    if(e.key === 'Escape')
+      document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
+  });
+</script>
+</body>
+</html>
