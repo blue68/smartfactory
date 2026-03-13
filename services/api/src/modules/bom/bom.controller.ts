@@ -30,8 +30,8 @@ const AddBomItemSchema = z.object({
   componentSkuId: z.coerce.number().int().positive(),
   quantity: z.string().regex(/^\d+(\.\d{1,4})?$/),
   unit: z.string().min(1).max(20),
-  // P1-2: enforce numeric decimal format for scrapRate
-  scrapRate: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
+  // scrapRate 必须在 0~0.9999 之间（与 CreateBomItemSchema 对齐）
+  scrapRate: z.string().regex(/^0(\.\d{1,4})?$/).optional(),
 });
 
 // P0-2: reusable query schema for listing BOMs

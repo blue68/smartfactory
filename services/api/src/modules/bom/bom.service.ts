@@ -442,6 +442,20 @@ export class BomService {
       );
     }
 
+    // 版本号唯一性校验（同 SKU 下不可重复，与 copyBom 逻辑对齐）
+    if (payload.version !== undefined && payload.version !== header.version) {
+      const [existing] = await AppDataSource.query<Array<{ id: number }>>(
+        'SELECT id FROM bom_headers WHERE tenant_id = ? AND sku_id = ? AND version = ? AND id != ? LIMIT 1',
+        [this.tenantId, header.skuId, payload.version, bomId],
+      );
+      if (existing) {
+        throw AppError.badRequest(
+          `版本号 ${payload.version} 已存在，请使用其他版本号`,
+          ResponseCode.BOM_VERSION_DUPLICATE,
+        );
+      }
+    }
+
     const setClauses: string[] = ['updated_by = ?'];
     const params: unknown[] = [this.userId];
 
