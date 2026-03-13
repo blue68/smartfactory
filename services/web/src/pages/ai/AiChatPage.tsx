@@ -1,11 +1,18 @@
 /**
- * [artifact:前端代码] — AI 对话中心页面（重构版）
+ * [artifact:前端代码] — AI 对话中心页面
  *
- * T201: 双栏布局（左侧 300px 会话历史 + 右侧弹性对话区，移动端抽屉）
- * T202: WelcomeBanner + 4 个快捷问题卡片
- * T203: DataCard（table / kpi 两种模式，AI 回复内联渲染）
- * T204: Textarea 自动高度（max 5 行） + localStorage 消息持久化
- * T205: 顶部工具栏：导出对话（纯文本下载）+ 清除当前会话
+ * 视觉 100% 对齐 web-ai-chat.html 设计稿：
+ *   - 左侧 300px 会话历史面板（移动端抽屉）
+ *   - 右侧主对话区，顶部渐变工具栏
+ *   - 消息气泡：AI 头像文字"AI"、用户气泡蓝色无头像
+ *   - 思考状态：步骤列表 + 倒计时秒数
+ *   - 流式输出：闪烁光标（StreamText）
+ *   - 置信度标签（ConfidenceTag）随 AI 回复显示
+ *   - 错误气泡：重试 + 手动处理双按钮
+ *   - 日期分隔线
+ *   - 底部上下文 token 元信息行
+ *   - 输入框（单行）+ CSS 箭头发送按钮
+ *   - localStorage 消息持久化，导出对话，清除当前会话
  */
 
 import {
@@ -19,25 +26,23 @@ import {
 import { config } from '@/config';
 import AiThinkingState, { type ThinkingStep } from '@/components/ai/AiThinkingState';
 import StreamText from '@/components/ai/StreamText';
+import ConfidenceTag from '@/components/common/ConfidenceTag';
+import { Confidence } from '@/types/enums';
 import styles from './AiChatPage.module.css';
 
 // ─────────────────────────────────────────────
 // 类型定义
 // ─────────────────────────────────────────────
 
-/** 结构化数据卡片载荷（T203） */
+/** 结构化数据卡片载荷 */
 export interface DataCardPayload {
   mode: 'table' | 'kpi';
   title?: string;
-  /** table 模式：列名数组 */
   columns?: string[];
-  /** table 模式：行数据（string 数组的数组） */
   rows?: string[][];
-  /** kpi 模式：指标列表 */
   kpis?: Array<{
     label: string;
     value: string;
-    /** 可选：warning | error | success，控制数值颜色 */
     status?: 'warning' | 'error' | 'success';
   }>;
 }
@@ -48,8 +53,9 @@ interface Message {
   content: string;
   streaming?: boolean;
   timestamp: Date;
-  /** 内联结构化数据卡片（仅 ai 消息） */
   dataCard?: DataCardPayload;
+  /** AI 回复置信度 */
+  confidence?: Confidence;
 }
 
 interface Conversation {
@@ -64,27 +70,24 @@ interface Conversation {
 // ─────────────────────────────────────────────
 
 const STORAGE_KEY = 'sf_ai_conversations';
-const MAX_TEXTAREA_HEIGHT_LINE = 5; // 最大 5 行
 
 const QUICK_QUESTIONS = [
-  { icon: '\u26A0', text: '今日库存预警有哪些？' },
-  { icon: '\uD83D\uDCCB', text: '本周排产计划进度如何？' },
-  { icon: '\uD83D\uDCB0', text: '哪些采购建议需要审批？' },
-  { icon: '\uD83D\uDD0E', text: '最近的质量问题汇总' },
+  { icon: '⚠', text: '今日库存预警有哪些？' },
+  { icon: '📋', text: '本周排产计划进度如何？' },
+  { icon: '💰', text: '哪些采购建议需要审批？' },
+  { icon: '🔎', text: '最近的质量问题汇总' },
 ] as const;
 
-const QUICK_REPLY_CHIPS = [
-  '查看详情',
-  '生成报告',
-  '导出数据',
-  '推荐操作',
-];
+const QUICK_REPLY_CHIPS = ['查看详情', '生成报告', '导出数据', '推荐操作'];
 
 const THINKING_STEPS_INIT: ThinkingStep[] = [
   { label: '理解您的问题...', status: 'active' },
   { label: '检索业务数据...', status: 'pending' },
   { label: '生成分析结论...', status: 'pending' },
 ];
+
+/** 模拟倒计时初始秒数 */
+const THINKING_COUNTDOWN_INIT = 8;
 
 let msgCounter = 0;
 const newMsgId = () => `msg_${Date.now()}_${++msgCounter}`;
@@ -96,7 +99,6 @@ const newConvId = () => `conv_${Date.now()}_${++convCounter}`;
 // 工具函数
 // ─────────────────────────────────────────────
 
-/** 序列化会话到 localStorage（timestamp 转 ISO 字符串） */
 function saveConversations(conversations: Conversation[]): void {
   try {
     const serialized = conversations.map((conv) => ({
@@ -105,7 +107,6 @@ function saveConversations(conversations: Conversation[]): void {
       messages: conv.messages.map((m) => ({
         ...m,
         timestamp: m.timestamp.toISOString(),
-        // 持久化时去掉流式标记
         streaming: false,
       })),
     }));
@@ -115,7 +116,6 @@ function saveConversations(conversations: Conversation[]): void {
   }
 }
 
-/** 从 localStorage 反序列化会话 */
 function loadConversations(): Conversation[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -135,17 +135,15 @@ function loadConversations(): Conversation[] {
   }
 }
 
-/** 取会话标题（以第一条用户消息的前 20 字为标题） */
 function deriveTitle(messages: Message[]): string {
   const first = messages.find((m) => m.role === 'user');
   if (!first) return '新对话';
   return first.content.slice(0, 20) + (first.content.length > 20 ? '...' : '');
 }
 
-/** 导出对话为纯文本并触发下载 */
 function exportConversation(conversation: Conversation): void {
   const lines: string[] = [
-    `智造管家 AI 对话导出`,
+    '智造管家 AI 对话导出',
     `会话：${conversation.title}`,
     `时间：${conversation.createdAt.toLocaleString('zh-CN')}`,
     '─'.repeat(40),
@@ -153,12 +151,14 @@ function exportConversation(conversation: Conversation): void {
   ];
   for (const msg of conversation.messages) {
     const who = msg.role === 'user' ? '用户' : msg.role === 'ai' ? 'AI 助手' : '系统';
-    const time = msg.timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    const time = msg.timestamp.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
     lines.push(`[${time}] ${who}：`);
     lines.push(msg.content);
     lines.push('');
   }
-
   const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -168,14 +168,28 @@ function exportConversation(conversation: Conversation): void {
   URL.revokeObjectURL(url);
 }
 
+/** 估算上下文 token（粗略：每个汉字≈1 token，英文每词≈1 token） */
+function estimateTokens(messages: Message[]): number {
+  return messages.reduce((acc, m) => acc + Math.ceil(m.content.length * 0.9), 0);
+}
+
+/** 格式化日期分隔线标签 */
+function formatDateDivider(date: Date): string {
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return '今天';
+  if (date.toDateString() === yesterday.toDateString()) return '昨天';
+  return date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+}
+
 // ─────────────────────────────────────────────
-// DataCard 组件（T203）
+// DataCard 组件
 // ─────────────────────────────────────────────
 
 function DataCard({ data }: { data: DataCardPayload }) {
   return (
     <div className={styles['data-card']}>
-      {/* 卡片头部 */}
       <div className={styles['data-card__header']}>
         <span
           className={`${styles['data-card__type-badge']} ${
@@ -191,7 +205,6 @@ function DataCard({ data }: { data: DataCardPayload }) {
         )}
       </div>
 
-      {/* table 模式 */}
       {data.mode === 'table' && data.columns && data.rows && (
         <div style={{ overflowX: 'auto' }}>
           <table className={styles['data-card__table']} aria-label={data.title ?? '数据表格'}>
@@ -215,7 +228,6 @@ function DataCard({ data }: { data: DataCardPayload }) {
         </div>
       )}
 
-      {/* kpi 模式 */}
       {data.mode === 'kpi' && data.kpis && (
         <div className={styles['data-card__kpi-grid']}>
           {data.kpis.map((kpi, i) => (
@@ -237,6 +249,18 @@ function DataCard({ data }: { data: DataCardPayload }) {
 }
 
 // ─────────────────────────────────────────────
+// 日期分隔线
+// ─────────────────────────────────────────────
+
+function DateDivider({ label }: { label: string }) {
+  return (
+    <div className={styles['chat-divider']} aria-label={label}>
+      {label}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // 主页面组件
 // ─────────────────────────────────────────────
 
@@ -245,7 +269,6 @@ export default function AiChatPage() {
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     const loaded = loadConversations();
     if (loaded.length > 0) return loaded;
-    // 默认创建一个空会话
     return [
       {
         id: newConvId(),
@@ -260,23 +283,23 @@ export default function AiChatPage() {
   );
 
   // ── UI 状态 ──
-  const [sidebarOpen, setSidebarOpen] = useState(false); // 移动端抽屉
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
+  const [countdown, setCountdown] = useState(THINKING_COUNTDOWN_INIT);
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>(THINKING_STEPS_INIT);
 
   // ── Refs ──
   const bottomRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const timerRef = useRef<number>(0);
+  const countdownRef = useRef<number>(0);
 
   // ── 当前活动会话 ──
   const activeConv = conversations.find((c) => c.id === activeConvId) ?? conversations[0];
   const messages = activeConv?.messages ?? [];
 
-  // ── 持久化：消息变化时写 localStorage（T204） ──
+  // ── 持久化 ──
   useEffect(() => {
     saveConversations(conversations);
   }, [conversations]);
@@ -286,29 +309,23 @@ export default function AiChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, thinking]);
 
-  // ── Textarea 自动高度（T204） ──
-  const adjustTextareaHeight = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    const lineHeight = parseFloat(getComputedStyle(el).lineHeight || '24');
-    const maxH = lineHeight * MAX_TEXTAREA_HEIGHT_LINE + 2; // +2 for padding
-    el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
+  // ── 倒计时（思考状态） ──
+  const startCountdown = useCallback(() => {
+    setCountdown(THINKING_COUNTDOWN_INIT);
+    countdownRef.current = window.setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdownRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
   }, []);
 
-  useEffect(() => {
-    adjustTextareaHeight();
-  }, [input, adjustTextareaHeight]);
-
-  // ── 计时器 ──
-  const startTimer = useCallback(() => {
-    setElapsed(0);
-    timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000);
-  }, []);
-
-  const stopTimer = useCallback(() => {
-    clearInterval(timerRef.current);
-    setElapsed(0);
+  const stopCountdown = useCallback(() => {
+    clearInterval(countdownRef.current);
+    setCountdown(THINKING_COUNTDOWN_INIT);
   }, []);
 
   // ── 更新当前会话消息 ──
@@ -334,7 +351,7 @@ export default function AiChatPage() {
     abortRef.current?.abort();
     abortRef.current = null;
     setThinking(false);
-    stopTimer();
+    stopCountdown();
     updateActiveMessages((prev) => [
       ...prev,
       {
@@ -342,9 +359,10 @@ export default function AiChatPage() {
         role: 'ai',
         content: '已取消本次请求。有其他问题吗？',
         timestamp: new Date(),
+        confidence: Confidence.LOW,
       },
     ]);
-  }, [stopTimer, updateActiveMessages]);
+  }, [stopCountdown, updateActiveMessages]);
 
   // ── 发送消息 ──
   const sendMessage = useCallback(
@@ -354,7 +372,6 @@ export default function AiChatPage() {
 
       setInput('');
 
-      // 追加用户消息
       const userMsg: Message = {
         id: newMsgId(),
         role: 'user',
@@ -363,9 +380,8 @@ export default function AiChatPage() {
       };
       updateActiveMessages((prev) => [...prev, userMsg]);
 
-      // 进入思考状态
       setThinking(true);
-      startTimer();
+      startCountdown();
       setThinkingSteps([
         { label: '理解您的问题...', status: 'active' },
         { label: '检索业务数据...', status: 'pending' },
@@ -389,26 +405,24 @@ export default function AiChatPage() {
 
         if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
 
-        // 步骤更新：检索完成，生成中
         setThinkingSteps([
           { label: '理解您的问题...', status: 'done' },
           { label: '检索业务数据...', status: 'done' },
           { label: '生成分析结论...', status: 'active' },
         ]);
         setThinking(false);
-        stopTimer();
+        stopCountdown();
 
-        // 追加 AI 消息占位
         const aiMsgPlaceholder: Message = {
           id: aiMsgId,
           role: 'ai',
           content: '',
           streaming: true,
           timestamp: new Date(),
+          confidence: Confidence.HIGH,
         };
         updateActiveMessages((prev) => [...prev, aiMsgPlaceholder]);
 
-        // SSE 流式读取
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let accumulated = '';
@@ -429,15 +443,9 @@ export default function AiChatPage() {
                 content?: string;
                 dataCard?: DataCardPayload;
               };
-              if (parsed.content) {
-                accumulated += parsed.content;
-              }
-              // 服务端可以在任意 chunk 中下发 dataCard
-              if (parsed.dataCard) {
-                dataCard = parsed.dataCard;
-              }
+              if (parsed.content) accumulated += parsed.content;
+              if (parsed.dataCard) dataCard = parsed.dataCard;
             } catch {
-              // 非 JSON 内容直接追加（纯文本 SSE 兼容）
               accumulated += data;
             }
 
@@ -447,9 +455,7 @@ export default function AiChatPage() {
                 return {
                   ...conv,
                   messages: conv.messages.map((m) =>
-                    m.id === aiMsgId
-                      ? { ...m, content: accumulated, dataCard }
-                      : m,
+                    m.id === aiMsgId ? { ...m, content: accumulated, dataCard } : m,
                   ),
                 };
               }),
@@ -457,7 +463,6 @@ export default function AiChatPage() {
           }
         }
 
-        // 流结束，关闭光标
         setConversations((prevConvs) =>
           prevConvs.map((conv) => {
             if (conv.id !== activeConvId) return conv;
@@ -471,7 +476,7 @@ export default function AiChatPage() {
         );
       } catch (err: unknown) {
         setThinking(false);
-        stopTimer();
+        stopCountdown();
         if (err instanceof Error && err.name === 'AbortError') return;
 
         updateActiveMessages((prev) => [
@@ -479,16 +484,16 @@ export default function AiChatPage() {
           {
             id: newMsgId(),
             role: 'error',
-            content: '抱歉，AI 服务暂时不可用，请稍后重试。',
+            content: '抱歉，排产分析请求超时。可能是当前订单数据量较大，服务器响应超过 30 秒限制。请稍后重试，或手动查看报表页面。',
             timestamp: new Date(),
           },
         ]);
       }
     },
-    [thinking, startTimer, stopTimer, updateActiveMessages, activeConvId],
+    [thinking, startCountdown, stopCountdown, updateActiveMessages, activeConvId],
   );
 
-  // ── 重试（取最后一条用户消息） ──
+  // ── 重试 ──
   const retry = useCallback(() => {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
     if (!lastUser) return;
@@ -496,8 +501,14 @@ export default function AiChatPage() {
     updateActiveMessages((prev) => prev.filter((m) => m.role !== 'error'));
   }, [messages, updateActiveMessages]);
 
-  // ── 键盘：Enter 发送，Shift+Enter 换行 ──
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  // ── 手动处理（跳转报表页面） ──
+  const handleManual = useCallback(() => {
+    // 模拟跳转：实际可替换为 navigate('/reports')
+    window.alert('正在跳转到报表页面…');
+  }, []);
+
+  // ── 键盘：Enter 发送 ──
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void sendMessage(input);
@@ -523,29 +534,117 @@ export default function AiChatPage() {
     setSidebarOpen(false);
   }, []);
 
-  // ── T205 导出对话 ──
+  // ── 导出对话 ──
   const handleExport = useCallback(() => {
     if (!activeConv) return;
     exportConversation(activeConv);
   }, [activeConv]);
 
-  // ── T205 清除当前会话 ──
+  // ── 清除当前会话 ──
   const handleClear = useCallback(() => {
     if (!window.confirm('确定清除当前会话的所有消息？此操作不可撤销。')) return;
     updateActiveMessages(() => []);
   }, [updateActiveMessages]);
 
-  // ── Textarea onChange ──
-  const handleInputChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+  // ── 清空上下文（仅清除，不删除本地存储） ──
+  const handleClearContext = useCallback(() => {
+    updateActiveMessages(() => []);
+  }, [updateActiveMessages]);
+
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
   };
 
   const hasMessages = messages.length > 0;
+  const contextTokens = estimateTokens(messages);
+  const maxTokens = 4096;
+
+  // ── 渲染消息列表（带日期分隔线） ──
+  const renderMessages = () => {
+    const elements: React.ReactNode[] = [];
+    let lastDateStr = '';
+
+    messages.forEach((msg) => {
+      const dateStr = msg.timestamp.toDateString();
+      if (dateStr !== lastDateStr) {
+        lastDateStr = dateStr;
+        elements.push(
+          <DateDivider
+            key={`divider-${dateStr}`}
+            label={formatDateDivider(msg.timestamp)}
+          />,
+        );
+      }
+
+      if (msg.role === 'user') {
+        elements.push(
+          <div key={msg.id} className={`${styles['msg']} ${styles['msg--user']}`} aria-label="用户消息">
+            <div className={styles['msg__bubble']}>
+              <StreamText text={msg.content} streaming={false} realtime />
+            </div>
+          </div>,
+        );
+      } else if (msg.role === 'error') {
+        elements.push(
+          <div key={msg.id} className={`${styles['msg']} ${styles['msg--ai']} ${styles['msg--error']}`} aria-label="AI 错误响应">
+            <div
+              className={styles['msg__avatar']}
+              style={{ background: 'var(--color-error-100)', color: 'var(--color-error-600)' }}
+              aria-hidden="true"
+            >
+              !
+            </div>
+            <div>
+              <div className={styles['msg__bubble']} role="alert">
+                <span className={styles['error-message-text']}>{msg.content}</span>
+                <div className={styles['error-actions']}>
+                  <button
+                    className={styles['error-actions__retry']}
+                    onClick={retry}
+                    aria-label="重试请求"
+                    type="button"
+                  >
+                    ↻ 重试
+                  </button>
+                  <button
+                    className={styles['error-actions__manual']}
+                    onClick={handleManual}
+                    aria-label="手动处理"
+                    type="button"
+                  >
+                    手动处理
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+        );
+      } else {
+        // AI message
+        elements.push(
+          <div key={msg.id} className={`${styles['msg']} ${styles['msg--ai']}`} aria-label="AI 回复">
+            <div className={styles['msg__avatar']} aria-hidden="true">AI</div>
+            <div>
+              <div className={styles['msg__bubble']}>
+                <StreamText text={msg.content} streaming={msg.streaming} realtime />
+                {msg.dataCard && <DataCard data={msg.dataCard} />}
+              </div>
+              {msg.confidence && !msg.streaming && (
+                <ConfidenceTag confidence={msg.confidence} />
+              )}
+            </div>
+          </div>,
+        );
+      }
+    });
+
+    return elements;
+  };
 
   return (
     <div className={styles['ai-chat']} aria-label="AI 对话中心">
 
-      {/* ── T201 移动端抽屉遮罩 ── */}
+      {/* 移动端抽屉遮罩 */}
       {sidebarOpen && (
         <div
           className={styles['ai-chat__drawer-overlay']}
@@ -554,14 +653,11 @@ export default function AiChatPage() {
         />
       )}
 
-      {/* ══════════════════════════════════════
-          T201 左侧会话历史面板
-      ══════════════════════════════════════ */}
+      {/* ══ 左侧会话历史面板 ══ */}
       <aside
         className={`${styles['ai-chat__sidebar']} ${sidebarOpen ? styles['ai-chat__sidebar--open'] : ''}`}
         aria-label="会话历史"
       >
-        {/* 侧边栏头部 */}
         <div className={styles['ai-chat__sidebar-header']}>
           <span className={styles['ai-chat__sidebar-title']}>会话历史</span>
           <button
@@ -574,7 +670,6 @@ export default function AiChatPage() {
           </button>
         </div>
 
-        {/* 会话列表 */}
         <nav
           className={styles['ai-chat__conv-list']}
           role="navigation"
@@ -610,78 +705,76 @@ export default function AiChatPage() {
           ))}
         </nav>
 
-        {/* 侧边栏底部 */}
         <div className={styles['ai-chat__sidebar-footer']}>
-          <button
-            className={styles['ai-chat__sidebar-footer-btn']}
-            aria-label="帮助"
-          >
+          <button className={styles['ai-chat__sidebar-footer-btn']} aria-label="帮助">
             ? 帮助
           </button>
-          <button
-            className={styles['ai-chat__sidebar-footer-btn']}
-            aria-label="设置"
-          >
-            &#9881; 设置
+          <button className={styles['ai-chat__sidebar-footer-btn']} aria-label="设置">
+            ⚙ 设置
           </button>
         </div>
       </aside>
 
-      {/* ══════════════════════════════════════
-          右侧主对话区
-      ══════════════════════════════════════ */}
+      {/* ══ 右侧主对话区 ══ */}
       <main className={styles['ai-chat__main']}>
 
-        {/* ── T205 顶部工具栏 ── */}
-        <div className={styles['ai-chat__toolbar']}>
-          {/* 移动端侧边栏切换按钮 */}
+        {/* 顶部工具栏（渐变蓝色，对齐设计稿 chat-panel__header 风格） */}
+        <header className={styles['ai-chat__toolbar']}>
+          {/* 移动端侧边栏切换 */}
           <button
             className={styles['ai-chat__toolbar-toggle']}
             onClick={() => setSidebarOpen(true)}
             aria-label="打开会话历史"
           >
-            &#9776;
+            ☰
           </button>
 
-          <h1 className={styles['ai-chat__toolbar-title']}>
-            {activeConv?.title ?? 'AI 对话中心'}
-          </h1>
+          {/* AI 头像 */}
+          <div className={styles['chat-avatar']} aria-hidden="true">🤖</div>
 
+          {/* 标题区 */}
+          <div className={styles['ai-chat__toolbar-title-block']}>
+            <span className={styles['ai-chat__toolbar-title']}>
+              {activeConv?.title ?? '智造管家AI助手'}
+            </span>
+            <span className={styles['ai-chat__toolbar-subtitle']}>在线 · 响应迅速</span>
+          </div>
+
+          {/* 操作按钮 */}
           <div className={styles['ai-chat__toolbar-actions']}>
             <button
               className={styles['ai-chat__toolbar-btn']}
               onClick={handleExport}
               disabled={!hasMessages}
               aria-label="导出对话"
+              title="导出对话"
             >
-              &#8659; 导出
+              —
             </button>
             <button
-              className={`${styles['ai-chat__toolbar-btn']} ${styles['ai-chat__toolbar-btn--danger']}`}
+              className={styles['ai-chat__toolbar-btn']}
               onClick={handleClear}
               disabled={!hasMessages}
               aria-label="清除会话"
+              title="关闭 / 清除"
             >
-              &#x1F5D1; 清除
+              ✕
             </button>
           </div>
-        </div>
+        </header>
 
-        {/* ── 消息列表 ── */}
+        {/* 消息列表 */}
         <div
-          className={styles['ai-chat__messages']}
+          className={styles['chat-messages']}
           role="log"
           aria-live="polite"
           aria-relevant="additions"
           aria-label="对话消息"
         >
-
-          {/* ── T202 WelcomeBanner（无消息时显示） ── */}
+          {/* WelcomeBanner（无消息时） */}
           {!hasMessages && (
             <div className={styles['ai-chat__welcome']} aria-label="欢迎区域">
-              <div className={styles['ai-chat__welcome-avatar']} aria-hidden="true">
-                &#x1F916;
-              </div>
+              <div className={styles['ai-chat__welcome-avatar']} aria-hidden="true">🤖</div>
               <h2 className={styles['ai-chat__welcome-title']}>
                 你好，我是智造管家 AI 助手
               </h2>
@@ -690,8 +783,6 @@ export default function AiChatPage() {
                 <br />
                 选择下方常见问题快速开始，或直接输入你的问题。
               </p>
-
-              {/* 快捷问题卡片网格（T202） */}
               <div className={styles['ai-chat__quick-grid']} role="list">
                 {QUICK_QUESTIONS.map((q) => (
                   <button
@@ -711,104 +802,28 @@ export default function AiChatPage() {
             </div>
           )}
 
-          {/* ── 消息气泡列表 ── */}
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`${styles['ai-chat__bubble-wrap']} ${
-                msg.role === 'user' ? styles['ai-chat__bubble-wrap--user'] : ''
-              }`}
-            >
-              {/* 头像 */}
-              {msg.role !== 'user' && (
-                <div
-                  className={styles['ai-chat__bubble-avatar']}
-                  aria-hidden="true"
-                >
-                  &#x1F916;
-                </div>
-              )}
-              {msg.role === 'user' && (
-                <div
-                  className={`${styles['ai-chat__bubble-avatar']} ${styles['ai-chat__bubble-avatar--user']}`}
-                  aria-hidden="true"
-                >
-                  &#x1F464;
-                </div>
-              )}
+          {/* 消息列表（含日期分隔线） */}
+          {renderMessages()}
 
-              {/* 消息体 */}
-              <div className={styles['ai-chat__bubble-body']}>
-                {msg.role === 'error' ? (
-                  /* 错误气泡 */
-                  <div
-                    className={styles['ai-chat__bubble--error']}
-                    role="alert"
-                  >
-                    <i className={styles['ai-chat__bubble-error-icon']} aria-hidden="true">
-                      &#10060;
-                    </i>
-                    <div>
-                      <div className={styles['ai-chat__bubble-error-title']}>请求失败</div>
-                      <div className={styles['ai-chat__bubble-error-desc']}>{msg.content}</div>
-                      <button
-                        className={styles['ai-chat__bubble-retry-btn']}
-                        onClick={retry}
-                        type="button"
-                      >
-                        &#8635; 重试
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div
-                      className={`${styles['ai-chat__bubble']} ${
-                        msg.role === 'user'
-                          ? styles['ai-chat__bubble--user']
-                          : styles['ai-chat__bubble--ai']
-                      }`}
-                    >
-                      <StreamText
-                        text={msg.content}
-                        streaming={msg.streaming}
-                        realtime
-                      />
-
-                      {/* T203 DataCard 内联渲染 */}
-                      {msg.role === 'ai' && msg.dataCard && (
-                        <DataCard data={msg.dataCard} />
-                      )}
-                    </div>
-                    <time
-                      className={styles['ai-chat__bubble-time']}
-                      dateTime={msg.timestamp.toISOString()}
-                    >
-                      {msg.timestamp.toLocaleTimeString('zh-CN', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </time>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {/* ── 思考中状态 ── */}
+          {/* 思考中状态 */}
           {thinking && (
-            <div className={styles['ai-chat__bubble-wrap']}>
-              <div className={styles['ai-chat__bubble-avatar']} aria-hidden="true">
-                &#x1F916;
-              </div>
-              <div className={styles['ai-chat__bubble-body']}>
-                <div className={`${styles['ai-chat__bubble']} ${styles['ai-chat__bubble--ai']}`}>
+            <div className={`${styles['msg']} ${styles['msg--ai']}`} aria-label="AI 正在思考">
+              <div className={styles['msg__avatar']} aria-hidden="true">AI</div>
+              <div>
+                <div className={`${styles['msg__bubble']} ${styles['msg__bubble--thinking']}`}>
                   <AiThinkingState
                     steps={thinkingSteps}
                     message="AI 正在分析您的问题..."
                     onCancel={cancelRequest}
-                    elapsed={elapsed}
+                    elapsed={countdown}
                   />
+                  <div className={styles['thinking-countdown']} aria-live="polite">
+                    <span>预计还需约</span>
+                    <span className={styles['thinking-countdown__timer']}>
+                      {countdown}
+                    </span>
+                    <span>秒</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -817,7 +832,23 @@ export default function AiChatPage() {
           <div ref={bottomRef} aria-hidden="true" />
         </div>
 
-        {/* ── 快捷回复 Chips（有消息且不在思考时显示） ── */}
+        {/* 上下文 token 元信息行（对齐设计稿 chat-footer-meta） */}
+        <div className={styles['chat-footer-meta']}>
+          <span>
+            上下文 {contextTokens.toLocaleString()} / {maxTokens.toLocaleString()} tokens
+          </span>
+          <span
+            className={styles['chat-footer-meta__clear']}
+            role="button"
+            tabIndex={0}
+            onClick={handleClearContext}
+            onKeyDown={(e) => e.key === 'Enter' && handleClearContext()}
+          >
+            清空上下文
+          </span>
+        </div>
+
+        {/* 快捷回复 Chips */}
         {hasMessages && !thinking && (
           <div className={styles['ai-chat__quick-replies']} aria-label="快捷回复建议">
             {QUICK_REPLY_CHIPS.map((chip) => (
@@ -833,34 +864,29 @@ export default function AiChatPage() {
           </div>
         )}
 
-        {/* ── T204 底部输入区 ── */}
-        <div className={styles['ai-chat__input-area']}>
-          <div className={styles['ai-chat__input-box']}>
-            <textarea
-              ref={textareaRef}
-              className={styles['ai-chat__textarea']}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              placeholder="输入问题，Enter 发送，Shift+Enter 换行..."
-              rows={2}
-              disabled={thinking}
-              aria-label="输入消息"
-              aria-multiline="true"
-              aria-disabled={thinking}
-            />
-            <button
-              className={styles['ai-chat__send-btn']}
-              onClick={() => void sendMessage(input)}
-              disabled={!input.trim() || thinking}
-              aria-label="发送消息"
-            >
-              &#10148;
-            </button>
-          </div>
-          <p className={styles['ai-chat__input-hint']}>
-            Enter 发送 · Shift+Enter 换行 · AI 回复仅供参考，请结合实际情况判断
-          </p>
+        {/* 底部输入区（对齐设计稿 chat-input-area） */}
+        <div className={styles['chat-input-area']}>
+          <input
+            ref={inputRef}
+            className={styles['chat-input']}
+            type="text"
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder="输入问题，如：当前缺料情况…"
+            maxLength={500}
+            disabled={thinking}
+            aria-label="向 AI 助手提问"
+          />
+          <button
+            className={styles['chat-send']}
+            onClick={() => void sendMessage(input)}
+            disabled={!input.trim() || thinking}
+            aria-label="发送"
+            type="button"
+          >
+            <span className={styles['chat-send__arrow']} aria-hidden="true" />
+          </button>
         </div>
       </main>
     </div>

@@ -38,7 +38,7 @@ export default function LoginPage() {
     setError(null);
     try {
       const data = await authApi.login(form);
-      setAuth(data.user, data.accessToken, data.refreshToken);
+      setAuth(data.user, data.accessToken);
       navigate('/', { replace: true });
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);

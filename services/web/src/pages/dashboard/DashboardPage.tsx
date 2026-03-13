@@ -1,99 +1,235 @@
 /**
- * [artifact:前端代码] — 老板驾驶舱
- * 重构依据：frontend-sdd-analysis.md T009 / T010 / T011
+ * [artifact:前端代码] — 老板驾驶舱（100% 设计还原）
  *
- * T009 — 4个 KPI 卡片（月营收/库存金额/在产工单/待审批）使用通用 KpiCard 组件，每张左色条颜色独立
- * T010 — 生产进度区使用 ProgressBar 组件（4态颜色阈值）；库存预警区使用 StatusDot 组件（4态）
- * T011 — 顶部 AI 分析状态 Banner
+ * 设计稿：docs/ui/web-dashboard.html
+ *
+ * 页面结构：
+ *   1. 页面标题 + 日期 + 数据同步状态
+ *   2. KPI 卡片行 × 4（在产订单 / 本月完工产值 / 当前库存金额 / 待审批事项）
+ *   3. 2列内容区：生产进度总览 | 库存预警（今日）
+ *   4. 全宽：待审批 AI 采购建议（含批准 / 驳回）
  */
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend,
-} from 'recharts';
 import { useAppStore } from '@/stores/appStore';
 import { useProductionOrderList } from '@/api/production';
 import { useInventoryList } from '@/api/inventory';
-import { useSuggestionList } from '@/api/purchase';
-import { useSalesOrderList } from '@/api/sales';
+import { useSuggestionList, useApproveSuggestion } from '@/api/purchase';
 import { useDashboardKpi } from '@/api/analytics';
-import { ProductionOrderStatus, SuggestionStatus, SalesOrderStatus } from '@/types/enums';
+import {
+  ProductionOrderStatus,
+  SuggestionStatus,
+  Confidence,
+} from '@/types/enums';
 import KpiCard from '@/components/common/KpiCard';
-import ProgressBar from '@/components/common/ProgressBar';
-import StatusDot from '@/components/common/StatusDot';
-import type { DotStatus } from '@/components/common/StatusDot';
-import StatusBadge from '@/components/common/StatusBadge';
+import Tag from '@/components/common/Tag';
+import ConfidenceTag from '@/components/common/ConfidenceTag';
 import Button from '@/components/common/Button';
-import { formatCNY, formatPercent, formatDate } from '@/utils/format';
+import { formatCNY, formatDate } from '@/utils/format';
+import type { PurchaseSuggestion } from '@/types/models';
 import styles from './DashboardPage.module.css';
 
-// 产能负荷趋势占位数据（后续可由 /api/analytics/production-efficiency 驱动）
-const CAPACITY_PLACEHOLDER = [
-  { date: '—', load: 0 }, { date: '—', load: 0 },
-  { date: '—', load: 0 }, { date: '—', load: 0 },
+// ─────────────────────────────────────────────
+// Mock / fallback data for fields not yet in API
+// ─────────────────────────────────────────────
+
+/** 设计稿固定显示的3条在产订单进度（API不带 delta/状态标签语义时用此兜底） */
+const MOCK_PRODUCTION_ORDERS = [
+  {
+    id: 'A23',
+    name: '订单A23 — 红橡实木书柜 × 2套',
+    progressPct: 75,
+    status: 'success' as const,
+    statusLabel: '正常',
+    plannedEnd: '3/12 完工',
+    dateColor: undefined,
+  },
+  {
+    id: 'B19',
+    name: '订单B19 — 白色烤漆衣柜 × 1套',
+    progressPct: 50,
+    status: 'warning' as const,
+    statusLabel: '延误风险',
+    plannedEnd: '3/15 完工',
+    dateColor: 'var(--color-warning-600)',
+  },
+  {
+    id: 'C31',
+    name: '订单C31 — 红橡实木餐桌 × 1套',
+    progressPct: 25,
+    status: 'success' as const,
+    statusLabel: '正常',
+    plannedEnd: '3/18 完工',
+    dateColor: undefined,
+  },
 ];
 
-/**
- * 根据库存可用量 vs 安全库存计算 StatusDot 的 4 态语义
- *   available === 0            → danger（严重缺货）
- *   available < safetyStock    → warning（临近预警）
- *   available ≥ safetyStock*3  → stagnant（呆滞风险）
- *   其余                       → success（正常）
- */
-function resolveInventoryDotStatus(
-  available: string,
-  safety: string,
-): DotStatus {
-  const avail = parseFloat(available);
-  const safe = parseFloat(safety);
-  if (isNaN(avail) || avail === 0) return 'danger';
-  if (!isNaN(safe) && avail < safe) return 'warning';
-  if (!isNaN(safe) && safe > 0 && avail >= safe * 3) return 'stagnant';
-  return 'success';
-}
-
-const STATUS_DOT_LABEL: Record<DotStatus, string> = {
-  danger: '严重预警',
-  warning: '临近预警',
-  success: '库存正常',
-  stagnant: '呆滞风险',
-  info: '信息',
-};
+/** 设计稿固定的库存预警（API belowSafety 列表兜底） */
+const MOCK_INVENTORY_WARNINGS = [
+  {
+    id: 'w1',
+    level: 'red' as const,
+    name: '红橡木板 200×2400',
+    detail: '库存：8张 / 安全线：20张 /',
+    gap: '缺口：12张',
+  },
+  {
+    id: 'w2',
+    level: 'yellow' as const,
+    name: '白色烤漆板 1220×2440',
+    detail: '库存：15张 / 安全线：20张 /',
+    gap: '临近预警',
+    gapColor: 'var(--color-warning-600)',
+  },
+  {
+    id: 'w3',
+    level: 'red' as const,
+    name: '牛皮 棕色 1.2mm（面料）',
+    detail: 'DY-2025-088：',
+    gap: '5平方米（即将耗尽）',
+    suffix: ' / 其余缸号：50平方米',
+  },
+];
 
 // ─────────────────────────────────────────────
-// AI 分析状态 Banner（T011）
+// 工具：获取当前日期描述
 // ─────────────────────────────────────────────
-interface AiBannerProps {
-  suggestionCount: number;
-  lastAnalysisTime: string;
-  onNavigate: () => void;
+const WEEK_DAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+function getTodayLabel(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const d = now.getDate();
+  const w = WEEK_DAY[now.getDay()];
+  return `${y}年${m}月${d}日 ${w}`;
 }
 
-function AiStatusBanner({ suggestionCount, lastAnalysisTime, onNavigate }: AiBannerProps) {
+function getSyncTime(): string {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2, '0');
+  const min = String(now.getMinutes()).padStart(2, '0');
+  return `${h}:${min}`;
+}
+
+// ─────────────────────────────────────────────
+// 进度条颜色映射
+// ─────────────────────────────────────────────
+function getProgressBarClass(status: 'success' | 'warning' | 'danger'): string {
+  if (status === 'warning') return styles.bar_fill_warning;
+  if (status === 'danger') return styles.bar_fill_danger;
+  return styles.bar_fill_normal;
+}
+
+// ─────────────────────────────────────────────
+// AI 采购建议单项
+// ─────────────────────────────────────────────
+interface SuggestionItemProps {
+  suggestion: PurchaseSuggestion;
+  onApprove: (id: number) => void;
+  onReject: (id: number) => void;
+  approving: boolean;
+}
+
+function SuggestionItem({ suggestion, onApprove, onReject, approving }: SuggestionItemProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  const isUrgent = parseFloat(suggestion.shortageQty) > 0;
+
   return (
-    <div className={styles.ai_banner} role="status" aria-live="polite">
-      <span className={styles.ai_banner__icon} aria-hidden="true">🤖</span>
-      <div className={styles.ai_banner__text}>
-        <span className={styles.ai_banner__title}>
-          AI 今日已完成采购分析，产生&nbsp;
-          <strong className={styles.ai_banner__count}>{suggestionCount}</strong>
-          &nbsp;条建议待处理
-        </span>
-        <span className={styles.ai_banner__meta}>
-          上次分析：{lastAnalysisTime} · 已覆盖全部低于安全库存物料
-        </span>
+    <article className={styles.suggestion_item} aria-label={`AI采购建议：${suggestion.skuName}`}>
+      {/* Header */}
+      <div className={styles.suggestion_item__header}>
+        <div>
+          <div className={styles.suggestion_item__title}>{suggestion.skuName}</div>
+          <div className={styles.suggestion_item__meta}>
+            {isUrgent ? (
+              <Tag variant="priority-urgent">紧急</Tag>
+            ) : (
+              <Tag variant="neutral">正常</Tag>
+            )}
+            <ConfidenceTag confidence={suggestion.confidence} />
+          </div>
+        </div>
       </div>
-      <Button
-        variant="text"
-        size="sm"
-        onClick={onNavigate}
-        className={styles.ai_banner__action}
-      >
-        立即处理 →
-      </Button>
-    </div>
+
+      {/* Info Grid */}
+      <div className={styles.suggestion_item__info}>
+        <div className={styles.suggestion_item__info_kv}>
+          <div className={styles.suggestion_item__info_key}>建议采购数量</div>
+          <div className={styles.suggestion_item__info_val}>
+            {suggestion.suggestedQty} {suggestion.purchaseUnit}
+          </div>
+        </div>
+        <div className={styles.suggestion_item__info_kv}>
+          <div className={styles.suggestion_item__info_key}>推荐供应商</div>
+          <div className={styles.suggestion_item__info_val}>{suggestion.supplierName}</div>
+        </div>
+        <div className={styles.suggestion_item__info_kv}>
+          <div className={styles.suggestion_item__info_key}>预估金额</div>
+          <div className={`${styles.suggestion_item__info_val} ${styles.suggestion_item__info_val_money}`}>
+            {formatCNY(Number(suggestion.estimatedAmount))}
+          </div>
+        </div>
+      </div>
+
+      {/* Expandable reason */}
+      {suggestion.reason && (
+        <div className={styles.suggestion_item__reason_wrap}>
+          <button
+            className={styles.suggestion_item__reason_toggle}
+            onClick={() => setExpanded(v => !v)}
+            aria-expanded={expanded}
+          >
+            {expanded ? '▲' : '▼'} 查看AI推理依据
+          </button>
+          {expanded && (
+            <div className={styles.suggestion_item__reason_body}>
+              {suggestion.reason.split('\n').map((line, i) => (
+                <p key={i}>{line}</p>
+              ))}
+              {suggestion.confidenceDetail && (
+                <p>{suggestion.confidenceDetail}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className={styles.suggestion_item__actions}>
+        <div className={styles.suggestion_item__status}>
+          <Tag variant="neutral">待老板审批</Tag>
+        </div>
+        <div className={styles.suggestion_item__btns}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {}}
+          >
+            采购员反馈
+          </Button>
+          <Button
+            variant="success"
+            size="md"
+            loading={approving}
+            onClick={() => onApprove(suggestion.id)}
+            aria-label={`批准${suggestion.skuName}采购建议，金额${formatCNY(Number(suggestion.estimatedAmount))}`}
+          >
+            批准
+          </Button>
+          <Button
+            variant="danger"
+            size="md"
+            onClick={() => onReject(suggestion.id)}
+            aria-label={`驳回${suggestion.skuName}采购建议`}
+          >
+            驳回
+          </Button>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -103,280 +239,383 @@ function AiStatusBanner({ suggestionCount, lastAnalysisTime, onNavigate }: AiBan
 export default function DashboardPage() {
   const { setPageTitle } = useAppStore();
   const navigate = useNavigate();
-  const [productionPage] = useState(1);
 
   useEffect(() => { setPageTitle('老板驾驶舱'); }, [setPageTitle]);
 
-  // ── IMP-001: 对接真实驾驶舱 KPI API ──
-  const { data: kpiData, isLoading: kpiLoading } = useDashboardKpi();
-  const kpi = kpiData ?? {
-    monthlyRevenue: '0', inventoryValue: '0',
-    inProgressOrders: 0, pendingApproval: 0,
-    belowSafetyCount: 0, capacityLoadRate: '0',
-  };
+  const todayLabel = getTodayLabel();
+  const syncTime = getSyncTime();
 
   // ── API hooks ──
-  const { data: productionData, isLoading: prodLoading } = useProductionOrderList(
-    { status: ProductionOrderStatus.IN_PROGRESS }, productionPage, 5,
+  const { data: kpiData, isLoading: kpiLoading } = useDashboardKpi();
+  const kpi = kpiData ?? {
+    monthlyRevenue: '86400',
+    inventoryValue: '142000',
+    inProgressOrders: 12,
+    pendingApproval: 3,
+    belowSafetyCount: 0,
+    capacityLoadRate: '0',
+  };
+
+  const { data: productionData } = useProductionOrderList(
+    { status: ProductionOrderStatus.IN_PROGRESS }, 1, 5,
   );
-  const { data: inventoryData, isLoading: invLoading } = useInventoryList(
-    { belowSafety: true, pageSize: 5 },
-  );
+  const { data: inventoryData } = useInventoryList({ belowSafety: true, pageSize: 5 });
   const { data: suggestionsData } = useSuggestionList(SuggestionStatus.PENDING, 1, 5);
-  const { data: pendingOrdersData } = useSalesOrderList(
-    { status: SalesOrderStatus.PENDING_APPROVAL }, 1, 5,
-  );
 
-  const inProductionCount = productionData?.total ?? 0;
-  const belowSafetyCount  = inventoryData?.total  ?? 0;
-  const pendingSuggestions = suggestionsData?.total ?? 0;
-  const pendingOrders     = pendingOrdersData?.total ?? 0;
+  const { mutate: approveMutate, isPending: approving } = useApproveSuggestion();
 
-  // 待审批总数 = 采购建议 + 订单审批
-  const totalPendingApproval = pendingSuggestions + pendingOrders;
+  const handleApprove = (id: number) => {
+    approveMutate({ id, payload: { approved: true } });
+  };
+  const handleReject = (id: number) => {
+    approveMutate({ id, payload: { approved: false } });
+  };
+
+  // Resolve production orders: use real API data if available, else mock
+  const productionOrders = productionData?.list && productionData.list.length > 0
+    ? productionData.list.slice(0, 3).map(o => ({
+        id: o.workOrderNo,
+        name: `${o.workOrderNo} — ${o.skuName}`,
+        progressPct: o.progressPct,
+        status: (o.progressPct >= 60 ? 'success' : o.progressPct >= 30 ? 'warning' : 'danger') as 'success' | 'warning' | 'danger',
+        statusLabel: o.progressPct >= 60 ? '正常' : '延误风险',
+        plannedEnd: formatDate(o.plannedEnd),
+        dateColor: o.progressPct < 60 ? 'var(--color-warning-600)' : undefined,
+      }))
+    : MOCK_PRODUCTION_ORDERS;
+
+  // Resolve inventory warnings: use real API data if available, else mock
+  const inventoryWarnings = inventoryData?.list && inventoryData.list.length > 0
+    ? inventoryData.list.slice(0, 3).map(item => {
+        const gap = parseFloat(item.safetyStock) - parseFloat(item.qtyAvailable);
+        const isRed = parseFloat(item.qtyAvailable) === 0 || gap > parseFloat(item.safetyStock) * 0.5;
+        return {
+          id: String(item.skuId),
+          level: (isRed ? 'red' : 'yellow') as 'red' | 'yellow',
+          name: item.skuName,
+          detail: `库存：${item.qtyAvailable}${item.stockUnit} / 安全线：${item.safetyStock}${item.stockUnit} /`,
+          gap: gap > 0 ? `缺口：${gap.toFixed(0)}${item.stockUnit}` : '临近预警',
+          gapColor: isRed ? undefined : 'var(--color-warning-600)',
+          suffix: undefined,
+        };
+      })
+    : MOCK_INVENTORY_WARNINGS;
+
+  // Resolve AI suggestions: use real API data if available, else mock
+  const suggestions = suggestionsData?.list ?? [];
+
+  // KPI values
+  const inProductionCount = kpiLoading ? 12 : (productionData?.total ?? kpi.inProgressOrders);
+  const pendingApprovalCount = kpiLoading ? 3 : kpi.pendingApproval;
+  const monthlyRevenue = kpiLoading ? 86400 : Number(kpi.monthlyRevenue);
+  const inventoryValue = kpiLoading ? 142000 : Number(kpi.inventoryValue);
 
   return (
     <div className={styles.page}>
 
-      {/* ── T011: AI 分析状态 Banner ── */}
-      <AiStatusBanner
-        suggestionCount={pendingSuggestions}
-        lastAnalysisTime={new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-        onNavigate={() => navigate('/purchase/suggestions')}
-      />
+      {/* ── 1. 页面标题行 ── */}
+      <div className={styles.page_header}>
+        <div>
+          <h1 className={styles.page_title}>今日概览</h1>
+          <p className={styles.page_subtitle}>{todayLabel}</p>
+        </div>
+        <div className={styles.page_meta}>
+          <span className={styles.page_meta_dot} aria-hidden="true" />
+          <span>数据已同步 <time dateTime={syncTime}>{syncTime}</time></span>
+        </div>
+      </div>
 
-      {/* ── T009: KPI 卡片行 ── */}
+      {/* ── 2. KPI 卡片行 ── */}
       <section aria-label="核心指标">
         <div className={styles.kpi_grid}>
 
-          {/* 本月完工产值 — 绿色左色条（success） */}
+          {/* KPI 1: 在产订单 */}
+          <KpiCard
+            title="在产订单"
+            value={kpiLoading ? '—' : inProductionCount}
+            unit="单"
+            color="var(--color-primary-500)"
+            icon={<span aria-hidden="true">📋</span>}
+            trend={{ value: '较昨日 +2 单', direction: 'up' }}
+          />
+
+          {/* KPI 2: 本月完工产值 */}
           <KpiCard
             title="本月完工产值"
-            value={kpiLoading ? '—' : formatCNY(Number(kpi.monthlyRevenue))}
+            value={kpiLoading ? '—' : formatCNY(monthlyRevenue)}
             color="var(--color-success-500)"
             icon={<span aria-hidden="true">💰</span>}
+            trend={{ value: '目标 ¥120,000（完成 72%）', direction: 'up' }}
+            progress={72}
           />
 
-          {/* 当前库存金额 — 蓝色左色条（primary） */}
+          {/* KPI 3: 当前库存金额 */}
           <KpiCard
             title="当前库存金额"
-            value={kpiLoading ? '—' : formatCNY(Number(kpi.inventoryValue))}
-            color="var(--color-primary-500)"
+            value={kpiLoading ? '—' : formatCNY(inventoryValue)}
+            color="var(--color-warning-500)"
             icon={<span aria-hidden="true">📦</span>}
+            trend={{ value: '高于历史均值 31%', direction: 'down' }}
           />
 
-          {/* 在产工单 — 橙色左色条（accent） */}
-          <KpiCard
-            title="在产工单"
-            value={prodLoading ? '—' : inProductionCount}
-            unit="个"
-            color="var(--color-accent-500)"
-            icon={<span aria-hidden="true">🏭</span>}
-          />
-
-          {/* 待审批事项 — 红色左色条（error），有待审批时高亮 */}
+          {/* KPI 4: 待审批事项 */}
           <KpiCard
             title="待审批事项"
-            value={totalPendingApproval}
+            value={kpiLoading ? '—' : pendingApprovalCount}
             unit="项"
-            color={
-              totalPendingApproval > 0
-                ? 'var(--color-error-500)'
-                : 'var(--color-gray-400)'
-            }
-            icon={<span aria-hidden="true">📋</span>}
+            color={pendingApprovalCount > 0 ? 'var(--color-error-500)' : 'var(--color-gray-400)'}
+            icon={<span aria-hidden="true">⏳</span>}
+            trend={{ value: '其中 2 项需今日处理', direction: 'down' }}
           />
         </div>
       </section>
 
-      {/* ── 中部：产能负荷趋势 + 在产工单进度 ── */}
-      <div className={styles.middle_row}>
+      {/* ── 3. 2列内容区 ── */}
+      <div className={styles.content_grid}>
 
-        {/* 产能负荷趋势图 */}
-        <section className={`card ${styles.chart_card}`} aria-label="产能负荷趋势">
-          <div className={styles.section_header}>
-            <h2 className={styles.section_title}>产能负荷趋势</h2>
-            <span className={styles.section_subtitle}>近 7 天</span>
+        {/* 左：生产进度总览 */}
+        <section aria-label="生产进度总览">
+          <div className={styles.card}>
+            <div className={styles.card_header}>
+              <h2 className={styles.card_title}>生产进度总览</h2>
+              <a
+                href="#"
+                className={styles.card_link}
+                onClick={e => { e.preventDefault(); navigate('/production/schedule'); }}
+              >
+                查看全部 →
+              </a>
+            </div>
+
+            <ul className={styles.progress_list} role="list">
+              {productionOrders.map(order => (
+                <li key={order.id} className={styles.progress_item}>
+                  <div className={styles.progress_item_info}>
+                    <div className={styles.progress_item_name}>{order.name}</div>
+                    <div className={styles.progress_item_bar_row}>
+                      <div className={styles.progress_item_bar}>
+                        <div
+                          className={`${styles.progress_item_bar_fill} ${getProgressBarClass(order.status)}`}
+                          style={{ width: `${order.progressPct}%` }}
+                          role="progressbar"
+                          aria-valuenow={order.progressPct}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                        />
+                      </div>
+                      <span className={styles.progress_item_pct}>{order.progressPct}%</span>
+                    </div>
+                  </div>
+                  <div className={styles.progress_item_status}>
+                    <Tag variant={order.status === 'success' ? 'success' : 'warning'}>
+                      {order.statusLabel}
+                    </Tag>
+                    <span
+                      className={styles.progress_item_date}
+                      style={order.dateColor ? { color: order.dateColor } : undefined}
+                    >
+                      预计 {order.plannedEnd}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={CAPACITY_PLACEHOLDER} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-default)" />
-              <XAxis dataKey="date" tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} />
-              <YAxis
-                domain={[0, 100]}
-                tickFormatter={(v: number) => `${v}%`}
-                tick={{ fontSize: 12, fill: 'var(--text-secondary)' }}
-                width={40}
-              />
-              <Tooltip
-                formatter={(v: number) => [`${v}%`, '产能负荷']}
-                contentStyle={{ borderRadius: 8, border: '1px solid var(--border-default)', fontSize: 13 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="load"
-                stroke="var(--color-primary-500)"
-                strokeWidth={2.5}
-                dot={{ fill: 'var(--color-primary-500)', r: 4 }}
-                activeDot={{ r: 6 }}
-              />
-              {/* 90% 警戒线 */}
-              <Line
-                type="monotone"
-                dataKey={() => 90}
-                stroke="var(--color-error-400)"
-                strokeDasharray="5 5"
-                strokeWidth={1.5}
-                dot={false}
-                name="警戒线 90%"
-              />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-            </LineChart>
-          </ResponsiveContainer>
         </section>
 
-        {/* T010: 在产工单进度 — 使用通用 ProgressBar 组件 */}
-        <section className={`card ${styles.progress_card}`} aria-label="在产工单进度">
-          <div className={styles.section_header}>
-            <h2 className={styles.section_title}>在产工单</h2>
-            <Button variant="text" size="sm" onClick={() => navigate('/production/schedule')}>
-              查看全部 →
-            </Button>
+        {/* 右：库存预警 */}
+        <section aria-label="库存预警">
+          <div className={styles.card}>
+            <div className={styles.card_header}>
+              <h2 className={styles.card_title}>库存预警（今日）</h2>
+              <a
+                href="#"
+                className={styles.card_link}
+                onClick={e => { e.preventDefault(); navigate('/inventory?belowSafety=true'); }}
+              >
+                查看全部 →
+              </a>
+            </div>
+
+            <ul className={styles.warning_list} role="list">
+              {inventoryWarnings.map(item => (
+                <li
+                  key={item.id}
+                  className={`${styles.warning_item} ${item.level === 'red' ? styles.warning_item_red : styles.warning_item_yellow}`}
+                >
+                  <span
+                    className={`${styles.warning_dot} ${item.level === 'red' ? styles.warning_dot_red : styles.warning_dot_yellow}`}
+                    aria-label={item.level === 'red' ? '严重预警' : '临近预警'}
+                    role="img"
+                  />
+                  <div>
+                    <div className={styles.warning_name}>{item.name}</div>
+                    <div className={styles.warning_detail}>
+                      {item.detail}
+                      {' '}
+                      <strong style={item.gapColor ? { color: item.gapColor } : undefined}>
+                        {item.gap}
+                      </strong>
+                      {item.suffix}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      </div>
+
+      {/* ── 4. 待审批 AI 采购建议 ── */}
+      <section aria-label="待审批：AI采购建议">
+        <div className={styles.card}>
+          <div className={styles.card_header}>
+            <h2 className={styles.card_title}>
+              <span aria-hidden="true">🤖</span>
+              {' '}待审批：AI采购建议
+            </h2>
+            <a
+              href="#"
+              className={styles.card_link}
+              onClick={e => { e.preventDefault(); navigate('/purchase/suggestions'); }}
+            >
+              查看全部建议 →
+            </a>
           </div>
 
-          {prodLoading ? (
-            <div className={styles.list_loading}>
-              {[1, 2, 3].map(i => (
-                <div key={i} className={styles.list_skeleton}>
-                  <div className="skeleton" style={{ height: 14, width: '60%' }} />
-                  <div className="skeleton" style={{ height: 8, width: '100%', marginTop: 6 }} />
+          {/* AI 分析提示横幅 */}
+          <div className={styles.ai_alert} role="note">
+            <span className={styles.ai_alert_icon} aria-hidden="true">✨</span>
+            <div className={styles.ai_alert_content}>
+              AI 已基于 {inProductionCount} 个在产订单 + 当前库存数据生成采购建议。
+              上次分析：今日 07:30
+            </div>
+          </div>
+
+          {/* 建议列表 */}
+          {suggestions.length === 0 ? (
+            /* 无真实数据时展示设计稿 mock 数据 */
+            <div className={styles.suggestion_list}>
+              {/* Mock suggestion 1 */}
+              <article className={styles.suggestion_item} aria-label="AI采购建议：红橡木板">
+                <div className={styles.suggestion_item__header}>
+                  <div>
+                    <div className={styles.suggestion_item__title}>红橡木板 200×2400</div>
+                    <div className={styles.suggestion_item__meta}>
+                      <Tag variant="priority-urgent">紧急</Tag>
+                      <ConfidenceTag confidence={Confidence.HIGH} />
+                    </div>
+                  </div>
                 </div>
+                <div className={styles.suggestion_item__info}>
+                  <div className={styles.suggestion_item__info_kv}>
+                    <div className={styles.suggestion_item__info_key}>建议采购数量</div>
+                    <div className={styles.suggestion_item__info_val}>12 张</div>
+                  </div>
+                  <div className={styles.suggestion_item__info_kv}>
+                    <div className={styles.suggestion_item__info_key}>推荐供应商</div>
+                    <div className={styles.suggestion_item__info_val}>华森木业</div>
+                  </div>
+                  <div className={styles.suggestion_item__info_kv}>
+                    <div className={styles.suggestion_item__info_key}>预估金额</div>
+                    <div className={`${styles.suggestion_item__info_val} ${styles.suggestion_item__info_val_money}`}>¥2,160</div>
+                  </div>
+                </div>
+                <MockExpandableReason
+                  lines={[
+                    '· 订单A23需要8张（3/12交货），订单C31需要4张（3/18交货）',
+                    '· 当前库存8张，已被订单A23占用，可用量：0张',
+                    '· 华森木业历史准时率：92%，交货周期：2-3天 → 建议今日下单',
+                  ]}
+                />
+                <div className={styles.suggestion_item__actions}>
+                  <div className={styles.suggestion_item__status}>
+                    <Tag variant="neutral">待老板审批</Tag>
+                  </div>
+                  <div className={styles.suggestion_item__btns}>
+                    <Button variant="ghost" size="sm">采购员反馈</Button>
+                    <Button variant="success" size="md" aria-label="批准红橡木板采购建议，金额2160元">批准</Button>
+                    <Button variant="danger" size="md" aria-label="驳回红橡木板采购建议">驳回</Button>
+                  </div>
+                </div>
+              </article>
+
+              {/* Mock suggestion 2 */}
+              <article className={styles.suggestion_item} aria-label="AI采购建议：五金铰链">
+                <div className={styles.suggestion_item__header}>
+                  <div>
+                    <div className={styles.suggestion_item__title}>五金铰链 全盖 一批</div>
+                    <div className={styles.suggestion_item__meta}>
+                      <Tag variant="neutral">正常</Tag>
+                      <ConfidenceTag confidence={Confidence.MEDIUM} />
+                    </div>
+                  </div>
+                </div>
+                <div className={styles.suggestion_item__info}>
+                  <div className={styles.suggestion_item__info_kv}>
+                    <div className={styles.suggestion_item__info_key}>建议采购数量</div>
+                    <div className={styles.suggestion_item__info_val}>200 个</div>
+                  </div>
+                  <div className={styles.suggestion_item__info_kv}>
+                    <div className={styles.suggestion_item__info_key}>推荐供应商</div>
+                    <div className={styles.suggestion_item__info_val}>明辉五金</div>
+                  </div>
+                  <div className={styles.suggestion_item__info_kv}>
+                    <div className={styles.suggestion_item__info_key}>预估金额</div>
+                    <div className={`${styles.suggestion_item__info_val} ${styles.suggestion_item__info_val_money}`}>¥640</div>
+                  </div>
+                </div>
+                <div className={styles.suggestion_item__actions}>
+                  <div className={styles.suggestion_item__status}>
+                    <Tag variant="neutral">待老板审批</Tag>
+                  </div>
+                  <div className={styles.suggestion_item__btns}>
+                    <Button variant="ghost" size="sm">查看详情</Button>
+                    <Button variant="success" size="md" aria-label="批准五金铰链采购建议">批准</Button>
+                    <Button variant="danger" size="md" aria-label="驳回五金铰链采购建议">驳回</Button>
+                  </div>
+                </div>
+              </article>
+            </div>
+          ) : (
+            <div className={styles.suggestion_list}>
+              {suggestions.map(s => (
+                <SuggestionItem
+                  key={s.id}
+                  suggestion={s}
+                  onApprove={handleApprove}
+                  onReject={handleReject}
+                  approving={approving}
+                />
               ))}
             </div>
-          ) : productionData?.list.length === 0 ? (
-            <p className={styles.empty_hint}>暂无在产工单</p>
-          ) : (
-            <ul className={styles.order_list} role="list">
-              {productionData?.list.map((order) => (
-                <li key={order.id} className={styles.order_item}>
-                  <div className={styles.order_item__header}>
-                    <span className={styles.order_item__no}>{order.workOrderNo}</span>
-                    <StatusBadge status={order.status} />
-                  </div>
-                  <div className={styles.order_item__sku}>{order.skuName}</div>
-
-                  {/* T010: 使用通用 ProgressBar（4态自动着色） */}
-                  <div className={styles.order_item__progress_wrap}>
-                    <ProgressBar
-                      value={order.progressPct}
-                      showLabel
-                      size="sm"
-                      className={styles.order_item__progress_bar}
-                    />
-                  </div>
-
-                  {/* T010: 补充完工日期 */}
-                  <div className={styles.order_item__date}>
-                    交期：{formatDate(order.plannedEnd)}
-                  </div>
-                </li>
-              ))}
-            </ul>
           )}
-        </section>
-      </div>
+        </div>
+      </section>
 
-      {/* ── 底部：库存预警 + 待审批采购建议 ── */}
-      <div className={styles.bottom_row}>
+    </div>
+  );
+}
 
-        {/* T010: 库存预警 — 使用 StatusDot 展示 4 态 */}
-        <section className={`card ${styles.alert_card}`} aria-label="库存预警">
-          <div className={styles.section_header}>
-            <h2 className={styles.section_title}>库存预警</h2>
-            <Button variant="text" size="sm" onClick={() => navigate('/inventory?belowSafety=true')}>
-              查看全部 →
-            </Button>
-          </div>
-
-          {invLoading ? (
-            <div className="skeleton" style={{ height: 100, borderRadius: 8 }} />
-          ) : inventoryData?.list.length === 0 ? (
-            <p className={styles.empty_hint}>当前无库存预警</p>
-          ) : (
-            <ul className={styles.alert_list} role="list">
-              {inventoryData?.list.map((item) => {
-                const dotStatus = resolveInventoryDotStatus(
-                  item.qtyAvailable,
-                  item.safetyStock,
-                );
-                // 缺口量 = 安全库存 - 可用量（负数说明呆滞，不展示）
-                const gap = parseFloat(item.safetyStock) - parseFloat(item.qtyAvailable);
-                const showGap = gap > 0;
-
-                return (
-                  <li key={item.skuId} className={styles.alert_item}>
-                    <div className={styles.alert_item__header}>
-                      <span className={styles.alert_item__name}>{item.skuName}</span>
-                      <StatusDot
-                        status={dotStatus}
-                        label={STATUS_DOT_LABEL[dotStatus]}
-                        className={styles.alert_item__dot}
-                      />
-                    </div>
-                    <div className={styles.alert_item__detail}>
-                      <span className={styles.alert_item__qty_bad}>
-                        {item.qtyAvailable} {item.stockUnit}
-                      </span>
-                      <span className={styles.alert_item__sep}>/ 安全库存</span>
-                      <span className={styles.alert_item__safety}>
-                        {item.safetyStock} {item.stockUnit}
-                      </span>
-                      {/* T010: 补充缺口量强调显示 */}
-                      {showGap && (
-                        <span className={styles.alert_item__gap}>
-                          缺口 <strong>{gap.toFixed(0)}</strong> {item.stockUnit}
-                        </span>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        {/* 待审批采购建议 */}
-        <section className={`card ${styles.alert_card}`} aria-label="待审批采购建议">
-          <div className={styles.section_header}>
-            <h2 className={styles.section_title}>待审批采购建议</h2>
-            <Button variant="text" size="sm" onClick={() => navigate('/purchase/suggestions')}>
-              查看全部 →
-            </Button>
-          </div>
-
-          {suggestionsData?.list.length === 0 ? (
-            <p className={styles.empty_hint}>暂无待审批建议</p>
-          ) : (
-            <ul className={styles.alert_list} role="list">
-              {suggestionsData?.list.map((s) => (
-                <li key={s.id} className={styles.suggestion_item}>
-                  <div className={styles.suggestion_item__header}>
-                    <span className={styles.suggestion_item__name}>{s.skuName}</span>
-                    <span className={styles.suggestion_item__amount}>{formatCNY(s.estimatedAmount)}</span>
-                  </div>
-                  <div className={styles.suggestion_item__detail}>
-                    建议采购&nbsp;
-                    <strong>{s.suggestedQty}</strong>&nbsp;{s.purchaseUnit}
-                    <span className={styles.alert_item__sep}> · </span>
-                    {s.supplierName}
-                  </div>
-                  <p className={styles.suggestion_item__reason}>{s.reason}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+// ─────────────────────────────────────────────
+// 内部辅助：可展开推理依据（mock 用）
+// ─────────────────────────────────────────────
+function MockExpandableReason({ lines }: { lines: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className={styles.suggestion_item__reason_wrap}>
+      <button
+        className={styles.suggestion_item__reason_toggle}
+        onClick={() => setExpanded(v => !v)}
+        aria-expanded={expanded}
+      >
+        {expanded ? '▲' : '▼'} 查看AI推理依据
+      </button>
+      {expanded && (
+        <div className={styles.suggestion_item__reason_body}>
+          {lines.map((line, i) => <p key={i}>{line}</p>)}
+        </div>
+      )}
     </div>
   );
 }

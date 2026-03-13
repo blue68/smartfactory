@@ -20,6 +20,7 @@
  */
 
 import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
+import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { authMiddleware } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/auth';
@@ -33,6 +34,11 @@ const router = Router();
 
 // 所有 AI 路由均需要登录
 router.use(authMiddleware);
+
+// ── 请求体 Schema ───────────────────────────────────────────
+const UpdateSuggestionSchema = z.object({
+  status: z.enum(['read', 'adopted', 'ignored']),
+});
 
 // ── AI 对话限流（比全局更严格） ───────────────────────────────
 
@@ -54,8 +60,7 @@ router.post(
   // asyncHandler 不适用于 SSE（SSE 不应等 Promise resolve 后才 next），
   // 这里单独实现错误兜底，保证 SSE 帧始终关闭
   (req: Request, res: Response, next: NextFunction): void => {
-    const ctx = extractTenantContext(req, res);
-    if (!ctx) return;
+    const ctx = extractTenantContext(req);
 
     const body = req.body as Partial<ChatRequest>;
     const message = body.message?.trim() ?? '';
@@ -88,8 +93,8 @@ router.post(
 router.get(
   '/suggestions',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const ctx = extractTenantContext(req, res);
-    if (!ctx) return;
+    const ctx = extractTenantContext(req);
+
 
     const page = Math.max(1, parseInt((req.query.page as string) ?? '1', 10));
     const pageSize = Math.min(50, Math.max(1, parseInt((req.query.pageSize as string) ?? '10', 10)));
@@ -112,8 +117,8 @@ router.get(
 router.put(
   '/suggestions/:id',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const ctx = extractTenantContext(req, res);
-    if (!ctx) return;
+    const ctx = extractTenantContext(req);
+
 
     const id = parseInt(req.params.id, 10);
     if (isNaN(id) || id <= 0) {
@@ -121,16 +126,10 @@ router.put(
       return;
     }
 
-    const { status } = req.body as { status?: string };
-    const validStatuses = ['read', 'adopted', 'ignored'];
-
-    if (!status || !validStatuses.includes(status)) {
-      error(res, ResponseCode.INVALID_PARAMS, `status 参数无效，可选值：${validStatuses.join('、')}`);
-      return;
-    }
+    const { status } = UpdateSuggestionSchema.parse(req.body);
 
     const svc = new AiService(ctx);
-    await svc.updateSuggestionStatus(id, status as 'read' | 'adopted' | 'ignored');
+    await svc.updateSuggestionStatus(id, status);
     success(res, null, '状态已更新');
   }),
 );
@@ -140,8 +139,8 @@ router.put(
 router.post(
   '/feedback',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const ctx = extractTenantContext(req, res);
-    if (!ctx) return;
+    const ctx = extractTenantContext(req);
+
 
     const body = req.body as Partial<FeedbackParams>;
 
@@ -176,8 +175,8 @@ router.post(
 router.get(
   '/conversations',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const ctx = extractTenantContext(req, res);
-    if (!ctx) return;
+    const ctx = extractTenantContext(req);
+
     const svc = new AiService(ctx);
     const result = await svc.listConversations();
     success(res, result, '获取成功');
@@ -187,8 +186,8 @@ router.get(
 router.get(
   '/conversations/:sessionId/messages',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const ctx = extractTenantContext(req, res);
-    if (!ctx) return;
+    const ctx = extractTenantContext(req);
+
     const sessionId = req.params.sessionId;
     if (!sessionId) {
       error(res, ResponseCode.INVALID_PARAMS, 'sessionId 不能为空');
@@ -203,8 +202,8 @@ router.get(
 router.delete(
   '/conversations/:sessionId',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const ctx = extractTenantContext(req, res);
-    if (!ctx) return;
+    const ctx = extractTenantContext(req);
+
     const sessionId = req.params.sessionId;
     if (!sessionId) {
       error(res, ResponseCode.INVALID_PARAMS, 'sessionId 不能为空');
@@ -222,8 +221,7 @@ router.post(
   '/scan',
   requireRoles('boss', 'supervisor'),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const ctx = extractTenantContext(req, res);
-    if (!ctx) return;
+    const ctx = extractTenantContext(req);
 
     const svc = new ProactiveService(ctx);
     const result = await svc.runAllScans();
@@ -235,21 +233,12 @@ router.post(
 // ─── 辅助：从 request 中提取租户上下文 ───────────────────────
 
 /**
- * authMiddleware 在 req 上注入了 tenantId 和 userId（见 auth.middleware.ts 实现）。
- * 通过类型断言获取，若缺失则返回 401 并返回 null。
+ * authMiddleware 已在进入路由前完成 JWT 验证，并将 tenantId/userId 写入 req。
+ * 验证失败时 authMiddleware 直接抛出 AppError.unauthorized，不会走到路由处理函数，
+ * 因此此处无需再做存在性检查，直接读取并封装为上下文对象即可。
  */
-function extractTenantContext(
-  req: Request,
-  res: Response,
-): { tenantId: number; userId: number } | null {
-  const r = req as Request & { tenantId?: number; userId?: number };
-
-  if (!r.tenantId || !r.userId) {
-    error(res, ResponseCode.UNAUTHORIZED, '请先登录', 401);
-    return null;
-  }
-
-  return { tenantId: r.tenantId, userId: r.userId };
+function extractTenantContext(req: Request): { tenantId: number; userId: number } {
+  return { tenantId: req.tenantId, userId: req.userId };
 }
 
 export default router;

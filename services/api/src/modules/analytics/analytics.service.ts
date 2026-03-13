@@ -83,7 +83,7 @@ export class AnalyticsService {
     const [cap] = await AppDataSource.query(
       `SELECT COALESCE(
          AVG(CASE WHEN po.status IN ('scheduled', 'in_progress') THEN po.qty_planned ELSE 0 END)
-         / NULLIF(AVG(w.daily_capacity), 0) * 100,
+         / NULLIF(AVG(w.capacity), 0) * 100,
          0
        ) AS rate
        FROM production_orders po
