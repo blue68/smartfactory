@@ -4,7 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import request from '@/utils/request';
+import request, { getAccessToken } from '@/utils/request';
 import { config } from '@/config';
 import type {
   InventoryItem,
@@ -72,7 +72,7 @@ export const inventoryApi = {
    * 必须使用独立的 axios 实例绕过全局响应拦截器（拦截器会尝试解包 JSON，而 blob 不是 JSON）。
    */
   exportCsv: async (): Promise<void> => {
-    const token = localStorage.getItem(config.tokenKey);
+    const token = getAccessToken();
     const baseURL = config.apiBaseUrl;
     const res = await axios.get(`${baseURL}/api/inventory/export/csv`, {
       responseType: 'blob',

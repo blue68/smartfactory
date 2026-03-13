@@ -393,6 +393,8 @@ export default function AiChatPage() {
 
       const aiMsgId = newMsgId();
       abortRef.current = new AbortController();
+      // 客户端 30 秒超时（SEC HF-004），与服务端超时对齐
+      const timeoutId = setTimeout(() => abortRef.current?.abort(), 30_000);
 
       try {
         const token = getAccessToken();
@@ -405,6 +407,7 @@ export default function AiChatPage() {
           body: JSON.stringify({ message: trimmed }),
           signal: abortRef.current.signal,
         });
+        clearTimeout(timeoutId);
 
         if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
 

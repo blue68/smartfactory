@@ -14,18 +14,22 @@ import { ApiCode, ApiError, type ApiResponse } from '@/types/api';
 
 // ─────────────────────────────────────────────
 // Token 工具（与 authStore 保持同步，避免循环依赖）
+// SEC H-004: Access Token 存内存，XSS 无法通过 localStorage 窃取
 // Refresh Token 已改为 HttpOnly Cookie，由浏览器自动携带，不再手动读写
+// 页面刷新时通过 /api/auth/refresh (Cookie 自动携带) 重新获取 Access Token
 // ─────────────────────────────────────────────
+let _accessToken: string | null = null;
+
 export function getAccessToken(): string | null {
-  return localStorage.getItem(config.tokenKey);
+  return _accessToken;
 }
 
-function saveAccessToken(token: string): void {
-  localStorage.setItem(config.tokenKey, token);
+export function saveAccessToken(token: string): void {
+  _accessToken = token;
 }
 
-function clearTokens(): void {
-  localStorage.removeItem(config.tokenKey);
+export function clearTokens(): void {
+  _accessToken = null;
   localStorage.removeItem(config.userKey);
 }
 

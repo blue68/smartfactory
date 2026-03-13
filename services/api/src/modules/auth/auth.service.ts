@@ -174,11 +174,24 @@ export class AuthService {
       throw new AppError('账号已停用', ResponseCode.FORBIDDEN, 403);
     }
 
-    // 3. 校验密码
+    // 3. 校验密码（含登录失败锁定机制 SEC M-001）
     const passwordMatch = await bcrypt.compare(params.password, user.password_hash);
     if (!passwordMatch) {
+      // 递增 Redis 失败计数器，15 分钟窗口内超 5 次自动锁定
+      const failKey = `login:fail:${tenant.id}:${user.id}`;
+      const redis = getRedisClient();
+      const fails = await redis.incr(failKey);
+      await redis.expire(failKey, 15 * 60);
+      if (fails >= 5) {
+        await db.query('UPDATE users SET status = ? WHERE id = ?', ['locked', user.id]);
+        throw new AppError('账号已因多次登录失败被锁定，请联系管理员', ResponseCode.FORBIDDEN, 403);
+      }
       throw new AppError('用户名或密码错误', ResponseCode.UNAUTHORIZED, 401);
     }
+
+    // 登录成功：清除失败计数
+    const failKey = `login:fail:${tenant.id}:${user.id}`;
+    await getRedisClient().del(failKey).catch(() => {});
 
     // 4. 查角色
     const roles = await db.query<Array<{ code: string }>>(
@@ -395,6 +408,23 @@ export class AuthService {
     const sameAsOld = await bcrypt.compare(newPassword, user.password_hash);
     if (sameAsOld) {
       throw new AppError('新密码不能与旧密码相同', ResponseCode.INVALID_PARAMS, 400);
+    }
+
+    // 3.5 密码复杂度校验（SEC M-007）
+    if (newPassword.length < 8) {
+      throw new AppError('新密码至少8位', ResponseCode.INVALID_PARAMS, 400);
+    }
+    if (!/[A-Z]/.test(newPassword)) {
+      throw new AppError('新密码必须包含大写字母', ResponseCode.INVALID_PARAMS, 400);
+    }
+    if (!/[a-z]/.test(newPassword)) {
+      throw new AppError('新密码必须包含小写字母', ResponseCode.INVALID_PARAMS, 400);
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      throw new AppError('新密码必须包含数字', ResponseCode.INVALID_PARAMS, 400);
+    }
+    if (!/[^A-Za-z0-9]/.test(newPassword)) {
+      throw new AppError('新密码必须包含特殊字符', ResponseCode.INVALID_PARAMS, 400);
     }
 
     // 4. hash 新密码（cost factor 12）

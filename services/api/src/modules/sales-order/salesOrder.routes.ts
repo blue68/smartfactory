@@ -15,13 +15,13 @@ router.get('/',    asyncHandler(salesOrderController.list.bind(salesOrderControl
 router.get('/:id', asyncHandler(salesOrderController.getOne.bind(salesOrderController)));
 
 // ── 创建与编辑 ──────────────────────────────────────────────────────────────
-router.post('/',           asyncHandler(salesOrderController.create.bind(salesOrderController)));
-router.put('/:id/items',   asyncHandler(salesOrderController.updateItems.bind(salesOrderController)));
+router.post('/',           requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.create.bind(salesOrderController)));
+router.put('/:id/items',   requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.updateItems.bind(salesOrderController)));
 
 // ── 状态流转 ────────────────────────────────────────────────────────────────
 router.post('/:id/transition',  requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.transition.bind(salesOrderController)));
-router.post('/:id/submit',      asyncHandler(salesOrderController.submitForApproval.bind(salesOrderController)));
-router.post('/:id/withdraw',    asyncHandler(salesOrderController.withdraw.bind(salesOrderController)));
+router.post('/:id/submit',      requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.submitForApproval.bind(salesOrderController)));
+router.post('/:id/withdraw',    requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.withdraw.bind(salesOrderController)));
 
 // ── 审批（仅 boss）─────────────────────────────────────────────────────────
 // 系统中不存在 admin 角色，审批权限统一由 boss 角色持有

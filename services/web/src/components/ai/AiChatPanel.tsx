@@ -6,6 +6,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { config } from '@/config';
+import { getAccessToken } from '@/utils/request';
 import AiThinkingState, { type ThinkingStep } from './AiThinkingState';
 import StreamText from './StreamText';
 import Button from '@/components/common/Button';
@@ -98,7 +99,7 @@ export default function AiChatPanel() {
     abortRef.current = new AbortController();
 
     try {
-      const token = localStorage.getItem(config.tokenKey);
+      const token = getAccessToken();
       const response = await fetch(`${config.apiBaseUrl}/api/ai/chat`, {
         method: 'POST',
         headers: {

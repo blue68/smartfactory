@@ -4,6 +4,7 @@
 
 import { create } from 'zustand';
 import { config } from '@/config';
+import { getAccessToken, saveAccessToken, clearTokens } from '@/utils/request';
 import type { User } from '@/types/models';
 import type { UserRole } from '@/types/enums';
 
@@ -22,7 +23,7 @@ interface AuthState {
   /** 登出，清除 accessToken 和用户信息；Refresh Token Cookie 由后端 Set-Cookie 清除 */
   logout: () => void;
 
-  /** 初始化时从 localStorage 恢复状态 */
+  /** 初始化时恢复状态：Access Token 从内存读取，User 从 localStorage 恢复 */
   hydrate: () => void;
 
   /** 判断当前用户是否拥有某角色 */
@@ -38,30 +39,35 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   isAuthenticated: false,
 
   setAuth: (user, accessToken) => {
-    localStorage.setItem(config.tokenKey, accessToken);
+    saveAccessToken(accessToken);
     localStorage.setItem(config.userKey, JSON.stringify(user));
     set({ user, accessToken, isAuthenticated: true });
   },
 
   setAccessToken: (token) => {
-    localStorage.setItem(config.tokenKey, token);
+    saveAccessToken(token);
     set({ accessToken: token });
   },
 
   logout: () => {
-    localStorage.removeItem(config.tokenKey);
-    localStorage.removeItem(config.userKey);
+    clearTokens();
     // Refresh Token Cookie 由后端登出接口通过 Set-Cookie: max-age=0 清除
     set({ user: null, accessToken: null, isAuthenticated: false });
   },
 
   hydrate: () => {
     try {
-      const token = localStorage.getItem(config.tokenKey);
+      // Access Token 从内存读取（页面刷新后为 null，由 refresh 机制重新获取）
+      const token = getAccessToken();
       const userRaw = localStorage.getItem(config.userKey);
       if (token && userRaw) {
         const user = JSON.parse(userRaw) as User;
         set({ user, accessToken: token, isAuthenticated: true });
+      } else if (userRaw) {
+        // 有用户信息但无 Token（页面刷新场景），标记待刷新状态
+        // refresh 拦截器会自动通过 Cookie 刷新获取新 Access Token
+        const user = JSON.parse(userRaw) as User;
+        set({ user, accessToken: null, isAuthenticated: false });
       }
     } catch {
       // localStorage 读取失败时静默忽略，保持未认证状态
