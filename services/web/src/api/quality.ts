@@ -130,5 +130,27 @@ export function useQualityStats(periodDays: 7 | 30 | 90 = 30) {
   });
 }
 
+/** 质量问题列表（分页 + 筛选） */
+export function useIssueList(
+  params: { severity?: IssueSeverity; issueType?: IssueType } = {},
+  page = 1,
+  pageSize = 20,
+) {
+  return useQuery({
+    queryKey: [...qualityKeys.all, 'issues', params, page, pageSize] as const,
+    queryFn: () =>
+      request.get<PaginatedData<{
+        id: number;
+        inspectionId: number;
+        inspectionNo: string;
+        componentName: string;
+        issueTypes: IssueType[];
+        severity: IssueSeverity;
+        description: string | null;
+        createdAt: string;
+      }>>('/api/quality/issues', { ...params, page, pageSize } as Record<string, unknown>),
+  });
+}
+
 // 类型导出（供外部组件使用）
 export type { QualityIssue };
