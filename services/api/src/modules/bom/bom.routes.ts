@@ -13,7 +13,7 @@ router.get('/',                          asyncHandler(bomController.list.bind(bo
 router.get('/ai-suggestion/:skuId',      requireRoles('boss', 'supervisor'), asyncHandler(bomController.getAiSuggestion.bind(bomController)));
 
 router.get('/:id/expand',               asyncHandler(bomController.getExpanded.bind(bomController)));
-router.get('/:id/material-requirements', asyncHandler(bomController.calcRequirements.bind(bomController)));
+router.get('/:id/material-requirements', requireRoles('boss', 'supervisor'), asyncHandler(bomController.calcRequirements.bind(bomController)));
 
 // P0-1: Write routes require boss or supervisor role
 router.post('/',                         requireRoles('boss', 'supervisor'), asyncHandler(bomController.create.bind(bomController)));

@@ -445,6 +445,41 @@ function EditorView({ row, onBack }: EditorViewProps) {
   // TASK-BOM-04: AI 批量导入状态
   const [batchImporting, setBatchImporting] = useState(false);
 
+  // TASK-BOM-04: 提取为命名函数
+  const handleBatchImport = async () => {
+    if (!aiSuggestion) return;
+    if (row.status !== BomStatus.DRAFT) {
+      showToast({ type: 'error', message: '仅草稿状态的 BOM 可批量导入物料' });
+      return;
+    }
+    // 按 skuId 去重，防止重复物料并发写入
+    const seen = new Set<number>();
+    const uniqueItems = aiSuggestion.suggestedItems.filter((r) => {
+      if (seen.has(r.skuId)) return false;
+      seen.add(r.skuId);
+      return true;
+    });
+    setBatchImporting(true);
+    try {
+      const results = await Promise.allSettled(
+        uniqueItems.map((r) =>
+          addBomItem.mutateAsync({
+            bomId: row.id,
+            item: { componentSkuId: r.skuId, quantity: r.quantity, unit: r.unit },
+          })
+        )
+      );
+      const succeeded = results.filter((res) => res.status === 'fulfilled').length;
+      const failed = results.filter((res) => res.status === 'rejected').length;
+      showToast({
+        type: failed === 0 ? 'success' : 'error',
+        message: `成功添加 ${succeeded} 项${failed > 0 ? `，失败 ${failed} 项` : ''}`,
+      });
+    } finally {
+      setBatchImporting(false);
+    }
+  };
+
   const handleOpenEditInfo = () => {
     setEditVersion(detailData?.version ?? '');
     setEditDesc(detailData?.description ?? '');
@@ -657,8 +692,9 @@ function EditorView({ row, onBack }: EditorViewProps) {
         title="物料需求计算"
         onClose={() => { setCalcReqOpen(false); setCalcReqSubmitted(false); setCalcReqQty('100'); }}
         onConfirm={() => {
-          if (!calcReqQty || Number(calcReqQty) <= 0) {
-            showToast({ type: 'error', message: '请输入有效的生产数量' });
+          const qty = Number(calcReqQty);
+          if (!calcReqQty || qty <= 0 || qty > 1000000 || !Number.isFinite(qty)) {
+            showToast({ type: 'error', message: '请输入有效的生产数量（1 ~ 1,000,000）' });
             return;
           }
           setCalcReqSubmitted(true);
@@ -868,7 +904,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
           {/* TASK-BOM-03: 物料需求计算入口 */}
           <Button
             variant="secondary"
-            onClick={() => { setCalcReqQty('100'); setCalcReqSubmitted(false); setCalcReqOpen(true); }}
+            onClick={() => setCalcReqOpen(true)}
           >
             需求计算
           </Button>
@@ -1020,32 +1056,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
                       size="sm"
                       style={{ background: 'var(--color-accent-500, #f97316)', color: '#fff', borderColor: 'transparent' }}
                       disabled={batchImporting}
-                      onClick={async () => {
-                        if (!aiSuggestion) return;
-                        if (row.status !== BomStatus.DRAFT) {
-                          showToast({ type: 'error', message: '仅草稿状态的 BOM 可批量导入物料' });
-                          return;
-                        }
-                        setBatchImporting(true);
-                        try {
-                          const results = await Promise.allSettled(
-                            aiSuggestion.suggestedItems.map((r) =>
-                              addBomItem.mutateAsync({
-                                bomId: row.id,
-                                item: { componentSkuId: r.skuId, quantity: r.quantity, unit: r.unit },
-                              })
-                            )
-                          );
-                          const succeeded = results.filter((res) => res.status === 'fulfilled').length;
-                          const failed = results.filter((res) => res.status === 'rejected').length;
-                          showToast({
-                            type: failed === 0 ? 'success' : 'error',
-                            message: `成功添加 ${succeeded} 项，失败 ${failed} 项`,
-                          });
-                        } finally {
-                          setBatchImporting(false);
-                        }
-                      }}
+                      onClick={handleBatchImport}
                     >
                       {batchImporting ? '导入中...' : '一键复用此BOM结构'}
                     </Button>
