@@ -18,12 +18,12 @@ const CreateBomItemSchema: z.ZodType<any> = z.lazy(() =>
 const CreateBomSchema = z.object({
   skuId: z.number().int().positive(),
   version: z.string().max(20).optional(),
-  description: z.string().optional(),
+  description: z.string().max(500).optional(),
   items: z.array(CreateBomItemSchema).default([]),
 });
 
 const CalcRequirementsSchema = z.object({
-  productionQty: z.coerce.number().positive(),
+  productionQty: z.coerce.number().positive().max(1_000_000),
 });
 
 const AddBomItemSchema = z.object({

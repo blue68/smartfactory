@@ -89,15 +89,16 @@ export class BomService {
       params.push(skuId);
     }
 
+    // 硬性上限 500 条，防止大结果集 DoS
     const headers = await AppDataSource.query<Array<{
       id: number; sku_id: number; sku_name: string; sku_code: string; version: string; status: string;
     }>>(
-      // P2-2: include s.code AS skuCode so callers receive the SKU code in list responses
       `SELECT b.id, b.sku_id, s.name AS sku_name, s.code AS sku_code, b.version, b.status
        FROM bom_headers b
        INNER JOIN skus s ON s.id = b.sku_id
        WHERE ${conditions.join(' AND ')}
-       ORDER BY b.id DESC`,
+       ORDER BY b.id DESC
+       LIMIT 500`,
       params,
     );
 
@@ -432,46 +433,58 @@ export class BomService {
     bomId: number,
     payload: { version?: string; description?: string; status?: 'draft' | 'active' | 'archived' },
   ): Promise<void> {
-    const header = await this.getBomHeader(bomId);
+    let oldVersion: string;
 
-    // 非 draft 状态禁止修改 version
-    if (payload.version !== undefined && header.status !== 'draft') {
-      throw AppError.badRequest(
-        '只有 draft 状态的 BOM 才能修改版本号',
-        ResponseCode.BOM_STATUS_CONFLICT,
+    await AppDataSource.transaction(async (manager) => {
+      // 事务内获取 header（FOR UPDATE 行锁防并发）
+      const [header] = await manager.query<Array<{
+        id: number; sku_id: number; version: string; status: string;
+      }>>(
+        'SELECT id, sku_id, version, status FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE',
+        [bomId, this.tenantId],
       );
-    }
+      if (!header) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
+      oldVersion = header.version;
 
-    // 版本号唯一性校验（同 SKU 下不可重复，与 copyBom 逻辑对齐）
-    if (payload.version !== undefined && payload.version !== header.version) {
-      const [existing] = await AppDataSource.query<Array<{ id: number }>>(
-        'SELECT id FROM bom_headers WHERE tenant_id = ? AND sku_id = ? AND version = ? AND id != ? LIMIT 1',
-        [this.tenantId, header.skuId, payload.version, bomId],
-      );
-      if (existing) {
+      // 非 draft 状态禁止修改 version
+      if (payload.version !== undefined && header.status !== 'draft') {
         throw AppError.badRequest(
-          `版本号 ${payload.version} 已存在，请使用其他版本号`,
-          ResponseCode.BOM_VERSION_DUPLICATE,
+          '只有 draft 状态的 BOM 才能修改版本号',
+          ResponseCode.BOM_STATUS_CONFLICT,
         );
       }
-    }
 
-    const setClauses: string[] = ['updated_by = ?'];
-    const params: unknown[] = [this.userId];
+      // 版本号唯一性校验（FOR UPDATE 防并发写入重复版本号）
+      if (payload.version !== undefined && payload.version !== header.version) {
+        const [existing] = await manager.query<Array<{ id: number }>>(
+          'SELECT id FROM bom_headers WHERE tenant_id = ? AND sku_id = ? AND version = ? AND id != ? LIMIT 1 FOR UPDATE',
+          [this.tenantId, header.sku_id, payload.version, bomId],
+        );
+        if (existing) {
+          throw AppError.badRequest(
+            `版本号 ${payload.version} 已存在，请使用其他版本号`,
+            ResponseCode.BOM_VERSION_DUPLICATE,
+          );
+        }
+      }
 
-    if (payload.version !== undefined)     { setClauses.push('version = ?');     params.push(payload.version); }
-    if (payload.description !== undefined) { setClauses.push('description = ?'); params.push(payload.description); }
-    if (payload.status !== undefined)      { setClauses.push('status = ?');      params.push(payload.status); }
+      const setClauses: string[] = ['updated_by = ?'];
+      const params: unknown[] = [this.userId];
 
-    params.push(bomId, this.tenantId);
+      if (payload.version !== undefined)     { setClauses.push('version = ?');     params.push(payload.version); }
+      if (payload.description !== undefined) { setClauses.push('description = ?'); params.push(payload.description); }
+      if (payload.status !== undefined)      { setClauses.push('status = ?');      params.push(payload.status); }
 
-    await AppDataSource.query(
-      `UPDATE bom_headers SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`,
-      params,
-    );
+      params.push(bomId, this.tenantId);
 
-    // 失效 Redis 缓存（version 可能已变）
-    await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, header.version));
+      await manager.query(
+        `UPDATE bom_headers SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`,
+        params,
+      );
+    });
+
+    // 事务提交后失效 Redis 缓存
+    await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, oldVersion!));
     if (payload.version) {
       await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, payload.version));
     }
@@ -496,16 +509,16 @@ export class BomService {
 
       capturedBomHeaderId = item.bom_header_id;
 
-      // 递归删除所有子孙节点（借助 WITH RECURSIVE CTE）
+      // 递归删除所有子孙节点（借助 WITH RECURSIVE CTE，深度限制 10 层防 DoS）
       await manager.query(
         `DELETE FROM bom_items
          WHERE tenant_id = ? AND id IN (
            WITH RECURSIVE descendants AS (
-             SELECT id FROM bom_items WHERE id = ? AND tenant_id = ?
+             SELECT id, 1 AS depth FROM bom_items WHERE id = ? AND tenant_id = ?
              UNION ALL
-             SELECT bi.id FROM bom_items bi
+             SELECT bi.id, d.depth + 1 FROM bom_items bi
              INNER JOIN descendants d ON bi.parent_item_id = d.id
-             WHERE bi.tenant_id = ?
+             WHERE bi.tenant_id = ? AND d.depth < 10
            )
            SELECT id FROM descendants
          )`,
@@ -672,41 +685,55 @@ export class BomService {
       scrapRate?: string;
     },
   ): Promise<{ bomItemId: number }> {
-    // 1. 校验 BOM 存在并获取 skuId 与 version（用于缓存失效）
-    const [header] = await AppDataSource.query<Array<{ sku_id: number; version: string }>>(
-      'SELECT sku_id, version FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1',
-      [bomId, this.tenantId],
-    );
-    if (!header) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
+    let bomItemId: number;
+    let cachedVersion: string;
 
-    // 2. 防止直接循环引用
-    if (header.sku_id === payload.componentSkuId) {
-      throw AppError.badRequest(
-        `检测到循环引用：物料 ${payload.componentSkuId} 是当前BOM的成品`,
-        ResponseCode.BOM_CIRCULAR_REF,
+    await AppDataSource.transaction(async (manager) => {
+      // 1. 事务内校验 BOM 存在并加行锁（防 TOCTOU）
+      const [header] = await manager.query<Array<{ sku_id: number; version: string; status: string }>>(
+        'SELECT sku_id, version, status FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE',
+        [bomId, this.tenantId],
       );
-    }
+      if (!header) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
 
-    // 3. 插入明细行
-    const result = await AppDataSource.query(
-      `INSERT INTO bom_items
-         (tenant_id, bom_header_id, parent_item_id, component_sku_id,
-          quantity, unit, level, scrap_rate, sort_order, created_by, updated_by)
-       VALUES (?, ?, NULL, ?, ?, ?, 1, ?, 0, ?, ?)`,
-      [
-        this.tenantId, bomId, payload.componentSkuId,
-        payload.quantity, payload.unit,
-        payload.scrapRate ?? '0',
-        this.userId, this.userId,
-      ],
-    );
+      // 2. 仅 draft 状态允许新增物料
+      if (header.status !== 'draft') {
+        throw AppError.badRequest(
+          '只有 draft 状态的 BOM 允许新增物料',
+          ResponseCode.BOM_STATUS_CONFLICT,
+        );
+      }
 
-    const bomItemId = Number(result.insertId);
+      // 3. 防止直接循环引用
+      if (header.sku_id === payload.componentSkuId) {
+        throw AppError.badRequest(
+          `检测到循环引用：物料 ${payload.componentSkuId} 是当前BOM的成品`,
+          ResponseCode.BOM_CIRCULAR_REF,
+        );
+      }
 
-    // 4. 失效 Redis 展开缓存
-    await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, header.version));
+      // 4. 插入明细行
+      const result = await manager.query(
+        `INSERT INTO bom_items
+           (tenant_id, bom_header_id, parent_item_id, component_sku_id,
+            quantity, unit, level, scrap_rate, sort_order, created_by, updated_by)
+         VALUES (?, ?, NULL, ?, ?, ?, 1, ?, 0, ?, ?)`,
+        [
+          this.tenantId, bomId, payload.componentSkuId,
+          payload.quantity, payload.unit,
+          payload.scrapRate ?? '0',
+          this.userId, this.userId,
+        ],
+      );
 
-    return { bomItemId };
+      bomItemId = Number(result.insertId);
+      cachedVersion = header.version;
+    });
+
+    // 5. 事务提交后失效 Redis 展开缓存
+    await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, cachedVersion!));
+
+    return { bomItemId: bomItemId! };
   }
 
   // ── 私有辅助 ────────────────────────────────────────────────
