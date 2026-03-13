@@ -1,617 +1,1732 @@
 /**
- * [artifact:前端代码] — SKU 主数据页
- * 功能：二级分类浏览、多单位换算配置、批量补录、状态管理
+ * [artifact:前端代码] — SKU 主数据页（完整重写）
+ * 按设计稿 100% 视觉还原
  */
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { useAppStore } from '@/stores/appStore';
 import {
+  skuApi,
   useSkuList,
   useSkuCategories,
+  useSkuStats,
   useCreateSku,
   useUpdateSku,
-  useUpdateUnitConversions,
+  useBatchUpdateStatus,
+  useBatchSetSafetyStock,
 } from '@/api/sku';
-import { SkuStatus, Category2Code, Category2Label, Category1Code, Category1Label } from '@/types/enums';
-import type { Sku, UnitConversion } from '@/types/models';
+import {
+  SkuStatus,
+  Category1Code,
+  Category1Label,
+  Category2Code,
+  Category2Label,
+} from '@/types/enums';
+import type { Sku, SkuCategory, SkuListQuery } from '@/types/models';
 import type { Column } from '@/components/common/Table';
 import Table from '@/components/common/Table';
 import Drawer from '@/components/common/Drawer';
 import Tag from '@/components/common/Tag';
 import Button from '@/components/common/Button';
-import SummaryStrip from '@/components/common/SummaryStrip';
-import { formatDateTime } from '@/utils/format';
+import Modal from '@/components/common/Modal';
+import { exportObjectsToCSV } from '@/utils/exportExcel';
+import CategoryManager from '@/components/CategoryManager';
 import styles from './SkuPage.module.css';
 
+// ──────────────────────────────────────────────
+// 辅助类型
+// ──────────────────────────────────────────────
 type SkuRecord = Sku & Record<string, unknown>;
 
-/** 一级分类 → Tag 色彩（使用 CSS 变量，对应设计规范色板） */
-const CATEGORY1_TAG_STYLE: Record<Category1Code, React.CSSProperties> = {
-  [Category1Code.RAW_MATERIAL]: {
-    backgroundColor: 'var(--color-primary-50)',
-    color: 'var(--color-primary-700)',
-  },
-  [Category1Code.SEMI_PRODUCT]: {
-    backgroundColor: 'var(--color-warning-50)',
-    color: 'var(--color-warning-700)',
-  },
-  [Category1Code.FINISHED]: {
-    backgroundColor: 'var(--color-success-50)',
-    color: 'var(--color-success-700)',
-  },
+// ──────────────────────────────────────────────
+// 常量
+// ──────────────────────────────────────────────
+const UNIT_OPTIONS = ['张', '件', '卷', '米', 'kg', 'g', '个', 'mm²', '片', '套', '组', '块', '条'] as const;
+
+const CATEGORY1_TAG_STYLE: Partial<Record<Category1Code, string>> = {
+  [Category1Code.RAW_MATERIAL]: styles['cat1_tag--raw'],
+  [Category1Code.SEMI_PRODUCT]: styles['cat1_tag--semi'],
+  [Category1Code.FINISHED]:     styles['cat1_tag--done'],
+  [Category1Code.PACKING]:      styles['cat1_tag--raw'],
 };
 
-const SKU_STATUS_VARIANT: Record<SkuStatus, 'success' | 'neutral' | 'warning'> = {
-  [SkuStatus.ACTIVE]:      'success',
-  [SkuStatus.INACTIVE]:    'neutral',
-  [SkuStatus.PENDING]:     'warning',
-};
-const SKU_STATUS_LABEL: Record<SkuStatus, string> = {
-  [SkuStatus.ACTIVE]:   '启用',
-  [SkuStatus.INACTIVE]: '停用',
-  [SkuStatus.PENDING]:  '待审',
-};
-
-type SkuFormData = {
-  skuCode: string;
-  skuName: string;
-  category1Code: string;
-  category2Code: Category2Code | '';
-  stockUnit: string;
+// ──────────────────────────────────────────────
+// 表单数据类型
+// ──────────────────────────────────────────────
+interface SkuFormData {
+  name: string;
+  category1Code: Category1Code | '';
+  category2Id: number | '';
+  spec: string;
   purchaseUnit: string;
+  stockUnit: string;
+  stockConvFactor: string;
+  productionUnit: string;
+  prodConvNote: string;
   safetyStock: string;
-  specifications: string;
-};
+  hasDyeLot: boolean;
+  useFifo: boolean;
+  description: string;
+  status: 'active' | 'inactive';
+}
 
-const EMPTY_SKU_FORM: SkuFormData = {
-  skuCode: '',
-  skuName: '',
+const EMPTY_FORM: SkuFormData = {
+  name: '',
   category1Code: '',
-  category2Code: '',
-  stockUnit: '',
+  category2Id: '',
+  spec: '',
   purchaseUnit: '',
+  stockUnit: '',
+  stockConvFactor: '1',
+  productionUnit: '',
+  prodConvNote: '',
   safetyStock: '',
-  specifications: '',
+  hasDyeLot: false,
+  useFifo: true,
+  description: '',
+  status: 'active',
 };
 
-type ConversionRow = { fromUnit: string; toUnit: string; factor: string };
+// ──────────────────────────────────────────────
+// 工具函数
+// ──────────────────────────────────────────────
+function getCat1CodeFromId(catData: SkuCategory[], cat1Id: number): Category1Code | undefined {
+  const found = catData.find((c) => c.level === 1 && Number(c.id) === Number(cat1Id));
+  return found?.code as Category1Code | undefined;
+}
 
+function getCat2ByParentCode(catData: SkuCategory[], cat1Code: Category1Code): SkuCategory[] {
+  const parent = catData.find((c) => c.level === 1 && c.code === cat1Code);
+  if (!parent) return [];
+  return catData.filter((c) => c.level === 2 && c.parentId === parent.id);
+}
+
+function getCat1IdByCode(catData: SkuCategory[], code: Category1Code): number | undefined {
+  return catData.find((c) => c.level === 1 && c.code === code)?.id;
+}
+
+// ──────────────────────────────────────────────
+// 主页面
+// ──────────────────────────────────────────────
 export default function SkuPage() {
   const { setPageTitle, showToast } = useAppStore();
-  const [page, setPage] = useState(1);
+
+  // 列表查询参数
+  const [query, setQuery] = useState<SkuListQuery>({ page: 1, pageSize: 20 });
   const [keyword, setKeyword] = useState('');
-  const [debouncedKeyword, setDebouncedKeyword] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<Category2Code | ''>('');
-  const [statusFilter, setStatusFilter] = useState<SkuStatus | ''>('');
 
-  // 批量选择状态
+  // UI 状态
+  const [warnDismissed, setWarnDismissed] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<'create' | 'edit' | 'detail' | null>(null);
+  const [editingSku, setEditingSku] = useState<Sku | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const [showBatchSafety, setShowBatchSafety] = useState(false);
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [batchSafetyVal, setBatchSafetyVal] = useState('');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-
-  // modals
-  const [createModal, setCreateModal] = useState(false);
-  const [editModal, setEditModal] = useState<{ open: boolean; sku: Sku | null }>({ open: false, sku: null });
-  const [unitModal, setUnitModal] = useState<{ open: boolean; sku: Sku | null }>({ open: false, sku: null });
-
-  const [skuForm, setSkuForm] = useState<SkuFormData>(EMPTY_SKU_FORM);
-  const [conversionRows, setConversionRows] = useState<ConversionRow[]>([{ fromUnit: '', toUnit: '', factor: '' }]);
+  const [skuForm, setSkuForm] = useState<SkuFormData>(EMPTY_FORM);
 
   useEffect(() => { setPageTitle('SKU 主数据'); }, [setPageTitle]);
 
-  // 防抖关键字搜索
+  // 防抖搜索
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedKeyword(keyword), 350);
+    const t = setTimeout(() => {
+      setQuery((q) => ({ ...q, keyword: keyword || undefined, page: 1 }));
+    }, 350);
     return () => clearTimeout(t);
   }, [keyword]);
 
-  const { data: catData } = useSkuCategories();
-  const { data, isLoading, error } = useSkuList(
-    debouncedKeyword || undefined,
-    categoryFilter || undefined,
-    statusFilter as SkuStatus || undefined,
-    page,
-    20,
+  // 数据
+  const { data: rawCatData } = useSkuCategories();
+  const catData: SkuCategory[] = useMemo(() => rawCatData ?? [], [rawCatData]);
+  const { data: statsData } = useSkuStats();
+  const { data, isLoading, error } = useSkuList(query);
+
+  // Mutations
+  const createMutation       = useCreateSku();
+  const updateMutation       = useUpdateSku();
+  const batchStatusMutation  = useBatchUpdateStatus();
+  const batchSafetyMutation  = useBatchSetSafetyStock();
+
+  // 分类下拉选项
+  const cat1Options = useMemo(
+    () => catData.filter((c) => c.level === 1),
+    [catData],
+  );
+  const cat2Options = useMemo(
+    () => catData.filter((c) => c.level === 2),
+    [catData],
   );
 
-  const createMutation = useCreateSku();
-  const updateMutation = useUpdateSku();
-  const unitMutation   = useUpdateUnitConversions();
+  // 选中 category1Code 时的二级分类列表（表单内）
+  const formCat2Options = useMemo(
+    () => skuForm.category1Code
+      ? getCat2ByParentCode(catData, skuForm.category1Code)
+      : cat2Options,
+    [catData, skuForm.category1Code, cat2Options],
+  );
 
-  // 当前页 SKU 列表（用于全选计算）
-  const currentPageSkuList = useMemo(() => (data?.list ?? []) as Sku[], [data]);
+  // SKU 列表
+  const skuList = useMemo(() => (data?.list ?? []) as SkuRecord[], [data]);
 
-  // 全选：当前页全部选中时为 true
-  const isAllSelected = currentPageSkuList.length > 0
-    && currentPageSkuList.every((s) => selectedIds.includes(s.id));
-  const isIndeterminate = !isAllSelected
-    && currentPageSkuList.some((s) => selectedIds.includes(s.id));
+  // 未分类 SKU 数（二级品类 NONE）
+  const noCategory2Count = useMemo(
+    () => statsData?.incomplete ?? 0,
+    [statsData],
+  );
+
+  // ── 全选逻辑 ──
+  const isAllSelected = skuList.length > 0 && skuList.every((s) => selectedIds.includes(Number(s.id)));
+  const isIndeterminate = !isAllSelected && skuList.some((s) => selectedIds.includes(Number(s.id)));
 
   const handleSelectAll = useCallback((checked: boolean) => {
     if (checked) {
-      const pageIds = currentPageSkuList.map((s) => s.id);
-      setSelectedIds((prev) => Array.from(new Set([...prev, ...pageIds])));
+      const ids = skuList.map((s) => Number(s.id));
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...ids])));
     } else {
-      const pageIds = new Set(currentPageSkuList.map((s) => s.id));
-      setSelectedIds((prev) => prev.filter((id) => !pageIds.has(id)));
+      const ids = new Set(skuList.map((s) => Number(s.id)));
+      setSelectedIds((prev) => prev.filter((id) => !ids.has(id)));
     }
-  }, [currentPageSkuList]);
+  }, [skuList]);
 
   const handleSelectRow = useCallback((id: number, checked: boolean) => {
-    setSelectedIds((prev) =>
-      checked ? [...prev, id] : prev.filter((x) => x !== id),
-    );
+    setSelectedIds((prev) => checked ? [...prev, id] : prev.filter((x) => x !== id));
   }, []);
 
-  const handleBatchEnable = useCallback(() => {
-    showToast({ type: 'info', message: `批量启用 ${selectedIds.length} 个 SKU（功能开发中）` });
-  }, [selectedIds, showToast]);
-
-  const handleBatchDisable = useCallback(() => {
-    showToast({ type: 'info', message: `批量停用 ${selectedIds.length} 个 SKU（功能开发中）` });
-  }, [selectedIds, showToast]);
-
-  const handleClearSelection = useCallback(() => {
-    setSelectedIds([]);
+  // ── Drawer 开关 ──
+  const openCreate = useCallback(() => {
+    setSkuForm(EMPTY_FORM);
+    setEditingSku(null);
+    setDrawerMode('create');
   }, []);
-
-  // 统计摘要：总数来自 API total，有效/待审/停用从当前页估算（API 无专项统计字段）
-  const summaryItems = useMemo(() => {
-    const list = (data?.list ?? []) as Sku[];
-    const total   = data?.total ?? 0;
-    const active  = list.filter((s) => s.status === SkuStatus.ACTIVE).length;
-    const pending = list.filter((s) => s.status === SkuStatus.PENDING).length;
-    const inactive= list.filter((s) => s.status === SkuStatus.INACTIVE).length;
-    return [
-      { label: '总 SKU 数', value: total, unit: '个' },
-      { label: '启用', value: active, unit: '个', highlight: true },
-      { label: '待审', value: pending, unit: '个' },
-      { label: '停用', value: inactive, unit: '个' },
-    ];
-  }, [data]);
 
   const openEdit = useCallback((sku: Sku) => {
+    const cat1Code = getCat1CodeFromId(catData, sku.category1Id) ?? '';
     setSkuForm({
-      skuCode: sku.skuCode,
-      skuName: sku.skuName,
-      category1Code: sku.category1Code,
-      category2Code: sku.category2Code as Category2Code,
-      stockUnit: sku.stockUnit,
+      name: sku.name,
+      category1Code: cat1Code,
+      category2Id: sku.category2Id,
+      spec: sku.spec ?? '',
       purchaseUnit: sku.purchaseUnit,
-      safetyStock: String(sku.safetyStock),
-      specifications: sku.specifications ?? '',
+      stockUnit: sku.stockUnit,
+      stockConvFactor: String(sku.stockConvFactor ?? 1),
+      productionUnit: sku.productionUnit,
+      prodConvNote: sku.prodConvNote ?? '',
+      safetyStock: sku.safetyStock ?? '',
+      hasDyeLot: sku.hasDyeLot,
+      useFifo: sku.useFifo,
+      description: sku.description ?? '',
+      status: sku.status === SkuStatus.INACTIVE ? 'inactive' : 'active',
     });
-    setEditModal({ open: true, sku });
+    setEditingSku(sku);
+    setDrawerMode('edit');
+  }, [catData]);
+
+  const openDetail = useCallback((sku: Sku) => {
+    setEditingSku(sku);
+    setDrawerMode('detail');
   }, []);
 
-  const openUnitModal = useCallback((sku: Sku) => {
-    const rows: ConversionRow[] = sku.unitConversions?.length
-      ? sku.unitConversions.map((c) => ({ fromUnit: c.fromUnit, toUnit: c.toUnit, factor: String(c.factor) }))
-      : [{ fromUnit: '', toUnit: '', factor: '' }];
-    setConversionRows(rows);
-    setUnitModal({ open: true, sku });
+  const closeDrawer = useCallback(() => {
+    setDrawerMode(null);
+    setEditingSku(null);
   }, []);
 
-  const handleCreate = async () => {
-    const { skuCode, skuName, stockUnit, purchaseUnit, safetyStock } = skuForm;
-    if (!skuCode || !skuName || !stockUnit || !purchaseUnit || !safetyStock) {
-      showToast({ type: 'warning', message: '请填写所有必填字段' });
-      return;
-    }
+  // ── 表单提交 ──
+  const handleSave = useCallback(async () => {
+    const { name, category1Code, category2Id, stockUnit, purchaseUnit } = skuForm;
+    if (!name.trim()) { showToast({ type: 'warning', message: '请填写物料名称' }); return; }
+    if (!category1Code) { showToast({ type: 'warning', message: '请选择物料分类（一级）' }); return; }
+    if (!category2Id) { showToast({ type: 'warning', message: '请选择二级品类' }); return; }
+    if (!stockUnit) { showToast({ type: 'warning', message: '请填写库存单位' }); return; }
+    if (!purchaseUnit) { showToast({ type: 'warning', message: '请填写采购单位' }); return; }
+
+    const cat1Id = getCat1IdByCode(catData, category1Code);
+    if (!cat1Id) { showToast({ type: 'warning', message: '无法识别一级分类，请重新选择' }); return; }
+
+    const payload = {
+      name: name.trim(),
+      category1Id: Number(cat1Id),
+      category2Id: Number(category2Id),
+      spec: skuForm.spec || undefined,
+      stockUnit,
+      purchaseUnit,
+      productionUnit: skuForm.productionUnit || stockUnit,
+      stockConvFactor: parseFloat(skuForm.stockConvFactor) || 1,
+      prodConvNote: skuForm.prodConvNote || undefined,
+      safetyStock: skuForm.safetyStock || undefined,
+      hasDyeLot: Boolean(skuForm.hasDyeLot),
+      useFifo: Boolean(skuForm.useFifo),
+      description: skuForm.description || undefined,
+      status: skuForm.status,
+    };
+
     try {
-      await createMutation.mutateAsync({
-        skuCode,
-        skuName,
-        category1Code: skuForm.category1Code,
-        category2Code: skuForm.category2Code as Category2Code,
-        stockUnit,
-        purchaseUnit,
-        safetyStock: Number(safetyStock),
-        specifications: skuForm.specifications || undefined,
-      });
-      showToast({ type: 'success', message: 'SKU 创建成功' });
-      setCreateModal(false);
-      setSkuForm(EMPTY_SKU_FORM);
+      if (drawerMode === 'create') {
+        await createMutation.mutateAsync(payload);
+        showToast({ type: 'success', message: 'SKU 创建成功' });
+      } else if (drawerMode === 'edit' && editingSku) {
+        await updateMutation.mutateAsync({ id: editingSku.id, payload });
+        showToast({ type: 'success', message: 'SKU 更新成功' });
+      }
+      closeDrawer();
     } catch (e) {
-      showToast({ type: 'error', message: (e as Error).message });
+      showToast({ type: 'error', message: (e as Error).message ?? '操作失败' });
     }
-  };
+  }, [skuForm, catData, drawerMode, editingSku, createMutation, updateMutation, closeDrawer, showToast]);
 
-  const handleUpdate = async () => {
-    if (!editModal.sku) return;
-    const { skuName, safetyStock, specifications } = skuForm;
-    if (!skuName) {
-      showToast({ type: 'warning', message: '请输入 SKU 名称' });
-      return;
-    }
+  // ── 单条启用 ──
+  const handleEnableSku = useCallback(async (id: number) => {
     try {
-      await updateMutation.mutateAsync({
-        id: editModal.sku.id,
-        payload: { skuName, safetyStock: Number(safetyStock), specifications: specifications || undefined },
-      });
-      showToast({ type: 'success', message: '更新成功' });
-      setEditModal({ open: false, sku: null });
+      await batchStatusMutation.mutateAsync({ ids: [id], status: SkuStatus.ACTIVE });
+      showToast({ type: 'success', message: 'SKU 已启用' });
     } catch (e) {
-      showToast({ type: 'error', message: (e as Error).message });
+      showToast({ type: 'error', message: (e as Error).message ?? '操作失败' });
     }
-  };
+  }, [batchStatusMutation, showToast]);
 
-  const handleSaveConversions = async () => {
-    if (!unitModal.sku) return;
-    const valid = conversionRows.filter((r) => r.fromUnit && r.toUnit && r.factor);
-    if (valid.length === 0) {
-      showToast({ type: 'warning', message: '请至少填写一条换算规则' });
-      return;
-    }
-    const conversions: UnitConversion[] = valid.map((r) => ({
-      fromUnit: r.fromUnit,
-      toUnit: r.toUnit,
-      factor: Number(r.factor),
-    }));
+  // ── 批量操作 ──
+  const handleBatchDisable = useCallback(async () => {
+    if (selectedIds.length === 0) return;
     try {
-      await unitMutation.mutateAsync({ id: unitModal.sku.id, conversions });
-      showToast({ type: 'success', message: '单位换算规则已保存' });
-      setUnitModal({ open: false, sku: null });
+      await batchStatusMutation.mutateAsync({ ids: selectedIds, status: SkuStatus.INACTIVE });
+      showToast({ type: 'success', message: `已停用 ${selectedIds.length} 个 SKU` });
+      setSelectedIds([]);
     } catch (e) {
-      showToast({ type: 'error', message: (e as Error).message });
+      showToast({ type: 'error', message: (e as Error).message ?? '操作失败' });
     }
-  };
+  }, [selectedIds, batchStatusMutation, showToast]);
 
-  const addConversionRow = () => {
-    setConversionRows((rows) => [...rows, { fromUnit: '', toUnit: '', factor: '' }]);
-  };
-  const removeConversionRow = (idx: number) => {
-    setConversionRows((rows) => rows.filter((_, i) => i !== idx));
-  };
-  const updateConversionRow = (idx: number, field: keyof ConversionRow, value: string) => {
-    setConversionRows((rows) => rows.map((r, i) => i === idx ? { ...r, [field]: value } : r));
-  };
+  const handleBatchSafety = useCallback(async () => {
+    const val = parseFloat(batchSafetyVal);
+    if (isNaN(val) || val < 0) { showToast({ type: 'warning', message: '请输入有效的安全库存数量' }); return; }
+    try {
+      await batchSafetyMutation.mutateAsync({ ids: selectedIds, safetyStock: val });
+      showToast({ type: 'success', message: `已为 ${selectedIds.length} 个 SKU 设置安全库存` });
+      setShowBatchSafety(false);
+      setBatchSafetyVal('');
+      setSelectedIds([]);
+    } catch (e) {
+      showToast({ type: 'error', message: (e as Error).message ?? '操作失败' });
+    }
+  }, [batchSafetyVal, selectedIds, batchSafetyMutation, showToast]);
 
-  const columns: Column<SkuRecord>[] = [
+  // ── 导出 ──
+  const handleExport = useCallback(() => {
+    exportObjectsToCSV('SKU主数据', [
+      { key: 'skuCode',    label: 'SKU编码' },
+      { key: 'name',       label: '物料名称' },
+      { key: 'spec',       label: '规格' },
+      { key: 'category1Name', label: '一级分类' },
+      { key: 'category2Name', label: '二级品类' },
+      { key: 'stockUnit',  label: '库存单位' },
+      { key: 'purchaseUnit', label: '采购单位' },
+      { key: 'safetyStock', label: '安全库存' },
+      { key: 'qtyOnHand',  label: '当前库存' },
+      { key: 'status',     label: '状态' },
+    ], (selectedIds.length > 0
+      ? skuList.filter((s) => selectedIds.includes(Number(s.id)))
+      : skuList) as Record<string, unknown>[]);
+    showToast({ type: 'success', message: '导出成功' });
+  }, [skuList, selectedIds, showToast]);
+
+  // ── 表格列定义 ──
+  const columns: Column<SkuRecord>[] = useMemo(() => [
+    // 复选框列
+    {
+      key: 'checkbox',
+      title: '',
+      width: 44,
+      render: (_, r) => {
+        const id = Number(r.id);
+        return (
+          <div className={styles.checkbox_col}>
+            <input
+              type="checkbox"
+              className={styles.row_checkbox}
+              checked={selectedIds.includes(id)}
+              onChange={(e) => handleSelectRow(id, e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`选择 ${r.skuCode as string}`}
+            />
+          </div>
+        );
+      },
+    },
+    // SKU编码
     {
       key: 'skuCode',
-      title: 'SKU 编码',
-      width: 140,
+      title: 'SKU编码',
+      width: 120,
       render: (_, r) => (
-        <span style={{ fontFamily: 'var(--font-family-mono)', fontSize: 13 }}>{(r as unknown as Sku).skuCode}</span>
+        <button
+          className={styles.sku_code_link}
+          onClick={() => openDetail(r as unknown as Sku)}
+          type="button"
+        >
+          {r.skuCode as string}
+        </button>
       ),
     },
+    // 物料名称/规格
     {
-      key: 'skuName',
-      title: 'SKU 名称',
+      key: 'name',
+      title: '物料名称 / 规格',
+      width: 260,
       render: (_, r) => {
-        const s = r as unknown as Sku;
-        const cat1 = s.category1Code as Category1Code;
-        const tagStyle = CATEGORY1_TAG_STYLE[cat1];
+        const sku = r as unknown as Sku;
         return (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 500 }}>{s.skuName}</span>
-              {cat1 && tagStyle && (
-                <span
-                  style={{
-                    ...tagStyle,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    padding: '1px 6px',
-                    borderRadius: 'var(--radius-sm)',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {Category1Label[cat1] ?? cat1}
-                </span>
+          <div className={styles.sku_name_cell}>
+            <div className={styles.sku_name_row}>
+              <span className={styles.sku_name_text}>{sku.name}</span>
+              {sku.hasDyeLot && (
+                <span className={styles.dye_lot_tag}>需缸号管理</span>
               )}
             </div>
-            {s.specifications && (
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{s.specifications}</div>
+            {sku.spec && (
+              <span className={styles.sku_spec_text}>{sku.spec}</span>
             )}
           </div>
         );
       },
     },
+    // 一级分类
     {
-      key: 'category2Code',
-      title: '二级分类',
-      width: 120,
+      key: 'category1Name',
+      title: '一级分类',
+      width: 100,
       render: (_, r) => {
-        const s = r as unknown as Sku;
+        const sku = r as unknown as Sku;
+        const code = sku.category1Code as Category1Code;
+        const cls = code ? CATEGORY1_TAG_STYLE[code] : '';
         return (
-          <Tag category2Code={s.category2Code as Category2Code}>
-            {Category2Label[s.category2Code as Category2Code] ?? s.category2Code}
-          </Tag>
+          <span className={`${styles.cat1_tag} ${cls}`}>
+            {sku.category1Name}
+          </span>
         );
       },
     },
+    // 二级品类
+    {
+      key: 'category2Name',
+      title: '二级品类',
+      width: 100,
+      render: (_, r) => {
+        const sku = r as unknown as Sku;
+        const code = sku.category2Code as Category2Code | undefined;
+        if (!code || code === Category2Code.NONE) {
+          return <Tag variant="warning">{sku.category2Name || '未分类'}</Tag>;
+        }
+        return <Tag category2Code={code}>{sku.category2Name}</Tag>;
+      },
+    },
+    // 库存单位
     {
       key: 'stockUnit',
       title: '库存单位',
-      width: 90,
-      render: (_, r) => (r as unknown as Sku).stockUnit,
+      width: 80,
+      align: 'center',
+      render: (_, r) => <span style={{ fontSize: 13 }}>{r.stockUnit as string}</span>,
     },
+    // 采购单位
     {
       key: 'purchaseUnit',
       title: '采购单位',
-      width: 90,
-      render: (_, r) => (r as unknown as Sku).purchaseUnit,
+      width: 80,
+      align: 'center',
+      render: (_, r) => <span style={{ fontSize: 13 }}>{r.purchaseUnit as string}</span>,
     },
+    // 安全库存
     {
       key: 'safetyStock',
       title: '安全库存',
-      width: 100,
+      width: 120,
       render: (_, r) => {
-        const s = r as unknown as Sku;
-        return `${s.safetyStock} ${s.stockUnit}`;
+        const sku = r as unknown as Sku;
+        if (!sku.safetyStock) {
+          return (
+            <span className={styles.safety_warn}>
+              <span>△</span>
+              <span>未设置</span>
+            </span>
+          );
+        }
+        return (
+          <span className={styles.safety_value}>
+            {sku.safetyStock}
+            <span className={styles.stock_unit}>{sku.stockUnit}</span>
+          </span>
+        );
       },
     },
+    // 当前库存
+    {
+      key: 'qtyOnHand',
+      title: '当前库存',
+      width: 110,
+      render: (_, r) => {
+        const sku = r as unknown as Sku;
+        if (sku.qtyOnHand == null) return <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>;
+        return (
+          <>
+            <span className={styles.stock_value}>{sku.qtyOnHand}</span>
+            <span className={styles.stock_unit}>{sku.stockUnit}</span>
+          </>
+        );
+      },
+    },
+    // 状态
     {
       key: 'status',
       title: '状态',
-      width: 80,
+      width: 72,
       render: (_, r) => {
-        const s = r as unknown as Sku;
-        return <Tag variant={SKU_STATUS_VARIANT[s.status]}>{SKU_STATUS_LABEL[s.status]}</Tag>;
+        const sku = r as unknown as Sku;
+        const isActive = sku.status === 'active' || sku.status === SkuStatus.ACTIVE;
+        return (
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: '4px',
+            fontSize: '0.75rem',
+            fontWeight: 500,
+            background: isActive ? 'var(--color-success-50, #ecfdf5)' : 'var(--color-error-50, #fef2f2)',
+            color: isActive ? 'var(--color-success-600, #059669)' : 'var(--color-error-600, #dc2626)',
+          }}>
+            {isActive ? '启用' : '停用'}
+          </span>
+        );
       },
     },
-    {
-      key: 'updatedAt',
-      title: '更新时间',
-      render: (_, r) => formatDateTime((r as unknown as Sku).updatedAt),
-    },
+    // 操作
     {
       key: 'actions',
       title: '操作',
-      width: 160,
+      width: 150,
       render: (_, r) => {
-        const s = r as unknown as Sku;
+        const sku = r as unknown as Sku;
+        const isActive = sku.status === 'active' || sku.status === SkuStatus.ACTIVE;
         return (
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <Button variant="ghost" size="sm" onClick={() => openEdit(s)}>编辑</Button>
-            <Button variant="ghost" size="sm" onClick={() => openUnitModal(s)}>换算</Button>
+          <div className={styles.action_btns}>
+            <button className={styles.action_link} onClick={() => openEdit(sku)} type="button">
+              编辑
+            </button>
+            <button className={styles.action_link} onClick={() => openDetail(sku)} type="button">
+              详情
+            </button>
+            {!isActive && (
+              <button
+                className={styles.action_link}
+                style={{ color: 'var(--color-success-600, #059669)' }}
+                onClick={() => void handleEnableSku(Number(sku.id))}
+                type="button"
+              >
+                启用
+              </button>
+            )}
           </div>
         );
       },
     },
-  ];
+  ], [selectedIds, handleSelectRow, openEdit, openDetail, handleEnableSku]);
 
-  const skuList = (data?.list ?? []) as SkuRecord[];
+  // ── 筛选参数更新助手 ──
+  const setFilter = useCallback((patch: Partial<SkuListQuery>) => {
+    setQuery((q) => ({ ...q, ...patch, page: 1 }));
+  }, []);
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
 
   return (
     <div className={styles.page}>
-      <div className="page-header">
-        <h1 className="page-header__title">SKU 主数据</h1>
-        <div className="page-header__actions">
-          <Button variant="primary" size="md" onClick={() => { setSkuForm(EMPTY_SKU_FORM); setCreateModal(true); }}>
-            新建 SKU
+      {/* ── 页头 ── */}
+      <div className={styles.page_header}>
+        <div className={styles.breadcrumb}>
+          <span>基础数据</span>
+          <span className={styles.breadcrumb_sep}>&gt;</span>
+          <span className={styles.breadcrumb_current}>SKU主数据</span>
+        </div>
+        <div className={styles.header_actions}>
+          <Button variant="primary" size="md" onClick={openCreate} icon={<span>+</span>}>
+            新增SKU
+          </Button>
+          <Button
+            variant="secondary"
+            size="md"
+            icon={<span>⬆</span>}
+            onClick={() => setShowImport(true)}
+          >
+            批量导入Excel
+          </Button>
+          <Button variant="secondary" size="md" icon={<span>⬇</span>} onClick={handleExport}>
+            导出
           </Button>
         </div>
       </div>
 
-      {/* 统计摘要栏 */}
-      <SummaryStrip items={summaryItems} />
+      {/* ── 警告横幅 ── */}
+      {!warnDismissed && noCategory2Count > 0 && (
+        <div className={styles.warn_banner}>
+          <span className={styles.warn_banner_icon}>⚠</span>
+          <span className={styles.warn_banner_text}>
+            <strong>{noCategory2Count} 个 SKU</strong> 的二级品类尚未设置（历史导入数据默认"未分类"），建议批量补录以启用品类成本分析功能。
+          </span>
+          <div className={styles.warn_banner_actions}>
+            <button
+              className={styles.warn_batch_btn}
+              onClick={() => {
+                setFilter({ category2Id: undefined });
+                setKeyword('');
+                showToast({ type: 'info', message: '请在列表中筛选未分类 SKU 后批量编辑' });
+              }}
+            >
+              批量补录
+            </button>
+            <button className={styles.warn_close_btn} onClick={() => setWarnDismissed(true)} aria-label="关闭提示">
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
-      {/* 筛选栏 */}
+      {/* ── 统计卡片栏 ── */}
+      <div className={styles.stats_row}>
+        <div className={styles.stats_card}>
+          <span className={styles.stats_card_label}>全部SKU</span>
+          <span className={`${styles.stats_card_value} ${styles['stats_card_value--blue']}`}>
+            {statsData?.total ?? (data?.total ?? '—')}
+          </span>
+        </div>
+        <div className={styles.stats_card}>
+          <span className={styles.stats_card_label}>原材料</span>
+          <span className={`${styles.stats_card_value} ${styles['stats_card_value--blue']}`}>
+            {statsData?.rawMaterial ?? '—'}
+          </span>
+        </div>
+        <div className={styles.stats_card}>
+          <span className={styles.stats_card_label}>半成品</span>
+          <span className={`${styles.stats_card_value} ${styles['stats_card_value--orange']}`}>
+            {statsData?.semiProduct ?? '—'}
+          </span>
+        </div>
+        <div className={styles.stats_card}>
+          <span className={styles.stats_card_label}>成品</span>
+          <span className={`${styles.stats_card_value} ${styles['stats_card_value--green']}`}>
+            {statsData?.finished ?? '—'}
+          </span>
+        </div>
+
+        <div className={styles.stats_badges}>
+          {statsData && statsData.noSafetyStock > 0 && (
+            <span className={`${styles.stats_badge} ${styles['stats_badge--red']}`}>
+              <span>✕</span>
+              <span>安全库存未设置: {statsData.noSafetyStock}个</span>
+            </span>
+          )}
+          {statsData && statsData.incomplete > 0 && (
+            <span className={`${styles.stats_badge} ${styles['stats_badge--yellow']}`}>
+              <span>△</span>
+              <span>数据不完整: {statsData.incomplete}个</span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ── 筛选栏 ── */}
       <div className={styles.filter_bar}>
         <input
           type="search"
           className={styles.filter_search}
-          placeholder="搜索编码 / 名称..."
+          placeholder="搜索SKU编码 / 名称 / 规格..."
           value={keyword}
-          onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
+          onChange={(e) => setKeyword(e.target.value)}
           aria-label="搜索 SKU"
         />
+
+        {/* 一级分类 */}
         <select
           className={styles.filter_select}
-          value={categoryFilter}
-          onChange={(e) => { setCategoryFilter(e.target.value as Category2Code | ''); setPage(1); }}
-          aria-label="二级分类筛选"
+          value={query.category1Id ?? ''}
+          onChange={(e) => setFilter({ category1Id: e.target.value ? Number(e.target.value) : undefined })}
+          aria-label="一级分类筛选"
         >
           <option value="">全部分类</option>
-          {(catData?.category2List ?? Object.values(Category2Code)).map((code) => (
-            <option key={code} value={code}>{Category2Label[code as Category2Code] ?? code}</option>
+          {cat1Options.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
+
+        {/* 二级品类 */}
         <select
           className={styles.filter_select}
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value as SkuStatus | ''); setPage(1); }}
+          value={query.category2Id ?? ''}
+          onChange={(e) => setFilter({ category2Id: e.target.value ? Number(e.target.value) : undefined })}
+          aria-label="二级品类筛选"
+        >
+          <option value="">全部二级品类</option>
+          {cat2Options.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+
+        {/* 状态 */}
+        <select
+          className={styles.filter_select}
+          value={query.status ?? ''}
+          onChange={(e) => setFilter({ status: (e.target.value as SkuStatus) || undefined })}
           aria-label="状态筛选"
         >
           <option value="">全部状态</option>
-          {Object.entries(SKU_STATUS_LABEL).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
+          <option value={SkuStatus.ACTIVE}>启用</option>
+          <option value={SkuStatus.INACTIVE}>停用</option>
         </select>
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      {/* ── 数据表格 ── */}
+      <div className={styles.table_card}>
+        {/* 表头全选行 */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '10px 16px',
+          borderBottom: '1px solid var(--border-default, #e5e7eb)',
+          background: '#fafafa',
+        }}>
+          <input
+            type="checkbox"
+            className={styles.row_checkbox}
+            checked={isAllSelected}
+            ref={(el) => { if (el) el.indeterminate = isIndeterminate; }}
+            onChange={(e) => handleSelectAll(e.target.checked)}
+            aria-label="全选当前页"
+          />
+          <span style={{ fontSize: 12, color: '#6b7280' }}>
+            {selectedIds.length > 0
+              ? `已选 ${selectedIds.length} 条`
+              : `共 ${data?.total ?? 0} 条记录`}
+          </span>
+        </div>
+
         <Table<SkuRecord>
           columns={columns}
           dataSource={skuList}
           rowKey="id"
           loading={isLoading}
           error={error ? (error as Error).message : null}
-          emptyText="暂无 SKU 数据"
-          pagination={data ? { page, pageSize: 20, total: data.total, onChange: setPage } : undefined}
+          emptyText="暂无 SKU 数据，点击右上角「新增SKU」添加"
+          pagination={
+            data
+              ? {
+                  page: query.page ?? 1,
+                  pageSize: query.pageSize ?? 20,
+                  total: data.total,
+                  onChange: (p) => setQuery((q) => ({ ...q, page: p })),
+                }
+              : undefined
+          }
         />
+
+        {/* ── 批量操作栏 ── */}
+        {selectedIds.length > 0 && (
+          <div className={styles.batch_bar}>
+            <span className={styles.batch_bar_count}>
+              已选 <strong>{selectedIds.length}</strong> 条
+            </span>
+            <button
+              className={styles.batch_select_all}
+              onClick={() => handleSelectAll(true)}
+              type="button"
+            >
+              全选本页
+            </button>
+            <div className={styles.batch_divider} />
+            <span className={styles.batch_label}>批量操作:</span>
+            <div className={styles.batch_actions}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => { setBatchSafetyVal(''); setShowBatchSafety(true); }}
+              >
+                设置安全库存
+              </Button>
+              <Button variant="secondary" size="sm" onClick={handleExport}>
+                导出所选
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                loading={batchStatusMutation.isPending}
+                onClick={() => void handleBatchDisable()}
+              >
+                批量停用
+              </Button>
+            </div>
+            <button className={styles.batch_clear} onClick={() => setSelectedIds([])} type="button">
+              清除选择
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* 新建 SKU Drawer */}
+      {/* ── 新增 / 编辑 SKU Drawer ── */}
       <Drawer
-        open={createModal}
-        title="新建 SKU"
-        width={480}
-        onClose={() => setCreateModal(false)}
+        open={drawerMode === 'create' || drawerMode === 'edit'}
+        title={drawerMode === 'create' ? '新增SKU' : `编辑SKU — ${editingSku?.skuCode ?? ''}`}
+        width={560}
+        onClose={closeDrawer}
         footer={
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <Button variant="ghost" onClick={() => setCreateModal(false)}>取消</Button>
-            <Button variant="primary" onClick={() => void handleCreate()} loading={createMutation.isPending}>创建</Button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button variant="ghost" onClick={closeDrawer}>取消</Button>
+            <Button variant="primary" loading={isSaving} onClick={() => void handleSave()}>
+              保存SKU
+            </Button>
           </div>
         }
       >
-        <SkuFormFields form={skuForm} onChange={setSkuForm} catData={catData} isNew />
+        <SkuFormDrawerContent
+          form={skuForm}
+          onChange={setSkuForm}
+          isNew={drawerMode === 'create'}
+          cat1Options={cat1Options}
+          cat2Options={formCat2Options}
+          editingSku={editingSku}
+        />
       </Drawer>
 
-      {/* 编辑 SKU Drawer */}
+      {/* ── SKU 详情 Drawer ── */}
       <Drawer
-        open={editModal.open}
-        title={`编辑 SKU — ${editModal.sku?.skuCode ?? ''}`}
-        width={480}
-        onClose={() => setEditModal({ open: false, sku: null })}
+        open={drawerMode === 'detail'}
+        title={`SKU 详情 — ${editingSku?.skuCode ?? ''}`}
+        width={520}
+        onClose={closeDrawer}
         footer={
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <Button variant="ghost" onClick={() => setEditModal({ open: false, sku: null })}>取消</Button>
-            <Button variant="primary" onClick={() => void handleUpdate()} loading={updateMutation.isPending}>保存</Button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button variant="ghost" onClick={closeDrawer}>关闭</Button>
+            {editingSku && (
+              <Button variant="primary" onClick={() => { closeDrawer(); openEdit(editingSku); }}>
+                编辑
+              </Button>
+            )}
           </div>
         }
       >
-        <SkuFormFields form={skuForm} onChange={setSkuForm} catData={catData} isNew={false} />
+        {editingSku && <SkuDetailContent sku={editingSku} />}
       </Drawer>
 
-      {/* 单位换算弹窗（保持 Modal，宽度适中即可） */}
-      <Drawer
-        open={unitModal.open}
-        title={`单位换算 — ${unitModal.sku?.skuName ?? ''}`}
-        width={480}
-        onClose={() => setUnitModal({ open: false, sku: null })}
-        footer={
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <Button variant="ghost" onClick={() => setUnitModal({ open: false, sku: null })}>取消</Button>
-            <Button variant="primary" onClick={() => void handleSaveConversions()} loading={unitMutation.isPending}>保存换算</Button>
-          </div>
-        }
+      {/* ── 批量设置安全库存 Modal ── */}
+      <Modal
+        open={showBatchSafety}
+        title={`批量设置安全库存（已选 ${selectedIds.length} 个SKU）`}
+        onClose={() => setShowBatchSafety(false)}
+        onConfirm={() => void handleBatchSafety()}
+        confirmLabel="确认设置"
+        confirmLoading={batchSafetyMutation.isPending}
+        size="sm"
       >
-        <div className={styles.conversion_form}>
-          <p className={styles.conversion_hint}>
-            填写此 SKU 的单位换算规则，例如：1 件 = 12 个。系统将自动支持双向换算。
-          </p>
-          <div className={styles.conversion_header}>
-            <span>来源单位</span>
-            <span>目标单位</span>
-            <span>换算系数</span>
-            <span></span>
+        <div className={styles.batch_safety_wrap}>
+          <div className={styles.batch_safety_info}>
+            将为选中的 <strong>{selectedIds.length}</strong> 个 SKU 统一设置安全库存阈值。低于此数量时系统将触发采购预警。
           </div>
-          {conversionRows.map((row, idx) => (
-            <div key={idx} className={styles.conversion_row}>
-              <input
-                className={styles.conversion_input}
-                placeholder="如：件"
-                value={row.fromUnit}
-                onChange={(e) => updateConversionRow(idx, 'fromUnit', e.target.value)}
-              />
-              <input
-                className={styles.conversion_input}
-                placeholder="如：个"
-                value={row.toUnit}
-                onChange={(e) => updateConversionRow(idx, 'toUnit', e.target.value)}
-              />
-              <input
-                className={styles.conversion_input}
-                type="number"
-                placeholder="如：12"
-                min="0.000001"
-                step="any"
-                value={row.factor}
-                onChange={(e) => updateConversionRow(idx, 'factor', e.target.value)}
-              />
-              <button
-                className={styles.conversion_remove}
-                onClick={() => removeConversionRow(idx)}
-                aria-label="删除此行"
-                disabled={conversionRows.length <= 1}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          <Button variant="ghost" size="sm" onClick={addConversionRow} style={{ alignSelf: 'flex-start' }}>
-            + 添加换算规则
-          </Button>
+          <div className={styles.batch_safety_field}>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              className={styles.batch_safety_input}
+              placeholder="请输入安全库存数量"
+              value={batchSafetyVal}
+              onChange={(e) => setBatchSafetyVal(e.target.value)}
+              autoFocus
+            />
+            <span className={styles.batch_safety_unit}>（各自库存单位）</span>
+          </div>
         </div>
-      </Drawer>
+      </Modal>
+
+      {/* ── 批量导入向导 Modal ── */}
+      <ImportWizardModal
+        open={showImport}
+        onClose={() => setShowImport(false)}
+        onSuccess={(count) => {
+          showToast({ type: 'success', message: `成功导入 ${count} 条 SKU` });
+          setShowImport(false);
+        }}
+      />
     </div>
   );
 }
 
-// ——— 内部子组件：SKU 表单字段 ———
-
-type SkuFormFieldsProps = {
+// ──────────────────────────────────────────────
+// 子组件：SKU 表单
+// ──────────────────────────────────────────────
+interface SkuFormDrawerContentProps {
   form: SkuFormData;
   onChange: React.Dispatch<React.SetStateAction<SkuFormData>>;
-  catData: { category1List: string[]; category2List: Category2Code[] } | undefined;
   isNew: boolean;
-};
+  cat1Options: SkuCategory[];
+  cat2Options: SkuCategory[];
+  editingSku: Sku | null;
+}
 
-function SkuFormFields({ form, onChange, catData, isNew }: SkuFormFieldsProps) {
-  const set = (field: keyof SkuFormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    onChange((f) => ({ ...f, [field]: e.target.value }));
+function SkuFormDrawerContent({
+  form,
+  onChange,
+  isNew,
+  cat1Options,
+  cat2Options,
+  editingSku,
+}: SkuFormDrawerContentProps) {
+  const set = useCallback(
+    (field: keyof SkuFormData) =>
+      (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+        onChange((f) => ({ ...f, [field]: e.target.value })),
+    [onChange],
+  );
+
+  const setCheck = useCallback(
+    (field: 'hasDyeLot' | 'useFifo') =>
+      (e: React.ChangeEvent<HTMLInputElement>) =>
+        onChange((f) => ({ ...f, [field]: e.target.checked })),
+    [onChange],
+  );
+
+  // 一级分类改变时清空二级品类
+  const handleCat1Change = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      onChange((f) => ({ ...f, category1Code: e.target.value as Category1Code, category2Id: '' }));
+    },
+    [onChange],
+  );
+
+  // 自动生成编码（显示用，只读）
+  const autoCode = editingSku?.skuCode ?? '（系统自动生成）';
 
   return (
-    <div className={styles.sku_form}>
-      <div className={styles.form_row}>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>SKU 编码 <span className={styles.required}>*</span></label>
-          <input
-            className={styles.form_input}
-            value={form.skuCode}
-            onChange={set('skuCode')}
-            placeholder="如：YARN-001"
-            disabled={!isNew}
-          />
-        </div>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>SKU 名称 <span className={styles.required}>*</span></label>
-          <input
-            className={styles.form_input}
-            value={form.skuName}
-            onChange={set('skuName')}
-            placeholder="如：精梳棉纱32支"
-          />
+    <div className={styles.form_wrap}>
+      {/* ─ 基本信息 ─ */}
+      <div className={styles.form_section_title}>基本信息</div>
+
+      {/* 物料名称 */}
+      <div className={styles.form_field}>
+        <label className={styles.form_label}>
+          物料名称 <span className={styles.required}>*</span>
+        </label>
+        <input
+          className={styles.form_input}
+          value={form.name}
+          onChange={set('name')}
+          placeholder="如：红橡木板 200×2400"
+        />
+      </div>
+
+      {/* 物料分类（一级） Radio */}
+      <div className={styles.form_field}>
+        <label className={styles.form_label}>
+          物料分类（一级） <span className={styles.required}>*</span>
+        </label>
+        <div className={styles.radio_group}>
+          {cat1Options.map((c) => (
+            <label key={c.id} className={styles.radio_item}>
+              <input
+                type="radio"
+                name="category1"
+                value={c.code}
+                checked={form.category1Code === c.code}
+                onChange={handleCat1Change}
+                disabled={!isNew}
+              />
+              {c.name}
+            </label>
+          ))}
+          {/* 若 catData 还未加载，兜底展示枚举 */}
+          {cat1Options.length === 0 && Object.entries(Category1Label).map(([code, label]) => (
+            <label key={code} className={styles.radio_item}>
+              <input
+                type="radio"
+                name="category1"
+                value={code}
+                checked={form.category1Code === code}
+                onChange={handleCat1Change}
+                disabled={!isNew}
+              />
+              {label}
+            </label>
+          ))}
         </div>
       </div>
-      <div className={styles.form_row}>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>一级分类</label>
-          <select className={styles.form_input} value={form.category1Code} onChange={set('category1Code')} disabled={!isNew}>
-            <option value="">请选择</option>
-            {(catData?.category1List ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>二级分类</label>
-          <select className={styles.form_input} value={form.category2Code} onChange={set('category2Code')} disabled={!isNew}>
-            <option value="">请选择</option>
-            {Object.entries(Category2Label).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
-        </div>
+
+      {/* 二级品类 */}
+      <div className={styles.form_field}>
+        <label className={styles.form_label}>
+          二级品类 <span className={styles.required}>*</span>
+        </label>
+        <select
+          className={styles.form_input}
+          value={form.category2Id}
+          onChange={(e) => onChange((f) => ({ ...f, category2Id: e.target.value ? Number(e.target.value) : '' }))}
+        >
+          <option value="">请选择二级品类</option>
+          {cat2Options.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+          {cat2Options.length === 0 && Object.entries(Category2Label).map(([code, label]) => (
+            <option key={code} value={code}>{label}</option>
+          ))}
+        </select>
+        <span className={styles.form_hint}>
+          二级品类为必填项，影响成本占比分析和采购建议分组。
+        </span>
       </div>
-      <div className={styles.form_row}>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>库存单位 <span className={styles.required}>*</span></label>
-          <input className={styles.form_input} value={form.stockUnit} onChange={set('stockUnit')} placeholder="如：kg" disabled={!isNew} />
-        </div>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>采购单位 <span className={styles.required}>*</span></label>
-          <input className={styles.form_input} value={form.purchaseUnit} onChange={set('purchaseUnit')} placeholder="如：件" disabled={!isNew} />
-        </div>
+
+      {/* 规格描述 */}
+      <div className={styles.form_field}>
+        <label className={styles.form_label}>规格描述</label>
+        <input
+          className={styles.form_input}
+          value={form.spec}
+          onChange={set('spec')}
+          placeholder="如：200×2400mm，厚18mm"
+        />
       </div>
-      <div className={styles.form_row}>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>安全库存 <span className={styles.required}>*</span></label>
+
+      {/* 系统编码（只读） */}
+      <div className={styles.form_field}>
+        <label className={styles.form_label}>系统编码</label>
+        <div className={styles.form_input_readonly}>{autoCode}</div>
+        <span className={styles.form_hint}>系统自动生成，不可手动修改</span>
+      </div>
+
+      {/* ─ 多单位配置 ─ */}
+      <div className={styles.form_section_title}>多单位配置</div>
+
+      {/* 采购单位 */}
+      <div className={styles.unit_config_row}>
+        <span className={styles.unit_config_label}>采购单位</span>
+        <select
+          className={styles.form_input}
+          value={form.purchaseUnit}
+          onChange={set('purchaseUnit')}
+          disabled={!isNew}
+        >
+          <option value="">请选择</option>
+          {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+        </select>
+        <input
+          className={styles.form_input}
+          value={form.purchaseUnit}
+          onChange={set('purchaseUnit')}
+          placeholder="或直接输入"
+        />
+      </div>
+
+      {/* 库存单位 + 换算系数 */}
+      <div className={styles.unit_config_row}>
+        <span className={styles.unit_config_label}>库存单位</span>
+        <select
+          className={styles.form_input}
+          value={form.stockUnit}
+          onChange={set('stockUnit')}
+          disabled={!isNew}
+        >
+          <option value="">请选择</option>
+          {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+        </select>
+        <input
+          type="number"
+          min="0.000001"
+          step="any"
+          className={styles.form_input}
+          value={form.stockConvFactor}
+          onChange={set('stockConvFactor')}
+          placeholder="换算系数"
+        />
+      </div>
+
+      {/* 生产领用单位 */}
+      <div className={styles.unit_config_row}>
+        <span className={styles.unit_config_label}>生产领用</span>
+        <select
+          className={styles.form_input}
+          value={form.productionUnit}
+          onChange={set('productionUnit')}
+        >
+          <option value="">请选择</option>
+          {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+        </select>
+        <input
+          className={styles.form_input}
+          value={form.prodConvNote}
+          onChange={set('prodConvNote')}
+          placeholder="换算说明 如 200×2400"
+        />
+      </div>
+
+      {/* 单位示例提示 */}
+      <div className={`${styles.form_hint} ${styles['form_hint--blue']}`}>
+        示例：1 {form.purchaseUnit || '张'}（采购）= {form.stockConvFactor || '1.00'} {form.stockUnit || '张'}（库存）
+        {form.prodConvNote ? ` = ${form.prodConvNote} ${form.productionUnit || 'mm²'}（领用）` : ''}
+      </div>
+
+      {/* ─ 安全库存 ─ */}
+      <div className={styles.form_section_title}>安全库存</div>
+
+      <div className={styles.form_field}>
+        <label className={styles.form_label}>安全库存量</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input
-            className={styles.form_input}
             type="number"
             min="0"
-            step="0.01"
+            step="any"
+            className={styles.form_input}
+            style={{ flex: 1 }}
             value={form.safetyStock}
             onChange={set('safetyStock')}
-            placeholder="0.00"
+            placeholder="0"
           />
+          <span style={{ fontSize: 13, color: '#6b7280', whiteSpace: 'nowrap' }}>
+            {form.stockUnit || '(单位)'}
+          </span>
         </div>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>规格说明</label>
-          <input className={styles.form_input} value={form.specifications} onChange={set('specifications')} placeholder="可选" />
-        </div>
+        <span className={styles.form_hint}>低于此数量触发预警</span>
+      </div>
+
+      {/* ─ 特殊属性 ─ */}
+      <div className={styles.form_section_title}>特殊属性</div>
+
+      <div className={styles.checkbox_field}>
+        <input
+          type="checkbox"
+          id="chk_dye"
+          checked={form.hasDyeLot}
+          onChange={setCheck('hasDyeLot')}
+        />
+        <label htmlFor="chk_dye">
+          <div>需缸号管理</div>
+          <div className={styles.checkbox_sub_text}>面料 / 皮料类物料勾选</div>
+        </label>
+      </div>
+
+      <div className={styles.checkbox_field}>
+        <input
+          type="checkbox"
+          id="chk_fifo"
+          checked={form.useFifo}
+          onChange={setCheck('useFifo')}
+        />
+        <label htmlFor="chk_fifo">
+          <div>启用先进先出（FIFO）出库</div>
+        </label>
+      </div>
+
+      {/* ─ 状态 ─ */}
+      {!isNew && (
+        <>
+          <div className={styles.form_section_title}>状态</div>
+          <div className={styles.form_field}>
+            <label className={styles.form_label}>启用状态</label>
+            <select
+              className={styles.form_input}
+              value={form.status}
+              onChange={set('status')}
+            >
+              <option value="active">启用</option>
+              <option value="inactive">停用</option>
+            </select>
+          </div>
+        </>
+      )}
+
+      {/* ─ 备注 ─ */}
+      <div className={styles.form_section_title}>备注</div>
+      <div className={styles.form_field}>
+        <textarea
+          className={styles.form_textarea}
+          value={form.description}
+          onChange={set('description')}
+          placeholder="补充说明..."
+          rows={3}
+        />
       </div>
     </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// 子组件：SKU 详情
+// ──────────────────────────────────────────────
+function SkuDetailContent({ sku }: { sku: Sku }) {
+  const statusLabel: Record<SkuStatus, string> = {
+    [SkuStatus.ACTIVE]: '启用',
+    [SkuStatus.INACTIVE]: '停用',
+  };
+
+  return (
+    <div>
+      {/* 基本信息 */}
+      <div className={styles.detail_section}>
+        <div className={styles.detail_section_title}>基本信息</div>
+        <div className={styles.detail_grid}>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>SKU编码</div>
+            <div className={`${styles.detail_item_value} ${styles['detail_item_value--mono']}`}>{sku.skuCode}</div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>状态</div>
+            <div className={styles.detail_item_value}>
+              <Tag variant={sku.status === SkuStatus.ACTIVE ? 'success' : 'neutral'}>
+                {statusLabel[sku.status]}
+              </Tag>
+            </div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>物料名称</div>
+            <div className={styles.detail_item_value}>{sku.name}</div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>规格</div>
+            <div className={styles.detail_item_value}>{sku.spec ?? '—'}</div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>一级分类</div>
+            <div className={styles.detail_item_value}>{sku.category1Name}</div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>二级品类</div>
+            <div className={styles.detail_item_value}>
+              {sku.category2Code && sku.category2Code !== Category2Code.NONE
+                ? <Tag category2Code={sku.category2Code as Category2Code}>{sku.category2Name}</Tag>
+                : <Tag variant="warning">{sku.category2Name || '未分类'}</Tag>}
+            </div>
+          </div>
+          {sku.barcode && (
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>条形码</div>
+              <div className={`${styles.detail_item_value} ${styles['detail_item_value--mono']}`}>{sku.barcode}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 单位 & 库存 */}
+      <div className={styles.detail_section}>
+        <div className={styles.detail_section_title}>单位 & 库存</div>
+        <div className={styles.detail_grid}>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>库存单位</div>
+            <div className={styles.detail_item_value}>{sku.stockUnit}</div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>采购单位</div>
+            <div className={styles.detail_item_value}>{sku.purchaseUnit}</div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>生产领用单位</div>
+            <div className={styles.detail_item_value}>{sku.productionUnit}</div>
+          </div>
+          {sku.stockConvFactor != null && (
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>换算系数</div>
+              <div className={styles.detail_item_value}>{sku.stockConvFactor}</div>
+            </div>
+          )}
+          {sku.prodConvNote && (
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>领用换算说明</div>
+              <div className={styles.detail_item_value}>{sku.prodConvNote}</div>
+            </div>
+          )}
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>安全库存</div>
+            <div className={styles.detail_item_value}>
+              {sku.safetyStock
+                ? `${sku.safetyStock} ${sku.stockUnit}`
+                : <Tag variant="warning">△ 未设置</Tag>}
+            </div>
+          </div>
+          {sku.qtyOnHand != null && (
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>当前库存</div>
+              <div className={styles.detail_item_value}>{sku.qtyOnHand} {sku.stockUnit}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 特殊属性 */}
+      <div className={styles.detail_section}>
+        <div className={styles.detail_section_title}>特殊属性</div>
+        <div className={styles.detail_tag_list}>
+          {sku.hasDyeLot && <Tag variant="dye-lot">需缸号管理</Tag>}
+          {sku.useFifo && <Tag variant="info">FIFO先进先出</Tag>}
+          {!sku.hasDyeLot && !sku.useFifo && <span style={{ color: '#9ca3af', fontSize: 13 }}>无特殊属性</span>}
+        </div>
+      </div>
+
+      {/* 备注 */}
+      {sku.description && (
+        <div className={styles.detail_section}>
+          <div className={styles.detail_section_title}>备注</div>
+          <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{sku.description}</div>
+        </div>
+      )}
+
+      {/* 时间戳 */}
+      {(sku.createdAt || sku.updatedAt) && (
+        <div className={styles.detail_section}>
+          <div className={styles.detail_section_title}>时间信息</div>
+          <div className={styles.detail_grid}>
+            {sku.createdAt && (
+              <div className={styles.detail_item}>
+                <div className={styles.detail_item_label}>创建时间</div>
+                <div className={styles.detail_item_value}>{new Date(sku.createdAt).toLocaleString('zh-CN')}</div>
+              </div>
+            )}
+            {sku.updatedAt && (
+              <div className={styles.detail_item}>
+                <div className={styles.detail_item_label}>最后更新</div>
+                <div className={styles.detail_item_value}>{new Date(sku.updatedAt).toLocaleString('zh-CN')}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// 子组件：批量导入向导 Modal
+// ──────────────────────────────────────────────
+interface ImportWizardModalProps {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: (count: number) => void;
+}
+
+// ── 文件解析工具函数（支持 .xlsx / .xls / .csv）──────────────
+function parseFileData(buffer: ArrayBuffer): { headers: string[]; rows: string[][] } {
+  const wb = XLSX.read(buffer, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' });
+
+  if (data.length === 0) return { headers: [], rows: [] };
+
+  const headers = data[0].map((h) => String(h).trim());
+  const rows = data
+    .slice(1)
+    .filter((row) => row.some((cell) => String(cell).trim() !== ''))
+    .map((row) => row.map((cell) => String(cell).trim()));
+
+  return { headers, rows };
+}
+
+type MappingStatus = 'ok' | 'warn' | 'none';
+
+interface FieldMappingRow {
+  excelCol: string;
+  sysField: string;
+  status: MappingStatus;
+}
+
+const SYSTEM_FIELDS = [
+  'SKU编码', '物料名称', '规格型号', '一级分类', '二级分类',
+  '基本单位', '采购单位', '计价单位', '安全库存', '状态', '备注',
+] as const;
+
+function autoMatchField(col: string): { sysField: string; status: MappingStatus } {
+  const c = col.toLowerCase();
+
+  // Exact match first
+  for (const f of SYSTEM_FIELDS) {
+    if (col === f) return { sysField: f, status: 'ok' };
+  }
+
+  // Fuzzy rules
+  if (c.includes('编码') || c.includes('code')) return { sysField: 'SKU编码', status: 'warn' };
+  if (c.includes('名称') || c.includes('品名') || c.includes('name')) return { sysField: '物料名称', status: 'warn' };
+  if (c.includes('规格') || c.includes('spec')) return { sysField: '规格型号', status: 'warn' };
+  if (c.includes('一级') || c.includes('大类')) return { sysField: '一级分类', status: 'warn' };
+  if (c.includes('二级') || c.includes('子类') || c.includes('小类')) return { sysField: '二级分类', status: 'warn' };
+  if ((c.includes('库存') && c.includes('单位')) || c.includes('uom')) return { sysField: '基本单位', status: 'warn' };
+  if (c.includes('采购') && c.includes('单位')) return { sysField: '采购单位', status: 'warn' };
+  if (c.includes('计价') || c.includes('换算')) return { sysField: '计价单位', status: 'warn' };
+  if (c.includes('安全') || c.includes('safety')) return { sysField: '安全库存', status: 'warn' };
+  if (c.includes('状态') || c.includes('status')) return { sysField: '状态', status: 'warn' };
+  if (c.includes('备注') || c.includes('remark')) return { sysField: '备注', status: 'warn' };
+
+  return { sysField: '', status: 'none' };
+}
+
+function buildAutoMapping(headers: string[]): FieldMappingRow[] {
+  return headers.map((col) => {
+    const { sysField, status } = autoMatchField(col);
+    return { excelCol: col, sysField, status };
+  });
+}
+
+// ── ImportWizardModal ────────────────────────────
+function ImportWizardModal({ open, onClose, onSuccess }: ImportWizardModalProps) {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Parsed CSV state
+  const [parsedHeaders, setParsedHeaders] = useState<string[]>([]);
+  const [parsedRows, setParsedRows] = useState<string[][]>([]);
+  const [fieldMapping, setFieldMapping] = useState<FieldMappingRow[]>([]);
+
+  // Import state
+  const [importing, setImporting] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<{
+    imported: number;
+    failed: number;
+    errors: Array<{ row: number; message: string }>;
+  } | null>(null);
+
+  // 重置状态
+  const handleClose = useCallback(() => {
+    setStep(1);
+    setSelectedFile(null);
+    setParsedHeaders([]);
+    setParsedRows([]);
+    setFieldMapping([]);
+    setParseError(null);
+    setImportResult(null);
+    setImporting(false);
+    onClose();
+  }, [onClose]);
+
+  const handleFileChange = useCallback((file: File | null) => {
+    if (!file) return;
+    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) return;
+    setSelectedFile(file);
+    setParseError(null);
+  }, []);
+
+  const handleNext = useCallback(() => {
+    if (step === 1) {
+      if (!selectedFile) return;
+
+      // Parse file client-side when moving from step 1 to step 2
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const buffer = e.target?.result as ArrayBuffer;
+        const { headers, rows } = parseFileData(buffer);
+
+        if (headers.length === 0) {
+          setParseError('文件内容为空或格式不正确，请检查文件后重试。');
+          return;
+        }
+        if (rows.length === 0) {
+          setParseError('文件中没有数据行，请至少包含一行数据。');
+          return;
+        }
+
+        setParsedHeaders(headers);
+        setParsedRows(rows);
+        setFieldMapping(buildAutoMapping(headers));
+        setParseError(null);
+        setStep(2);
+      };
+      reader.onerror = () => {
+        setParseError('文件读取失败，请重新选择文件。');
+      };
+      reader.readAsArrayBuffer(selectedFile);
+
+    } else if (step === 2) {
+      setStep(3);
+
+    } else {
+      // Step 3 → confirm import
+      if (!selectedFile) return;
+
+      setImporting(true);
+
+      // Build mapping record: excelCol → sysField (only matched ones)
+      const mappingRecord: Record<string, string> = {};
+      for (const row of fieldMapping) {
+        if (row.status !== 'none' && row.sysField) {
+          mappingRecord[row.excelCol] = row.sysField;
+        }
+      }
+
+      skuApi
+        .importSkus(selectedFile, mappingRecord)
+        .then((res) => {
+          const result = {
+            imported: res.imported,
+            failed: res.failed,
+            errors: res.errors ?? [],
+          };
+          setImportResult(result);
+          setImporting(false);
+          if (result.imported > 0) {
+            onSuccess(result.imported);
+          }
+        })
+        .catch(() => {
+          setImportResult({ imported: 0, failed: parsedRows.length, errors: [{ row: 0, message: '服务器异常，请稍后重试' }] });
+          setImporting(false);
+        });
+    }
+  }, [step, selectedFile, fieldMapping, parsedRows.length, onSuccess]);
+
+  const stepLabels = ['下载模板', '字段映射', '确认导入'];
+
+  const matchStatusIcon = (s: MappingStatus) => {
+    if (s === 'ok')   return <span className={styles.import_match_ok}>✓ 已匹配</span>;
+    if (s === 'warn') return <span className={styles.import_match_warn}>⚠ 请确认</span>;
+    return <span className={styles.import_match_none}>○ 未映射</span>;
+  };
+
+  const warnCount = fieldMapping.filter((m) => m.status === 'warn').length;
+  const previewRows = parsedRows.slice(0, 10);
+
+  // Determine column indices for preview table
+  const colIndex = (sysField: string) => {
+    const match = fieldMapping.find((m) => m.sysField === sysField);
+    if (!match) return -1;
+    return parsedHeaders.indexOf(match.excelCol);
+  };
+
+  const getCellValue = (row: string[], sysField: string): string => {
+    const idx = colIndex(sysField);
+    return idx >= 0 ? (row[idx] ?? '') : '';
+  };
+
+  return (
+    <Modal
+      open={open}
+      title="批量导入 SKU"
+      onClose={handleClose}
+      size="lg"
+      footer={
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          {importResult ? (
+            <Button variant="primary" onClick={handleClose}>关闭</Button>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={handleClose}>取消</Button>
+              {step > 1 && !importing && (
+                <Button variant="secondary" onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3)}>
+                  上一步
+                </Button>
+              )}
+              <Button
+                variant="primary"
+                onClick={handleNext}
+                disabled={(step === 1 && !selectedFile) || importing}
+              >
+                {importing ? '导入中...' : step === 3 ? '确认导入' : '下一步'}
+              </Button>
+            </>
+          )}
+        </div>
+      }
+    >
+      {/* 步骤指示器 */}
+      <div className={styles.import_stepper}>
+        {stepLabels.map((label, i) => {
+          const n = (i + 1) as 1 | 2 | 3;
+          const isActive = step === n;
+          const isDone   = step > n;
+          return (
+            <div key={n} className={styles.import_step}>
+              <div className={`${styles.import_step_circle} ${isDone ? styles['import_step_circle--done'] : isActive ? styles['import_step_circle--active'] : ''}`}>
+                {isDone ? '✓' : n}
+              </div>
+              <span className={`${styles.import_step_label} ${isActive ? styles['import_step_label--active'] : ''}`}>
+                {label}
+              </span>
+              {i < stepLabels.length - 1 && (
+                <div className={`${styles.import_step_line} ${isDone ? styles['import_step_line--done'] : ''}`} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── 步骤 1 ── */}
+      {step === 1 && (
+        <div className={styles.import_step1}>
+          <button
+            className={styles.import_download_btn}
+            type="button"
+            onClick={() => {
+              const header = ['SKU编码', '物料名称', '规格型号', '一级分类', '二级分类', '基本单位', '采购单位', '计价单位', '安全库存', '状态', '备注'];
+              const example = ['RM-99001', '示例物料', '100x200mm', 'MATERIAL', 'FABRIC', '米', '卷', 'm²', '100', 'active', ''];
+              const BOM = '\uFEFF';
+              const csv = BOM + [header.join(','), example.join(',')].join('\r\n');
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'SKU导入模板.csv';
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }}
+          >
+            <span>⬇</span>
+            <span>下载 Excel 导入模板</span>
+          </button>
+
+          <div
+            className={`${styles.import_upload_area} ${isDragOver ? styles['import_upload_area--dragover'] : ''}`}
+            onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              const file = e.dataTransfer.files[0];
+              if (file) handleFileChange(file);
+            }}
+          >
+            <div className={styles.import_upload_icon}>📂</div>
+            <div className={styles.import_upload_text}>
+              <strong>点击选择文件</strong> 或拖拽到此处上传
+            </div>
+            <div className={styles.import_upload_sub}>支持 .xlsx / .xls / .csv 格式，最大 10MB</div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className={styles.import_upload_input}
+              accept=".xlsx,.xls,.csv"
+              onChange={(e) => {
+                handleFileChange(e.target.files?.[0] ?? null);
+                e.target.value = '';
+              }}
+            />
+          </div>
+
+          {selectedFile && (
+            <div className={styles.import_file_selected}>
+              <span>✓</span>
+              <span>已选择：{selectedFile.name}（{(selectedFile.size / 1024).toFixed(1)} KB）</span>
+            </div>
+          )}
+
+          {parseError && (
+            <div style={{ marginTop: 8, color: '#ef4444', fontSize: 13 }}>⚠ {parseError}</div>
+          )}
+        </div>
+      )}
+
+      {/* ── 步骤 2 ── */}
+      {step === 2 && (
+        <div className={styles.import_step2}>
+          <div className={styles.import_mapping_title}>
+            已自动识别您的文件字段，请确认映射关系：
+          </div>
+          <table className={styles.import_mapping_table}>
+            <thead>
+              <tr>
+                <th>您的Excel列名</th>
+                <th>系统字段</th>
+                <th>匹配状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fieldMapping.map((row, i) => (
+                <tr key={i}>
+                  <td>{row.excelCol}</td>
+                  <td>{row.sysField || <span style={{ color: '#9ca3af' }}>— 未匹配 —</span>}</td>
+                  <td>{matchStatusIcon(row.status)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className={styles.import_summary_bar}>
+            <span>共检测到 <strong>{parsedRows.length}</strong> 行数据</span>
+            {warnCount === 0 ? (
+              <span className={styles.import_summary_ok}>✓ 全部精确匹配</span>
+            ) : (
+              <span className={styles.import_summary_warn}>⚠ {warnCount} 列为模糊匹配，请确认</span>
+            )}
+            <button className={styles.import_preview_link} type="button" onClick={() => setStep(3)}>
+              查看详细预览 →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── 步骤 3 ── */}
+      {step === 3 && (
+        <div className={styles.import_step3}>
+          {importResult ? (
+            // Show result after import
+            <div>
+              <div className={styles.import_confirm_summary} style={{ marginBottom: 16 }}>
+                导入完成：成功 <strong style={{ color: '#16a34a' }}>{importResult.imported}</strong> 条，
+                失败 <strong style={{ color: importResult.failed > 0 ? '#ef4444' : 'inherit' }}>{importResult.failed}</strong> 条
+              </div>
+              {importResult.errors.length > 0 && (
+                <table className={styles.import_preview_table}>
+                  <thead>
+                    <tr>
+                      <th>行号</th>
+                      <th>错误信息</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importResult.errors.map((err, i) => (
+                      <tr key={i}>
+                        <td style={{ fontFamily: 'monospace' }}>{err.row === 0 ? '—' : err.row}</td>
+                        <td style={{ color: '#ef4444' }}>{err.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          ) : (
+            // Show preview before import
+            <>
+              <div className={styles.import_confirm_summary}>
+                即将导入 <strong>{parsedRows.length}</strong> 条 SKU 数据
+                {previewRows.length < parsedRows.length && `（预览前 ${previewRows.length} 条）`}
+                ，请确认无误后点击「确认导入」。
+              </div>
+              {importing && (
+                <div style={{ textAlign: 'center', padding: '24px 0', color: '#6b7280', fontSize: 14 }}>
+                  <div style={{ marginBottom: 8 }}>正在导入，请稍候...</div>
+                </div>
+              )}
+              {!importing && (
+                <table className={styles.import_preview_table}>
+                  <thead>
+                    <tr>
+                      <th>SKU编码</th>
+                      <th>物料名称</th>
+                      <th>规格型号</th>
+                      <th>一级分类</th>
+                      <th>二级分类</th>
+                      <th>基本单位</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewRows.map((row, i) => (
+                      <tr key={i}>
+                        <td style={{ fontFamily: 'monospace' }}>{getCellValue(row, 'SKU编码')}</td>
+                        <td>{getCellValue(row, '物料名称')}</td>
+                        <td>{getCellValue(row, '规格型号')}</td>
+                        <td>{getCellValue(row, '一级分类')}</td>
+                        <td>{getCellValue(row, '二级分类')}</td>
+                        <td>{getCellValue(row, '基本单位')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </Modal>
   );
 }

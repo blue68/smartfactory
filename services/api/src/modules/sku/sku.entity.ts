@@ -41,8 +41,17 @@ export class SkuEntity {
   @Column({ name: 'production_unit', length: 20 })
   productionUnit: string;
 
+  @Column({ name: 'stock_conv_factor', type: 'decimal', precision: 10, scale: 4, default: 1 })
+  stockConvFactor: number;
+
+  @Column({ name: 'prod_conv_note', type: 'varchar', length: 200, nullable: true })
+  prodConvNote: string | null;
+
   @Column({ name: 'has_dye_lot', type: 'tinyint', default: 0 })
   hasDyeLot: boolean;
+
+  @Column({ name: 'use_fifo', type: 'tinyint', default: 1 })
+  useFifo: boolean;
 
   @Column({ name: 'safety_stock', type: 'decimal', precision: 12, scale: 4, default: 0 })
   safetyStock: string;

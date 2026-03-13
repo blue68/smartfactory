@@ -3,6 +3,28 @@ import { SkuRepository, SkuListFilter } from './sku.repository';
 import { AppDataSource } from '../../config/database';
 import { getRedisClient, RedisKeys, RedisTTL } from '../../config/redis';
 
+/** CSV 解析后每行的原始字段（全部为字符串，允许为空） */
+export interface ImportSkuRow {
+  skuCode?: string;
+  name: string;
+  spec?: string;
+  category1Code: string;
+  category2Code: string;
+  stockUnit: string;
+  purchaseUnit: string;
+  productionUnit: string;
+  safetyStock?: string;
+  status?: string;
+  description?: string;
+}
+
+/** importSkus 返回汇总 */
+export interface ImportResult {
+  imported: number;
+  failed: number;
+  errors: Array<{ row: number; message: string }>;
+}
+
 export interface CreateSkuParams {
   skuCode?: string;           // 不传则自动生成
   barcode?: string;
@@ -13,7 +35,10 @@ export interface CreateSkuParams {
   stockUnit: string;
   purchaseUnit: string;
   productionUnit: string;
+  stockConvFactor?: number;
+  prodConvNote?: string;
   hasDyeLot?: boolean;
+  useFifo?: boolean;
   safetyStock?: string;
   description?: string;
 }
@@ -95,17 +120,27 @@ export class SkuService {
     throw lastError;
   }
 
-  async updateSku(id: number, params: Partial<CreateSkuParams>) {
+  async updateSku(id: number, params: Partial<CreateSkuParams> & { status?: 'active' | 'inactive' }) {
     if (params.category1Id && params.category2Id) {
       await this.validateCategories(params.category1Id, params.category2Id);
     }
-    const updated = await this.repo.update(id, {
-      ...(params.name ? { name: params.name } : {}),
-      ...(params.spec !== undefined ? { spec: params.spec } : {}),
-      ...(params.safetyStock !== undefined ? { safetyStock: params.safetyStock } : {}),
-      ...(params.hasDyeLot !== undefined ? { hasDyeLot: params.hasDyeLot } : {}),
-      ...(params.description !== undefined ? { description: params.description } : {}),
-    });
+    const updateData: Record<string, unknown> = {};
+    if (params.name !== undefined) updateData.name = params.name;
+    if (params.spec !== undefined) updateData.spec = params.spec;
+    if (params.category1Id !== undefined) updateData.category1Id = params.category1Id;
+    if (params.category2Id !== undefined) updateData.category2Id = params.category2Id;
+    if (params.stockUnit !== undefined) updateData.stockUnit = params.stockUnit;
+    if (params.purchaseUnit !== undefined) updateData.purchaseUnit = params.purchaseUnit;
+    if (params.productionUnit !== undefined) updateData.productionUnit = params.productionUnit;
+    if (params.stockConvFactor !== undefined) updateData.stockConvFactor = params.stockConvFactor;
+    if (params.prodConvNote !== undefined) updateData.prodConvNote = params.prodConvNote;
+    if (params.safetyStock !== undefined) updateData.safetyStock = params.safetyStock;
+    if (params.hasDyeLot !== undefined) updateData.hasDyeLot = params.hasDyeLot;
+    if (params.useFifo !== undefined) updateData.useFifo = params.useFifo;
+    if (params.description !== undefined) updateData.description = params.description;
+    if (params.status !== undefined) updateData.status = params.status;
+
+    const updated = await this.repo.update(id, updateData as any);
 
     await getRedisClient().del(RedisKeys.skuList(this.repo.tenantId));
     return updated;
@@ -125,6 +160,32 @@ export class SkuService {
     return this.repo.getUnitConversions(skuId);
   }
 
+  async getSkuStats() {
+    return this.repo.getStats();
+  }
+
+  async batchUpdateStatus(ids: number[], status: string): Promise<{ affected: number }> {
+    const affected = await this.repo.batchUpdateStatus(ids, status);
+    // 批量操作后使列表缓存失效
+    await getRedisClient().del(RedisKeys.skuList(this.repo.tenantId));
+    return { affected };
+  }
+
+  async batchUpdateSafetyStock(ids: number[], safetyStock: number): Promise<{ affected: number }> {
+    // 将数字转为 DECIMAL 字符串传入 repository，保留 4 位小数精度
+    const affected = await this.repo.batchUpdateSafetyStock(ids, safetyStock.toFixed(4));
+    await getRedisClient().del(RedisKeys.skuList(this.repo.tenantId));
+    return { affected };
+  }
+
+  /**
+   * 导出 SKU 列表（上限 5000 条），供 controller 生成 xlsx 文件。
+   * 不分页，直接返回原始行数据。
+   */
+  async exportSkus(filter: Omit<import('./sku.repository').SkuListFilter, 'page' | 'pageSize'>) {
+    return this.repo.exportSkus(filter);
+  }
+
   async getCategories() {
     return AppDataSource.query(
       `SELECT id, level, parent_id AS parentId, code, name, sort_order AS sortOrder
@@ -135,7 +196,139 @@ export class SkuService {
     );
   }
 
+  /**
+   * 批量导入 SKU（CSV 解析结果）。
+   * 逐行容错：单行失败不中断整批，汇总返回导入成功数、失败数及错误明细。
+   */
+  async importSkus(rows: ImportSkuRow[]): Promise<ImportResult> {
+    const result: ImportResult = { imported: 0, failed: 0, errors: [] };
+
+    if (rows.length === 0) return result;
+
+    // 一次性加载租户分类映射，避免每行重复查库
+    const catMap = await this.loadCategoryMap();
+
+    for (let i = 0; i < rows.length; i++) {
+      const rowNum = i + 2; // CSV 第1行为表头，数据从第2行开始
+      const row = rows[i];
+
+      try {
+        // 校验必填字段
+        if (!row.name?.trim()) {
+          throw new Error('物料名称不能为空');
+        }
+        if (!row.stockUnit?.trim()) {
+          throw new Error('基本单位不能为空');
+        }
+        if (!row.purchaseUnit?.trim()) {
+          throw new Error('采购单位不能为空');
+        }
+        if (!row.productionUnit?.trim()) {
+          throw new Error('计价单位不能为空');
+        }
+
+        // 解析一级分类
+        // 查找顺序：原始值（支持中文名如"原材料"）→ 大写值（支持英文 code 如"MATERIAL"）
+        const cat1Raw = row.category1Code?.trim();
+        if (!cat1Raw) throw new Error('一级分类不能为空');
+        const cat1 = catMap.get(cat1Raw) ?? catMap.get(cat1Raw.toUpperCase());
+        if (!cat1 || cat1.level !== 1) {
+          throw new Error(`一级分类 "${cat1Raw}" 不存在`);
+        }
+
+        // 解析二级分类
+        const cat2Raw = row.category2Code?.trim();
+        if (!cat2Raw) throw new Error('二级分类不能为空');
+        const cat2 = catMap.get(cat2Raw) ?? catMap.get(cat2Raw.toUpperCase());
+        if (!cat2 || cat2.level !== 2) {
+          throw new Error(`二级分类 "${cat2Raw}" 不存在`);
+        }
+
+        // 校验层级关系
+        if (cat2.parentId !== cat1.id) {
+          throw new Error(`二级分类 "${cat2Raw}" 不属于一级分类 "${cat1Raw}"`);
+        }
+
+        // 校验并格式化安全库存（允许为空，默认 '0'）
+        let safetyStock: string | undefined;
+        if (row.safetyStock?.trim()) {
+          const ss = row.safetyStock.trim();
+          if (!/^\d+(\.\d{1,4})?$/.test(ss)) {
+            throw new Error(`安全库存格式不正确: ${ss}`);
+          }
+          safetyStock = ss;
+        }
+
+        await this.createSku({
+          skuCode:        row.skuCode?.trim() || undefined,
+          name:           row.name.trim(),
+          spec:           row.spec?.trim()    || undefined,
+          category1Id:    cat1.id,
+          category2Id:    cat2.id,
+          stockUnit:      row.stockUnit.trim(),
+          purchaseUnit:   row.purchaseUnit.trim(),
+          productionUnit: row.productionUnit.trim(),
+          safetyStock,
+          description:    row.description?.trim() || undefined,
+        });
+
+        result.imported += 1;
+      } catch (err: unknown) {
+        result.failed += 1;
+        const message = err instanceof Error ? err.message : '未知错误';
+        result.errors.push({ row: rowNum, message });
+      }
+    }
+
+    return result;
+  }
+
   // ─── 私有辅助 ──────────────────────────────────────────────
+
+  /**
+   * 加载当前租户的全部分类，返回同时支持 code（大写）和 name（中文）查找的 Map。
+   *
+   * Map 键策略：
+   *   - code.toUpperCase()  → 支持英文 code（如 MATERIAL）
+   *   - name（原始字符串）   → 支持中文名称（如 原材料）
+   *
+   * 当 code 与 name 重复时，code 写入顺序靠后，优先级更高（后写覆盖先写）。
+   * 实践中 code 和 name 不会重叠，此策略仅作保险。
+   *
+   * 仅在单次 importSkus() 调用内复用，不做跨请求缓存。
+   */
+  private async loadCategoryMap(): Promise<Map<string, { id: number; level: number; parentId: number | null }>> {
+    const rows = await AppDataSource.query<Array<{
+      id: number;
+      code: string;
+      name: string;
+      level: number;
+      parent_id: number | null;
+    }>>(
+      `SELECT id, code, name, level, parent_id
+       FROM sku_categories
+       WHERE tenant_id IN (0, ?) AND is_active = 1`,
+      [this.repo.tenantId],
+    );
+
+    const map = new Map<string, { id: number; level: number; parentId: number | null }>();
+    for (const row of rows) {
+      const entry = {
+        id:       Number(row.id),
+        level:    Number(row.level),
+        parentId: row.parent_id != null ? Number(row.parent_id) : null,
+      };
+      // 按中文 name 索引（支持用户在 Excel 中填写 "原材料" 等中文名称）
+      if (row.name) {
+        map.set(row.name, entry);
+      }
+      // 按 code 大写索引（覆盖同名 name 条目，优先级更高）
+      if (row.code) {
+        map.set(row.code.toUpperCase(), entry);
+      }
+    }
+    return map;
+  }
 
   private async generateSkuCode(cat1Id: number, cat2Id: number): Promise<string> {
     const [cat] = await AppDataSource.query<Array<{ code: string }>>(
