@@ -923,6 +923,30 @@ function EditorView({ row, onBack }: EditorViewProps) {
           >
             需求计算
           </Button>
+          {/* TASK-BOM-06: 导出 Excel */}
+          <Button
+            variant="secondary"
+            onClick={async () => {
+              try {
+                const res = await fetch(`/api/bom/${row.id}/export`, {
+                  headers: { Authorization: `Bearer ${localStorage.getItem('sf_access_token') ?? ''}` },
+                });
+                if (!res.ok) throw new Error('导出失败');
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `bom-${row.skuCode}-${detailData?.version ?? row.id}.xlsx`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast({ type: 'success', message: 'BOM 导出成功' });
+              } catch {
+                showToast({ type: 'error', message: '导出失败，请稍后重试' });
+              }
+            }}
+          >
+            导出 Excel
+          </Button>
         </div>
       </div>
 

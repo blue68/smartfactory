@@ -13,6 +13,7 @@ router.get('/',                          asyncHandler(bomController.list.bind(bo
 router.get('/ai-suggestion/:skuId',      requireRoles('boss', 'supervisor'), asyncHandler(bomController.getAiSuggestion.bind(bomController)));
 
 router.get('/:id/expand',               asyncHandler(bomController.getExpanded.bind(bomController)));
+router.get('/:id/export',               requireRoles('boss', 'supervisor'), asyncHandler(bomController.exportBom.bind(bomController)));
 router.get('/:id/cost-breakdown',        requireRoles('boss', 'supervisor'), asyncHandler(bomController.getCostBreakdown.bind(bomController)));
 router.get('/:id/material-requirements', requireRoles('boss', 'supervisor'), asyncHandler(bomController.calcRequirements.bind(bomController)));
 

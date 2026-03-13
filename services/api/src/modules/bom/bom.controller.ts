@@ -179,6 +179,16 @@ export class BomController {
     const data = await this.svc(req).getCostBreakdown(id);
     success(res, data);
   }
+
+  // ── BOM 导出 Excel ───────────────────────────────────────────
+
+  async exportBom(req: Request, res: Response): Promise<void> {
+    const { id } = IdParamSchema.parse(req.params);
+    const buffer = await this.svc(req).exportBomToExcel(id);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="bom-${id}.xlsx"`);
+    res.end(buffer);
+  }
 }
 
 export const bomController = new BomController();

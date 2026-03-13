@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import * as XLSX from 'xlsx';
 import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
@@ -908,6 +909,71 @@ export class BomService {
     await getRedisClient().del(
       RedisKeys.bomExpanded(this.tenantId, bomId, capturedVersion!),
     );
+  }
+
+  // ── BOM 导出 Excel ───────────────────────────────────────────
+
+  /**
+   * 将指定 BOM 导出为 Excel (.xlsx) Buffer。
+   * 第一行：BOM 基本信息（成品名、版本、状态）。
+   * 第三行起：物料明细表头 + 数据（递归展开 items 树，层级用缩进表示）。
+   */
+  async exportBomToExcel(bomId: number): Promise<Buffer> {
+    const bom = await this.getBomWithExpansion(bomId);
+
+    // 扁平化 items 树为行记录
+    interface ExcelRow {
+      层级: string;
+      SKU编码: string;
+      物料名称: string;
+      规格: string;
+      用量: string;
+      单位: string;
+      损耗率: string;
+    }
+
+    const flatRows: ExcelRow[] = [];
+
+    const flatten = (nodes: BomItemNode[]): void => {
+      for (const node of nodes) {
+        const indent = '  '.repeat(node.level - 1);
+        flatRows.push({
+          层级:     `${indent}L${node.level}`,
+          SKU编码:  node.skuCode,
+          物料名称: node.skuName,
+          规格:     node.spec ?? '',
+          用量:     node.quantity,
+          单位:     node.unit,
+          损耗率:   node.scrapRate,
+        });
+        if (node.children.length > 0) {
+          flatten(node.children);
+        }
+      }
+    };
+    flatten(bom.items);
+
+    const workbook = XLSX.utils.book_new();
+
+    // 第一行：BOM 基本信息（使用 aoa_to_sheet 自定义布局）
+    const infoRows: unknown[][] = [
+      ['成品名称', bom.skuName ?? '', '版本', bom.version, '状态', bom.status],
+      [],  // 空行（第二行）
+      // 第三行起：物料明细（由 sheet_add_json 追加）
+    ];
+
+    const worksheet = XLSX.utils.aoa_to_sheet(infoRows);
+
+    // 从第三行（origin: 2，0-indexed）开始写物料明细
+    XLSX.utils.sheet_add_json(worksheet, flatRows, {
+      origin: 2,
+      skipHeader: false,
+    });
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'BOM明细');
+
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+    return buffer;
   }
 
   // ── 私有辅助 ────────────────────────────────────────────────
