@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# =============================================================================
+# 数据库迁移脚本
+# 按文件名排序依次执行 services/api/src/migrations/*.sql
+#
+# 使用方式:
+#   bash infra/db/migrate.sh              # 使用 .env 中的数据库配置
+#   DB_HOST=127.0.0.1 bash infra/db/migrate.sh  # 覆盖单个变量
+#
+# 幂等保证:
+#   migration_history 表记录已执行的迁移文件名，跳过重复执行
+# =============================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MIGRATIONS_DIR="$PROJECT_ROOT/services/api/src/migrations"
+
+# 从 .env 加载环境变量（如果存在且未被覆盖）
+if [ -f "$PROJECT_ROOT/.env" ]; then
+  set -a
+  source "$PROJECT_ROOT/.env"
+  set +a
+fi
+
+# Docker Compose 环境中 DB_HOST 默认为 mysql 服务名
+DB_HOST="${DB_HOST:-mysql}"
+DB_PORT="${DB_PORT:-3306}"
+DB_NAME="${DB_NAME:-smart_factory}"
+DB_USER="${DB_USER:-sf_app}"
+DB_PASS="${DB_PASS:-}"
+
+MYSQL_CMD="mysql -h $DB_HOST -P $DB_PORT -u $DB_USER"
+if [ -n "$DB_PASS" ]; then
+  MYSQL_CMD="$MYSQL_CMD -p$DB_PASS"
+fi
+
+echo "=== Database Migration ==="
+echo "Host: $DB_HOST:$DB_PORT  DB: $DB_NAME"
+
+# 等待数据库就绪（最多 30 秒）
+for i in $(seq 1 6); do
+  if $MYSQL_CMD -e "SELECT 1" "$DB_NAME" > /dev/null 2>&1; then
+    break
+  fi
+  echo "Waiting for MySQL... ($i/6)"
+  sleep 5
+done
+
+# 创建迁移记录表（幂等）
+$MYSQL_CMD "$DB_NAME" <<'SQL'
+CREATE TABLE IF NOT EXISTS migration_history (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  filename    VARCHAR(255) NOT NULL UNIQUE,
+  applied_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+SQL
+
+# 检查迁移目录
+if [ ! -d "$MIGRATIONS_DIR" ]; then
+  echo "No migrations directory found: $MIGRATIONS_DIR"
+  exit 0
+fi
+
+# 按文件名排序执行
+applied=0
+skipped=0
+
+for sql_file in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | sort); do
+  filename="$(basename "$sql_file")"
+
+  # 检查是否已执行
+  exists=$($MYSQL_CMD -N -e "SELECT COUNT(*) FROM migration_history WHERE filename='$filename'" "$DB_NAME" 2>/dev/null)
+
+  if [ "$exists" = "1" ]; then
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  echo "Applying: $filename ..."
+  $MYSQL_CMD "$DB_NAME" < "$sql_file"
+
+  # 记录已执行
+  $MYSQL_CMD -e "INSERT INTO migration_history (filename) VALUES ('$filename')" "$DB_NAME"
+  applied=$((applied + 1))
+  echo "  ✓ Done"
+done
+
+echo "=== Migration complete: $applied applied, $skipped skipped ==="

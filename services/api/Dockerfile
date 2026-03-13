@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1: 依赖安装
 # ─────────────────────────────────────────────────────────────────────────────
-FROM node:18-alpine AS deps
+FROM node:20-alpine AS deps
 
 # 安装构建原生模块所需的系统依赖（bcrypt 需要 python3 + make + g++）
 RUN apk add --no-cache python3 make g++
@@ -17,7 +17,7 @@ RUN npm install --ignore-scripts && npm rebuild bcrypt --build-from-source
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2: 编译 TypeScript
 # ─────────────────────────────────────────────────────────────────────────────
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -30,7 +30,7 @@ RUN npm run build
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 3: 生产镜像（最小化）
 # ─────────────────────────────────────────────────────────────────────────────
-FROM node:18-alpine AS production
+FROM node:20-alpine AS production
 
 # 添加非 root 用户，提升安全性
 RUN addgroup -g 1001 -S appgroup && \

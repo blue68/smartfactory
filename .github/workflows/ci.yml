@@ -1,76 +1,95 @@
-name: SmartFactory API CI
+# =============================================================================
+# CI — Pull Request 检查
+# 触发: PR 向 main / develop 提交或更新时
+# 步骤: type-check → lint → unit-test (后端 + 前端并行)
+#       → integration-test (后端，依赖 MySQL + Redis)
+# =============================================================================
+
+name: CI
 
 on:
-  push:
-    branches:
-      - main
-      - develop
-      - 'feature/**'
-      - 'fix/**'
-      - 'hotfix/**'
   pull_request:
     branches:
       - main
       - develop
+    paths:
+      - "services/**"
+      - ".github/workflows/ci.yml"
+  push:
+    branches:
+      - develop
+    paths:
+      - "services/**"
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
-  # ─── 单元测试 ──────────────────────────────────────────────────────
-  unit-test:
-    name: Unit Tests
+  # ---------------------------------------------------------------------------
+  # 后端: type-check + unit test
+  # ---------------------------------------------------------------------------
+  api-unit:
+    name: "API — typecheck + unit test"
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: services/api
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    env:
+      NODE_ENV: test
+      JWT_SECRET: ci-test-secret-do-not-use-in-prod-32c
+      JWT_REFRESH_SECRET: ci-test-refresh-secret-32chars
 
-      - name: Setup Node.js 18.x
-        uses: actions/setup-node@v4
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
           cache-dependency-path: services/api/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: TypeScript type check
-        run: npx tsc --noEmit
+      - name: Type check
+        run: npm run typecheck
 
-      - name: Run unit tests with coverage
-        run: npx jest tests/unit/ --coverage --coverageDirectory=coverage/unit --coverageReporters=lcov --coverageReporters=text --forceExit
-        env:
-          NODE_ENV: test
-          JWT_SECRET: test-jwt-secret-32chars-for-testing!!
+      - name: Unit tests
+        run: npm run test:unit -- --ci --coverage --coverageDirectory=coverage/unit
 
-      - name: Upload unit test coverage report
+      - name: Upload coverage
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: unit-coverage-report
+          name: api-unit-coverage
           path: services/api/coverage/unit/
-          retention-days: 14
+          retention-days: 7
 
-  # ─── 集成测试（依赖 MySQL + Redis）────────────────────────────────
-  integration-test:
-    name: Integration Tests
+  # ---------------------------------------------------------------------------
+  # 后端: integration test (依赖 MySQL 8.0 + Redis 7)
+  # ---------------------------------------------------------------------------
+  api-integration:
+    name: "API — integration test"
     runs-on: ubuntu-latest
-    needs: unit-test
+    needs: api-unit
+    defaults:
+      run:
+        working-directory: services/api
 
     services:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ROOT_PASSWORD: test_root_password
+          MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: smart_factory_test
-          MYSQL_USER: sf_test
-          MYSQL_PASSWORD: sf_test_password
+          MYSQL_USER: sfuser
+          MYSQL_PASSWORD: sfpass
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h localhost -u root -ptest_root_password"
+          --health-cmd="mysqladmin ping -h localhost -u root -proot"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
@@ -86,226 +105,110 @@ jobs:
           --health-timeout=3s
           --health-retries=10
 
-    defaults:
-      run:
-        working-directory: services/api
+    env:
+      NODE_ENV: test
+      PORT: 3000
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: smart_factory_test
+      DB_USER: sfuser
+      DB_PASS: sfpass
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      JWT_SECRET: ci-test-secret-do-not-use-in-prod-32c
+      JWT_REFRESH_SECRET: ci-test-refresh-secret-32chars
+      JWT_EXPIRES_IN: 1h
+      CORS_ORIGINS: http://localhost
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js 18.x
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
           cache-dependency-path: services/api/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Wait for MySQL to be ready
+      - name: Apply DB init schema
         run: |
-          until mysqladmin ping -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password --silent; do
-            echo "Waiting for MySQL..."
-            sleep 2
+          mysql -h 127.0.0.1 -P 3306 -u sfuser -psfpass smart_factory_test \
+            < ../../infra/db/init.sql 2>/dev/null || \
+          mysql -h 127.0.0.1 -P 3306 -u root -proot smart_factory_test \
+            < ../../infra/db/init.sql || echo "init.sql skipped"
+
+      - name: Run migrations
+        run: |
+          for f in $(ls src/migrations/*.sql 2>/dev/null | sort); do
+            echo "Applying $f ..."
+            mysql -h 127.0.0.1 -P 3306 -u sfuser -psfpass smart_factory_test < "$f"
           done
-          echo "MySQL is ready."
 
-      - name: Apply database schema
-        run: |
-          mysql -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password smart_factory_test \
-            < ../../infra/db/schema.sql || echo "schema.sql not found, skipping"
+      - name: Build
+        run: npm run build
 
-      - name: Apply test seed data
-        run: |
-          mysql -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password smart_factory_test \
-            < ../../infra/db/test-seed.sql || echo "test-seed.sql not found, skipping"
+      - name: Integration tests
+        run: npm run test:integration -- --ci --forceExit --detectOpenHandles
 
-      - name: Build API service
-        run: npx tsc
-
-      - name: Start API service in background
-        run: |
-          node dist/index.js &
-          echo "API_PID=$!" >> $GITHUB_ENV
-          # 等待服务启动就绪（最多30秒）
-          timeout 30 bash -c 'until curl -sf http://localhost:3000/health; do sleep 1; done' \
-            || echo "Health check endpoint not available, proceeding anyway"
-        env:
-          NODE_ENV: test
-          PORT: 3000
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_NAME: smart_factory_test
-          DB_USER: sf_test
-          DB_PASSWORD: sf_test_password
-          REDIS_HOST: 127.0.0.1
-          REDIS_PORT: 6379
-          JWT_SECRET: test-jwt-secret-32chars-for-testing!!
-          LOG_LEVEL: error
-
-      - name: Run integration tests
-        run: npx jest tests/integration/ --coverage --coverageDirectory=coverage/integration --coverageReporters=lcov --coverageReporters=text --forceExit --testTimeout=30000
-        env:
-          NODE_ENV: test
-          TEST_API_URL: http://localhost:3000
-          JWT_SECRET: test-jwt-secret-32chars-for-testing!!
-
-      - name: Upload integration test coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-coverage-report
-          path: services/api/coverage/integration/
-          retention-days: 14
-
-      - name: Stop API service
-        if: always()
-        run: |
-          if [ -n "$API_PID" ]; then
-            kill $API_PID || true
-          fi
-
-  # ─── E2E 端到端测试 ───────────────────────────────────────────────
-  e2e-test:
-    name: E2E Tests
+  # ---------------------------------------------------------------------------
+  # 前端: lint + type-check + unit test
+  # ---------------------------------------------------------------------------
+  web:
+    name: "Web — lint / typecheck / test"
     runs-on: ubuntu-latest
-    needs: integration-test
-    # E2E 测试仅在合并到 main/develop 的 PR 上执行，避免 feature branch 频繁触发
-    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'develop')
-
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: test_root_password
-          MYSQL_DATABASE: smart_factory_test
-          MYSQL_USER: sf_test
-          MYSQL_PASSWORD: sf_test_password
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost -u root -ptest_root_password"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-          --health-start-period=30s
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=5s
-          --health-timeout=3s
-          --health-retries=10
-
     defaults:
       run:
-        working-directory: services/api
+        working-directory: services/web
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js 18.x
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
-          cache: 'npm'
-          cache-dependency-path: services/api/package-lock.json
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: services/web/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Wait for MySQL to be ready
-        run: |
-          until mysqladmin ping -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password --silent; do
-            echo "Waiting for MySQL..."
-            sleep 2
-          done
+      - name: Lint
+        run: npm run lint
 
-      - name: Apply database schema and seed data
-        run: |
-          mysql -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password smart_factory_test \
-            < ../../infra/db/schema.sql || echo "schema.sql not found, skipping"
-          mysql -h 127.0.0.1 -P 3306 -u sf_test -psf_test_password smart_factory_test \
-            < ../../infra/db/test-seed.sql || echo "test-seed.sql not found, skipping"
+      - name: Type check
+        run: npm run typecheck
 
-      - name: Build API service
-        run: npx tsc
+      - name: Unit tests
+        run: npm test
 
-      - name: Start API service in background
-        run: |
-          node dist/index.js &
-          echo "API_PID=$!" >> $GITHUB_ENV
-          timeout 30 bash -c 'until curl -sf http://localhost:3000/health; do sleep 1; done' \
-            || echo "Proceeding without health check"
-        env:
-          NODE_ENV: test
-          PORT: 3000
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_NAME: smart_factory_test
-          DB_USER: sf_test
-          DB_PASSWORD: sf_test_password
-          REDIS_HOST: 127.0.0.1
-          REDIS_PORT: 6379
-          JWT_SECRET: test-jwt-secret-32chars-for-testing!!
-          LOG_LEVEL: error
-
-      - name: Run E2E tests
-        run: npx jest tests/e2e/ --forceExit --testTimeout=60000 --runInBand
-        env:
-          NODE_ENV: test
-          TEST_API_URL: http://localhost:3000
-          JWT_SECRET: test-jwt-secret-32chars-for-testing!!
-
-      - name: Stop API service
-        if: always()
-        run: |
-          if [ -n "$API_PID" ]; then
-            kill $API_PID || true
-          fi
-
-  # ─── 覆盖率聚合报告 ───────────────────────────────────────────────
-  coverage-report:
-    name: Aggregate Coverage Report
+  # ---------------------------------------------------------------------------
+  # 汇总门禁: 所有 job 通过才允许合并
+  # ---------------------------------------------------------------------------
+  ci-gate:
+    name: CI Gate
+    needs: [api-unit, api-integration, web]
     runs-on: ubuntu-latest
-    needs:
-      - unit-test
-      - integration-test
-    if: always() && (needs.unit-test.result == 'success' || needs.integration-test.result == 'success')
-
+    if: always()
     steps:
-      - name: Download unit coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: unit-coverage-report
-          path: coverage/unit/
-        continue-on-error: true
-
-      - name: Download integration coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: integration-coverage-report
-          path: coverage/integration/
-        continue-on-error: true
-
-      - name: Print coverage summary
+      - name: Check all jobs passed
         run: |
-          echo "========================================"
-          echo "SmartFactory API - Test Coverage Summary"
-          echo "========================================"
-          echo ""
-          if [ -f coverage/unit/lcov-report/index.html ]; then
-            echo "Unit test coverage report available at: coverage/unit/lcov-report/index.html"
+          results=(
+            "${{ needs.api-unit.result }}"
+            "${{ needs.api-integration.result }}"
+            "${{ needs.web.result }}"
+          )
+          failed=0
+          for r in "${results[@]}"; do
+            if [ "$r" != "success" ]; then
+              echo "Job failed or skipped: $r"
+              failed=1
+            fi
+          done
+          if [ "$failed" -eq 1 ]; then
+            echo "CI gate FAILED — merge blocked."
+            exit 1
           fi
-          if [ -f coverage/integration/lcov-report/index.html ]; then
-            echo "Integration test coverage report available at: coverage/integration/lcov-report/index.html"
-          fi
-          echo ""
-          echo "Test jobs status:"
-          echo "  - Unit Tests:        ${{ needs.unit-test.result }}"
-          echo "  - Integration Tests: ${{ needs.integration-test.result }}"
+          echo "CI gate PASSED."

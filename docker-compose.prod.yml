@@ -1,0 +1,80 @@
+# =============================================================================
+# 智造管家 — 生产环境 Docker Compose 覆盖文件
+#
+# 使用方式:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# 职责:
+#   - 固定镜像版本（IMAGE_TAG 由 CI 注入，默认 latest）
+#   - 关闭源码 volume 挂载
+#   - 收紧资源限制
+#   - 强制 restart: always
+# =============================================================================
+
+services:
+
+  mysql:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+
+  redis:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+        reservations:
+          memory: 128M
+
+  api:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_REPO:-org/smart-factory-api}:${IMAGE_TAG:-latest}
+    restart: always
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: warn
+    # 生产环境不挂载本地源码
+    volumes:
+      - api_logs:/app/logs
+      - api_uploads:/app/uploads
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 768M
+          cpus: "1.5"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+
+  web:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_REPO:-org/smart-factory-web}:${IMAGE_TAG:-latest}
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+        reservations:
+          memory: 32M
+      update_config:
+        parallelism: 1
+        delay: 5s
+        order: start-first
+        failure_action: rollback
