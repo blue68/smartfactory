@@ -31,6 +31,14 @@ export interface Price {
   isActive: boolean;
   /** 备注 */
   notes?: string;
+  /** 税率（如 13.00） */
+  taxRate?: string;
+  /** 是否启用批次定价 */
+  batchPricing?: boolean;
+  /** 批次条件规则 */
+  batchRule?: string;
+  /** 协议文件URL */
+  attachmentUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -53,9 +61,54 @@ export interface CreatePricePayload {
   validFrom: string;
   validTo?: string;
   notes?: string;
+  taxRate?: string;
+  batchPricing?: boolean;
+  batchRule?: string;
+  attachmentUrl?: string;
 }
 
 export type UpdatePricePayload = Partial<CreatePricePayload>;
+
+export interface PriceHistoryItem {
+  price: string;
+  unit: string;
+  supplierName: string;
+  effectiveAt: string;
+}
+
+// ─────────────────────────────────────────────
+// 批量导入相关类型
+// ─────────────────────────────────────────────
+
+/** 单条导入错误/警告 */
+export interface ImportRowIssue {
+  /** Excel 行号（从 2 起，1 为表头） */
+  row: number;
+  /** 错误列名（可选） */
+  column?: string;
+  /** 错误描述 */
+  message: string;
+}
+
+/** 导入接口返回结果 */
+export interface ImportResult {
+  successCount: number;
+  failCount: number;
+  errors: ImportRowIssue[];
+  warnings: ImportRowIssue[];
+}
+
+/** 异步导入任务进度 */
+export interface ImportTaskStatus {
+  taskId: number;
+  status: 'pending' | 'processing' | 'done' | 'failed';
+  progress: number; // 0-100
+  successCount?: number;
+  failCount?: number;
+  errors?: ImportRowIssue[];
+  warnings?: ImportRowIssue[];
+  message?: string;
+}
 
 // ─────────────────────────────────────────────
 // Query Keys
@@ -66,6 +119,7 @@ export const priceKeys = {
   lists: () => [...priceKeys.all, 'list'] as const,
   list: (query: PriceListQuery) => [...priceKeys.lists(), query] as const,
   detail: (id: number) => [...priceKeys.all, 'detail', id] as const,
+  history: (skuId: number, supplierId?: number) => [...priceKeys.all, 'history', skuId, supplierId] as const,
 };
 
 // ─────────────────────────────────────────────
@@ -84,6 +138,50 @@ export const priceApi = {
 
   update: (id: number, payload: UpdatePricePayload) =>
     request.put<Price>(`/api/prices/${id}`, payload),
+
+  getHistory: (skuId: number, supplierId?: number) =>
+    request.get<PriceHistoryItem[]>(`/api/prices/history/${skuId}`, supplierId ? { supplierId } as Record<string, unknown> : undefined),
+
+  /**
+   * 下载导入模板（返回 Blob，由调用方触发浏览器下载）
+   */
+  downloadTemplate: async (): Promise<void> => {
+    const res = await request.instance.get('/api/prices/import-template', {
+      responseType: 'blob',
+    });
+    const blob: Blob = res.data as Blob;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    // 优先从 Content-Disposition 获取文件名，否则使用默认名
+    const disposition: string = (res.headers['content-disposition'] as string) ?? '';
+    const match = /filename[^;=\n]*=(?:(['"])(.+?)\1|([^;\n]*))/i.exec(disposition);
+    a.download = match?.[2] ?? match?.[3] ?? '采购价格导入模板.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  /**
+   * 上传 Excel 文件进行批量导入
+   * 使用 multipart/form-data，字段名为 file
+   */
+  importPrices: async (file: File): Promise<ImportResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await request.instance.post('/api/prices/import', formData, {
+      headers: { 'Content-Type': undefined as unknown as string },
+    });
+    // 通过 instance 调用时响应拦截器已做 camelCase 转换
+    return res.data.data as ImportResult;
+  },
+
+  /**
+   * 查询异步导入任务进度（预留）
+   */
+  getImportStatus: (taskId: number) =>
+    request.get<ImportTaskStatus>(`/api/prices/import/${taskId}`),
 };
 
 // ─────────────────────────────────────────────
@@ -109,6 +207,15 @@ export function useCreatePrice() {
   });
 }
 
+/** 价格历史 */
+export function usePriceHistory(skuId: number | null, supplierId?: number) {
+  return useQuery({
+    queryKey: priceKeys.history(skuId!, supplierId),
+    queryFn: () => priceApi.getHistory(skuId!, supplierId),
+    enabled: skuId !== null && skuId > 0,
+  });
+}
+
 /** 更新价格 */
 export function useUpdatePrice() {
   const qc = useQueryClient();
@@ -120,4 +227,15 @@ export function useUpdatePrice() {
       void qc.invalidateQueries({ queryKey: priceKeys.detail(variables.id) });
     },
   });
+}
+
+/** 上传协议文件（multipart/form-data） */
+export async function uploadPriceFile(file: File): Promise<{ url: string; originalName: string; size: number }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  // Use instance directly — delete Content-Type so browser sets multipart boundary
+  const res = await request.instance.post('/api/upload', formData, {
+    headers: { 'Content-Type': undefined as unknown as string },
+  });
+  return res.data.data;
 }

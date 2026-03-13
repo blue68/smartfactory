@@ -16,14 +16,50 @@ const CreateSchema = z.object({
   skuId: z.number().int().positive(),
   unitPrice: z.string().regex(/^\d+(\.\d{1,4})?$/),
   purchaseUnit: z.string().min(1).max(20),
-  moq: z.number().int().positive().optional(),
+  moq: z.number().int().nonnegative().optional(),
   validFrom: z.string().optional(),
   validTo: z.string().optional(),
+  notes: z.string().max(2000).optional(),
+  taxRate: z.string().regex(/^\d{1,3}(\.\d{1,2})?$/).optional(),
+  batchPricing: z.boolean().optional(),
+  batchRule: z.string().max(500).optional(),
+  attachmentUrl: z.string().max(500).optional(),
 });
 
 export class PriceController {
   private svc(req: Request): PriceService {
     return new PriceService({ tenantId: req.tenantId, userId: req.userId });
+  }
+
+  // ── R-03: 导入模板下载 ───────────────────────────────────────────────────
+  async downloadTemplate(_req: Request, res: Response): Promise<void> {
+    const svc = new PriceService({ tenantId: 0, userId: 0 });
+    const buf = svc.generateImportTemplate();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=price-import-template.xlsx');
+    res.send(buf);
+  }
+
+  // ── R-03: 批量导入 ─────────────────────────────────────────────────────
+  async importPrices(req: Request, res: Response): Promise<void> {
+    if (!req.file) {
+      res.status(400).json({ code: 400, data: null, message: '请上传 Excel 文件' });
+      return;
+    }
+    const result = await this.svc(req).importPrices(
+      req.file.path,
+      req.file.originalname,
+      req.tenantId,
+      req.userId,
+    );
+    success(res, result, `导入完成：成功 ${result.successCount} 条，失败 ${result.failCount} 条`);
+  }
+
+  // ── R-03: 导入任务进度查询 ──────────────────────────────────────────────
+  async getImportStatus(req: Request, res: Response): Promise<void> {
+    const taskId = Number(req.params.taskId);
+    const task = await this.svc(req).getImportTaskStatus(taskId);
+    success(res, task);
   }
 
   async list(req: Request, res: Response): Promise<void> {

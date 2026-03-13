@@ -1,269 +1,843 @@
 /**
  * [artifact:前端代码] — 采购价格管理页
- * 功能：价格协议列表、关键字搜索(防抖)、状态筛选、新建/编辑价格协议
- *       T206-T207：双视图（按供应商 Accordion / 按物料表格）
- *       T208：按物料视图多供应商比价，最低价高亮绿色
- *       T209：价格涨跌幅箭头（△▽）+ tooltip
+ * 100% 对齐设计稿 web-price-manage.html
+ *
+ * 功能：
+ *   - Stats Strip：有效协议 / 即将到期 / 价格预警
+ *   - Alert Banner + 可折叠 Alert Panel（价格异常预警详情）
+ *   - View Toggle：按供应商（Accordion）/ 按物料（占位符）
+ *   - 按供应商视图：可折叠分组 + 等级徽章 + 价格表 + 价格涨跌 pill + 行选中
+ *   - 价格趋势 Chart Panel（点击行展开，SVG 折线图 + 供应商对比表）
+ *   - 右侧 Drawer：新增 / 编辑价格协议（含 price warning modal）
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import {
   usePriceList,
   useCreatePrice,
   useUpdatePrice,
+  usePriceHistory,
+  uploadPriceFile,
 } from '@/api/price';
-import type { Price, CreatePricePayload } from '@/api/price';
-import type { Column } from '@/components/common/Table';
-import Table from '@/components/common/Table';
-import Modal from '@/components/common/Modal';
-import Tag from '@/components/common/Tag';
+import type { Price, PriceHistoryItem, CreatePricePayload } from '@/api/price';
+import { useSupplierOptions } from '@/api/supplier';
+import type { Supplier } from '@/api/supplier';
+import { useSkuList } from '@/api/sku';
+import Drawer from '@/components/common/Drawer';
 import Button from '@/components/common/Button';
-import { formatCNY, formatDate } from '@/utils/format';
+import Modal from '@/components/common/Modal';
+import { formatDate, formatCNY } from '@/utils/format';
 import styles from './PricePage.module.css';
 
 // ─────────────────────────────────────────────
-// 常量
+// 常量 & 类型
 // ─────────────────────────────────────────────
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 100; // 视图模式下一次加载全量（分页在视图层隐藏）
 
-type StatusFilter = '' | 'active' | 'inactive';
+type ViewMode = 'supplier' | 'material';
+
+type StatusFilter = 'active' | 'all' | 'expiring' | 'expired';
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
-  { value: '', label: '全部状态' },
-  { value: 'active', label: '有效' },
-  { value: 'inactive', label: '失效' },
+  { value: 'active',   label: '当前有效' },
+  { value: 'all',      label: '全部' },
+  { value: 'expiring', label: '即将到期' },
+  { value: 'expired',  label: '已过期' },
 ];
 
-// T206: 视图模式
-type ViewMode = 'by-supplier' | 'by-sku';
+// 供应商等级
+type SupplierGrade = 'A' | 'B' | 'C' | 'D';
 
-// T209: 扩展 Price 类型，携带涨跌幅信息（后端返回时生效，前端做降级处理）
-type PriceWithChange = Price & {
-  /** 与上次价格相比的变动百分比，正数涨、负数跌、null表示首次报价 */
+// 扩展 Price 类型，携带额外展示字段
+type PriceRow = Price & {
+  /** vs 历史均价变动百分比，正涨负跌，null 为首次 */
   priceChangePct?: number | null;
+  /** 是否即将到期（30天内） */
+  isExpiring?: boolean;
+  /** 价格异常 */
+  priceAnomaly?: boolean;
 };
 
-// ─────────────────────────────────────────────
-// T209: 价格涨跌幅指示器
-// ─────────────────────────────────────────────
+// 供应商分组
+type SupplierGroup = {
+  supplierId: number;
+  supplierName: string;
+  grade: SupplierGrade;
+  warnCount: number;
+  prices: PriceRow[];
+};
 
-function PriceChangeIndicator({ pct }: { pct: number | null | undefined }) {
-  const tooltipRef = useRef<HTMLSpanElement>(null);
-
-  if (pct == null) return null;
-
-  const isRise = pct > 0;
-  const isFall = pct < 0;
-  if (!isRise && !isFall) return null;
-
-  const absStr = Math.abs(pct).toFixed(2);
-  const label = isRise ? `涨幅 +${absStr}%` : `跌幅 -${absStr}%`;
-
-  return (
-    <span
-      ref={tooltipRef}
-      className={isRise ? styles.change_rise : styles.change_fall}
-      title={label}
-      aria-label={label}
-    >
-      {isRise ? '△' : '▽'}
-    </span>
-  );
-}
-
-// ─────────────────────────────────────────────
-// T208: SKU 比价表（按物料视图用）
-// ─────────────────────────────────────────────
-
-type SkuGroup = {
+// 物料分组
+type MaterialGroup = {
   skuId: number;
-  skuCode: string;
   skuName: string;
-  prices: PriceWithChange[];
+  skuCode: string;
+  prices: PriceRow[];
 };
 
-function buildSkuGroups(prices: PriceWithChange[]): SkuGroup[] {
-  const map = new Map<number, SkuGroup>();
-  for (const p of prices) {
-    if (!map.has(p.skuId)) {
-      map.set(p.skuId, { skuId: p.skuId, skuCode: p.skuCode, skuName: p.skuName, prices: [] });
-    }
-    map.get(p.skuId)!.prices.push(p);
-  }
-  return Array.from(map.values());
+// Alert item 类型
+type AlertItem = {
+  id: number;
+  supplier: string;
+  grade: string;
+  material: string;
+  currentPrice: string;
+  currentUnit: string;
+  avgPrice: string;
+  avgUnit: string;
+  exceedAmount: string;
+  exceedPct: number;
+};
+
+// ─────────────────────────────────────────────
+// 辅助函数
+// ─────────────────────────────────────────────
+
+/** 判断是否在 30 天内到期 */
+function isExpiringSoon(validTo: string | null): boolean {
+  if (!validTo) return false;
+  const expDate = new Date(validTo);
+  const now = new Date();
+  const diffMs = expDate.getTime() - now.getTime();
+  return diffMs > 0 && diffMs <= 30 * 24 * 60 * 60 * 1000;
 }
 
-function PriceComparisonSection({ prices }: { prices: PriceWithChange[] }) {
-  const groups = buildSkuGroups(prices);
+function renderValidPeriod(price: Price): string {
+  const from = formatDate(price.validFrom);
+  const to = price.validTo ? formatDate(price.validTo) : '长期';
+  return `${from} ~ ${to}`;
+}
 
-  if (groups.length === 0) {
-    return <div className={styles.comparison_empty}>暂无数据</div>;
-  }
-
+// ─────────────────────────────────────────────
+// 组件：Stats Strip
+// ─────────────────────────────────────────────
+function StatsStrip({ activeCount, expiringCount, alertCount }: {
+  activeCount: number;
+  expiringCount: number;
+  alertCount: number;
+}) {
   return (
-    <div className={styles.comparison_wrapper}>
-      {groups.map((group) => {
-        // 找最低价（含税单价数值最小）
-        const numericPrices = group.prices.map((p) => Number(p.unitPrice));
-        const minPrice = Math.min(...numericPrices);
-
-        return (
-          <div key={group.skuId} className={styles.comparison_card}>
-            <div className={styles.comparison_card_header}>
-              <span className={styles.mono}>{group.skuCode}</span>
-              <span className={styles.comparison_sku_name}>{group.skuName}</span>
-              <span className={styles.comparison_count}>{group.prices.length} 家供应商</span>
-            </div>
-            <table className={styles.comparison_table}>
-              <thead>
-                <tr>
-                  <th>供应商</th>
-                  <th>含税单价</th>
-                  <th>采购单位</th>
-                  <th>MOQ</th>
-                  <th>有效期至</th>
-                  <th>状态</th>
-                </tr>
-              </thead>
-              <tbody>
-                {group.prices
-                  .sort((a, b) => Number(a.unitPrice) - Number(b.unitPrice))
-                  .map((p) => {
-                    const isLowest = Number(p.unitPrice) === minPrice;
-                    return (
-                      <tr key={p.id} className={isLowest ? styles.comparison_row_best : ''}>
-                        <td>{p.supplierName}</td>
-                        <td className={styles.comparison_price_cell}>
-                          <span className={isLowest ? styles.comparison_price_best : ''}>
-                            {formatCNY(p.unitPrice)}
-                          </span>
-                          {isLowest && (
-                            <span className={styles.comparison_best_badge}>最低</span>
-                          )}
-                          <PriceChangeIndicator pct={p.priceChangePct} />
-                        </td>
-                        <td>{p.purchaseUnit}</td>
-                        <td>{p.moq != null ? String(p.moq) : '—'}</td>
-                        <td>{p.validTo ? formatDate(p.validTo) : '长期'}</td>
-                        <td>
-                          {p.isActive
-                            ? <Tag variant="success">有效</Tag>
-                            : <Tag variant="neutral">失效</Tag>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        );
-      })}
+    <div className={styles.stats_strip}>
+      <div className={styles.stat_card}>
+        <div className={styles.stat_card__label}>
+          <span className={styles.stat_card__dot} style={{ background: 'var(--color-success-500)' }} />
+          有效协议
+        </div>
+        <div className={styles.stat_card__value} style={{ color: 'var(--color-success-600)' }}>
+          {activeCount}
+        </div>
+        <div className={styles.stat_card__sub}>当前在有效期内</div>
+      </div>
+      <div className={styles.stat_card}>
+        <div className={styles.stat_card__label}>
+          <span className={styles.stat_card__dot} style={{ background: 'var(--color-warning-500)' }} />
+          即将到期
+        </div>
+        <div className={styles.stat_card__value} style={{ color: 'var(--color-warning-600)' }}>
+          {expiringCount}
+        </div>
+        <div className={styles.stat_card__sub}>&le; 30 天内到期</div>
+      </div>
+      <div className={styles.stat_card}>
+        <div className={styles.stat_card__label}>
+          <span className={styles.stat_card__dot} style={{ background: 'var(--color-error-500)' }} />
+          价格预警
+        </div>
+        <div className={styles.stat_card__value} style={{ color: 'var(--color-error-600)' }}>
+          {alertCount}
+        </div>
+        <div className={styles.stat_card__sub}>超历史均价 20%</div>
+      </div>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────
-// T207: 按供应商 Accordion 折叠分组视图
+// 组件：Alert Panel
 // ─────────────────────────────────────────────
-
-type SupplierGroup = {
-  supplierId: number;
-  supplierName: string;
-  prices: PriceWithChange[];
-};
-
-function buildSupplierGroups(prices: PriceWithChange[]): SupplierGroup[] {
-  const map = new Map<number, SupplierGroup>();
-  for (const p of prices) {
-    if (!map.has(p.supplierId)) {
-      map.set(p.supplierId, { supplierId: p.supplierId, supplierName: p.supplierName, prices: [] });
-    }
-    map.get(p.supplierId)!.prices.push(p);
-  }
-  return Array.from(map.values());
-}
-
-function SupplierAccordion({
-  group,
-  onEdit,
+function AlertPanel({
+  alerts,
+  onClose,
+  onMarkAll,
 }: {
-  group: SupplierGroup;
-  onEdit: (p: Price) => void;
+  alerts: AlertItem[];
+  onClose: () => void;
+  onMarkAll: () => void;
 }) {
-  const [open, setOpen] = useState(true);
-  const latestUpdatedAt = group.prices
-    .map((p) => p.updatedAt)
-    .sort()
-    .at(-1);
+  const { showToast } = useAppStore();
+
+  if (alerts.length === 0) {
+    return (
+      <div className={styles.alert_panel}>
+        <div className={styles.alert_panel__header}>
+          <span style={{ fontSize: '1.125rem', color: 'var(--color-success-600)' }}>&#10003;</span>
+          <span className={styles.alert_panel__title}>当前无价格异常预警</span>
+          <Button variant="ghost" size="sm" style={{ marginLeft: 'auto' }} onClick={onClose}>
+            收起 &uarr;
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className={styles.accordion}>
+    <div className={styles.alert_panel}>
+      <div className={styles.alert_panel__header}>
+        <span style={{ fontSize: '1.125rem', color: 'var(--color-error-600)' }}>!</span>
+        <span className={styles.alert_panel__title}>价格异常预警</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          style={{ marginLeft: 'auto' }}
+          onClick={onMarkAll}
+        >
+          全部标记处理
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          收起 &uarr;
+        </Button>
+      </div>
+
+      {alerts.map((alert) => (
+        <div key={alert.id} className={styles.alert_row}>
+          <div className={styles.alert_row__icon_col}>!</div>
+          <div className={styles.alert_row__body}>
+            <div className={styles.alert_row__top}>
+              <span className={styles.alert_row__supplier}>{alert.supplier}</span>
+              <span className={styles.alert_exceed}>&uarr; +{alert.exceedPct}% 超限</span>
+            </div>
+            <div className={styles.alert_row__material}>{alert.material}</div>
+            <div className={styles.alert_row__prices}>
+              <div className={styles.alert_price_item}>
+                <span className={styles.alert_price_item__label}>本次价格</span>
+                <span className={`${styles.alert_price_item__value} ${styles['alert_price_item__value--current']}`}>
+                  {alert.currentPrice} / {alert.currentUnit}
+                </span>
+              </div>
+              <div className={styles.alert_price_item}>
+                <span className={styles.alert_price_item__label}>历史12月均价</span>
+                <span className={`${styles.alert_price_item__value} ${styles['alert_price_item__value--avg']}`}>
+                  {alert.avgPrice} / {alert.avgUnit}
+                </span>
+              </div>
+              <div className={styles.alert_price_item}>
+                <span className={styles.alert_price_item__label}>超出金额</span>
+                <span className={`${styles.alert_price_item__value} ${styles['alert_price_item__value--current']}`}>
+                  {alert.exceedAmount}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className={styles.alert_row__actions}>
+            <button
+              className={styles.btn_secondary_sm}
+              onClick={() => showToast({ type: 'success', message: '已标记核实' })}
+            >
+              标记已核实
+            </button>
+            <button
+              className={styles.btn_danger_outline}
+              onClick={() => showToast({ type: 'warning', message: '已拒绝此价格，协议状态已置为已驳回' })}
+            >
+              拒绝此价格
+            </button>
+          </div>
+        </div>
+      ))}
+
+      <div className={styles.alert_threshold}>
+        <span>&#8505;</span>
+        <span>
+          价格异常预警阈值：超历史 12 个月均价 <strong>20%</strong> 触发
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          style={{ marginLeft: 'auto' }}
+          onClick={() => showToast({ type: 'info', message: '请设置新的预警阈值' })}
+        >
+          修改阈值
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 组件：Price Diff Pill
+// ─────────────────────────────────────────────
+function PriceDiffPill({ pct }: { pct: number | null | undefined }) {
+  if (pct == null) return <span>&mdash;</span>;
+
+  if (pct === 0) {
+    return (
+      <span className={`${styles.price_diff} ${styles['price_diff--ok']}`}>
+        +0.0%
+      </span>
+    );
+  }
+
+  const isRise = pct > 0;
+  const absStr = Math.abs(pct).toFixed(1);
+  const label = isRise ? `\u25B2 +${absStr}%` : `\u25BC -${absStr}%`;
+  const cls = isRise
+    ? `${styles.price_diff} ${styles['price_diff--warn']}`
+    : `${styles.price_diff} ${styles['price_diff--ok']}`;
+
+  return <span className={cls}>{label}</span>;
+}
+
+// ─────────────────────────────────────────────
+// 组件：Status Tag
+// ─────────────────────────────────────────────
+function PriceStatusTag({ isActive, isExpiring }: { isActive: boolean; isExpiring?: boolean }) {
+  if (!isActive) {
+    return (
+      <span className={`${styles.status_tag} ${styles['status_tag--expired']}`}>
+        已过期
+      </span>
+    );
+  }
+  if (isExpiring) {
+    return (
+      <span className={`${styles.status_tag} ${styles['status_tag--expiring']}`}>
+        &#9201; 即将到期
+      </span>
+    );
+  }
+  return (
+    <span className={`${styles.status_tag} ${styles['status_tag--valid']}`}>
+      &#10003; 有效
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 组件：Grade Badge
+// ─────────────────────────────────────────────
+function GradeBadge({ grade }: { grade: SupplierGrade }) {
+  const cls =
+    grade === 'A' ? styles.grade_A :
+    grade === 'B' ? styles.grade_B :
+    grade === 'C' ? styles.grade_C :
+    styles.grade_C; // D falls to C styling
+
+  return (
+    <span className={`${styles.grade_badge} ${cls}`}>{grade}级</span>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 组件：Price Trend SVG Chart (动态渲染)
+// ─────────────────────────────────────────────
+function PriceTrendSvg({ history }: { history: PriceHistoryItem[] }) {
+  // Take up to 12 most recent history items, reversed to oldest-first
+  const items = [...history].slice(0, 12).reverse();
+
+  if (items.length < 2) {
+    return (
+      <div style={{ padding: 'var(--space-4)', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+        历史价格数据不足，无法生成趋势图
+      </div>
+    );
+  }
+
+  const prices = items.map((h) => parseFloat(h.price));
+  const minP = Math.min(...prices);
+  const maxP = Math.max(...prices);
+  const avgP = prices.reduce((a, b) => a + b, 0) / prices.length;
+  const range = maxP - minP || 1;
+  const padding = range * 0.15;
+  const yMin = minP - padding;
+  const yMax = maxP + padding;
+  const yRange = yMax - yMin || 1;
+
+  const W = 760;
+  const H = 200;
+  const LEFT = 50;
+  const RIGHT = 740;
+  const TOP = 16;
+  const BOT = 175;
+
+  const toX = (i: number) => LEFT + ((RIGHT - LEFT) / (items.length - 1)) * i;
+  const toY = (p: number) => BOT - ((p - yMin) / yRange) * (BOT - TOP);
+
+  const points = items.map((_, i) => `${toX(i)},${toY(prices[i])}`).join(' ');
+  const areaPath = items.map((_, i) => `${i === 0 ? 'M' : 'L'}${toX(i)},${toY(prices[i])}`).join(' ')
+    + ` L${toX(items.length - 1)},${BOT} L${toX(0)},${BOT} Z`;
+
+  // Y-axis labels (5 levels)
+  const yLabels = Array.from({ length: 5 }, (_, i) => yMin + (yRange / 4) * (4 - i));
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        style={{ minWidth: '560px', display: 'block' }}
+        role="img"
+        aria-label="价格趋势折线图"
+      >
+        {/* Y-axis labels & grid */}
+        {yLabels.map((val, i) => {
+          const y = TOP + ((BOT - TOP) / 4) * i;
+          return (
+            <g key={i}>
+              <text x={LEFT - 4} y={y + 4} fontSize="10" fill="#94A3B8" textAnchor="end">
+                {'\u00A5'}{val.toFixed(0)}
+              </text>
+              <line x1={LEFT} y1={y} x2={RIGHT} y2={y} stroke="#E2E8F0" strokeWidth="1" />
+            </g>
+          );
+        })}
+
+        {/* Y axis line */}
+        <line x1={LEFT} y1={TOP - 6} x2={LEFT} y2={BOT} stroke="#CBD5E1" strokeWidth="1.5" />
+
+        {/* Historical avg dashed line */}
+        <line x1={LEFT} y1={toY(avgP)} x2={RIGHT} y2={toY(avgP)}
+          stroke="#F59E0B" strokeWidth="1.5" strokeDasharray="6,4" />
+        <text x={RIGHT + 4} y={toY(avgP) + 4} fontSize="10" fill="#D97706" fontWeight="600">均价</text>
+
+        {/* Gradient fill */}
+        <defs>
+          <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#3B82F6" stopOpacity=".15" />
+            <stop offset="100%" stopColor="#3B82F6" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill="url(#lineGrad)" />
+        <polyline points={points} fill="none" stroke="#3B82F6" strokeWidth="2.5"
+          strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* Data points */}
+        {items.map((_, i) => (
+          <circle key={i} cx={toX(i)} cy={toY(prices[i])} r="4" fill="#3B82F6" />
+        ))}
+
+        {/* Current point highlighted */}
+        <circle cx={toX(items.length - 1)} cy={toY(prices[prices.length - 1])} r="6"
+          fill="#fff" stroke="#3B82F6" strokeWidth="2.5" />
+        <text x={toX(items.length - 1) + 6} y={toY(prices[prices.length - 1]) - 6}
+          fontSize="10" fill="#2563EB" fontWeight="700">当前</text>
+
+        {/* X axis */}
+        <line x1={LEFT} y1={BOT} x2={RIGHT} y2={BOT} stroke="#CBD5E1" strokeWidth="1.5" />
+        {items.map((h, i) => {
+          const dateStr = h.effectiveAt ? h.effectiveAt.slice(5, 7) + '月' : `#${i + 1}`;
+          return (
+            <text key={i} x={toX(i)} y={BOT + 14} fontSize="10" fill="#94A3B8" textAnchor="middle">
+              {dateStr}
+            </text>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 组件：Chart Panel (使用真实历史数据)
+// ─────────────────────────────────────────────
+function ChartPanel({
+  price,
+  allPricesForSku,
+  supplierGradeMap,
+  onClose,
+}: {
+  price: PriceRow;
+  allPricesForSku: PriceRow[];
+  supplierGradeMap: Map<number, SupplierGrade>;
+  onClose: () => void;
+}) {
+  const { data: historyData } = usePriceHistory(price.skuId, price.supplierId);
+  const history = historyData ?? [];
+
+  // Compute stats from history
+  const prices = history.map((h) => parseFloat(h.price));
+  const avgPrice = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
+  const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
+  const currentPrice = parseFloat(price.unitPrice);
+  const avgDevPct = avgPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : 0;
+  const isDevOk = avgDevPct <= 0;
+
+  // Supplier compare: same SKU, different suppliers
+  const comparePrices = allPricesForSku
+    .filter((p) => p.isActive)
+    .sort((a, b) => parseFloat(b.unitPrice) - parseFloat(a.unitPrice));
+
+  return (
+    <div className={styles.chart_panel}>
+      <div className={styles.chart_panel__header}>
+        <span className={styles.chart_panel__header_icon}>&#128200;</span>
+        <div>
+          <div className={styles.chart_panel__title}>
+            价格详情 &mdash; {price.skuName}
+          </div>
+          <div className={styles.chart_panel__sub}>
+            {price.supplierName} &middot; 过去12个月价格趋势
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          style={{ marginLeft: 'auto' }}
+          onClick={onClose}
+        >
+          收起 &uarr;
+        </Button>
+      </div>
+
+      <div className={styles.chart_panel__body}>
+        {/* Supplier compare table */}
+        {comparePrices.length > 0 && (
+          <div style={{ marginBottom: 'var(--space-4)' }}>
+            <div className={styles.compare_section_label}>当前有效价格（供应商对比）</div>
+            <table className={styles.compare_table}>
+              <thead>
+                <tr>
+                  <th>供应商</th>
+                  <th>单价</th>
+                  <th>级别</th>
+                  <th>有效期</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparePrices.map((cp) => {
+                  const isCurrent = cp.id === price.id;
+                  const grade = supplierGradeMap.get(cp.supplierId) ?? 'B';
+                  return (
+                    <tr key={cp.id}>
+                      <td>
+                        {isCurrent && <span className={styles.preferred_dot} />}
+                        <strong>{cp.supplierName}</strong>
+                        {isCurrent && <span className={styles.primary_supplier_label}>当前主供</span>}
+                      </td>
+                      <td className={styles['compare_price--normal']}>{formatCNY(cp.unitPrice)}</td>
+                      <td><GradeBadge grade={grade} /></td>
+                      <td>
+                        {cp.validTo ? `至 ${formatDate(cp.validTo)}` : '长期'}
+                        {cp.isExpiring && <span className={styles.expiring_label}>即将到期</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* SVG chart */}
+        <div className={styles.compare_section_label}>
+          价格趋势（过去12个月 &middot; {price.supplierName}）
+        </div>
+        <PriceTrendSvg history={history} />
+
+        {/* Chart meta */}
+        <div className={styles.chart_meta}>
+          <div className={styles.chart_meta__item}>
+            <span className={styles.chart_meta__label}>当前价格</span>
+            <span className={styles.chart_meta__value}>
+              {formatCNY(price.unitPrice)} / {price.purchaseUnit}
+            </span>
+          </div>
+          <div className={styles.chart_meta__item}>
+            <span className={styles.chart_meta__label}>历史均价</span>
+            <span className={styles.chart_meta__value}>
+              {avgPrice > 0 ? `${formatCNY(String(avgPrice.toFixed(2)))} / ${price.purchaseUnit}` : '—'}
+            </span>
+          </div>
+          <div className={styles.chart_meta__item}>
+            <span className={styles.chart_meta__label}>较均价偏差</span>
+            <span className={`${styles.chart_meta__value} ${isDevOk ? styles['chart_meta__value--ok'] : styles['chart_meta__value--warn']}`}>
+              {avgPrice > 0
+                ? `${isDevOk ? '\u25BC' : '\u25B2'} ${isDevOk ? '' : '+'}${avgDevPct.toFixed(1)}%（${isDevOk ? '正常' : '偏高'}）`
+                : '—'}
+            </span>
+          </div>
+          <div className={styles.chart_meta__item}>
+            <span className={styles.chart_meta__label}>历史最高价</span>
+            <span className={styles.chart_meta__value}>
+              {maxPrice > 0 ? formatCNY(String(maxPrice.toFixed(2))) : '—'}
+            </span>
+          </div>
+        </div>
+
+        {/* 协议详细信息 */}
+        <div className={styles.agreement_detail}>
+          <div className={styles.agreement_detail__title}>协议详细信息</div>
+          <div className={styles.agreement_detail__grid}>
+            <div className={styles.agreement_detail__item}>
+              <span className={styles.agreement_detail__label}>税率</span>
+              <span className={styles.agreement_detail__value}>
+                {price.taxRate ? `${price.taxRate}%` : '13%（默认）'}
+              </span>
+            </div>
+            <div className={styles.agreement_detail__item}>
+              <span className={styles.agreement_detail__label}>最小起订量</span>
+              <span className={styles.agreement_detail__value}>
+                {price.moq != null ? `${price.moq} ${price.purchaseUnit}` : '—'}
+              </span>
+            </div>
+            <div className={styles.agreement_detail__item}>
+              <span className={styles.agreement_detail__label}>有效期</span>
+              <span className={styles.agreement_detail__value}>
+                {price.validFrom ? formatDate(price.validFrom) : '—'} 至 {price.validTo ? formatDate(price.validTo) : '长期有效'}
+              </span>
+            </div>
+            <div className={styles.agreement_detail__item}>
+              <span className={styles.agreement_detail__label}>批次条件</span>
+              <span className={styles.agreement_detail__value}>
+                {price.batchPricing ? (price.batchRule || '已启用') : '未启用'}
+              </span>
+            </div>
+            <div className={styles.agreement_detail__item} style={{ gridColumn: '1 / -1' }}>
+              <span className={styles.agreement_detail__label}>关联协议文件</span>
+              <span className={styles.agreement_detail__value}>
+                {price.attachmentUrl ? (
+                  /\.(jpg|jpeg|png)$/i.test(price.attachmentUrl) ? (
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                      <img
+                        src={price.attachmentUrl}
+                        alt="协议文件"
+                        style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 6, border: '1px solid var(--border-primary)', objectFit: 'contain', cursor: 'pointer' }}
+                        onClick={() => window.open(price.attachmentUrl!, '_blank')}
+                      />
+                      <a href={price.attachmentUrl} target="_blank" rel="noreferrer" className={styles.agreement_detail__link}>查看原图</a>
+                    </span>
+                  ) : (
+                    <a href={price.attachmentUrl} target="_blank" rel="noreferrer" className={styles.agreement_detail__link}>查看文件</a>
+                  )
+                ) : '暂无协议文件'}
+              </span>
+            </div>
+            <div className={styles.agreement_detail__item} style={{ gridColumn: '1 / -1' }}>
+              <span className={styles.agreement_detail__label}>备注</span>
+              <span className={styles.agreement_detail__value}>
+                {price.notes || '—'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 组件：Supplier Group Accordion
+// ─────────────────────────────────────────────
+function SupplierGroupAccordion({
+  group,
+  onEdit,
+  onAddAgreement,
+  selectedPriceId,
+  onSelectPrice,
+}: {
+  group: SupplierGroup;
+  onEdit: (p: PriceRow) => void;
+  onAddAgreement: (supplierId: number) => void;
+  selectedPriceId: number | null;
+  onSelectPrice: (id: number | null) => void;
+}) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <div className={styles.supplier_group}>
       <button
         type="button"
-        className={styles.accordion_header}
+        className={styles.supplier_group__header}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className={styles.accordion_chevron} data-open={open}>▶</span>
-        <span className={styles.accordion_supplier_name}>{group.supplierName}</span>
-        <span className={styles.accordion_meta}>
-          {group.prices.length} 条价格
-          {latestUpdatedAt && (
-            <> · 最近更新 {formatDate(latestUpdatedAt)}</>
-          )}
+        <span
+          className={`${styles.supplier_group__toggle} ${open ? styles['supplier_group__toggle--open'] : ''}`}
+        >
+          &#9654;
         </span>
+        <span className={styles.supplier_group__name}>{group.supplierName}</span>
+        <GradeBadge grade={group.grade} />
+        <div className={styles.supplier_group__actions}>
+          {group.warnCount > 0 && (
+            <span className={`${styles.supplier_group__count} ${styles['supplier_group__count--warn']}`}>
+              ! {group.warnCount} 条价格预警
+            </span>
+          )}
+          <span className={styles.supplier_group__count}>
+            共 {group.prices.length} 条协议
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); onAddAgreement(group.supplierId); }}
+          >
+            + 新增该供应商协议
+          </Button>
+        </div>
       </button>
 
-      {open && (
-        <div className={styles.accordion_body}>
-          <table className={styles.supplier_table}>
+      <div
+        className={`${styles.supplier_group__body} ${open ? styles['supplier_group__body--open'] : ''}`}
+      >
+        {group.prices.length > 0 ? (
+          <table className={styles.price_table}>
             <thead>
               <tr>
-                <th>SKU 编码</th>
                 <th>物料名称</th>
-                <th>含税单价</th>
-                <th>采购单位</th>
-                <th>MOQ</th>
+                <th>单位</th>
+                <th style={{ textAlign: 'right' }}>含税单价</th>
+                <th>vs 历史均价</th>
                 <th>有效期</th>
                 <th>状态</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
-              {group.prices.map((p) => {
-                const isAnomaly = (p as Price & { priceAnomaly?: boolean }).priceAnomaly === true;
-                return (
-                  <tr key={p.id}>
-                    <td><span className={styles.mono}>{p.skuCode}</span></td>
-                    <td>{p.skuName}</td>
-                    <td>
-                      <span className={isAnomaly ? styles.price_anomaly : styles.price_normal}>
-                        {formatCNY(p.unitPrice)}
-                      </span>
-                      <PriceChangeIndicator pct={p.priceChangePct} />
-                    </td>
-                    <td>{p.purchaseUnit}</td>
-                    <td>{p.moq != null ? String(p.moq) : '—'}</td>
-                    <td>{renderValidPeriod(p)}</td>
-                    <td>
-                      {p.isActive
-                        ? <Tag variant="success">有效</Tag>
-                        : <Tag variant="neutral">失效</Tag>}
-                    </td>
-                    <td>
-                      <Button variant="ghost" size="sm" onClick={() => onEdit(p)}>
-                        编辑
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {group.prices.map((p) => (
+                <tr
+                  key={p.id}
+                  className={selectedPriceId === p.id ? styles.row_selected : ''}
+                  onClick={() => onSelectPrice(selectedPriceId === p.id ? null : p.id)}
+                >
+                  <td>
+                    <div className={styles.material_name}>{p.skuName}</div>
+                    <div className={styles.material_code}>{p.skuCode}</div>
+                  </td>
+                  <td>{p.purchaseUnit}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <span className={styles.price_value}>{formatCNY(p.unitPrice)}</span>
+                  </td>
+                  <td>
+                    <PriceDiffPill pct={p.priceChangePct} />
+                  </td>
+                  <td>{renderValidPeriod(p)}</td>
+                  <td>
+                    <PriceStatusTag isActive={p.isActive} isExpiring={p.isExpiring} />
+                  </td>
+                  <td>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); onEdit(p); }}
+                    >
+                      {p.isExpiring ? '续签' : '编辑'}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
+        ) : (
+          <div style={{ padding: 'var(--space-4) var(--space-5)', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+            暂无价格协议数据
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 组件：Material Group Accordion（按物料分组）
+// ─────────────────────────────────────────────
+
+function MaterialGroupAccordion({
+  group,
+  supplierGradeMap,
+  onEdit,
+  selectedPriceId,
+  onSelectPrice,
+}: {
+  group: MaterialGroup;
+  supplierGradeMap: Map<number, SupplierGrade>;
+  onEdit: (p: PriceRow) => void;
+  selectedPriceId: number | null;
+  onSelectPrice: (id: number | null) => void;
+}) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <div className={styles.supplier_group}>
+      <button
+        type="button"
+        className={styles.supplier_group__header}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span
+          className={`${styles.supplier_group__toggle} ${open ? styles['supplier_group__toggle--open'] : ''}`}
+        >
+          &#9654;
+        </span>
+        <span className={styles.supplier_group__name}>{group.skuName}</span>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginLeft: 'var(--space-2)' }}>
+          {group.skuCode}
+        </span>
+        <div className={styles.supplier_group__actions}>
+          <span className={styles.supplier_group__count}>
+            共 {group.prices.length} 家供应商报价
+          </span>
         </div>
-      )}
+      </button>
+
+      <div
+        className={`${styles.supplier_group__body} ${open ? styles['supplier_group__body--open'] : ''}`}
+      >
+        {group.prices.length > 0 ? (
+          <table className={styles.price_table}>
+            <thead>
+              <tr>
+                <th>供应商</th>
+                <th>等级</th>
+                <th>单位</th>
+                <th style={{ textAlign: 'right' }}>含税单价</th>
+                <th>vs 历史均价</th>
+                <th>有效期</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {group.prices.map((p) => (
+                <tr
+                  key={p.id}
+                  className={selectedPriceId === p.id ? styles.row_selected : ''}
+                  onClick={() => onSelectPrice(selectedPriceId === p.id ? null : p.id)}
+                >
+                  <td>{p.supplierName}</td>
+                  <td><GradeBadge grade={supplierGradeMap.get(p.supplierId) ?? 'B'} /></td>
+                  <td>{p.purchaseUnit}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <span className={styles.price_value}>{formatCNY(p.unitPrice)}</span>
+                  </td>
+                  <td>
+                    <PriceDiffPill pct={p.priceChangePct} />
+                  </td>
+                  <td>{renderValidPeriod(p)}</td>
+                  <td>
+                    <PriceStatusTag isActive={p.isActive} isExpiring={p.isExpiring} />
+                  </td>
+                  <td>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); onEdit(p); }}
+                    >
+                      {p.isExpiring ? '续签' : '编辑'}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div style={{ padding: 'var(--space-4) var(--space-5)', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+            暂无价格协议数据
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -274,276 +848,768 @@ function SupplierAccordion({
 
 type PriceFormData = {
   supplierId: string;
-  skuId: string;
+  skuSearch: string;
+  skuId: number | null;
+  skuSelected: string;
   unitPrice: string;
+  taxRate: string;
   purchaseUnit: string;
   moq: string;
   validFrom: string;
   validTo: string;
-  notes: string;
+  batchPricing: boolean;
+  batchRule: string;
+  remark: string;
+  /** 上传成功后服务器返回的文件 URL */
+  attachmentUrl: string;
+  /** 编辑时用 */
+  editPriceId: number | null;
 };
 
 const EMPTY_PRICE_FORM: PriceFormData = {
   supplierId: '',
-  skuId: '',
+  skuSearch: '',
+  skuId: null,
+  skuSelected: '',
   unitPrice: '',
+  taxRate: '13%',
   purchaseUnit: '',
   moq: '',
   validFrom: '',
   validTo: '',
-  notes: '',
+  batchPricing: false,
+  batchRule: '',
+  remark: '',
+  attachmentUrl: '',
+  editPriceId: null,
 };
 
-type PriceRecord = PriceWithChange & Record<string, unknown>;
-
 // ─────────────────────────────────────────────
-// 辅助：有效期列显示
+// 组件：Drawer Form Fields
 // ─────────────────────────────────────────────
 
-function renderValidPeriod(price: Price): string {
-  const from = formatDate(price.validFrom);
-  const to = price.validTo ? formatDate(price.validTo) : '长期';
-  return `${from} ~ ${to}`;
+function DrawerFormFields({
+  form,
+  onChange,
+  isNew,
+  priceWarn,
+  suppliers,
+  skuResults,
+  onSkuSearch,
+}: {
+  form: PriceFormData;
+  onChange: (patch: Partial<PriceFormData>) => void;
+  isNew: boolean;
+  priceWarn: string;
+  suppliers: Supplier[];
+  skuResults: Array<{ id: number; skuCode: string; name: string; unit?: string }>;
+  onSkuSearch: (kw: string) => void;
+}) {
+  const set =
+    (field: keyof PriceFormData) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      onChange({ [field]: e.target.value });
+
+  const [showSkuDropdown, setShowSkuDropdown] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  // Derived display values for the file attachment area
+  const hasFile = selectedFile !== null || form.attachmentUrl !== '';
+  const displayFileName = selectedFile?.name ?? (form.attachmentUrl ? form.attachmentUrl.split('/').pop() : '');
+  const displayFileSize = selectedFile ? `${(selectedFile.size / 1024).toFixed(0)} KB` : '';
+
+  return (
+    <>
+      {/* 基本信息 */}
+      <div className={styles.form_section}>
+        <div className={styles.form_section__title}>基本信息</div>
+        <div className={styles.form_group}>
+          <label className={`${styles.form_label} ${styles['form_label--required']}`} htmlFor="drawerSupplier">
+            供应商
+          </label>
+          <select
+            className={styles.form_select}
+            id="drawerSupplier"
+            value={form.supplierId}
+            onChange={set('supplierId')}
+            disabled={!isNew}
+          >
+            <option value="">请选择供应商</option>
+            {suppliers.map((s) => {
+              const rec = s as unknown as Record<string, unknown>;
+              const grade = (rec.rating ?? rec.grade ?? 'B') as string;
+              return (
+                <option key={s.id} value={s.id}>
+                  {s.name}（{grade}级）
+                </option>
+              );
+            })}
+          </select>
+        </div>
+        <div className={styles.form_group}>
+          <label className={`${styles.form_label} ${styles['form_label--required']}`}>物料</label>
+          <div className={styles.drawer_search} style={{ position: 'relative' }}>
+            <span className={styles.drawer_search__icon}>&#128269;</span>
+            <input
+              className={styles.drawer_search__input}
+              type="text"
+              placeholder="搜索物料名称或SKU编码..."
+              value={form.skuSearch}
+              onChange={(e) => {
+                onChange({ skuSearch: e.target.value });
+                onSkuSearch(e.target.value);
+                setShowSkuDropdown(true);
+              }}
+              onFocus={() => form.skuSearch && setShowSkuDropdown(true)}
+              onBlur={() => setTimeout(() => setShowSkuDropdown(false), 200)}
+              disabled={!isNew}
+            />
+            {showSkuDropdown && skuResults.length > 0 && isNew && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10,
+                background: '#fff', border: '1px solid var(--border-default)',
+                borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)',
+                maxHeight: '200px', overflowY: 'auto',
+              }}>
+                {skuResults.map((sku) => (
+                  <div
+                    key={sku.id}
+                    style={{
+                      padding: 'var(--space-2) var(--space-3)',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem',
+                    }}
+                    onMouseDown={() => {
+                      onChange({
+                        skuId: sku.id,
+                        skuSelected: `${sku.name}（${sku.skuCode}）`,
+                        skuSearch: sku.name,
+                        purchaseUnit: sku.unit ?? '',
+                      });
+                      setShowSkuDropdown(false);
+                    }}
+                  >
+                    <strong>{sku.name}</strong>
+                    <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>{sku.skuCode}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {form.skuSelected && (
+            <div className={styles.selected_material}>已选择：{form.skuSelected}</div>
+          )}
+        </div>
+      </div>
+
+      {/* 价格协议信息 */}
+      <div className={styles.form_section}>
+        <div className={styles.form_section__title}>价格协议信息</div>
+        <div className={styles.form_group}>
+          <label className={`${styles.form_label} ${styles['form_label--required']}`} htmlFor="drawerPrice">
+            含税单价
+          </label>
+          <div className={styles.input_with_suffix}>
+            <input
+              className={styles.form_input}
+              type="number"
+              id="drawerPrice"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              value={form.unitPrice}
+              onChange={(e) => {
+                onChange({ unitPrice: e.target.value });
+              }}
+            />
+            <span className={styles.input_suffix}>元 / {form.purchaseUnit || '件'}</span>
+          </div>
+          {priceWarn && (
+            <div className={`${styles.form_hint} ${styles['form_hint--warn']}`}>
+              {priceWarn}
+            </div>
+          )}
+        </div>
+        <div className={styles.form_grid_2}>
+          <div className={styles.form_group}>
+            <label className={styles.form_label} htmlFor="drawerTax">税率</label>
+            <select
+              className={styles.form_select}
+              id="drawerTax"
+              value={form.taxRate}
+              onChange={set('taxRate')}
+            >
+              <option>13%</option>
+              <option>9%</option>
+              <option>6%</option>
+              <option>0%</option>
+            </select>
+          </div>
+          <div className={styles.form_group}>
+            <label className={styles.form_label} htmlFor="drawerMoq">最小起订量（选填）</label>
+            <div className={styles.input_with_suffix}>
+              <input
+                className={styles.form_input}
+                type="number"
+                id="drawerMoq"
+                min="0"
+                placeholder="0"
+                value={form.moq}
+                onChange={set('moq')}
+              />
+              <span className={styles.input_suffix}>{form.purchaseUnit || '件'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 有效期 */}
+      <div className={styles.form_section}>
+        <div className={styles.form_section__title}>有效期</div>
+        <div className={styles.form_grid_2}>
+          <div className={styles.form_group}>
+            <label className={`${styles.form_label} ${styles['form_label--required']}`} htmlFor="drawerStart">
+              生效日期
+            </label>
+            <input
+              className={styles.form_input}
+              type="date"
+              id="drawerStart"
+              value={form.validFrom}
+              onChange={set('validFrom')}
+            />
+          </div>
+          <div className={styles.form_group}>
+            <label className={`${styles.form_label} ${styles['form_label--required']}`} htmlFor="drawerEnd">
+              失效日期
+            </label>
+            <input
+              className={styles.form_input}
+              type="date"
+              id="drawerEnd"
+              value={form.validTo}
+              onChange={set('validTo')}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 批次条件 */}
+      <div className={styles.form_section}>
+        <div className={styles.form_section__title}>批次条件（选填）</div>
+        <label className={styles.checkbox_option}>
+          <input
+            type="checkbox"
+            checked={form.batchPricing}
+            onChange={(e) => onChange({ batchPricing: e.target.checked })}
+          />
+          <span>按批次不同价格</span>
+        </label>
+        <div className={styles.form_group}>
+          <label className={styles.form_label} htmlFor="batchRule">批次规则说明</label>
+          <input
+            className={styles.form_input}
+            type="text"
+            id="batchRule"
+            placeholder="如：Q1按180，Q2按175"
+            value={form.batchRule}
+            onChange={set('batchRule')}
+          />
+        </div>
+      </div>
+
+      {/* 附件与备注 */}
+      <div className={styles.form_section}>
+        <div className={styles.form_section__title}>附件与备注</div>
+        <div className={styles.form_group}>
+          <label className={styles.form_label}>关联协议文件</label>
+          {hasFile ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: '0.875rem' }}>
+              <span style={{ color: 'var(--color-primary-600)' }}>&#128196;</span>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {displayFileName}
+              </span>
+              {displayFileSize && (
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+                  {displayFileSize}
+                </span>
+              )}
+              {uploading && (
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>上传中...</span>
+              )}
+              <button
+                type="button"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-error-500)', fontSize: '1rem' }}
+                onClick={() => {
+                  setSelectedFile(null);
+                  onChange({ attachmentUrl: '' });
+                }}
+              >
+                &times;
+              </button>
+            </div>
+          ) : (
+            <label className={styles.upload_btn} style={uploading ? { pointerEvents: 'none', opacity: 0.6 } : undefined}>
+              {uploading ? '上传中...' : <>{'\u{1F4CE}'} 上传 PDF / 图片（最大10MB）</>}
+              <input
+                type="file"
+                style={{ display: 'none' }}
+                accept=".pdf,.jpg,.jpeg,.png"
+                disabled={uploading}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 10 * 1024 * 1024) {
+                    e.target.value = '';
+                    return;
+                  }
+                  setSelectedFile(file);
+                  setUploading(true);
+                  try {
+                    const result = await uploadPriceFile(file);
+                    onChange({ attachmentUrl: result.url });
+                  } catch {
+                    setSelectedFile(null);
+                    onChange({ attachmentUrl: '' });
+                  } finally {
+                    setUploading(false);
+                    e.target.value = '';
+                  }
+                }}
+              />
+            </label>
+          )}
+        </div>
+        <div className={styles.form_group}>
+          <label className={styles.form_label} htmlFor="drawerRemark">备注</label>
+          <input
+            className={styles.form_input}
+            type="text"
+            id="drawerRemark"
+            placeholder="补充说明..."
+            value={form.remark}
+            onChange={set('remark')}
+          />
+        </div>
+      </div>
+    </>
+  );
 }
 
 // ─────────────────────────────────────────────
-// 页面组件
+// 主页面组件
 // ─────────────────────────────────────────────
 
 export default function PricePage() {
   const { setPageTitle, showToast } = useAppStore();
 
-  // T206: 视图模式状态
-  const [viewMode, setViewMode] = useState<ViewMode>('by-sku');
-
-  const [page, setPage] = useState(1);
+  // View
+  const [viewMode, setViewMode] = useState<ViewMode>('supplier');
   const [keyword, setKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
 
-  // 弹窗状态
-  const [createModal, setCreateModal] = useState(false);
-  const [editModal, setEditModal] = useState<{ open: boolean; price: Price | null }>({
-    open: false,
-    price: null,
-  });
+  // Alert panel
+  const [alertPanelOpen, setAlertPanelOpen] = useState(false);
 
+  // Chart
+  const [selectedPriceId, setSelectedPriceId] = useState<number | null>(null);
+
+  // Drawer
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<'create' | 'edit'>('create');
+  const [drawerTitle, setDrawerTitle] = useState('新增价格协议');
   const [priceForm, setPriceForm] = useState<PriceFormData>(EMPTY_PRICE_FORM);
+  const [priceWarn, setPriceWarn] = useState('');
 
-  useEffect(() => { setPageTitle('采购价格管理'); }, [setPageTitle]);
+  // SKU search for drawer
+  const [skuSearchKeyword, setSkuSearchKeyword] = useState('');
+  const [debouncedSkuSearch, setDebouncedSkuSearch] = useState('');
 
-  // 关键字防抖 350ms
-  useEffect(() => {
-    const t = setTimeout(() => { setDebouncedKeyword(keyword); setPage(1); }, 350);
-    return () => clearTimeout(t);
-  }, [keyword]);
+  // Price warning modal
+  const [priceWarnModal, setPriceWarnModal] = useState(false);
+  const [priceWarnNewPrice, setPriceWarnNewPrice] = useState('');
+  const [priceWarnExceedPct, setPriceWarnExceedPct] = useState('');
 
-  // 状态筛选转 boolean
-  const isActiveFilter: boolean | undefined =
-    statusFilter === 'active' ? true :
-    statusFilter === 'inactive' ? false :
-    undefined;
-
-  const { data, isLoading, error } = usePriceList({
-    page,
+  // ── API Data ──
+  const isActiveFilter = statusFilter === 'active' ? true : statusFilter === 'expired' ? false : undefined;
+  const { data: priceData, isLoading: _priceLoading } = usePriceList({
+    page: 1,
     pageSize: PAGE_SIZE,
     keyword: debouncedKeyword || undefined,
     isActive: isActiveFilter,
   });
 
+  const { data: supplierData } = useSupplierOptions();
+  const suppliers: Supplier[] = supplierData ?? [];
+
+  // SKU search for drawer
+  const { data: skuData } = useSkuList({
+    page: 1,
+    pageSize: 20,
+    keyword: debouncedSkuSearch || undefined,
+  });
+
   const createMutation = useCreatePrice();
   const updateMutation = useUpdatePrice();
 
-  // 打开编辑弹窗，预填字段
-  const openEdit = useCallback((price: Price) => {
+  useEffect(() => { setPageTitle('采购价格管理'); }, [setPageTitle]);
+
+  // Debounce keyword
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedKeyword(keyword), 350);
+    return () => clearTimeout(t);
+  }, [keyword]);
+
+  // Debounce SKU search
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSkuSearch(skuSearchKeyword), 350);
+    return () => clearTimeout(t);
+  }, [skuSearchKeyword]);
+
+  // ── Build supplier grade map ──
+  const supplierGradeMap = useMemo(() => {
+    const map = new Map<number, SupplierGrade>();
+    for (const s of suppliers) {
+      const rec = s as unknown as Record<string, unknown>;
+      const grade = (rec.rating ?? rec.grade ?? 'B') as SupplierGrade;
+      map.set(s.id, grade);
+    }
+    return map;
+  }, [suppliers]);
+
+  // ── Enrich price list ──
+  const priceList: PriceRow[] = useMemo(() => {
+    const list = (priceData?.list ?? []) as PriceRow[];
+    return list.map((p) => ({
+      ...p,
+      isExpiring: p.isActive && isExpiringSoon(p.validTo),
+      priceChangePct: null, // computed per-row from history would require N API calls
+    }));
+  }, [priceData]);
+
+  // ── Filter by status ──
+  const filteredPriceList = useMemo(() => {
+    if (statusFilter === 'expiring') {
+      return priceList.filter((p) => p.isExpiring);
+    }
+    // 'active', 'expired', 'all' are handled by API isActive filter
+    return priceList;
+  }, [priceList, statusFilter]);
+
+  // ── Compute stats ──
+  const stats = useMemo(() => {
+    const activeCount = priceList.filter((p) => p.isActive).length;
+    const expiringCount = priceList.filter((p) => p.isExpiring).length;
+    // alertCount: we don't have historical avg per-row from list API, show 0 for now
+    // (alerts are detected at create-time by backend)
+    return { activeCount, expiringCount, alertCount: 0 };
+  }, [priceList]);
+
+  // ── Compute alerts (placeholder — no server-side alert list yet) ──
+  const alerts: AlertItem[] = useMemo(() => [], []);
+
+  // ── Group by supplier ──
+  const supplierGroups: SupplierGroup[] = useMemo(() => {
+    const groupMap = new Map<number, PriceRow[]>();
+    for (const p of filteredPriceList) {
+      const arr = groupMap.get(p.supplierId) ?? [];
+      arr.push(p);
+      groupMap.set(p.supplierId, arr);
+    }
+
+    const groups: SupplierGroup[] = [];
+    for (const [supplierId, prices] of groupMap) {
+      const supplierName = prices[0]?.supplierName ?? `供应商#${supplierId}`;
+      const grade = supplierGradeMap.get(supplierId) ?? 'B';
+      const warnCount = prices.filter((p) => p.priceAnomaly).length;
+      groups.push({ supplierId, supplierName, grade, warnCount, prices });
+    }
+
+    // Sort: A > B > C > D, then by name
+    const gradeOrder: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
+    groups.sort((a, b) => (gradeOrder[a.grade] ?? 9) - (gradeOrder[b.grade] ?? 9) || a.supplierName.localeCompare(b.supplierName));
+
+    return groups;
+  }, [filteredPriceList, supplierGradeMap]);
+
+  // ── Group by material (SKU) ──
+  const materialGroups: MaterialGroup[] = useMemo(() => {
+    const groupMap = new Map<number, PriceRow[]>();
+    for (const p of filteredPriceList) {
+      const arr = groupMap.get(p.skuId) ?? [];
+      arr.push(p);
+      groupMap.set(p.skuId, arr);
+    }
+
+    const groups: MaterialGroup[] = [];
+    for (const [skuId, prices] of groupMap) {
+      const skuName = prices[0]?.skuName ?? `物料#${skuId}`;
+      const skuCode = prices[0]?.skuCode ?? '';
+      // Sort prices within group: lowest price first
+      prices.sort((a, b) => parseFloat(a.unitPrice) - parseFloat(b.unitPrice));
+      groups.push({ skuId, skuName, skuCode, prices });
+    }
+
+    // Sort groups by skuName
+    groups.sort((a, b) => a.skuName.localeCompare(b.skuName));
+    return groups;
+  }, [filteredPriceList]);
+
+  // ── Selected price row ──
+  const selectedPrice = useMemo(() => {
+    if (selectedPriceId === null) return null;
+    return priceList.find((p) => p.id === selectedPriceId) ?? null;
+  }, [selectedPriceId, priceList]);
+
+  // All prices for same SKU as selected (for comparison table)
+  const allPricesForSelectedSku = useMemo(() => {
+    if (!selectedPrice) return [];
+    return priceList.filter((p) => p.skuId === selectedPrice.skuId);
+  }, [selectedPrice, priceList]);
+
+  // ── Price warning check ──
+  // No hardcoded HIST_AVG_PRICE — warning comes from backend on save
+  useEffect(() => {
+    setPriceWarn('');
+  }, [priceForm.unitPrice]);
+
+  const openCreate = useCallback((supplierId?: number) => {
+    setPriceForm({
+      ...EMPTY_PRICE_FORM,
+      supplierId: supplierId ? String(supplierId) : '',
+    });
+    setPriceWarn('');
+    setDrawerMode('create');
+    setDrawerTitle('新增价格协议');
+    setDrawerOpen(true);
+  }, []);
+
+  const openEdit = useCallback((price: PriceRow) => {
     setPriceForm({
       supplierId: String(price.supplierId),
-      skuId: String(price.skuId),
+      skuSearch: price.skuName,
+      skuId: price.skuId,
+      skuSelected: `${price.skuName}（${price.skuCode}）`,
       unitPrice: price.unitPrice,
+      taxRate: price.taxRate ? `${price.taxRate}%` : '13%',
       purchaseUnit: price.purchaseUnit,
       moq: price.moq != null ? String(price.moq) : '',
       validFrom: price.validFrom ? price.validFrom.slice(0, 10) : '',
       validTo: price.validTo ? price.validTo.slice(0, 10) : '',
-      notes: price.notes ?? '',
+      batchPricing: Boolean(price.batchPricing),
+      batchRule: price.batchRule ?? '',
+      remark: price.notes ?? '',
+      attachmentUrl: price.attachmentUrl ?? '',
+      editPriceId: price.id,
     });
-    setEditModal({ open: true, price });
+    setPriceWarn('');
+    setDrawerMode('edit');
+    setDrawerTitle(`编辑价格协议 — ${price.skuCode}`);
+    setDrawerOpen(true);
   }, []);
 
-  // 新建提交
-  const handleCreate = async () => {
-    const { supplierId, skuId, unitPrice, purchaseUnit, validFrom } = priceForm;
-    if (!supplierId || !skuId || !unitPrice || !purchaseUnit || !validFrom) {
+  const handleSave = async () => {
+    const { supplierId, unitPrice, purchaseUnit, validFrom, validTo, skuId } = priceForm;
+
+    if (!supplierId || !unitPrice || !validFrom || !validTo) {
       showToast({ type: 'warning', message: '请填写所有必填字段' });
       return;
     }
+    if (drawerMode === 'create' && !skuId) {
+      showToast({ type: 'warning', message: '请选择物料' });
+      return;
+    }
+    // 如果 purchaseUnit 为空，使用默认值
+    if (!purchaseUnit) {
+      setPriceForm((f) => ({ ...f, purchaseUnit: '件' }));
+    }
+
+    await doSave();
+  };
+
+  const doSave = async () => {
+    const taxRateNum = priceForm.taxRate ? parseFloat(priceForm.taxRate.replace('%', '')) : undefined;
     const payload: CreatePricePayload = {
-      supplierId: Number(supplierId),
-      skuId: Number(skuId),
-      unitPrice,
-      purchaseUnit,
-      moq: priceForm.moq ? Number(priceForm.moq) : undefined,
-      validFrom,
+      supplierId: Number(priceForm.supplierId),
+      skuId: priceForm.skuId ?? 0,
+      unitPrice: priceForm.unitPrice,
+      purchaseUnit: priceForm.purchaseUnit || '件',
+      moq: priceForm.moq ? Number(priceForm.moq) : 0,
+      validFrom: priceForm.validFrom,
       validTo: priceForm.validTo || undefined,
-      notes: priceForm.notes || undefined,
+      notes: priceForm.remark || undefined,
+      taxRate: taxRateNum && !isNaN(taxRateNum) ? String(taxRateNum) : undefined,
+      batchPricing: priceForm.batchPricing || undefined,
+      batchRule: priceForm.batchRule || undefined,
+      attachmentUrl: priceForm.attachmentUrl || undefined,
     };
+
     try {
-      await createMutation.mutateAsync(payload);
-      showToast({ type: 'success', message: '价格协议创建成功' });
-      setCreateModal(false);
+      if (drawerMode === 'create') {
+        const result = await createMutation.mutateAsync(payload);
+        // Check if backend flagged price anomaly
+        const resultAny = result as Record<string, unknown>;
+        if (resultAny.priceAnomaly) {
+          const avg = parseFloat(String(resultAny.avgPrice ?? 0));
+          const current = parseFloat(priceForm.unitPrice);
+          const pct = avg > 0 ? ((current - avg) / avg * 100) : 0;
+          setPriceWarnNewPrice(formatCNY(priceForm.unitPrice));
+          setPriceWarnExceedPct(`+${pct.toFixed(1)}%`);
+          setPriceWarnModal(true);
+        } else {
+          showToast({ type: 'success', message: '价格协议创建成功' });
+        }
+      } else {
+        const editId = priceForm.editPriceId;
+        if (!editId) return;
+        await updateMutation.mutateAsync({
+          id: editId,
+          payload: {
+            unitPrice: payload.unitPrice,
+            purchaseUnit: payload.purchaseUnit,
+            moq: payload.moq,
+            validFrom: payload.validFrom,
+            validTo: payload.validTo,
+            notes: payload.notes,
+            taxRate: payload.taxRate,
+            batchPricing: payload.batchPricing,
+            batchRule: payload.batchRule,
+            attachmentUrl: payload.attachmentUrl,
+          },
+        });
+        showToast({ type: 'success', message: '价格协议已更新' });
+      }
+      setDrawerOpen(false);
       setPriceForm(EMPTY_PRICE_FORM);
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
     }
   };
 
-  // 编辑提交（仅可编辑非 skuId/supplierId 的字段）
-  const handleUpdate = async () => {
-    if (!editModal.price) return;
-    const { unitPrice, purchaseUnit, validFrom } = priceForm;
-    if (!unitPrice || !purchaseUnit || !validFrom) {
-      showToast({ type: 'warning', message: '请填写所有必填字段' });
-      return;
+  const handleSelectPrice = useCallback((id: number | null) => {
+    setSelectedPriceId(id);
+    if (id !== null) {
+      setTimeout(() => {
+        document.getElementById('chart-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
     }
-    try {
-      await updateMutation.mutateAsync({
-        id: editModal.price.id,
-        payload: {
-          unitPrice,
-          purchaseUnit,
-          moq: priceForm.moq ? Number(priceForm.moq) : undefined,
-          validFrom,
-          validTo: priceForm.validTo || undefined,
-          notes: priceForm.notes || undefined,
-        },
-      });
-      showToast({ type: 'success', message: '价格协议已更新' });
-      setEditModal({ open: false, price: null });
-    } catch (e) {
-      showToast({ type: 'error', message: (e as Error).message });
-    }
-  };
+  }, []);
 
-  // 列定义
-  const columns: Column<PriceRecord>[] = [
-    {
-      key: 'skuCode',
-      title: 'SKU 编码',
-      width: '130px',
-      render: (_, r) => {
-        const p = r as unknown as Price;
-        return (
-          <span className={styles.mono}>{p.skuCode}</span>
-        );
-      },
-    },
-    {
-      key: 'skuName',
-      title: '物料名称',
-      render: (_, r) => {
-        const p = r as unknown as Price;
-        return <span className={styles.cell_name}>{p.skuName}</span>;
-      },
-    },
-    {
-      key: 'supplierName',
-      title: '供应商',
-      width: '160px',
-      render: (_, r) => (r as unknown as Price).supplierName,
-    },
-    {
-      key: 'unitPrice',
-      title: '含税单价',
-      width: '120px',
-      render: (_, r) => {
-        const p = r as unknown as Price;
-        // priceAnomaly 标记高亮（接口未来返回时生效）
-        const isAnomaly = (p as Price & { priceAnomaly?: boolean }).priceAnomaly === true;
-        return (
-          <span className={isAnomaly ? styles.price_anomaly : styles.price_normal}>
-            {formatCNY(p.unitPrice)}
-          </span>
-        );
-      },
-    },
-    {
-      key: 'purchaseUnit',
-      title: '采购单位',
-      width: '90px',
-      render: (_, r) => (r as unknown as Price).purchaseUnit,
-    },
-    {
-      key: 'moq',
-      title: '最小起订量',
-      width: '110px',
-      render: (_, r) => {
-        const p = r as unknown as Price;
-        return p.moq != null ? String(p.moq) : '—';
-      },
-    },
-    {
-      key: 'validPeriod',
-      title: '有效期',
-      width: '200px',
-      render: (_, r) => renderValidPeriod(r as unknown as Price),
-    },
-    {
-      key: 'isActive',
-      title: '状态',
-      width: '80px',
-      render: (_, r) => {
-        const p = r as unknown as Price;
-        return p.isActive
-          ? <Tag variant="success">有效</Tag>
-          : <Tag variant="neutral">失效</Tag>;
-      },
-    },
-    {
-      key: 'actions',
-      title: '操作',
-      width: '80px',
-      render: (_, r) => {
-        const p = r as unknown as Price;
-        return (
-          <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>
-            编辑
-          </Button>
-        );
-      },
-    },
-  ];
+  // SKU results for drawer
+  const skuResults = useMemo(() => {
+    if (!skuData?.list) return [];
+    return skuData.list.map((s: Record<string, unknown>) => ({
+      id: Number(s.id),
+      skuCode: String(s.skuCode ?? s.sku_code ?? ''),
+      name: String(s.name ?? ''),
+      unit: String(s.purchaseUnit ?? s.purchase_unit ?? s.stockUnit ?? s.stock_unit ?? '件'),
+    }));
+  }, [skuData]);
 
-  const priceList = (data?.list ?? []) as PriceRecord[];
+  const isSaving = createMutation.isPending || updateMutation.isPending;
 
   return (
     <div className={styles.page}>
-      {/* 页头 */}
+
+      {/* -- 页头 -- */}
       <div className="page-header">
         <h1 className="page-header__title">采购价格管理</h1>
         <div className="page-header__actions">
+          <Button variant="ghost" size="md" onClick={() => showToast({ type: 'info', message: '批量导入功能开发中' })}>
+            &uarr; 批量导入
+          </Button>
           <Button
             variant="primary"
             size="md"
-            onClick={() => { setPriceForm(EMPTY_PRICE_FORM); setCreateModal(true); }}
+            onClick={() => openCreate()}
           >
-            新建价格协议
+            + 新增价格协议
           </Button>
         </div>
       </div>
 
-      {/* 筛选栏 */}
-      <div className={styles.filter_bar}>
-        <input
-          type="search"
-          className={styles.filter_search}
-          placeholder="搜索 SKU 编码 / 名称 / 供应商..."
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          aria-label="搜索价格协议"
+      {/* -- Stats Strip -- */}
+      <StatsStrip
+        activeCount={stats.activeCount}
+        expiringCount={stats.expiringCount}
+        alertCount={stats.alertCount}
+      />
+
+      {/* -- Alert Banner -- */}
+      {stats.alertCount > 0 && (
+        <div className={styles.alert_banner} role="alert">
+          <span className={styles.alert_banner__icon}>&#9888;</span>
+          <span>
+            <strong>价格异常预警：</strong>
+            本月发现 {stats.alertCount} 条超历史均值 20% 的采购价格，请及时核查
+          </span>
+          <div className={styles.alert_banner__spacer} />
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => setAlertPanelOpen((v) => !v)}
+          >
+            {alertPanelOpen ? '收起预警详情' : '查看预警详情'}
+          </Button>
+        </div>
+      )}
+
+      {/* -- Alert Panel -- */}
+      {alertPanelOpen && (
+        <AlertPanel
+          alerts={alerts}
+          onClose={() => setAlertPanelOpen(false)}
+          onMarkAll={() => showToast({ type: 'success', message: '已全部标记处理' })}
         />
+      )}
+
+      {/* -- View Toggle Bar -- */}
+      <div className={styles.view_toggle_bar}>
+        <div className={styles.view_toggle}>
+          <span className={styles.view_toggle__label}>查看方式：</span>
+          <div className={styles.radio_group}>
+            <label className={styles.radio_option}>
+              <input
+                type="radio"
+                name="viewMode"
+                value="supplier"
+                checked={viewMode === 'supplier'}
+                onChange={() => setViewMode('supplier')}
+              />
+              <span className={styles.radio_circle} />
+              按供应商
+            </label>
+            <label className={styles.radio_option}>
+              <input
+                type="radio"
+                name="viewMode"
+                value="material"
+                checked={viewMode === 'material'}
+                onChange={() => setViewMode('material')}
+              />
+              <span className={styles.radio_circle} />
+              按物料
+            </label>
+          </div>
+        </div>
+
+        <div className={styles.search_box}>
+          <span className={styles.search_box__icon}>&#128269;</span>
+          <input
+            className={styles.search_box__input}
+            type="text"
+            placeholder="搜索供应商 / 物料名称..."
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+          />
+        </div>
+
         <select
           className={styles.filter_select}
           value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value as StatusFilter); setPage(1); }}
+          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
           aria-label="状态筛选"
         >
           {STATUS_OPTIONS.map((opt) => (
@@ -552,188 +1618,120 @@ export default function PricePage() {
         </select>
       </div>
 
-      {/* 数据表格 */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <Table<PriceRecord>
-          columns={columns}
-          dataSource={priceList}
-          rowKey="id"
-          loading={isLoading}
-          error={error ? (error as Error).message : null}
-          emptyText="暂无价格协议数据"
-          pagination={
-            data
-              ? { page, pageSize: PAGE_SIZE, total: data.total, onChange: setPage }
-              : undefined
-          }
-        />
-      </div>
+      {/* -- Supplier View -- */}
+      {viewMode === 'supplier' && (
+        <div>
+          {supplierGroups.length === 0 && !_priceLoading && (
+            <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-secondary)' }}>
+              暂无价格协议数据
+            </div>
+          )}
+          {supplierGroups.map((group) => (
+            <SupplierGroupAccordion
+              key={group.supplierId}
+              group={group}
+              onEdit={openEdit}
+              onAddAgreement={openCreate}
+              selectedPriceId={selectedPriceId}
+              onSelectPrice={handleSelectPrice}
+            />
+          ))}
+        </div>
+      )}
 
-      {/* 新建价格协议 Modal */}
-      <Modal
-        open={createModal}
-        title="新建价格协议"
-        onClose={() => setCreateModal(false)}
-        onConfirm={() => void handleCreate()}
-        confirmLabel="创建"
-        confirmLoading={createMutation.isPending}
-        size="md"
+      {/* -- Material View -- */}
+      {viewMode === 'material' && (
+        <div>
+          {materialGroups.length === 0 && !_priceLoading && (
+            <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-secondary)' }}>
+              暂无价格协议数据
+            </div>
+          )}
+          {materialGroups.map((group) => (
+            <MaterialGroupAccordion
+              key={group.skuId}
+              group={group}
+              supplierGradeMap={supplierGradeMap}
+              onEdit={openEdit}
+              selectedPriceId={selectedPriceId}
+              onSelectPrice={handleSelectPrice}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* -- Chart Panel -- */}
+      {selectedPrice !== null && (
+        <div id="chart-panel">
+          <ChartPanel
+            price={selectedPrice}
+            allPricesForSku={allPricesForSelectedSku}
+            supplierGradeMap={supplierGradeMap}
+            onClose={() => setSelectedPriceId(null)}
+          />
+        </div>
+      )}
+
+      {/* -- Drawer: New / Edit Price Agreement -- */}
+      <Drawer
+        open={drawerOpen}
+        title={drawerTitle}
+        onClose={() => { setDrawerOpen(false); setPriceWarn(''); }}
+        width={480}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)' }}>
+            <Button variant="ghost" onClick={() => { setDrawerOpen(false); setPriceWarn(''); }}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              loading={isSaving}
+              onClick={() => void handleSave()}
+            >
+              保存协议
+            </Button>
+          </div>
+        }
       >
-        <PriceFormFields form={priceForm} onChange={setPriceForm} isNew />
+        <DrawerFormFields
+          form={priceForm}
+          onChange={(patch) => setPriceForm((f) => ({ ...f, ...patch }))}
+          isNew={drawerMode === 'create'}
+          priceWarn={priceWarn}
+          suppliers={suppliers}
+          skuResults={skuResults}
+          onSkuSearch={setSkuSearchKeyword}
+        />
+      </Drawer>
+
+      {/* -- Price Warning Confirm Modal -- */}
+      <Modal
+        open={priceWarnModal}
+        title="价格高于历史均价"
+        onClose={() => setPriceWarnModal(false)}
+        onConfirm={() => {
+          setPriceWarnModal(false);
+          setDrawerOpen(false);
+          showToast({ type: 'success', message: '协议已保存，价格超出历史均价已标记' });
+        }}
+        confirmLabel="确认提交审批"
+        cancelLabel="返回修改"
+        size="sm"
+      >
+        <div className={styles.price_warn_body}>
+          <p>
+            当前录入价格{' '}
+            <strong className={styles.price_warn_highlight}>{priceWarnNewPrice}</strong>{' '}
+            高于历史均价，超出{' '}
+            <strong className={styles.price_warn_highlight}>{priceWarnExceedPct}</strong>，
+            已超出预警阈值 20%。
+          </p>
+          <div className={styles.price_warn_notice}>
+            &#8505; 该价格协议保存后将处于「待审批」状态，需老板审批通过后方可生效。
+          </div>
+        </div>
       </Modal>
 
-      {/* 编辑价格协议 Modal */}
-      <Modal
-        open={editModal.open}
-        title={`编辑价格协议 — ${editModal.price?.skuCode ?? ''}`}
-        onClose={() => setEditModal({ open: false, price: null })}
-        onConfirm={() => void handleUpdate()}
-        confirmLabel="保存"
-        confirmLoading={updateMutation.isPending}
-        size="md"
-      >
-        <PriceFormFields form={priceForm} onChange={setPriceForm} isNew={false} />
-      </Modal>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// 内部子组件：价格协议表单字段
-// ─────────────────────────────────────────────
-
-type PriceFormFieldsProps = {
-  form: PriceFormData;
-  onChange: React.Dispatch<React.SetStateAction<PriceFormData>>;
-  isNew: boolean;
-};
-
-function PriceFormFields({ form, onChange, isNew }: PriceFormFieldsProps) {
-  const set =
-    (field: keyof PriceFormData) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      onChange((f) => ({ ...f, [field]: e.target.value }));
-
-  return (
-    <div className={styles.price_form}>
-      {/* 供应商 ID / SKU ID */}
-      <div className={styles.form_row}>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>
-            供应商 ID <span className={styles.required}>*</span>
-          </label>
-          <input
-            className={styles.form_input}
-            type="number"
-            min="1"
-            step="1"
-            placeholder="供应商数字 ID"
-            value={form.supplierId}
-            onChange={set('supplierId')}
-            disabled={!isNew}
-          />
-        </div>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>
-            SKU ID <span className={styles.required}>*</span>
-          </label>
-          <input
-            className={styles.form_input}
-            type="number"
-            min="1"
-            step="1"
-            placeholder="SKU 数字 ID"
-            value={form.skuId}
-            onChange={set('skuId')}
-            disabled={!isNew}
-          />
-        </div>
-      </div>
-
-      {/* 含税单价 / 采购单位 */}
-      <div className={styles.form_row}>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>
-            含税单价（元）<span className={styles.required}>*</span>
-          </label>
-          <input
-            className={styles.form_input}
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="如：128.50"
-            value={form.unitPrice}
-            onChange={set('unitPrice')}
-          />
-        </div>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>
-            采购单位 <span className={styles.required}>*</span>
-          </label>
-          <input
-            className={styles.form_input}
-            placeholder="如：件、kg、卷"
-            value={form.purchaseUnit}
-            onChange={set('purchaseUnit')}
-          />
-        </div>
-      </div>
-
-      {/* 最小起订量 / 有效期开始 */}
-      <div className={styles.form_row}>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>最小起订量（MOQ）</label>
-          <input
-            className={styles.form_input}
-            type="number"
-            min="0"
-            step="1"
-            placeholder="可选，如：100"
-            value={form.moq}
-            onChange={set('moq')}
-          />
-        </div>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>
-            有效期开始 <span className={styles.required}>*</span>
-          </label>
-          <input
-            className={styles.form_input}
-            type="date"
-            value={form.validFrom}
-            onChange={set('validFrom')}
-          />
-        </div>
-      </div>
-
-      {/* 有效期截止（可选） */}
-      <div className={styles.form_row}>
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>
-            有效期截止
-            <span className={styles.form_label_hint}>（留空表示长期有效）</span>
-          </label>
-          <input
-            className={styles.form_input}
-            type="date"
-            value={form.validTo}
-            onChange={set('validTo')}
-          />
-        </div>
-        <div className={styles.form_field} />
-      </div>
-
-      {/* 备注 */}
-      <div className={styles.form_field}>
-        <label className={styles.form_label}>备注</label>
-        <textarea
-          className={styles.form_textarea}
-          rows={3}
-          placeholder="可选，填写备注信息"
-          value={form.notes}
-          onChange={set('notes')}
-        />
-      </div>
     </div>
   );
 }

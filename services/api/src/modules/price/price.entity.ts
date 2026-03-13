@@ -34,6 +34,24 @@ export class PriceEntity {
   @Column({ name: 'expired_at', type: 'date', nullable: true })
   expiredAt: string | null;
 
+  @Column({ type: 'int', unsigned: true, nullable: true })
+  moq: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  notes: string | null;
+
+  @Column({ name: 'tax_rate', type: 'decimal', precision: 5, scale: 2, nullable: true })
+  taxRate: string | null;
+
+  @Column({ name: 'batch_pricing', type: 'tinyint', default: 0 })
+  batchPricing: boolean;
+
+  @Column({ name: 'batch_rule', type: 'varchar', length: 500, nullable: true })
+  batchRule: string | null;
+
+  @Column({ name: 'attachment_url', type: 'varchar', length: 500, nullable: true })
+  attachmentUrl: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime', precision: 3 })
   createdAt: Date;
 
