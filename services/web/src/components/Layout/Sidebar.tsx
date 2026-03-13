@@ -49,8 +49,22 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     path: '/sales/orders',
-    label: '销售订单',
+    label: '新建订单',
+    icon: '📝',
+    roles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
+    group: '销售',
+  },
+  {
+    path: '/sales/order-list',
+    label: '订单管理',
     icon: '📋',
+    roles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
+    group: '销售',
+  },
+  {
+    path: '/sales/customers',
+    label: '客户管理',
+    icon: '👥',
     roles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
     group: '销售',
   },
@@ -59,6 +73,13 @@ const NAV_ITEMS: NavItem[] = [
     label: '排产计划',
     icon: '🏭',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    group: '生产',
+  },
+  {
+    path: '/production/tasks',
+    label: '生产任务',
+    icon: '🔨',
+    roles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
     group: '生产',
   },
   {
@@ -104,6 +125,27 @@ const NAV_ITEMS: NavItem[] = [
     group: '主数据',
   },
   {
+    path: '/master-data/sku-category',
+    label: '类目配置',
+    icon: '📁',
+    roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    group: '主数据',
+  },
+  {
+    path: '/report/wages',
+    label: '工资报表',
+    icon: '📈',
+    roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    group: '报表',
+  },
+  {
+    path: '/report/my-wages',
+    label: '我的工资',
+    icon: '💵',
+    roles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
+    group: '报表',
+  },
+  {
     path: '/ai-chat',
     label: 'AI 助手',
     icon: '💬',
@@ -128,7 +170,7 @@ export default function Sidebar() {
   const { user } = useAuthStore();
   const { sidebarCollapsed } = useAppStore();
   // useLocation 保留：确保路由变化时组件重新渲染（active 状态依赖）
-  const _location = useLocation();
+  useLocation();
 
   const visibleItems = NAV_ITEMS.filter(
     (item) => user?.roles?.some((r) => item.roles.includes(r)) ?? false,

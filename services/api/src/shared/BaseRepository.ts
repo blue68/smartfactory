@@ -7,6 +7,7 @@ import { AppDataSource } from '../config/database';
 export interface TenantContext {
   tenantId: number;
   userId: number;
+  roles?: string[];
 }
 
 /**
@@ -44,7 +45,7 @@ export abstract class BaseRepository<T extends ObjectLiteral> {
       ...options,
       where: {
         ...(options.where as object),
-        tenant_id: this.tenantId,
+        tenantId: this.tenantId,
       } as unknown as FindOneOptions<T>['where'],
     });
   }
@@ -57,7 +58,7 @@ export abstract class BaseRepository<T extends ObjectLiteral> {
       ...options,
       where: {
         ...(options.where as object),
-        tenant_id: this.tenantId,
+        tenantId: this.tenantId,
       } as unknown as FindManyOptions<T>['where'],
     });
   }
@@ -67,7 +68,7 @@ export abstract class BaseRepository<T extends ObjectLiteral> {
    */
   protected async countByTenant(where: Partial<T> = {}): Promise<number> {
     return this.repo.count({
-      where: { ...where, tenant_id: this.tenantId } as unknown as FindManyOptions<T>['where'],
+      where: { ...where, tenantId: this.tenantId } as unknown as FindManyOptions<T>['where'],
     });
   }
 
@@ -77,9 +78,9 @@ export abstract class BaseRepository<T extends ObjectLiteral> {
   protected buildInsertData(data: Partial<T>): Partial<T> {
     return {
       ...data,
-      tenant_id: this.tenantId,
-      created_by: this.currentUserId,
-      updated_by: this.currentUserId,
+      tenantId: this.tenantId,
+      createdBy: this.currentUserId,
+      updatedBy: this.currentUserId,
     };
   }
 
@@ -89,7 +90,7 @@ export abstract class BaseRepository<T extends ObjectLiteral> {
   protected buildUpdateData(data: Partial<T>): Partial<T> {
     return {
       ...data,
-      updated_by: this.currentUserId,
+      updatedBy: this.currentUserId,
     };
   }
 
@@ -112,7 +113,7 @@ export abstract class BaseRepository<T extends ObjectLiteral> {
       ...options,
       where: {
         ...(options.where as object),
-        tenant_id: this.tenantId,
+        tenantId: this.tenantId,
       } as unknown as FindManyOptions<T>['where'],
     });
   }

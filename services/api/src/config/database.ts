@@ -28,6 +28,7 @@ export const AppDataSource = new DataSource({
     connectTimeout: 30_000,     // 连接超时 30 秒
     idleTimeout: 10_000,        // 空闲连接 10 秒后回收
     queueLimit: 0,
+    charset: 'utf8mb4',
   },
 });
 

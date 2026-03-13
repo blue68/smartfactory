@@ -44,6 +44,7 @@ BASE_URL="${BASE_URL%/}"
 # 如需覆盖，可在执行前设置同名环境变量
 SMOKE_USERNAME="${SMOKE_USERNAME:-smoke_tester}"
 SMOKE_PASSWORD="${SMOKE_PASSWORD:-SmokeTest@2026}"
+SMOKE_TENANT="${SMOKE_TENANT:-FACTORY001}"
 
 # ── 颜色与格式 ───────────────────────────────────────────────────────────────
 
@@ -77,7 +78,8 @@ assert_status() {
   local actual="$3"
   local body="${4:-}"
 
-  if [ "$actual" -eq "$expected" ]; then
+  actual="${actual:-0}"
+  if [ "$actual" -eq "$expected" ] 2>/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $desc (HTTP $actual)"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
@@ -152,7 +154,7 @@ echo -e "${BOLD}================================================================
 echo -e "${BOLD}  智造管家 生产环境冒烟测试${NC}"
 echo -e "${BOLD}================================================================${NC}"
 echo -e "  目标地址  : ${CYAN}$BASE_URL${NC}"
-echo -e "  测试账号  : $SMOKE_USERNAME"
+echo -e "  测试账号  : $SMOKE_USERNAME (租户: $SMOKE_TENANT)"
 echo -e "  开始时间  : $(date '+%Y-%m-%d %H:%M:%S')"
 echo -e "  Verbose   : $VERBOSE"
 echo ""
@@ -195,12 +197,12 @@ echo "  [2.1] POST /api/auth/login — 账号密码登录"
 LOGIN_RESP=$(curl -s --max-time 15 \
   -X POST "$BASE_URL/api/auth/login" \
   -H "Content-Type: application/json" \
-  -d "{\"username\":\"$SMOKE_USERNAME\",\"password\":\"$SMOKE_PASSWORD\"}" \
+  -d "{\"username\":\"$SMOKE_USERNAME\",\"password\":\"$SMOKE_PASSWORD\",\"tenantCode\":\"$SMOKE_TENANT\"}" \
   2>/dev/null)
 LOGIN_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
   -X POST "$BASE_URL/api/auth/login" \
   -H "Content-Type: application/json" \
-  -d "{\"username\":\"$SMOKE_USERNAME\",\"password\":\"$SMOKE_PASSWORD\"}" \
+  -d "{\"username\":\"$SMOKE_USERNAME\",\"password\":\"$SMOKE_PASSWORD\",\"tenantCode\":\"$SMOKE_TENANT\"}" \
   2>/dev/null)
 assert_status "POST /api/auth/login 应返回 200" 200 "$LOGIN_CODE" "$LOGIN_RESP"
 
@@ -290,10 +292,10 @@ else
 
   # 3.4 销售订单列表
   echo ""
-  echo "  [3.4] GET /api/sales — 销售订单列表"
-  HTTP_CODE=$(get_with_token "$BASE_URL/api/sales")
+  echo "  [3.4] GET /api/sales/orders — 销售订单列表"
+  HTTP_CODE=$(get_with_token "$BASE_URL/api/sales/orders")
   BODY=$(cat /tmp/sf_smoke_body.txt 2>/dev/null)
-  assert_status "GET /api/sales 应返回 200" 200 "$HTTP_CODE" "$BODY"
+  assert_status "GET /api/sales/orders 应返回 200" 200 "$HTTP_CODE" "$BODY"
 
   # 3.5 生产工单列表
   echo ""
@@ -347,7 +349,7 @@ else
     -d '{"message":"当前库存水位如何？"}' \
     -D /tmp/sf_smoke_sse_headers.txt \
     2>/dev/null || true)  # 超时断开属于预期行为，不算失败
-  AI_HTTP=$(grep -oP '(?<=HTTP/\S{1,10} )\d+' /tmp/sf_smoke_sse_headers.txt 2>/dev/null | head -1 || echo "000")
+  AI_HTTP=$(grep -oE 'HTTP/[0-9.]+ [0-9]+' /tmp/sf_smoke_sse_headers.txt 2>/dev/null | head -1 | grep -oE '[0-9]+$' || echo "000")
   AI_CT=$(grep -i "content-type:" /tmp/sf_smoke_sse_headers.txt 2>/dev/null | head -1 || echo "")
   assert_sse "POST /api/ai/chat 应返回 SSE 流" "$AI_CT" "$AI_HTTP" "$AI_RESP"
   if $VERBOSE; then

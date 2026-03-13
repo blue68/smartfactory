@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction, RequestHandler } from 'expres
 import cookieParser from 'cookie-parser';
 import cors, { CorsOptions } from 'cors';
 import rateLimit from 'express-rate-limit';
+import path from 'path';
 import { errorHandler } from './middleware/errorHandler';
 import { apmMiddleware, metricsHandler } from './middleware/apm';
 
@@ -18,8 +19,12 @@ import aiRoutes        from './modules/ai/ai.routes';
 import supplierRoutes  from './modules/supplier/supplier.routes';
 import priceRoutes     from './modules/price/price.routes';
 import processConfigRoutes from './modules/process-config/processConfig.routes';
-import customerRoutes  from './modules/customer/customer.routes';
+import customerRoutes  from './modules/sales-customer/customer.routes';
+import salesOrderRoutes from './modules/sales-order/salesOrder.routes';
+import skuCategoryRoutes from './modules/sku-category/skuCategory.routes';
+import wageRoutes      from './modules/report/wage.routes';
 import analyticsRoutes from './modules/analytics/analytics.routes';
+import uploadRoutes    from './modules/upload/upload.routes';
 
 const app = express();
 
@@ -81,6 +86,10 @@ app.use((_req, res, next) => {
   next();
 });
 
+// ── 上传文件静态服务 ───────────────────────────────────────────
+// 必须在 API 路由之前注册，且不经过认证中间件（URL 直接可访问已知文件名）
+app.use('/uploads', express.static(path.resolve(process.env.UPLOAD_DIR || '/app/uploads')));
+
 // ── 全局限流（防暴力请求） ─────────────────────────────────────
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,   // 1 分钟窗口
@@ -113,6 +122,9 @@ app.use('/api/skus',       skuRoutes);
 app.use('/api/bom',        bomRoutes);
 app.use('/api/inventory',  inventoryRoutes);
 app.use('/api/purchase',   purchaseRoutes);
+// modules/sales → /api/sales/orders
+// 职责：约束引擎（产能/库存可行性校验）、紧急插单分析、发货/收货/结算流程
+// 调用方：modules/production（排产约束检查）
 app.use('/api/sales/orders', salesRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/quality',    qualityRoutes);
@@ -121,7 +133,15 @@ app.use('/api/suppliers',  supplierRoutes);
 app.use('/api/prices',     priceRoutes);
 app.use('/api/process-configs', processConfigRoutes);
 app.use('/api/customers',  customerRoutes);
+// modules/sales-order → /api/sales-orders
+// 职责：销售订单完整 CRUD、状态机流转、审批工作流（提交/审批/驳回/撤回）
+// 调用方：前端 SalesOrderListPage（api/salesOrder.ts）
+// 审批权限：requireRoles('boss')，系统中无 admin 角色
+app.use('/api/sales-orders', salesOrderRoutes);
+app.use('/api/sku-categories', skuCategoryRoutes);
+app.use('/api/reports/wages', wageRoutes);
 app.use('/api/analytics',  analyticsRoutes);
+app.use('/api/upload',     uploadRoutes);
 
 // ── 404 处理 ────────────────────────────────────────────────
 app.use((_req, res) => {

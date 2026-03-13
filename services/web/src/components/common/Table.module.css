@@ -4,6 +4,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: var(--text-body-m);
 }
 
@@ -37,6 +38,8 @@
   color: var(--text-primary);
   height: 52px;
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .td__expand { padding: var(--space-4); background: var(--color-gray-50); }

@@ -18,6 +18,12 @@ import SupplierPage from '@/pages/master-data/SupplierPage';
 import ProcessConfigPage from '@/pages/master-data/ProcessConfigPage';
 import PricePage from '@/pages/purchase/PricePage';
 import AiChatPage from '@/pages/ai/AiChatPage';
+import CustomerPage from '@/pages/sales/CustomerPage';
+import SalesOrderListPage from '@/pages/sales/SalesOrderListPage';
+import TaskPage from '@/pages/production/TaskPage';
+import CategoryConfigPage from '@/pages/master-data/CategoryConfigPage';
+import WageReportPage from '@/pages/report/WageReportPage';
+import MyWagePage from '@/pages/report/MyWagePage';
 import LoginPage from '@/pages/auth/LoginPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 
@@ -46,13 +52,19 @@ export default function App() {
             <Route path="/purchase/suggestions" element={<SuggestionPage />} />
             <Route path="/purchase/match" element={<MatchPage />} />
             <Route path="/sales/orders" element={<OrderPage />} />
+            <Route path="/sales/order-list" element={<SalesOrderListPage />} />
+            <Route path="/sales/customers" element={<CustomerPage />} />
             <Route path="/production/schedule" element={<SchedulePage />} />
+            <Route path="/production/tasks" element={<TaskPage />} />
             <Route path="/master-data/sku" element={<SkuPage />} />
             <Route path="/master-data/bom" element={<BomPage />} />
             <Route path="/quality/trace" element={<TracePage />} />
             <Route path="/master-data/supplier" element={<SupplierPage />} />
             <Route path="/master-data/process-config" element={<ProcessConfigPage />} />
             <Route path="/purchase/prices" element={<PricePage />} />
+            <Route path="/master-data/sku-category" element={<CategoryConfigPage />} />
+            <Route path="/report/wages" element={<WageReportPage />} />
+            <Route path="/report/my-wages" element={<MyWagePage />} />
             <Route path="/ai-chat" element={<AiChatPage />} />
           </Route>
         </Route>

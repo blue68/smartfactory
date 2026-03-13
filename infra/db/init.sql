@@ -162,7 +162,10 @@ CREATE TABLE IF NOT EXISTS `skus` (
   `stock_unit`      VARCHAR(20)      NOT NULL COMMENT '库存单位',
   `purchase_unit`   VARCHAR(20)      NOT NULL COMMENT '采购单位',
   `production_unit` VARCHAR(20)      NOT NULL COMMENT '生产单位',
+  `stock_conv_factor` DECIMAL(10,4)  DEFAULT 1 COMMENT '库存换算系数',
+  `prod_conv_note`  VARCHAR(200)     DEFAULT NULL COMMENT '生产换算说明',
   `has_dye_lot`     TINYINT(1)       NOT NULL DEFAULT 0 COMMENT '是否启用缸号管理',
+  `use_fifo`        TINYINT(1)       NOT NULL DEFAULT 1 COMMENT '启用FIFO出库',
   `safety_stock`    DECIMAL(12,4)    NOT NULL DEFAULT 0 COMMENT '安全库存量',
   `status`          ENUM('active','inactive') NOT NULL DEFAULT 'active',
   `description`     TEXT             DEFAULT NULL,
@@ -353,7 +356,7 @@ CREATE TABLE IF NOT EXISTS `suppliers` (
   `tenant_id`   BIGINT UNSIGNED NOT NULL,
   `code`        VARCHAR(50)     NOT NULL,
   `name`        VARCHAR(200)    NOT NULL,
-  `grade`       ENUM('A','B','C') NOT NULL DEFAULT 'B' COMMENT '供应商等级',
+  `grade`       ENUM('A','B','C','D') NOT NULL DEFAULT 'B' COMMENT '供应商等级',
   `status`      ENUM('active','inactive') NOT NULL DEFAULT 'active',
   `contact`     VARCHAR(100)    DEFAULT NULL,
   `phone`       VARCHAR(30)     DEFAULT NULL,
@@ -381,6 +384,12 @@ CREATE TABLE IF NOT EXISTS `supplier_prices` (
   `is_current`  TINYINT(1)      NOT NULL DEFAULT 1 COMMENT '1=当前有效报价',
   `effective_at` DATE           DEFAULT NULL,
   `expired_at`   DATE           DEFAULT NULL,
+  `moq`            INT UNSIGNED     DEFAULT NULL COMMENT '最小起订量',
+  `notes`          TEXT             DEFAULT NULL COMMENT '备注',
+  `tax_rate`       DECIMAL(5,2)     DEFAULT NULL COMMENT '税率',
+  `batch_pricing`  TINYINT          NOT NULL DEFAULT 0 COMMENT '是否启用批次定价',
+  `batch_rule`     VARCHAR(500)     DEFAULT NULL COMMENT '批次条件规则',
+  `attachment_url` VARCHAR(500)     DEFAULT NULL COMMENT '协议文件URL',
   `created_at`  DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   `updated_at`  DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   `created_by`  BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -1083,8 +1092,10 @@ INSERT INTO `tenants` (`id`, `code`, `name`, `status`, `settings`) VALUES
 -- ── 3. 管理员用户（username=admin, password=admin123） ────────────────────────
 -- bcrypt hash: admin123 cost=10
 INSERT INTO `users` (`tenant_id`, `username`, `password_hash`, `real_name`, `status`, `created_by`) VALUES
-  (1, 'admin',     '$2b$10$IZsRktb.Yn6s9dlAWs/wDeGh0ONF1lFYFBuGWzqA.JWPAx6F7Y4JS', '系统管理员', 'active', 0),
-  (1, 'warehouse', '$2b$10$HISC0Ea21DBYBgUCFPHqR.OzspQxqrTo3QZogV0czT9axjIa2W49O', '仓管员',     'active', 1);
+  -- 默认密码: Demo123!
+  (1, 'admin',     '$2b$10$zQxH8rv.L5iC.WmFJPi.k.ybfWdEV1LkPcvtm5k1ZZyG5rNv8e4ZO', '系统管理员', 'active', 0),
+  (1, 'warehouse', '$2b$10$zQxH8rv.L5iC.WmFJPi.k.ybfWdEV1LkPcvtm5k1ZZyG5rNv8e4ZO', '仓管员',     'active', 1),
+  (1, 'smoke_tester', '$2b$10$zQxH8rv.L5iC.WmFJPi.k.ybfWdEV1LkPcvtm5k1ZZyG5rNv8e4ZO', '冒烟测试员', 'active', 1);
 
 -- ── 4. 用户角色绑定 ───────────────────────────────────────────────────────────
 INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
@@ -1101,6 +1112,11 @@ INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
 SELECT 1, u.id, r.id
 FROM `users` u, `roles` r
 WHERE u.tenant_id = 1 AND u.username = 'warehouse' AND r.code = 'warehouse';
+
+INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
+SELECT 1, u.id, r.id
+FROM `users` u, `roles` r
+WHERE u.tenant_id = 1 AND u.username = 'smoke_tester' AND r.code = 'boss';
 
 -- ── 5. 系统预置 SKU 分类（level=0/系统级，tenant_id=0） ───────────────────────
 INSERT INTO `sku_categories` (`tenant_id`, `level`, `parent_id`, `code`, `name`, `sort_order`) VALUES
@@ -1120,9 +1136,38 @@ INSERT INTO `sku_categories` (`tenant_id`, `level`, `parent_id`, `code`, `name`,
   (0, 2, 3, 'CHAIR',    '椅子成品', 20),
   (0, 2, 4, 'CARTON',   '纸箱',     10);
 
--- ── 6. 验证种子数据 ───────────────────────────────────────────────────────────
+-- ── 6. 测试 SKU 数据 ────────────────────────────────────────────────────────
+-- category IDs: 1=MATERIAL, 2=SEMIFIN, 3=FINISHED, 4=PACKING
+-- category2 IDs: 5=FABRIC, 6=LEATHER, 7=SPONGE, 8=WOOD, 9=METAL, 10=SEMIFABRIC, 11=SOFA, 12=CHAIR, 13=CARTON
+INSERT INTO `skus` (`tenant_id`, `sku_code`, `name`, `spec`, `category1_id`, `category2_id`, `stock_unit`, `purchase_unit`, `production_unit`, `has_dye_lot`, `safety_stock`, `status`, `created_by`) VALUES
+  (1, 'RM-00012', '红橡木板', '200x2400mm，厚18mm', 1, 8, '张', '张', 'mm²', 0, 10, 'active', 1),
+  (1, 'RM-00013', '白色烤漆板', '1220x2440mm', 1, 8, '张', '张', 'mm²', 0, 20, 'active', 1),
+  (1, 'RM-00056', '亚麻面料（米白色）', '幅宽150cm，进口', 1, 5, 'm', '卷', 'm²', 1, 0, 'active', 1),
+  (1, 'RM-00089', '头层牛皮（深棕）', '幅宽约180cm，厚1.2mm', 1, 6, 'm²', '张', 'm²', 1, 50, 'active', 1),
+  (1, 'WIP-00021', '柜体侧板（半成品）', '红橡实木，已开料封边', 2, 10, '套', '套', '套', 0, 5, 'active', 1),
+  (1, 'FG-00008', '红橡实木书柜 1.8m', 'W900xD380xH1800', 3, 11, '套', '套', '套', 0, 2, 'active', 1),
+  (1, 'RM-00201', '木蜡油', '0.5L/瓶，天然木蜡油', 1, 9, '瓶', '箱', 'ml', 0, 0, 'active', 1),
+  (1, 'RM-00014', 'E1级刨花板', '1220x2440mm，厚16mm', 1, 8, '张', '张', 'mm²', 0, 15, 'active', 1),
+  (1, 'RM-00015', '多层实木板', '1220x2440mm，厚18mm', 1, 8, '张', '张', 'mm²', 0, 12, 'active', 1),
+  (1, 'RM-00057', '涤纶布（灰色）', '幅宽145cm', 1, 5, 'm', '卷', 'm²', 1, 0, 'active', 1),
+  (1, 'RM-00058', '棉麻混纺（本白）', '幅宽150cm，混纺比65/35', 1, 5, 'm', '卷', 'm²', 1, 30, 'active', 1),
+  (1, 'RM-00090', '二层牛皮（黑色）', '幅宽约160cm', 1, 6, 'm²', '张', 'm²', 1, 40, 'active', 1),
+  (1, 'RM-00101', '高密度海绵', '密度40D，厚50mm', 1, 7, '块', '块', 'cm³', 0, 100, 'active', 1),
+  (1, 'RM-00102', '再生海绵', '密度28D，厚30mm', 1, 7, '块', '块', 'cm³', 0, 80, 'active', 1),
+  (1, 'RM-00150', '铝合金合页', '4寸，不锈钢色', 1, 9, '个', '盒', '个', 0, 200, 'active', 1),
+  (1, 'RM-00151', '抽屉滑轨', '45cm，三段式', 1, 9, '副', '盒', '副', 0, 100, 'active', 1),
+  (1, 'RM-00202', '水性清漆', '5L/桶，环保水性', 1, 9, '桶', '桶', 'ml', 0, 10, 'active', 1),
+  (1, 'WIP-00022', '门板组件', '含合页预装', 2, 10, '套', '套', '套', 0, 8, 'active', 1),
+  (1, 'WIP-00023', '沙发框架', '松木框架，已组装', 2, 10, '套', '套', '套', 0, 3, 'active', 1),
+  (1, 'FG-00009', '北欧三人沙发', 'W2200xD850xH780', 3, 11, '套', '套', '套', 0, 1, 'active', 1),
+  (1, 'FG-00010', '实木餐椅', 'W450xD500xH850，红橡', 3, 12, '把', '把', '把', 0, 6, 'active', 1),
+  (1, 'RM-00300', '纸箱（大）', '800x500x600mm，五层瓦楞', 4, 13, '个', '捆', '个', 0, 50, 'active', 1),
+  (1, 'RM-00301', 'EPE珍珠棉', '厚20mm，1x50m/卷', 4, 13, 'm', '卷', 'm²', 0, 0, 'active', 1);
+
+-- ── 7. 验证种子数据 ───────────────────────────────────────────────────────────
 SELECT '=== 种子数据初始化完成 ===' AS info;
 SELECT CONCAT('租户数: ', COUNT(*)) AS info FROM `tenants`;
 SELECT CONCAT('用户数: ', COUNT(*)) AS info FROM `users`;
 SELECT CONCAT('角色数: ', COUNT(*)) AS info FROM `roles`;
 SELECT CONCAT('SKU分类数: ', COUNT(*)) AS info FROM `sku_categories`;
+SELECT CONCAT('SKU数: ', COUNT(*)) AS info FROM `skus`;

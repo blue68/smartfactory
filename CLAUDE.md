@@ -262,6 +262,7 @@ RESTful API规范
 - 单元测试
 - API测试
 - 集成测试
+- UI交互测试
 
 ---
 
@@ -289,15 +290,15 @@ senior-ai-agent-pm
 ↓
 senior-ui-designer
 ↓
-tech-lead-architect.
+tech-lead-architect
 ↓
-senior-backend-engineer / senior-frontend-engineer / ai-engineer
+senior-backend-engineer / senior-frontend-engineer / ai-engineer（行动前思考、任务拆解）
 ↓
 engineering-manager（审批）
 ↓
 system-designer (架构评审)
 ↓
-Coding
+senior-backend-engineer / senior-frontend-engineer / ai-engineer （Coding）
 ↓
 code-reviewer
 ↓
@@ -307,7 +308,7 @@ security-engineer
 ↓
 devops-engineer
 ↓
-senior-ai-agent-pm
+senior-ai-agent-pm / senior-ui-designer (验收)
 
 ---
 
@@ -396,6 +397,7 @@ React Native
 
 - 测试设计
 - 自动化测试
+- UI测试
 - 回归测试
 - 上线风险评估
 

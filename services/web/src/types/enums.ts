@@ -32,13 +32,11 @@ export const UserRoleLabel: Record<UserRole, string> = {
 export enum SkuStatus {
   ACTIVE = 'active',
   INACTIVE = 'inactive',
-  PENDING = 'pending',
 }
 
 export const SkuStatusLabel: Record<SkuStatus, string> = {
   [SkuStatus.ACTIVE]: '启用',
   [SkuStatus.INACTIVE]: '停用',
-  [SkuStatus.PENDING]: '待审',
 };
 
 /** 安全库存筛选状态（仅供前端筛选 UI 使用，非后端枚举） */
@@ -53,48 +51,66 @@ export enum SkuStockStatus {
 // SKU 一级分类 code（对应后端 category.code）
 // ─────────────────────────────────────────────
 export enum Category1Code {
-  RAW_MATERIAL = 'RAW_MATERIAL',
-  SEMI_PRODUCT = 'SEMI_PRODUCT',
+  RAW_MATERIAL = 'MATERIAL',
+  SEMI_PRODUCT = 'SEMIFIN',
   FINISHED = 'FINISHED',
+  PACKING = 'PACKING',
 }
 
 export const Category1Label: Record<Category1Code, string> = {
   [Category1Code.RAW_MATERIAL]: '原材料',
   [Category1Code.SEMI_PRODUCT]: '半成品',
   [Category1Code.FINISHED]: '成品',
+  [Category1Code.PACKING]: '包材辅料',
 };
 
 // ─────────────────────────────────────────────
 // SKU 二级分类 code
 // ─────────────────────────────────────────────
 export enum Category2Code {
-  // 原材料子类
+  // 原材料子类（与数据库 sku_categories.code 对齐）
+  FABRIC = 'FABRIC',
+  LEATHER = 'LEATHER',
+  SPONGE = 'SPONGE',
+  WOOD = 'WOOD',
+  METAL = 'METAL',
+  // 半成品子类
+  SEMIFABRIC = 'SEMIFABRIC',
+  // 成品子类
+  SOFA = 'SOFA',
+  CHAIR = 'CHAIR',
+  // 包材辅料子类
+  CARTON = 'CARTON',
+  // 保留的扩展码（兼容前端其他页面引用）
   BOARD = 'BOARD',
   HARDWARE = 'HARDWARE',
-  FABRIC = 'FABRIC',
   FOAM = 'FOAM',
   PAINT = 'PAINT',
   ADHESIVE = 'ADHESIVE',
   PACK = 'PACK',
   OTHER_RAW = 'OTHER_RAW',
-  // 半成品子类
   FRAME = 'FRAME',
   COVER = 'COVER',
   ASSEMBLY = 'ASSEMBLY',
-  // 成品子类
-  SOFA = 'SOFA',
   CABINET = 'CABINET',
   TABLE = 'TABLE',
   BED = 'BED',
   CUSTOM = 'CUSTOM',
-  // 未分类
   NONE = 'NONE',
 }
 
 export const Category2Label: Record<Category2Code, string> = {
+  [Category2Code.FABRIC]: '面料类',
+  [Category2Code.LEATHER]: '面料类',
+  [Category2Code.SPONGE]: '海绵类',
+  [Category2Code.WOOD]: '板材类',
+  [Category2Code.METAL]: '五金配件',
+  [Category2Code.SEMIFABRIC]: '组合件类',
+  [Category2Code.SOFA]: '沙发类',
+  [Category2Code.CHAIR]: '椅子类',
+  [Category2Code.CARTON]: '纸箱',
   [Category2Code.BOARD]: '板材类',
   [Category2Code.HARDWARE]: '五金类',
-  [Category2Code.FABRIC]: '面料类',
   [Category2Code.FOAM]: '海绵类',
   [Category2Code.PAINT]: '油漆涂料类',
   [Category2Code.ADHESIVE]: '胶粘剂类',
@@ -103,7 +119,6 @@ export const Category2Label: Record<Category2Code, string> = {
   [Category2Code.FRAME]: '框架类',
   [Category2Code.COVER]: '面套类',
   [Category2Code.ASSEMBLY]: '组合件类',
-  [Category2Code.SOFA]: '沙发类',
   [Category2Code.CABINET]: '柜类',
   [Category2Code.TABLE]: '桌类',
   [Category2Code.BED]: '床类',

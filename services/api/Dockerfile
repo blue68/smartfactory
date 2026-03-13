@@ -49,6 +49,9 @@ RUN apk add --no-cache python3 make g++ && \
 # 复制编译产物
 COPY --from=builder /app/dist ./dist
 
+# 创建上传目录并赋权给 appuser
+RUN mkdir -p /app/uploads && chown appuser:appgroup /app/uploads
+
 # 切换到非 root 用户
 USER appuser
 

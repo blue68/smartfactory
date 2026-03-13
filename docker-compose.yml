@@ -135,6 +135,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - api_logs:/app/logs
+      - api_uploads:/app/uploads
     # API 端口仅绑定到容器网络，由 Nginx 统一对外暴露
     expose:
       - "3000"
@@ -168,7 +169,7 @@ services:
     networks:
       - sf_net
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -188,6 +189,8 @@ volumes:
   redis_data:
     driver: local
   api_logs:
+    driver: local
+  api_uploads:
     driver: local
 
 # ── 专用网络（容器间隔离通信）────────────────────────────────────────────────
