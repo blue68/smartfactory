@@ -1,0 +1,144 @@
+import { Request, Response } from 'express';
+import { z } from 'zod';
+import { SalesOrderService } from './salesOrder.service';
+import type { SalesOrderStatus } from './salesOrder.entity';
+import { success, created, buildPaginated } from '../../shared/ApiResponse';
+import { PaginationSchema } from '../../middleware/validator';
+
+// ─── 状态枚举值列表 ────────────────────────────────────────────────────────
+const SALES_ORDER_STATUSES = [
+  'draft', 'pending_approval', 'confirmed',
+  'in_production', 'shipped', 'completed', 'closed',
+] as const;
+
+// ─── Schema ─────────────────────────────────────────────────────────────────
+
+const ListQuerySchema = PaginationSchema.extend({
+  keyword: z.string().max(100).optional(),
+  status: z.enum(SALES_ORDER_STATUSES).optional(),
+  customerId: z.coerce.number().int().positive().optional(),
+  isUrgent: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+});
+
+const CreateSchema = z.object({
+  customerId: z.number().int().positive(),
+  orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  isUrgent: z.boolean().default(false),
+  notes: z.string().max(2000).optional(),
+  items: z.array(z.object({
+    skuId: z.number().int().positive(),
+    quantity: z.number().int().positive(),
+    unitPrice: z.string().regex(/^\d+(\.\d{1,2})?$/),
+    notes: z.string().max(500).optional(),
+  })).default([]),
+});
+
+const UpdateItemsSchema = z.object({
+  items: z.array(z.object({
+    skuId: z.number().int().positive(),
+    quantity: z.number().int().positive(),
+    unitPrice: z.string().regex(/^\d+(\.\d{1,2})?$/),
+    notes: z.string().max(500).optional(),
+  })),
+});
+
+const TransitionSchema = z.object({
+  targetStatus: z.enum(SALES_ORDER_STATUSES),
+});
+
+const RejectSchema = z.object({
+  reason: z.string().min(1).max(500),
+});
+
+// ─── Controller ─────────────────────────────────────────────────────────────
+
+export class SalesOrderController {
+  private svc(req: Request): SalesOrderService {
+    return new SalesOrderService({ tenantId: req.tenantId, userId: req.userId });
+  }
+
+  async getPendingCount(req: Request, res: Response): Promise<void> {
+    const count = await this.svc(req).getPendingApprovalCount();
+    success(res, { count });
+  }
+
+  async list(req: Request, res: Response): Promise<void> {
+    const q = ListQuerySchema.parse(req.query);
+    const { list, total } = await this.svc(req).list({
+      page: q.page,
+      pageSize: q.pageSize,
+      keyword: q.keyword,
+      status: q.status as SalesOrderStatus | undefined,
+      customerId: q.customerId,
+      isUrgent: q.isUrgent,
+    });
+    success(res, buildPaginated(list, total, q.page, q.pageSize));
+  }
+
+  async getOne(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const data = await this.svc(req).getById(id);
+    success(res, data);
+  }
+
+  async create(req: Request, res: Response): Promise<void> {
+    const body = CreateSchema.parse(req.body);
+    const data = await this.svc(req).create({
+      ...body,
+      items: body.items.map((item) => ({
+        skuId: item.skuId,
+        quantity: String(item.quantity),
+        unitPrice: item.unitPrice,
+        notes: item.notes,
+      })),
+    });
+    created(res, data, '销售订单已创建');
+  }
+
+  async updateItems(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const { items } = UpdateItemsSchema.parse(req.body);
+    await this.svc(req).updateItems(id, items.map((item) => ({
+      skuId: item.skuId,
+      quantity: String(item.quantity),
+      unitPrice: item.unitPrice,
+      notes: item.notes,
+    })));
+    success(res, null, '订单明细已更新');
+  }
+
+  async transition(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const { targetStatus } = TransitionSchema.parse(req.body);
+    await this.svc(req).transition(id, targetStatus as SalesOrderStatus);
+    success(res, null, '订单状态已更新');
+  }
+
+  async submitForApproval(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    await this.svc(req).submitForApproval(id);
+    success(res, null, '已提交审批');
+  }
+
+  async approve(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    await this.svc(req).approve(id, req.userId);
+    success(res, null, '订单已审批通过');
+  }
+
+  async reject(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const { reason } = RejectSchema.parse(req.body);
+    await this.svc(req).reject(id, req.userId, reason);
+    success(res, null, '订单已驳回');
+  }
+
+  async withdraw(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    await this.svc(req).withdraw(id);
+    success(res, null, '审批已撤回');
+  }
+}
+
+export const salesOrderController = new SalesOrderController();
