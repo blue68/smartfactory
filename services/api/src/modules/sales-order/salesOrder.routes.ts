@@ -19,7 +19,7 @@ router.post('/',           asyncHandler(salesOrderController.create.bind(salesOr
 router.put('/:id/items',   asyncHandler(salesOrderController.updateItems.bind(salesOrderController)));
 
 // ── 状态流转 ────────────────────────────────────────────────────────────────
-router.post('/:id/transition',  asyncHandler(salesOrderController.transition.bind(salesOrderController)));
+router.post('/:id/transition',  requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.transition.bind(salesOrderController)));
 router.post('/:id/submit',      asyncHandler(salesOrderController.submitForApproval.bind(salesOrderController)));
 router.post('/:id/withdraw',    asyncHandler(salesOrderController.withdraw.bind(salesOrderController)));
 

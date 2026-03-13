@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { supplierController } from './supplier.controller';
-import { authMiddleware } from '../../middleware/auth';
+import { authMiddleware, requireRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
 const router = Router();
@@ -13,8 +13,8 @@ router.get('/export',   asyncHandler(supplierController.exportExcel.bind(supplie
 router.post('/compare', asyncHandler(supplierController.comparePerformance.bind(supplierController)));
 router.get('/',         asyncHandler(supplierController.list.bind(supplierController)));
 router.get('/:id',      asyncHandler(supplierController.getOne.bind(supplierController)));
-router.post('/',        asyncHandler(supplierController.create.bind(supplierController)));
-router.put('/:id',      asyncHandler(supplierController.update.bind(supplierController)));
+router.post('/',        requireRoles('boss', 'supervisor', 'purchaser'), asyncHandler(supplierController.create.bind(supplierController)));
+router.put('/:id',      requireRoles('boss', 'supervisor', 'purchaser'), asyncHandler(supplierController.update.bind(supplierController)));
 router.get('/:id/performance', asyncHandler(supplierController.getPerformance.bind(supplierController)));
 router.get('/:id/monthly-statement', asyncHandler(supplierController.getMonthlyStatement.bind(supplierController)));
 router.get('/:id/skus', asyncHandler(supplierController.getRelatedSkus.bind(supplierController)));

@@ -147,6 +147,7 @@ export class ProductionController {
 
   // BE-P1: 排产手动调整
   async adjustSchedule(req: Request, res: Response): Promise<void> {
+    const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式必须为 YYYY-MM-DD').parse(req.params.date);
     const schema = z.object({
       adjustments: z.array(z.object({
         taskId: z.number().int().positive(),
@@ -156,7 +157,7 @@ export class ProductionController {
       })).min(1),
     });
     const { adjustments } = schema.parse(req.body);
-    const result = await this.svc(req).adjustSchedule(req.params.date, adjustments);
+    const result = await this.svc(req).adjustSchedule(date, adjustments);
     success(res, result, '排产已调整');
   }
 

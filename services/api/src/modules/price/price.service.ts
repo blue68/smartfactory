@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import * as path from 'path';
 import * as XLSX from 'xlsx';
 import { AppDataSource } from '../../config/database';
@@ -123,41 +122,44 @@ export class PriceService {
   }
 
   async create(params: CreatePriceParams): Promise<PriceEntity> {
-    const repo = AppDataSource.getRepository(PriceEntity);
-
-    // 价格异常检测：与历史均价对比
+    // 价格异常检测：与历史均价对比（事务外查询，只读，不影响一致性）
     const [avgRow] = await AppDataSource.query(
       `SELECT AVG(price) AS avgPrice FROM supplier_prices
        WHERE tenant_id = ? AND sku_id = ? AND is_current = 0`,
       [this.tenantId, params.skuId],
     ) as Array<{ avgPrice: string | null }>;
 
-    const entity = repo.create({
-      tenantId: this.tenantId,
-      supplierId: params.supplierId,
-      skuId: params.skuId,
-      price: params.unitPrice,
-      unit: params.purchaseUnit ?? '',
-      isCurrent: true,
-      effectiveAt: params.validFrom ?? null,
-      expiredAt: params.validTo ?? null,
-      moq: params.moq || null,
-      notes: params.notes ?? null,
-      taxRate: params.taxRate ?? null,
-      batchPricing: params.batchPricing ?? false,
-      batchRule: params.batchRule ?? null,
-      attachmentUrl: params.attachmentUrl ?? null,
-      createdBy: this.userId,
-      updatedBy: this.userId,
+    // 将旧价格标记为非当前 + 保存新价格，包裹在事务中保证原子性
+    const saved = await AppDataSource.transaction(async (em) => {
+      const repo = em.getRepository(PriceEntity);
+
+      // 将该供应商+SKU的旧价格标记为非当前
+      await repo.update(
+        { tenantId: this.tenantId, supplierId: params.supplierId, skuId: params.skuId, isCurrent: true },
+        { isCurrent: false, updatedBy: this.userId },
+      );
+
+      const entity = repo.create({
+        tenantId: this.tenantId,
+        supplierId: params.supplierId,
+        skuId: params.skuId,
+        price: params.unitPrice,
+        unit: params.purchaseUnit ?? '',
+        isCurrent: true,
+        effectiveAt: params.validFrom ?? null,
+        expiredAt: params.validTo ?? null,
+        moq: params.moq || null,
+        notes: params.notes ?? null,
+        taxRate: params.taxRate ?? null,
+        batchPricing: params.batchPricing ?? false,
+        batchRule: params.batchRule ?? null,
+        attachmentUrl: params.attachmentUrl ?? null,
+        createdBy: this.userId,
+        updatedBy: this.userId,
+      });
+
+      return repo.save(entity);
     });
-
-    // 将该供应商+SKU的旧价格标记为非当前
-    await repo.update(
-      { tenantId: this.tenantId, supplierId: params.supplierId, skuId: params.skuId, isCurrent: true },
-      { isCurrent: false, updatedBy: this.userId },
-    );
-
-    const saved = await repo.save(entity);
 
     // 如果价格超历史均价 20%，添加异常标记（返回给前端判断）
     if (avgRow?.avgPrice) {
@@ -228,13 +230,13 @@ export class PriceService {
 
   /**
    * 解析 Excel 文件，批量预加载供应商/SKU 字典，逐行校验，事务写入。
-   * @param filePath   上传文件的临时磁盘路径（multer diskStorage）
+   * @param fileBuffer 上传文件的内存 Buffer（multer memoryStorage）
    * @param fileName   原始文件名（用于记录）
    * @param tenantId   租户 ID
    * @param userId     操作用户 ID
    */
   async importPrices(
-    filePath: string,
+    fileBuffer: Buffer,
     fileName: string,
     tenantId: number,
     userId: number,
@@ -246,7 +248,7 @@ export class PriceService {
       tenantId,
       type: 'price',
       status: 'processing',
-      filePath,
+      filePath: '',
       fileName,
       createdBy: userId,
     });
@@ -254,7 +256,7 @@ export class PriceService {
 
     try {
       // ── 2. 解析 Excel ──────────────────────────────────────────────────────
-      const buf = fs.readFileSync(filePath);
+      const buf = fileBuffer;
       const wb = XLSX.read(buf, { type: 'buffer' });
       const sheetName = wb.SheetNames[0];
       if (!sheetName) throw AppError.badRequest('Excel 文件中没有工作表');
@@ -485,9 +487,6 @@ export class PriceService {
         errorDetails: errors.length > 0 ? errors : null,
         warningDetails: warnings.length > 0 ? warnings : null,
       });
-
-      // ── 8. 清理临时文件 ───────────────────────────────────────────────────
-      try { fs.unlinkSync(filePath); } catch { /* 忽略清理失败 */ }
 
       return {
         taskId: task.id,

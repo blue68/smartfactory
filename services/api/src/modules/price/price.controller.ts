@@ -47,7 +47,7 @@ export class PriceController {
       return;
     }
     const result = await this.svc(req).importPrices(
-      req.file.path,
+      req.file.buffer,
       req.file.originalname,
       req.tenantId,
       req.userId,

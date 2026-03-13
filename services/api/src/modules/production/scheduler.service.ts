@@ -133,6 +133,63 @@ export class SchedulerService {
     const cacheKey = RedisKeys.schedule(this.tenantId, date);
     const redis = getRedisClient();
 
+    // 如果该日期已有 confirmed 排产计划，直接返回，拒绝重新生成（P0-04）
+    const confirmedRows = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT id FROM production_schedules
+       WHERE tenant_id = ? AND schedule_date = ? AND status = 'confirmed' LIMIT 1`,
+      [this.tenantId, date],
+    );
+    if (confirmedRows.length > 0) {
+      // 尝试从缓存获取已确认的计划；若缓存缺失则重建摘要返回
+      const cached = await redis.get(cacheKey);
+      if (cached) return JSON.parse(cached) as SchedulePlan;
+
+      // 缓存缺失时从数据库重建排产计划摘要
+      const scheduleRows = await AppDataSource.query<Array<{
+        production_order_id: number; work_order_no: string;
+        process_step_id: number; step_name: string;
+        worker_id: number | null; worker_name: string | null;
+        workstation_id: number | null; workstation_name: string | null;
+        planned_qty: string; estimated_hours: string | null;
+      }>>(
+        `SELECT ps.production_order_id, po.work_order_no,
+                ps.process_step_id, pst.step_name,
+                ps.worker_id, u.real_name AS worker_name,
+                ps.workstation_id, w.name AS workstation_name,
+                ps.planned_qty,
+                COALESCE(pst.standard_hours, '0') AS estimated_hours
+         FROM production_schedules ps
+         INNER JOIN production_orders po ON po.id = ps.production_order_id
+         LEFT JOIN  process_steps pst    ON pst.id = ps.process_step_id
+         LEFT JOIN  users u              ON u.id = ps.worker_id
+         LEFT JOIN  workstations w       ON w.id = ps.workstation_id
+         WHERE ps.tenant_id = ? AND ps.schedule_date = ? AND ps.status = 'confirmed'`,
+        [this.tenantId, date],
+      );
+      const confirmedPlan: SchedulePlan = {
+        date,
+        schedules: scheduleRows.map((r) => ({
+          productionOrderId: r.production_order_id,
+          workOrderNo: r.work_order_no,
+          processStepId: r.process_step_id,
+          stepName: r.step_name,
+          workerId: r.worker_id,
+          workerName: r.worker_name,
+          workstationId: r.workstation_id,
+          workstationName: r.workstation_name,
+          plannedQty: r.planned_qty,
+          estimatedHours: r.estimated_hours ?? '0',
+        })),
+        summary: {
+          totalOrders: new Set(scheduleRows.map((r) => r.production_order_id)).size,
+          totalSteps: scheduleRows.length,
+          capacityLoadRate: '0%',
+        },
+      };
+      await redis.setex(cacheKey, RedisTTL.SCHEDULE, JSON.stringify(confirmedPlan));
+      return confirmedPlan;
+    }
+
     // 已有缓存则直接返回
     const cached = await redis.get(cacheKey);
     if (cached) return JSON.parse(cached) as SchedulePlan;
@@ -305,12 +362,12 @@ export class SchedulerService {
         [params.completedQty, this.userId, taskId, this.tenantId],
       );
 
-      // 查询任务关联信息
+      // 查询任务关联信息（补充 tenant_id 隔离，防止跨租户越权读取）
       const [task] = await manager.query<Array<{
         production_order_id: number; process_step_id: number; worker_id: number;
       }>>(
-        'SELECT production_order_id, process_step_id, worker_id FROM production_tasks WHERE id = ? LIMIT 1',
-        [taskId],
+        'SELECT production_order_id, process_step_id, worker_id FROM production_tasks WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [taskId, this.tenantId],
       );
 
       // 写入完工记录

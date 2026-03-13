@@ -4,7 +4,7 @@ import { priceController } from './price.controller';
 import { authMiddleware, requireRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
-const upload = multer({ dest: 'uploads/price-import/' });
+const upload = multer({ storage: multer.memoryStorage() });
 const router = Router();
 
 router.use(authMiddleware);

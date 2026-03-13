@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { skuController } from './sku.controller';
-import { authMiddleware } from '../../middleware/auth';
+import { authMiddleware, requireRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
 const router = Router();
@@ -39,8 +39,8 @@ router.get('/export',              asyncHandler(skuController.exportExcel.bind(s
 router.post('/import',             upload.single('file'), asyncHandler(skuController.importSkus.bind(skuController)));
 router.get('/:id',                 asyncHandler(skuController.getOne.bind(skuController)));
 router.post('/',                   asyncHandler(skuController.create.bind(skuController)));
-router.put('/batch-status',        asyncHandler(skuController.batchUpdateStatus.bind(skuController)));
-router.put('/batch-safety-stock',  asyncHandler(skuController.batchUpdateSafetyStock.bind(skuController)));
+router.put('/batch-status',        requireRoles('boss', 'supervisor'), asyncHandler(skuController.batchUpdateStatus.bind(skuController)));
+router.put('/batch-safety-stock',  requireRoles('boss', 'supervisor'), asyncHandler(skuController.batchUpdateSafetyStock.bind(skuController)));
 router.put('/:id',                 asyncHandler(skuController.update.bind(skuController)));
 router.put('/:id/unit-conversions', asyncHandler(skuController.setUnitConversions.bind(skuController)));
 
