@@ -15,12 +15,12 @@
  *   - 品类成本占比：后端暂无对应接口，保留 COST_SEGS mock 数据展示
  *   - skuCode：后端 listBoms() 已返回 skuCode，前端直接使用
  *   - materialCount：列表接口 items 为空数组，无法统计，显示 `—`
- *   - orderCount：后端无关联订单统计字段，显示 `0 单`
+ *   - orderCount：后端无关联订单统计字段，显示 `—`
  */
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/appStore';
-import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem } from '@/api/bom';
+import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useUpdateBom, useCopyBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem } from '@/api/bom';
 import { useQuery } from '@tanstack/react-query';
 import { useSkuCategories, useSkuList, skuApi, skuKeys } from '@/api/sku';
 import type { BomHeader, BomItem } from '@/types/models';
@@ -150,6 +150,71 @@ function RowActionBtn({ row, onEdit }: { row: BomListRow; onEdit: (row: BomListR
     >
       继续录入
     </Button>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   BOM-REM-002: 复制按钮 + 复制 Modal（接入 useCopyBom）
+────────────────────────────────────────────────────────────── */
+
+function CopyBomBtn({ row }: { row: BomListRow }) {
+  const { showToast } = useAppStore();
+  const [open, setOpen] = useState(false);
+  const [newVersion, setNewVersion] = useState('');
+  const copyBom = useCopyBom();
+
+  const handleOpen = () => {
+    setNewVersion('');
+    setOpen(true);
+  };
+
+  const handleConfirm = async () => {
+    const trimmed = newVersion.trim();
+    if (!trimmed) {
+      showToast({ type: 'error', message: '请输入新版本号' });
+      return;
+    }
+    try {
+      await copyBom.mutateAsync({ id: row.id, newVersion: trimmed });
+      showToast({ type: 'success', message: `BOM 已复制为新草稿（版本 ${trimmed}）` });
+      setOpen(false);
+    } catch {
+      showToast({ type: 'error', message: '复制BOM失败，请稍后重试' });
+    }
+  };
+
+  return (
+    <>
+      <Button variant="ghost" size="sm" onClick={handleOpen}>
+        复制
+      </Button>
+      <Modal
+        open={open}
+        title="复制 BOM"
+        onClose={() => setOpen(false)}
+        onConfirm={handleConfirm}
+        confirmLabel={copyBom.isPending ? '复制中...' : '确认复制'}
+        cancelLabel="取消"
+        size="sm"
+      >
+        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+          将在「{row.skuName}」下创建一个新草稿版本，不影响现有 BOM。
+        </p>
+        <div>
+          <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+            新版本号
+          </label>
+          <input
+            type="text"
+            value={newVersion}
+            onChange={(e) => setNewVersion(e.target.value)}
+            placeholder="例如：1.1、v2.0"
+            autoFocus
+            style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', boxSizing: 'border-box' }}
+          />
+        </div>
+      </Modal>
+    </>
   );
 }
 
@@ -353,6 +418,28 @@ function EditorView({ row, onBack }: EditorViewProps) {
   // 激活确认对话框状态
   const [activateConfirmOpen, setActivateConfirmOpen] = useState(false);
 
+  // BOM-REM-001: 编辑信息弹框状态（版本号 / 描述，接入 useUpdateBom）
+  const [editInfoOpen, setEditInfoOpen] = useState(false);
+  const [editVersion, setEditVersion] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const updateBom = useUpdateBom();
+
+  const handleOpenEditInfo = () => {
+    setEditVersion(detailData?.version ?? '');
+    setEditDesc(detailData?.description ?? '');
+    setEditInfoOpen(true);
+  };
+
+  const handleSaveInfo = async () => {
+    try {
+      await updateBom.mutateAsync({ id: row.id, data: { version: editVersion, description: editDesc } });
+      showToast({ type: 'success', message: 'BOM信息已更新' });
+      setEditInfoOpen(false);
+    } catch {
+      showToast({ type: 'error', message: '保存失败，请稍后重试' });
+    }
+  };
+
   const handleAddMaterial = async () => {
     if (!matSelectedSku) { showToast({ type: 'error', message: '请先选择物料' }); return; }
     if (!matQty || Number(matQty) <= 0) { showToast({ type: 'error', message: '请输入有效用量' }); return; }
@@ -405,6 +492,44 @@ function EditorView({ row, onBack }: EditorViewProps) {
 
   return (
     <>
+      {/* BOM-REM-001: 编辑信息弹框（版本号 / 描述） */}
+      <Modal
+        open={editInfoOpen}
+        title="编辑 BOM 信息"
+        onClose={() => setEditInfoOpen(false)}
+        onConfirm={handleSaveInfo}
+        confirmLabel={updateBom.isPending ? '保存中...' : '确认保存'}
+        cancelLabel="取消"
+        size="sm"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+              版本号
+            </label>
+            <input
+              type="text"
+              value={editVersion}
+              onChange={(e) => setEditVersion(e.target.value)}
+              placeholder="例如：1.0、v2.1"
+              style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+              描述
+            </label>
+            <textarea
+              value={editDesc}
+              onChange={(e) => setEditDesc(e.target.value)}
+              placeholder="BOM版本说明（可选）"
+              rows={3}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', resize: 'vertical', boxSizing: 'border-box' }}
+            />
+          </div>
+        </div>
+      </Modal>
+
       {/* 激活确认弹框 */}
       <Modal
         open={activateConfirmOpen}
@@ -560,8 +685,9 @@ function EditorView({ row, onBack }: EditorViewProps) {
           <Button variant="primary" onClick={() => setAddMatOpen(true)}>
             + 新增物料
           </Button>
-          <Button variant="secondary" onClick={() => showToast({ type: 'success', message: '✓ BOM保存成功' })}>
-            保存
+          {/* BOM-REM-001: 编辑信息入口，调用 useUpdateBom */}
+          <Button variant="secondary" onClick={handleOpenEditInfo} disabled={updateBom.isPending}>
+            编辑信息
           </Button>
         </div>
       </div>
@@ -631,8 +757,9 @@ function EditorView({ row, onBack }: EditorViewProps) {
                   </span>
                 </div>
                 <div className={styles.detail_actions}>
-                  <Button variant="secondary" size="sm" onClick={() => showToast({ type: 'info', message: '请修改用量' })}>
-                    修改用量
+                  {/* BOM-REM-003: 后端暂无 PATCH /items/:id 接口，功能规划中，按钮置灰告知用户 */}
+                  <Button variant="secondary" size="sm" disabled title="修改用量功能开发中，即将上线">
+                    修改用量（即将上线）
                   </Button>
                   <Button
                     variant="ghost"
@@ -1178,9 +1305,14 @@ export default function BomPage() {
                     <td style={{ color: row.materialCount === null ? 'var(--text-disabled)' : undefined }}>
                       {row.materialCount !== null ? `${row.materialCount} 种` : '—'}
                     </td>
-                    <td>{row.orderCount} 单</td>
+                    <td style={{ color: row.orderCount === 0 ? 'var(--text-disabled)' : undefined }}>
+                      {row.orderCount === 0 ? '—' : `${row.orderCount} 单`}
+                    </td>
                     <td>
-                      <RowActionBtn row={row} onEdit={handleEdit} />
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <RowActionBtn row={row} onEdit={handleEdit} />
+                        <CopyBomBtn row={row} />
+                      </div>
                     </td>
                   </tr>
                 ))
