@@ -133,6 +133,29 @@ export class SchedulerService {
     const cacheKey = RedisKeys.schedule(this.tenantId, date);
     const redis = getRedisClient();
 
+    // 分布式锁：防止并发请求重复生成同一日期的排产计划
+    const lockKey = `lock:schedule:${this.tenantId}:${date}`;
+    const lockAcquired = await redis.set(lockKey, '1', 'EX', 30, 'NX');
+    if (!lockAcquired) {
+      // 未获得锁，等待短暂时间后尝试从缓存读取
+      await new Promise((r) => setTimeout(r, 500));
+      const cached = await redis.get(cacheKey);
+      if (cached) return JSON.parse(cached) as SchedulePlan;
+      throw AppError.conflict('排产计划正在生成中，请稍后重试');
+    }
+
+    try {
+      return await this._doGenerateSchedule(date, cacheKey, redis);
+    } finally {
+      await redis.del(lockKey);
+    }
+  }
+
+  private async _doGenerateSchedule(
+    date: string,
+    cacheKey: string,
+    redis: ReturnType<typeof getRedisClient>,
+  ): Promise<SchedulePlan> {
     // 如果该日期已有 confirmed 排产计划，直接返回，拒绝重新生成（P0-04）
     const confirmedRows = await AppDataSource.query<Array<{ id: number }>>(
       `SELECT id FROM production_schedules

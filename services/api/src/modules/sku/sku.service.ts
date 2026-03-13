@@ -336,13 +336,20 @@ export class SkuService {
       [cat2Id],
     );
     const prefix = cat?.code?.slice(0, 3).toUpperCase() ?? 'SKU';
-    const [row] = await AppDataSource.query<Array<{ seq: number }>>(
-      `SELECT COUNT(*) + 1 AS seq FROM skus
-       WHERE tenant_id = ? AND category2_id = ?`,
-      [this.repo.tenantId, cat2Id],
+    // 使用 MAX(sku_code) 提取最大序号，避免 COUNT 在删除行后产生重复编码
+    const [row] = await AppDataSource.query<Array<{ max_code: string | null }>>(
+      `SELECT MAX(sku_code) AS max_code FROM skus
+       WHERE tenant_id = ? AND category2_id = ? AND sku_code LIKE ?`,
+      [this.repo.tenantId, cat2Id, `${prefix}%`],
     );
+    let seq = 1;
+    if (row?.max_code) {
+      const numPart = row.max_code.slice(prefix.length);
+      const parsed = parseInt(numPart, 10);
+      if (!isNaN(parsed)) seq = parsed + 1;
+    }
     void cat1Id;
-    return `${prefix}${String(row?.seq ?? 1).padStart(5, '0')}`;
+    return `${prefix}${String(seq).padStart(5, '0')}`;
   }
 
   private async validateCategories(cat1Id: number, cat2Id: number): Promise<void> {

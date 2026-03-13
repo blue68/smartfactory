@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js';
 import { AppDataSource } from '../../config/database';
 import { SupplierEntity } from './supplier.entity';
 import { AppError } from '../../shared/AppError';
@@ -398,7 +399,10 @@ export class SupplierService {
        ORDER BY created_at DESC`,
       [this.tenantId, supplierId, month],
     );
-    const totalAmount = rows.reduce((s: number, r: Record<string, unknown>) => s + parseFloat(String(r.amount || 0)), 0);
+    const totalAmount = rows.reduce(
+      (s: Decimal, r: Record<string, unknown>) => s.plus(new Decimal(String(r.amount || 0))),
+      new Decimal(0),
+    );
     return {
       orders: rows.map((r: Record<string, unknown>) => ({
         poNo: String(r.po_no),

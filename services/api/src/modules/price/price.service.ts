@@ -1,4 +1,4 @@
-import * as path from 'path';
+import Decimal from 'decimal.js';
 import * as XLSX from 'xlsx';
 import { AppDataSource } from '../../config/database';
 import { PriceEntity } from './price.entity';
@@ -163,9 +163,9 @@ export class PriceService {
 
     // 如果价格超历史均价 20%，添加异常标记（返回给前端判断）
     if (avgRow?.avgPrice) {
-      const avg = parseFloat(avgRow.avgPrice);
-      const current = parseFloat(params.unitPrice);
-      if (avg > 0 && current > avg * 1.2) {
+      const avg = new Decimal(avgRow.avgPrice);
+      const current = new Decimal(params.unitPrice);
+      if (avg.gt(0) && current.gt(avg.mul(1.2))) {
         (saved as any).priceAnomaly = true;
         (saved as any).avgPrice = avg.toFixed(4);
       }
@@ -334,7 +334,7 @@ export class PriceService {
 
       // 批量预加载各 SKU 历史均价（用于异常检测，避免逐行查询）
       const skuIds = [...skuMap.values()];
-      const avgPriceMap = new Map<number, number>();
+      const avgPriceMap = new Map<number, Decimal>();
       if (skuIds.length > 0) {
         const avgRows = await AppDataSource.query(
           `SELECT sku_id, AVG(price) AS avgPrice FROM supplier_prices
@@ -343,7 +343,7 @@ export class PriceService {
           [tenantId, ...skuIds],
         ) as Array<{ sku_id: number; avgPrice: string }>;
         for (const r of avgRows) {
-          avgPriceMap.set(Number(r.sku_id), parseFloat(r.avgPrice ?? '0'));
+          avgPriceMap.set(Number(r.sku_id), new Decimal(r.avgPrice ?? '0'));
         }
       }
 
@@ -419,10 +419,10 @@ export class PriceService {
         }
 
         // 价格异常检测（超历史均价 20% → warning，不阻断）
-        const avg = avgPriceMap.get(skuId) ?? 0;
-        const current = parseFloat(row.unitPrice);
+        const avg = avgPriceMap.get(skuId) ?? new Decimal(0);
+        const current = new Decimal(row.unitPrice);
         let priceAnomaly = false;
-        if (avg > 0 && current > avg * 1.2) {
+        if (avg.gt(0) && current.gt(avg.mul(1.2))) {
           priceAnomaly = true;
           warnings.push({
             row: rowNo,
