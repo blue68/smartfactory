@@ -14,13 +14,13 @@
  *   - 新建 BOM：useCreateBom() → POST /api/bom（已接入）
  *   - 品类成本占比：后端暂无对应接口，保留 COST_SEGS mock 数据展示
  *   - skuCode：后端 listBoms() 已返回 skuCode，前端直接使用
- *   - materialCount：列表接口 items 为空数组，无法统计，显示 `—`
+ *   - materialCount：后端 listBoms() 已返回 itemCount 子查询，前端直接使用
  *   - orderCount：后端无关联订单统计字段，显示 `—`
  */
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/appStore';
-import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useUpdateBom, useCopyBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem } from '@/api/bom';
+import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useUpdateBom, useCopyBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem, useUpdateBomItem } from '@/api/bom';
 import { useQuery } from '@tanstack/react-query';
 import { useSkuCategories, useSkuList, skuApi, skuKeys } from '@/api/sku';
 import type { BomHeader, BomItem } from '@/types/models';
@@ -78,7 +78,7 @@ function mapBomHeaderToRow(h: BomHeader): BomListRow {
     hasAlert,
     alertText: hasAlert ? 'BOM草稿未激活，影响采购建议' : undefined,
     completionPct,
-    materialCount: null,
+    materialCount: h.itemCount ?? null,
     orderCount: 0,
     status: h.status as BomStatus,
   };
@@ -414,9 +414,18 @@ function EditorView({ row, onBack }: EditorViewProps) {
   const addBomItem = useAddBomItem();
   const deleteBomItem = useDeleteBomItem();
   const activateBom = useActivateBom();
+  const updateBomItem = useUpdateBomItem();
 
   // 激活确认对话框状态
   const [activateConfirmOpen, setActivateConfirmOpen] = useState(false);
+
+  // 删除物料确认弹框状态
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  // 修改用量弹框状态
+  const [editQtyOpen, setEditQtyOpen] = useState(false);
+  const [editQtyValue, setEditQtyValue] = useState('');
+  const [editUnitValue, setEditUnitValue] = useState('');
 
   // BOM-REM-001: 编辑信息弹框状态（版本号 / 描述，接入 useUpdateBom）
   const [editInfoOpen, setEditInfoOpen] = useState(false);
@@ -466,12 +475,18 @@ function EditorView({ row, onBack }: EditorViewProps) {
     }
   };
 
-  const handleDeleteItem = async () => {
+  const handleDeleteItem = () => {
+    if (!selectedItem) return;
+    setDeleteConfirmOpen(true);
+  };
+
+  const confirmDeleteItem = async () => {
     if (!selectedItem) return;
     try {
       await deleteBomItem.mutateAsync({ bomId: row.id, itemId: selectedItem.bomItemId });
       showToast({ type: 'success', message: `已删除物料「${selectedItem.skuName}」` });
       setSelectedItem(null);
+      setDeleteConfirmOpen(false);
     } catch {
       showToast({ type: 'error', message: '删除物料失败，请稍后重试' });
     }
@@ -546,6 +561,72 @@ function EditorView({ row, onBack }: EditorViewProps) {
         <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
           激活后不可回退到草稿态，请确认物料信息无误。
         </p>
+      </Modal>
+
+      {/* 删除物料确认弹框 */}
+      <Modal
+        open={deleteConfirmOpen}
+        title="确认删除物料"
+        onClose={() => setDeleteConfirmOpen(false)}
+        onConfirm={confirmDeleteItem}
+        confirmLabel={deleteBomItem.isPending ? '删除中...' : '确认删除'}
+        cancelLabel="取消"
+        size="sm"
+      >
+        <p style={{ fontSize: '0.9375rem', color: 'var(--text-primary)', lineHeight: 1.6 }}>
+          确定要删除物料「<strong>{selectedItem?.skuName}</strong>」吗？此操作不可撤销。
+        </p>
+      </Modal>
+
+      {/* 修改用量弹框 */}
+      <Modal
+        open={editQtyOpen}
+        title="修改物料用量"
+        onClose={() => setEditQtyOpen(false)}
+        onConfirm={async () => {
+          if (!selectedItem) return;
+          try {
+            await updateBomItem.mutateAsync({
+              bomId: row.id,
+              itemId: selectedItem.bomItemId,
+              data: { quantity: editQtyValue, unit: editUnitValue },
+            });
+            showToast({ type: 'success', message: '用量已更新' });
+            setEditQtyOpen(false);
+          } catch {
+            showToast({ type: 'error', message: '修改用量失败' });
+          }
+        }}
+        confirmLabel={updateBomItem.isPending ? '保存中...' : '确认修改'}
+        cancelLabel="取消"
+        size="sm"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+              用量
+            </label>
+            <input
+              type="text"
+              value={editQtyValue}
+              onChange={(e) => setEditQtyValue(e.target.value)}
+              placeholder="请输入用量"
+              style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+              单位
+            </label>
+            <input
+              type="text"
+              value={editUnitValue}
+              onChange={(e) => setEditUnitValue(e.target.value)}
+              placeholder="请输入单位"
+              style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', boxSizing: 'border-box' }}
+            />
+          </div>
+        </div>
       </Modal>
 
       {/* 新增物料弹框 */}
@@ -757,9 +838,14 @@ function EditorView({ row, onBack }: EditorViewProps) {
                   </span>
                 </div>
                 <div className={styles.detail_actions}>
-                  {/* BOM-REM-003: 后端暂无 PATCH /items/:id 接口，功能规划中，按钮置灰告知用户 */}
-                  <Button variant="secondary" size="sm" disabled title="修改用量功能开发中，即将上线">
-                    修改用量（即将上线）
+                  <Button variant="secondary" size="sm" onClick={() => {
+                    if (selectedItem) {
+                      setEditQtyValue(selectedItem.quantity);
+                      setEditUnitValue(selectedItem.unit);
+                      setEditQtyOpen(true);
+                    }
+                  }}>
+                    修改用量
                   </Button>
                   <Button
                     variant="ghost"
@@ -1076,7 +1162,7 @@ export default function BomPage() {
   useEffect(() => { setPageTitle('BOM 管理'); }, [setPageTitle]);
 
   // ── 真实 API 数据 ──
-  const { data: bomHeaders } = useBomList();
+  const { data: bomHeaders, isLoading: bomListLoading } = useBomList();
   const allRows: BomListRow[] = (bomHeaders ?? []).map(mapBomHeaderToRow);
 
   // ── 获取所有成品 SKU（用于新建BOM和向导选择）──
@@ -1277,7 +1363,13 @@ export default function BomPage() {
               </tr>
             </thead>
             <tbody>
-              {paged.length === 0 ? (
+              {bomListLoading ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                    加载中...
+                  </td>
+                </tr>
+              ) : paged.length === 0 ? (
                 <tr>
                   <td colSpan={6} className={styles.table_empty}>暂无 BOM 数据</td>
                 </tr>

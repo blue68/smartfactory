@@ -35,6 +35,8 @@ export interface BomHeader {
   version: string;
   status: string;
   items: BomItemNode[];
+  /** V2-S2: 明细行数量（列表接口聚合字段） */
+  itemCount?: number;
 }
 
 /** BOM 物料需求汇总（多层展开展平后，相同 SKU 合并） */
@@ -91,9 +93,10 @@ export class BomService {
 
     // 硬性上限 500 条，防止大结果集 DoS
     const headers = await AppDataSource.query<Array<{
-      id: number; sku_id: number; sku_name: string; sku_code: string; version: string; status: string;
+      id: number; sku_id: number; sku_name: string; sku_code: string; version: string; status: string; item_count: number;
     }>>(
-      `SELECT b.id, b.sku_id, s.name AS sku_name, s.code AS sku_code, b.version, b.status
+      `SELECT b.id, b.sku_id, s.name AS sku_name, s.code AS sku_code, b.version, b.status,
+              (SELECT COUNT(*) FROM bom_items WHERE bom_header_id = b.id AND tenant_id = b.tenant_id) AS item_count
        FROM bom_headers b
        INNER JOIN skus s ON s.id = b.sku_id
        WHERE ${conditions.join(' AND ')}
@@ -102,7 +105,14 @@ export class BomService {
       params,
     );
 
-    return headers.map((h) => ({ ...h, skuId: h.sku_id, skuName: h.sku_name, skuCode: h.sku_code, items: [] }));
+    return headers.map((h) => ({
+      ...h,
+      skuId: h.sku_id,
+      skuName: h.sku_name,
+      skuCode: h.sku_code,
+      itemCount: Number(h.item_count),
+      items: [],
+    }));
   }
 
   // ── 获取 BOM 并递归展开（带缓存）────────────────────────────
@@ -734,6 +744,69 @@ export class BomService {
     await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, cachedVersion!));
 
     return { bomItemId: bomItemId! };
+  }
+
+  // ── V2-S2: 更新 BOM 明细行字段 ──────────────────────────────
+
+  /**
+   * 更新 BOM 明细行的 quantity / unit / scrapRate。
+   * 约束：
+   *   1. 明细必须属于当前租户且归属于指定 bomId。
+   *   2. 对应的 BOM header 必须处于 draft 状态。
+   * 事务内使用 FOR UPDATE 行锁防并发。
+   * 事务提交后失效 Redis 展开缓存。
+   */
+  async updateBomItem(
+    bomId: number,
+    itemId: number,
+    payload: { quantity?: string; unit?: string; scrapRate?: string },
+  ): Promise<void> {
+    let capturedVersion: string;
+
+    await AppDataSource.transaction(async (manager) => {
+      // 1. 校验明细存在、归属租户、归属 bomId，并加行锁
+      const [item] = await manager.query<Array<{ id: number }>>(
+        `SELECT id FROM bom_items
+         WHERE id = ? AND tenant_id = ? AND bom_header_id = ? LIMIT 1 FOR UPDATE`,
+        [itemId, this.tenantId, bomId],
+      );
+      if (!item) throw AppError.notFound('BOM明细不存在', ResponseCode.BOM_NOT_FOUND);
+
+      // 2. 校验 BOM header status 必须是 draft
+      const [header] = await manager.query<Array<{ status: string; version: string }>>(
+        `SELECT status, version FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1`,
+        [bomId, this.tenantId],
+      );
+      if (!header) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
+      if (header.status !== 'draft') {
+        throw AppError.badRequest(
+          '只有 draft 状态的 BOM 允许修改明细',
+          ResponseCode.BOM_STATUS_CONFLICT,
+        );
+      }
+      capturedVersion = header.version;
+
+      // 3. 动态构建 SET 子句（仅更新有传入的字段）
+      const setClauses: string[] = ['updated_by = ?'];
+      const params: unknown[] = [this.userId];
+
+      if (payload.quantity  !== undefined) { setClauses.push('quantity = ?');   params.push(payload.quantity); }
+      if (payload.unit      !== undefined) { setClauses.push('unit = ?');        params.push(payload.unit); }
+      if (payload.scrapRate !== undefined) { setClauses.push('scrap_rate = ?'); params.push(payload.scrapRate); }
+
+      params.push(itemId, this.tenantId, bomId);
+
+      await manager.query(
+        `UPDATE bom_items SET ${setClauses.join(', ')}
+         WHERE id = ? AND tenant_id = ? AND bom_header_id = ?`,
+        params,
+      );
+    });
+
+    // 4. 事务提交后失效 Redis 展开缓存
+    await getRedisClient().del(
+      RedisKeys.bomExpanded(this.tenantId, bomId, capturedVersion!),
+    );
   }
 
   // ── 私有辅助 ────────────────────────────────────────────────

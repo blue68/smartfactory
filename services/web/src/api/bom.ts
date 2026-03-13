@@ -76,6 +76,10 @@ export const bomApi = {
   /** 向已有 BOM 追加一条子项 */
   addItem: (bomId: number, item: { componentSkuId: number; quantity: string; unit: string; scrapRate?: string }) =>
     request.post<{ bomItemId: number }>(`/api/bom/${bomId}/items`, item),
+
+  /** PATCH /api/bom/:bomId/items/:itemId — 修改 BOM 子项用量 */
+  updateItem: (bomId: number, itemId: number, data: { quantity?: string; unit?: string; scrapRate?: string }) =>
+    request.patch<null>(`/api/bom/${bomId}/items/${itemId}`, data),
 };
 
 // ── React Query Hooks ────────────────────────
@@ -188,5 +192,18 @@ export function useAiBomSuggestion(skuId: number | null) {
     enabled: skuId !== null && skuId > 0,
     // AI 建议数据不需要高频刷新，5 分钟 stale
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** 修改 BOM 子项用量 */
+export function useUpdateBomItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ bomId, itemId, data }: { bomId: number; itemId: number; data: { quantity?: string; unit?: string; scrapRate?: string } }) =>
+      bomApi.updateItem(bomId, itemId, data),
+    onSuccess: (_data, { bomId }) => {
+      void qc.invalidateQueries({ queryKey: bomKeys.expanded(bomId) });
+      void qc.invalidateQueries({ queryKey: bomKeys.lists() });
+    },
   });
 }

@@ -65,6 +65,16 @@ const CopyBomSchema = z.object({
   newVersion: z.string().min(1).max(20),
 });
 
+// V2-S2: BOM 明细行字段更新 Schema
+const UpdateBomItemSchema = z.object({
+  quantity:  z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
+  unit:      z.string().min(1).max(20).optional(),
+  scrapRate: z.string().regex(/^0(\.\d{1,4})?$/).optional(),
+}).refine(
+  (d) => d.quantity !== undefined || d.unit !== undefined || d.scrapRate !== undefined,
+  { message: '至少提供一个可更新字段（quantity / unit / scrapRate）' },
+);
+
 export class BomController {
   private svc(req: Request): BomService {
     return new BomService({ tenantId: req.tenantId, userId: req.userId });
@@ -131,6 +141,17 @@ export class BomController {
     const { itemId } = ItemIdParamSchema.parse(req.params);
     await this.svc(req).deleteBomItem(itemId, bomId);
     success(res, null, 'BOM明细已删除');
+  }
+
+  // ── V2-S2: 更新 BOM 明细行字段 ───────────────────────────────
+
+  async updateBomItem(req: Request, res: Response): Promise<void> {
+    // 路由参数：bomId 来自 :bomId，itemId 来自 :itemId
+    const { id: bomId } = IdParamSchema.parse({ id: req.params.bomId });
+    const { itemId }    = ItemIdParamSchema.parse(req.params);
+    const body          = UpdateBomItemSchema.parse(req.body);
+    await this.svc(req).updateBomItem(bomId, itemId, body);
+    success(res, null, 'BOM明细已更新');
   }
 
   // ── BE-P1-001: 复制 BOM ───────────────────────────────────

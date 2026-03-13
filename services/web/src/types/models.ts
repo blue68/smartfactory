@@ -187,6 +187,7 @@ export interface BomHeader {
   version: string;
   status: BomStatus;
   description?: string;
+  itemCount?: number;
 }
 
 export interface BomItem {
