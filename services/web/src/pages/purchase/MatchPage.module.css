@@ -1,43 +1,522 @@
-.page { display: flex; flex-direction: column; gap: var(--space-5); }
+/* ================================================================
+   MatchPage — 三单匹配页
+   Design source: docs/ui/web-purchase-match.html
+================================================================ */
 
-.tabs { display: flex; gap: var(--space-1); border-bottom: 2px solid var(--border-default); }
-.tab { padding: var(--space-3) var(--space-4); font-size: var(--text-body-m); color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all var(--transition-fast); cursor: pointer; }
-.tab:hover { color: var(--text-primary); }
-.tab--active { color: var(--color-primary-600); border-bottom-color: var(--color-primary-500); font-weight: 600; }
+/* ---- Page layout -------------------------------------------- */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
 
-.diff_expand { padding: var(--space-4); }
-.diff_title { font-size: var(--text-body-s); font-weight: 600; color: var(--text-secondary); margin-bottom: var(--space-3); text-transform: uppercase; letter-spacing: 0.04em; }
-.diff_table { width: 100%; border-collapse: collapse; font-size: var(--text-body-s); }
-.diff_table th { text-align: left; padding: var(--space-2) var(--space-3); background: var(--color-gray-100); color: var(--text-secondary); font-weight: 600; font-size: 11px; text-transform: uppercase; }
-.diff_table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-default); }
-.diff_table tr:last-child td { border-bottom: none; }
-.diff_note { margin-top: var(--space-3); font-size: var(--text-body-s); color: var(--text-secondary); padding: var(--space-2) var(--space-3); background: var(--color-warning-50); border-radius: var(--radius-sm); }
+/* ================================================================
+   Stats Strip — 4 KPI Cards
+================================================================ */
+.stats_strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
 
+.stat_card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  box-shadow: var(--shadow-xs);
+}
+
+.stat_card__label {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stat_card__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.stat_card__dot--all     { background: var(--color-gray-400); }
+.stat_card__dot--matched { background: var(--color-success-500); }
+.stat_card__dot--pending { background: var(--color-warning-500); }
+.stat_card__dot--price   { background: var(--color-error-500); }
+
+.stat_card__value {
+  font-size: 1.875rem;
+  font-weight: 800;
+  line-height: 1.1;
+  font-family: var(--font-family-number, "DIN Alternate", "Roboto Mono", sans-serif);
+}
+
+.stat_card__value--all     { color: var(--text-primary); }
+.stat_card__value--matched { color: var(--color-success-600); }
+.stat_card__value--pending { color: var(--color-warning-600); }
+.stat_card__value--price   { color: var(--color-error-600); }
+
+.stat_card__sub {
+  font-size: 0.8125rem;
+  color: var(--text-disabled);
+}
+
+/* ================================================================
+   Filter Bar
+================================================================ */
+.filter_bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+/* Pill-style tab group */
+.tab_group {
+  display: flex;
+  gap: 2px;
+  background: var(--color-gray-100);
+  border-radius: var(--radius-md);
+  padding: 3px;
+}
+
+.tab_btn {
+  height: 34px;
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-family: var(--font-family-base);
+  transition: background var(--transition-fast), color var(--transition-fast);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.tab_btn:hover {
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-primary);
+}
+
+.tab_btn--active {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-weight: 700;
+  box-shadow: var(--shadow-xs);
+}
+
+/* Count badge inside tab */
+.tab_count {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  line-height: 1.4;
+}
+
+.tab_count--all     { background: var(--color-gray-200); color: var(--color-gray-700); }
+.tab_count--matched { background: var(--color-success-100); color: var(--color-success-700); }
+.tab_count--pending { background: var(--color-warning-100); color: var(--color-warning-700); }
+.tab_count--price   { background: var(--color-error-100); color: var(--color-error-600); }
+
+/* Right side of filter bar */
+.filter_right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.filter_select {
+  height: 34px;
+  padding: 0 2rem 0 var(--space-3);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  font-size: 0.875rem;
+  font-family: var(--font-family-base);
+  color: var(--text-primary);
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.filter_select:focus {
+  outline: none;
+  border-color: var(--color-primary-500);
+}
+
+/* ================================================================
+   Table Card (wrapper with header)
+================================================================ */
+.table_card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.table_card__header {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.table_card__title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.table_card__meta {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+/* ================================================================
+   Status Cell (circle icon + label)
+================================================================ */
+.status_cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.match_icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 0.875rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.match_icon--ok    { background: var(--color-success-100); color: var(--color-success-700); }
+.match_icon--warn  { background: var(--color-warning-100); color: var(--color-warning-700); }
+.match_icon--error { background: var(--color-error-100);   color: var(--color-error-600); }
+.match_icon--info  { background: var(--color-primary-100); color: var(--color-primary-700); }
+
+.status_label {
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.status_label--ok   { color: var(--color-success-700); }
+.status_label--warn { color: var(--color-warning-700); }
+.status_label--err  { color: var(--color-error-600); }
+.status_label--info { color: var(--color-primary-700); }
+
+/* ================================================================
+   PO Code
+================================================================ */
+.po_code {
+  font-family: var(--font-family-number, "DIN Alternate", "Roboto Mono", sans-serif);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--color-primary-600);
+}
+
+/* ================================================================
+   Amount
+================================================================ */
+.amount {
+  font-family: var(--font-family-number, "DIN Alternate", "Roboto Mono", sans-serif);
+  font-weight: 600;
+}
+
+.amount--error { color: var(--color-error-600); }
+
+/* ================================================================
+   Diff Badge
+================================================================ */
+.diff_badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+
+.diff_badge--none  { background: var(--color-gray-100); color: var(--text-disabled); }
+.diff_badge--qty   {
+  background: var(--color-warning-50);
+  color: var(--color-warning-700);
+  border: 1px solid var(--color-warning-300);
+}
+.diff_badge--price {
+  background: var(--color-error-50);
+  color: var(--color-error-600);
+  border: 1px solid var(--color-error-200);
+}
+.diff_badge--spec  {
+  background: var(--color-accent-50);
+  color: var(--color-accent-600);
+  border: 1px solid var(--color-accent-200);
+}
+
+/* ================================================================
+   Table Actions
+================================================================ */
+.table_actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ================================================================
+   Diff Modal — Warning Strip
+================================================================ */
+.modal_warning_strip {
+  background: var(--color-error-50);
+  border: 1px solid var(--color-error-200);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  font-size: 0.875rem;
+  color: var(--color-error-700);
+  line-height: 1.5;
+}
+
+.modal_warning_icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--color-error-500);
+}
+
+/* ================================================================
+   Compare Table (3-way comparison inside modal)
+================================================================ */
+.section_label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-disabled);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-3);
+}
+
+.compare_table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--space-5);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+}
+
+.compare_table th {
+  background: var(--color-gray-50);
+  padding: var(--space-3) var(--space-4);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-align: center;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.compare_table th:first-child { text-align: left; }
+
+.compare_table td {
+  padding: var(--space-3) var(--space-4);
+  font-size: 0.9375rem;
+  text-align: center;
+  border-bottom: 1px solid var(--border-default);
+  vertical-align: middle;
+}
+
+.compare_table td:first-child {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.compare_table tr:last-child td { border-bottom: none; }
+
+.compare_table tbody tr:nth-child(even) { background: var(--color-gray-50); }
+
+.compare_cell--diff {
+  background: var(--color-error-50) !important;
+  color: var(--color-error-600) !important;
+  font-weight: 700;
+}
+
+.compare_cell--match { color: var(--color-success-700); font-weight: 600; }
+.compare_cell--neutral { color: var(--text-disabled); }
+
+/* ================================================================
+   Radio Card Group (diff reason selection)
+================================================================ */
+.radio_group_grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.radio_card {
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+  user-select: none;
+}
+
+.radio_card:hover {
+  border-color: var(--color-primary-300, #93c5fd);
+  background: var(--color-primary-50);
+}
+
+.radio_card--selected {
+  border-color: var(--color-primary-500);
+  background: var(--color-primary-50);
+}
+
+.radio_circle {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color var(--transition-fast);
+  position: relative;
+}
+
+.radio_circle::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary-500);
+  opacity: 0;
+  transform: scale(0);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.radio_card--selected .radio_circle {
+  border-color: var(--color-primary-500);
+}
+
+.radio_card--selected .radio_circle::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.radio_card__label {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.radio_card__desc {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin-top: 1px;
+}
+
+/* ================================================================
+   Modal Form
+================================================================ */
+.modal_form_group {
+  margin-bottom: var(--space-4);
+}
+
+.modal_form_label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.modal_textarea {
+  width: 100%;
+  min-height: 80px;
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: 0.9375rem;
+  font-family: var(--font-family-base);
+  color: var(--text-primary);
+  resize: vertical;
+  line-height: 1.5;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.modal_textarea:focus {
+  outline: none;
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* ================================================================
+   Execute Match Form (modal)
+================================================================ */
 .exec_form { display: flex; flex-direction: column; gap: var(--space-4); }
 .exec_field { display: flex; flex-direction: column; gap: var(--space-2); }
 .exec_label { font-size: var(--text-label); font-weight: 500; color: var(--text-secondary); }
-.exec_input {
-  height: 40px; padding: 0 var(--space-3);
-  border: 1px solid var(--border-default); border-radius: var(--radius-md);
-  font-size: var(--text-body-m); color: var(--text-primary); background: var(--bg-card);
-  outline: none; width: 100%;
-  transition: border-color var(--transition-fast);
-}
-.exec_input:focus { border-color: var(--border-focus); }
-.exec_textarea {
-  width: 100%; padding: var(--space-3);
-  border: 1px solid var(--border-default); border-radius: var(--radius-md);
-  font-family: var(--font-family-base); font-size: var(--text-body-m); color: var(--text-primary);
-  resize: vertical; outline: none;
-  transition: border-color var(--transition-fast);
-}
-.exec_textarea:focus { border-color: var(--border-focus); }
 
-/* ——— T215: 响应式断点 ——— */
+.exec_input {
+  height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-m);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  width: 100%;
+  transition: border-color var(--transition-fast);
+}
+
+.exec_input:focus { border-color: var(--border-focus); }
+
+/* ================================================================
+   Responsive
+================================================================ */
+@media (max-width: 1024px) {
+  .stats_strip { grid-template-columns: repeat(2, 1fr); }
+}
+
 @media (max-width: 768px) {
-  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .tab { white-space: nowrap; padding: var(--space-2) var(--space-3); font-size: var(--text-body-s); }
-  .diff_table { font-size: 12px; }
-  .diff_table th,
-  .diff_table td { padding: var(--space-1) var(--space-2); }
+  .stats_strip { grid-template-columns: 1fr 1fr; }
+  .tab_group { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab_btn { white-space: nowrap; padding: 0 var(--space-3); font-size: 0.8125rem; }
+  .radio_group_grid { grid-template-columns: 1fr; }
+  .filter_bar { flex-wrap: wrap; }
+  .filter_right { margin-left: 0; }
 }
