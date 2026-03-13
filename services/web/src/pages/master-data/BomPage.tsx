@@ -20,7 +20,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/appStore';
-import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useUpdateBom, useCopyBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem, useUpdateBomItem } from '@/api/bom';
+import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useUpdateBom, useCopyBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem, useUpdateBomItem, useMaterialRequirements } from '@/api/bom';
 import { useQuery } from '@tanstack/react-query';
 import { useSkuCategories, useSkuList, skuApi, skuKeys } from '@/api/sku';
 import type { BomHeader, BomItem } from '@/types/models';
@@ -433,6 +433,18 @@ function EditorView({ row, onBack }: EditorViewProps) {
   const [editDesc, setEditDesc] = useState('');
   const updateBom = useUpdateBom();
 
+  // TASK-BOM-03: 物料需求计算弹框状态
+  const [calcReqOpen, setCalcReqOpen] = useState(false);
+  const [calcReqQty, setCalcReqQty] = useState('100');
+  const [calcReqSubmitted, setCalcReqSubmitted] = useState(false);
+  const { data: reqData, isLoading: reqLoading } = useMaterialRequirements(
+    calcReqSubmitted ? row.id : null,
+    calcReqSubmitted ? Number(calcReqQty) : 0,
+  );
+
+  // TASK-BOM-04: AI 批量导入状态
+  const [batchImporting, setBatchImporting] = useState(false);
+
   const handleOpenEditInfo = () => {
     setEditVersion(detailData?.version ?? '');
     setEditDesc(detailData?.description ?? '');
@@ -639,6 +651,79 @@ function EditorView({ row, onBack }: EditorViewProps) {
         </div>
       </Modal>
 
+      {/* TASK-BOM-03: 物料需求计算弹框 */}
+      <Modal
+        open={calcReqOpen}
+        title="物料需求计算"
+        onClose={() => { setCalcReqOpen(false); setCalcReqSubmitted(false); setCalcReqQty('100'); }}
+        onConfirm={() => {
+          if (!calcReqQty || Number(calcReqQty) <= 0) {
+            showToast({ type: 'error', message: '请输入有效的生产数量' });
+            return;
+          }
+          setCalcReqSubmitted(true);
+        }}
+        confirmLabel="计算"
+        cancelLabel="关闭"
+        size="md"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+              生产数量
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={1000000}
+              value={calcReqQty}
+              onChange={(e) => { setCalcReqQty(e.target.value); setCalcReqSubmitted(false); }}
+              placeholder="默认 100"
+              style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', boxSizing: 'border-box' }}
+            />
+          </div>
+          {calcReqSubmitted && (
+            <>
+              {reqLoading ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                  <div className="spinner" role="status" aria-label="计算中" />
+                  <span>正在计算物料需求...</span>
+                </div>
+              ) : reqData && reqData.length > 0 ? (
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>需求清单（生产数量：{calcReqQty}）</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--color-bg-subtle, #f8fafc)' }}>
+                        <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', borderBottom: '1px solid var(--border-default)', fontWeight: 600 }}>物料名称</th>
+                        <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border-default)', fontWeight: 600 }}>单位用量</th>
+                        <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border-default)', fontWeight: 600 }}>总需求量</th>
+                        <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', borderBottom: '1px solid var(--border-default)', fontWeight: 600 }}>单位</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reqData.map((r) => (
+                        <tr key={r.skuId} style={{ borderBottom: '1px solid var(--border-subtle, #e5e7eb)' }}>
+                          <td style={{ padding: '0.5rem 0.75rem' }}>
+                            <div style={{ fontWeight: 500 }}>{r.skuName}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.skuCode}</div>
+                          </td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', color: 'var(--text-secondary)' }}>—</td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontWeight: 600 }}>{r.totalQty}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center', color: 'var(--text-secondary)' }}>{r.unit}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : reqData && reqData.length === 0 ? (
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>暂无物料需求数据，请先为BOM添加物料</p>
+              ) : null}
+            </>
+          )}
+        </div>
+      </Modal>
+
       {/* 新增物料弹框 */}
       <Modal
         open={addMatOpen}
@@ -779,6 +864,13 @@ function EditorView({ row, onBack }: EditorViewProps) {
           {/* BOM-REM-001: 编辑信息入口，调用 useUpdateBom */}
           <Button variant="secondary" onClick={handleOpenEditInfo} disabled={updateBom.isPending}>
             编辑信息
+          </Button>
+          {/* TASK-BOM-03: 物料需求计算入口 */}
+          <Button
+            variant="secondary"
+            onClick={() => { setCalcReqQty('100'); setCalcReqSubmitted(false); setCalcReqOpen(true); }}
+          >
+            需求计算
           </Button>
         </div>
       </div>
@@ -922,14 +1014,40 @@ function EditorView({ row, onBack }: EditorViewProps) {
                     </tbody>
                   </table>
                   <div className={styles.ai_panel__actions}>
+                    {/* TASK-BOM-04: 一键批量导入 AI 建议 */}
                     <Button
                       variant="secondary"
                       size="sm"
                       style={{ background: 'var(--color-accent-500, #f97316)', color: '#fff', borderColor: 'transparent' }}
-                      disabled
-                      title="功能开发中，敬请期待"
+                      disabled={batchImporting}
+                      onClick={async () => {
+                        if (!aiSuggestion) return;
+                        if (row.status !== BomStatus.DRAFT) {
+                          showToast({ type: 'error', message: '仅草稿状态的 BOM 可批量导入物料' });
+                          return;
+                        }
+                        setBatchImporting(true);
+                        try {
+                          const results = await Promise.allSettled(
+                            aiSuggestion.suggestedItems.map((r) =>
+                              addBomItem.mutateAsync({
+                                bomId: row.id,
+                                item: { componentSkuId: r.skuId, quantity: r.quantity, unit: r.unit },
+                              })
+                            )
+                          );
+                          const succeeded = results.filter((res) => res.status === 'fulfilled').length;
+                          const failed = results.filter((res) => res.status === 'rejected').length;
+                          showToast({
+                            type: failed === 0 ? 'success' : 'error',
+                            message: `成功添加 ${succeeded} 项，失败 ${failed} 项`,
+                          });
+                        } finally {
+                          setBatchImporting(false);
+                        }
+                      }}
                     >
-                      一键复用此BOM结构（开发中）
+                      {batchImporting ? '导入中...' : '一键复用此BOM结构'}
                     </Button>
                     <Button variant="ghost" size="sm">忽略建议</Button>
                   </div>
