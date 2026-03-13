@@ -183,14 +183,17 @@ router.get(
   }),
 );
 
+// sessionId 格式校验（SEC H-001：防止超长/特殊字符探测）
+const SESSION_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 router.get(
   '/conversations/:sessionId/messages',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const ctx = extractTenantContext(req);
 
     const sessionId = req.params.sessionId;
-    if (!sessionId) {
-      error(res, ResponseCode.INVALID_PARAMS, 'sessionId 不能为空');
+    if (!sessionId || !SESSION_ID_REGEX.test(sessionId)) {
+      error(res, ResponseCode.INVALID_PARAMS, 'sessionId 格式无效');
       return;
     }
     const svc = new AiService(ctx);
@@ -205,8 +208,8 @@ router.delete(
     const ctx = extractTenantContext(req);
 
     const sessionId = req.params.sessionId;
-    if (!sessionId) {
-      error(res, ResponseCode.INVALID_PARAMS, 'sessionId 不能为空');
+    if (!sessionId || !SESSION_ID_REGEX.test(sessionId)) {
+      error(res, ResponseCode.INVALID_PARAMS, 'sessionId 格式无效');
       return;
     }
     const svc = new AiService(ctx);

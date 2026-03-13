@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { errorHandler } from './middleware/errorHandler';
 import { apmMiddleware, metricsHandler } from './middleware/apm';
+import { authMiddleware, requireRoles } from './middleware/auth';
 
 // 路由模块
 import authRoutes      from './modules/auth/auth.routes';
@@ -78,17 +79,30 @@ app.use(apmMiddleware);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// ── 安全头 ────────────────────────────────────────────────────
+// ── 安全头（SEC M-003：补充 CSP/HSTS/Referrer-Policy）─────────
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'");
+  }
   next();
 });
 
-// ── 上传文件静态服务 ───────────────────────────────────────────
-// 必须在 API 路由之前注册，且不经过认证中间件（URL 直接可访问已知文件名）
-app.use('/uploads', express.static(path.resolve(process.env.UPLOAD_DIR || '/app/uploads')));
+// ── 上传文件静态服务（SEC：需认证才能访问）───────────────────────
+// 文件下载须经认证中间件，防止未授权枚举访问敏感附件
+app.use('/uploads', authMiddleware, (req, res, next) => {
+  // 防路径穿越：仅允许 basename，不允许含 ..
+  const fileName = path.basename(req.path);
+  if (fileName !== req.path.replace(/^\//, '')) {
+    res.status(400).json({ code: 1003, data: null, message: '非法文件路径' });
+    return;
+  }
+  next();
+}, express.static(path.resolve(process.env.UPLOAD_DIR || '/app/uploads')));
 
 // ── 全局限流（防暴力请求） ─────────────────────────────────────
 const globalLimiter = rateLimit({
@@ -110,11 +124,11 @@ app.use('/api/auth/login', authLimiter as RequestHandler);
 
 // ── 健康检查（不需认证） ────────────────────────────────────
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok' });
 });
 
-// ── APM 指标端点（BE-P2-012，不需认证） ───────────────────
-app.get('/api/health/metrics', metricsHandler);
+// ── APM 指标端点（BE-P2-012，需认证 + boss 角色）──────────
+app.get('/api/health/metrics', authMiddleware, requireRoles('boss'), metricsHandler);
 
 // ── API 路由注册 ────────────────────────────────────────────
 app.use('/api/auth',       authRoutes);

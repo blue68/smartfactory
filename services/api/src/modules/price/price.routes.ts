@@ -1,10 +1,27 @@
 import { Router } from 'express';
+import path from 'path';
 import multer from 'multer';
 import { priceController } from './price.controller';
 import { authMiddleware, requireRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB 上限
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExts = ['.xls', '.xlsx'];
+    const allowedMimes = [
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ];
+    if (allowedExts.includes(ext) && allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('仅支持 .xls/.xlsx 格式文件'));
+    }
+  },
+});
 const router = Router();
 
 router.use(authMiddleware);
@@ -23,7 +40,7 @@ router.get('/import/:taskId', asyncHandler(priceController.getImportStatus.bind(
 router.get('/',         asyncHandler(priceController.list.bind(priceController)));
 router.get('/history/:skuId', asyncHandler(priceController.getPriceHistory.bind(priceController)));
 router.get('/:id',      asyncHandler(priceController.getOne.bind(priceController)));
-router.post('/',        asyncHandler(priceController.create.bind(priceController)));
-router.put('/:id',      asyncHandler(priceController.update.bind(priceController)));
+router.post('/',        requireRoles('boss', 'supervisor', 'purchaser'), asyncHandler(priceController.create.bind(priceController)));
+router.put('/:id',      requireRoles('boss', 'supervisor', 'purchaser'), asyncHandler(priceController.update.bind(priceController)));
 
 export default router;

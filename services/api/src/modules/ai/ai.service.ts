@@ -115,8 +115,11 @@ export class AiService {
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '未知错误';
-      console.error('[AiService] handleChat 异常:', msg);
-      ResponseGenerator.writeError(res, `AI 服务暂时不可用：${msg}`);
+      console.error('[AiService] handleChat 异常:', msg, err instanceof Error ? err.stack : '');
+      // 生产环境屏蔽内部错误详情，防止 SQL/堆栈信息泄露（SEC C-002）
+      const isProduction = process.env.NODE_ENV === 'production';
+      const clientMsg = isProduction ? 'AI 服务暂时不可用，请稍后重试' : `AI 服务暂时不可用：${msg}`;
+      ResponseGenerator.writeError(res, clientMsg);
     } finally {
       clearTimeout(timeoutHandle);
       if (!res.writableEnded) res.end();
