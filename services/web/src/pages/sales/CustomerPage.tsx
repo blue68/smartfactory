@@ -268,8 +268,8 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
 
   const [newContact, setNewContact] = useState({ name: '', phone: '', title: '', email: '' });
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
-  const [editContactForm, setEditContactForm] = useState<{ name: string; phone: string; title: string; isPrimary: boolean }>({
-    name: '', phone: '', title: '', isPrimary: false,
+  const [editContactForm, setEditContactForm] = useState<{ name: string; phone: string; title: string; email: string; isPrimary: boolean }>({
+    name: '', phone: '', title: '', email: '', isPrimary: false,
   });
 
   async function handleAddContact() {
@@ -285,7 +285,7 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
 
   function startEditContact(c: CustomerContact) {
     setEditingContactId(c.id);
-    setEditContactForm({ name: c.name, phone: c.phone ?? '', title: c.title ?? '', isPrimary: c.isPrimary });
+    setEditContactForm({ name: c.name, phone: c.phone ?? '', title: c.title ?? '', email: c.email ?? '', isPrimary: c.isPrimary });
   }
 
   async function saveEditContact() {
@@ -409,6 +409,13 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
                         value={editContactForm.phone}
                         onChange={(e) => setEditContactForm((p) => ({ ...p, phone: e.target.value }))}
                         placeholder="电话"
+                      />
+                      <input
+                        className={styles.addContactInput}
+                        type="email"
+                        value={editContactForm.email}
+                        onChange={(e) => setEditContactForm((p) => ({ ...p, email: e.target.value }))}
+                        placeholder="邮箱"
                       />
                       <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
                         <input
@@ -801,6 +808,10 @@ export default function CustomerPage() {
           value={keyword}
           onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
         />
+        {/* R07-G06: total count display */}
+        <span style={{ fontSize: 13, color: 'var(--color-neutral-500,#6B7280)', whiteSpace: 'nowrap', alignSelf: 'center' }}>
+          共 {data?.total ?? 0} 条
+        </span>
         <select
           className={styles.select}
           value={grade}

@@ -1073,6 +1073,9 @@ export default function SalesOrderListPage() {
     isUrgent: undefined,
   });
 
+  // GAP-R08-07: raw input state for debounced keyword search
+  const [searchInput, setSearchInput] = useState('');
+
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
 
@@ -1087,6 +1090,14 @@ export default function SalesOrderListPage() {
   const orders: SalesOrder[] = data?.list ?? [];
   const total: number = data?.total ?? 0;
   const totalPages = Math.ceil(total / (query.pageSize ?? 20));
+
+  // GAP-R08-07: debounce keyword search input by 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery((prev) => ({ ...prev, keyword: searchInput, page: 1 }));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   // Summary stats from dedicated aggregation API
   const statsTotal = orderStatsData?.total ?? data?.total ?? 0;
@@ -1181,7 +1192,11 @@ export default function SalesOrderListPage() {
         total={statsTotal}
         statusCounts={statusCounts}
         activeStatus={(query.status ?? '') as SalesOrderStatus | ''}
-        onStatusClick={(s) => handleQueryChange('status', s || undefined)}
+        onStatusClick={(s) => {
+          // GAP-R08-05: toggle — clicking active card clears the filter
+          const current = query.status ?? '';
+          handleQueryChange('status', s !== '' && s === current ? undefined : (s || undefined));
+        }}
       />
 
       {/* Filter bar */}
@@ -1189,8 +1204,8 @@ export default function SalesOrderListPage() {
         <input
           className={styles.searchInput}
           placeholder="搜索订单号 / 客户名称..."
-          value={query.keyword ?? ''}
-          onChange={(e) => handleQueryChange('keyword', e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
         />
         <select
           className={styles.select}
