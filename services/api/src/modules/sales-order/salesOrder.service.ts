@@ -5,6 +5,28 @@ import { SalesOrderItemEntity } from './salesOrderItem.entity';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 
+// ─── 产能检查常量 ─────────────────────────────────────────────────────────────
+/** 默认日产能（件/天），当工作站表无数据时降级使用 */
+const DEFAULT_MAX_CAPACITY_PER_DAY = 1000;
+
+// ─── 产能检查结果类型 ─────────────────────────────────────────────────────────
+
+export interface ConflictingOrder {
+  id: number;
+  orderNo: string;
+  skuName: string;
+  quantity: number;
+  deadline: string;
+}
+
+export interface CapacityCheckResult {
+  available: boolean;
+  currentLoad: number;
+  maxCapacity: number;
+  estimatedCompletionDate: string;
+  conflictingOrders: ConflictingOrder[];
+}
+
 // ─── 状态流转合法性 Map ──────────────────────────────────────────────────────
 // key: 当前状态，value: 允许流转到的目标状态集合
 const TRANSITION_MAP: Record<SalesOrderStatus, SalesOrderStatus[]> = {
@@ -491,6 +513,139 @@ export class SalesOrderService {
       [this.tenantId],
     );
     return { count: orders.length, orders };
+  }
+
+  // ── 17. 产能预检（下单前评估，独立端点）──────────────────────────────────────
+
+  /**
+   * 产能可行性检查
+   *
+   * 逻辑：
+   * 1. 查询 expectedDelivery 日期当天之前所有非取消状态的在产工单，
+   *    累加 qty_planned 作为 currentLoad（已占用产能）
+   * 2. maxCapacity = 工作站 capacity 之和（若无工作站则降级为默认常量）×
+   *    今天到交期的天数
+   * 3. available = (currentLoad + quantity) <= maxCapacity
+   * 4. estimatedCompletionDate：若可用，返回 expectedDelivery；
+   *    否则估算在当前积压基础上追加所需天数后的完工日期
+   * 5. conflictingOrders：deadline 落在今天到 expectedDelivery 区间内的
+   *    同期在产工单（最多返回 10 条）
+   */
+  async capacityCheck(params: {
+    skuId: number;
+    quantity: number;
+    expectedDelivery: string;
+  }): Promise<CapacityCheckResult> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const deliveryDate = new Date(params.expectedDelivery);
+    deliveryDate.setHours(0, 0, 0, 0);
+
+    // 交期不能早于今天
+    if (deliveryDate < today) {
+      return {
+        available: false,
+        currentLoad: params.quantity,
+        maxCapacity: 0,
+        estimatedCompletionDate: params.expectedDelivery,
+        conflictingOrders: [],
+      };
+    }
+
+    const workDays = Math.max(
+      1,
+      Math.ceil((deliveryDate.getTime() - today.getTime()) / (1000 * 3600 * 24)),
+    );
+
+    // 查询工作站日产能总和
+    const [wsRow] = await AppDataSource.query<Array<{ totalCapacity: string | null }>>(
+      `SELECT COALESCE(SUM(capacity), 0) AS totalCapacity
+       FROM workstations
+       WHERE tenant_id = ? AND status = 'active'`,
+      [this.tenantId],
+    );
+    const dailyCapacity = Number(wsRow?.totalCapacity ?? 0) > 0
+      ? Number(wsRow!.totalCapacity)
+      : DEFAULT_MAX_CAPACITY_PER_DAY;
+
+    const maxCapacity = dailyCapacity * workDays;
+
+    // 查询区间内非取消在产工单的已占用总产能
+    const [loadRow] = await AppDataSource.query<Array<{ currentLoad: string }>>(
+      `SELECT COALESCE(SUM(qty_planned), 0) AS currentLoad
+       FROM production_orders
+       WHERE tenant_id = ?
+         AND status != 'cancelled'
+         AND (planned_end IS NULL OR planned_end <= ?)`,
+      [this.tenantId, params.expectedDelivery],
+    );
+    const currentLoad = Number(loadRow?.currentLoad ?? 0);
+
+    const available = (currentLoad + params.quantity) <= maxCapacity;
+
+    // 估算完工日期
+    let estimatedCompletionDate = params.expectedDelivery;
+    if (!available) {
+      const overload = currentLoad + params.quantity - maxCapacity;
+      const extraDays = Math.ceil(overload / dailyCapacity);
+      const completionDate = new Date(deliveryDate);
+      completionDate.setDate(completionDate.getDate() + extraDays);
+      estimatedCompletionDate = completionDate.toISOString().slice(0, 10);
+    }
+
+    // 查询冲突工单（同期截止日期在今天 ~ 交期范围内，最多 10 条）
+    const todayStr = today.toISOString().slice(0, 10);
+    const conflictRows = await AppDataSource.query<Array<{
+      id: number;
+      work_order_no: string;
+      sku_name: string;
+      qty_planned: string;
+      planned_end: string | null;
+    }>>(
+      `SELECT po.id, po.work_order_no, s.name AS sku_name,
+              po.qty_planned, po.planned_end
+       FROM production_orders po
+       LEFT JOIN skus s ON s.id = po.sku_id
+       WHERE po.tenant_id = ?
+         AND po.status != 'cancelled'
+         AND (po.planned_end IS NULL OR po.planned_end BETWEEN ? AND ?)
+       ORDER BY po.planned_end ASC
+       LIMIT 10`,
+      [this.tenantId, todayStr, params.expectedDelivery],
+    );
+
+    const conflictingOrders: ConflictingOrder[] = conflictRows.map((row) => ({
+      id: row.id,
+      orderNo: row.work_order_no,
+      skuName: row.sku_name ?? '',
+      quantity: Number(row.qty_planned),
+      deadline: row.planned_end ?? params.expectedDelivery,
+    }));
+
+    return {
+      available,
+      currentLoad,
+      maxCapacity,
+      estimatedCompletionDate,
+      conflictingOrders,
+    };
+  }
+
+  // ── 18. 状态统计 ──────────────────────────────────────────────────────────
+
+  async getStats(): Promise<{ total: number; byStatus: Record<string, number> }> {
+    const rows = await AppDataSource.query<Array<{ status: string; count: string }>>(
+      `SELECT status, COUNT(*) AS count FROM sales_orders WHERE tenant_id = ? GROUP BY status`,
+      [this.tenantId],
+    );
+    const byStatus: Record<string, number> = {};
+    let total = 0;
+    for (const row of rows) {
+      const cnt = Number(row.count);
+      byStatus[row.status] = cnt;
+      total += cnt;
+    }
+    return { total, byStatus };
   }
 
   // ─── 私有工具方法 ────────────────────────────────────────────────────────

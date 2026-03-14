@@ -117,6 +117,23 @@ export class ProductionController {
     success(res, null, '异常已上报');
   }
 
+  // P0-06: 暂停任务
+  async suspendTask(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const body = z.object({
+      reason: z.string().min(1).max(500),
+    }).parse(req.body);
+    const data = await this.svc(req).suspendTask(id, body.reason);
+    success(res, data, '任务已暂停');
+  }
+
+  // P0-06: 恢复任务
+  async resumeTask(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const data = await this.svc(req).resumeTask(id);
+    success(res, data, '任务已恢复');
+  }
+
   // P2: 异常处理（恢复任务）
   async resolveException(req: Request, res: Response): Promise<void> {
     const id = Number(req.params.id);
@@ -181,6 +198,12 @@ export class ProductionController {
   // BE-P1: 工作站列表
   async listWorkstations(req: Request, res: Response): Promise<void> {
     const data = await this.svc(req).listWorkstations();
+    success(res, data);
+  }
+
+  // P0-10: 任务统计
+  async getTaskStats(req: Request, res: Response): Promise<void> {
+    const data = await this.svc(req).getTaskStats();
     success(res, data);
   }
 }

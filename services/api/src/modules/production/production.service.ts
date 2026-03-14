@@ -276,6 +276,62 @@ export class ProductionService {
     });
   }
 
+  // P0-06: 暂停任务（仅 started / pending 状态可暂停）
+  async suspendTask(taskId: number, reason: string): Promise<unknown> {
+    const [task] = await AppDataSource.query(
+      `SELECT id, status FROM production_tasks WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [taskId, this.tenantId],
+    );
+    if (!task) throw AppError.notFound('任务不存在', ResponseCode.NOT_FOUND);
+    if (task.status !== 'started' && task.status !== 'pending') {
+      throw AppError.badRequest(
+        `任务状态为「${task.status}」，无法暂停。只有 started 或 pending 状态的任务可以暂停`,
+      );
+    }
+
+    await AppDataSource.query(
+      `UPDATE production_tasks
+       SET status = 'suspended', suspend_reason = ?, updated_by = ?
+       WHERE id = ? AND tenant_id = ?`,
+      [reason, this.userId, taskId, this.tenantId],
+    );
+
+    const [updated] = await AppDataSource.query(
+      `SELECT id, status, suspend_reason AS suspendReason, updated_at AS updatedAt
+       FROM production_tasks WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [taskId, this.tenantId],
+    );
+    return updated;
+  }
+
+  // P0-06: 恢复任务（仅 suspended 状态可恢复，状态重置为 pending，清空暂停原因）
+  async resumeTask(taskId: number): Promise<unknown> {
+    const [task] = await AppDataSource.query(
+      `SELECT id, status FROM production_tasks WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [taskId, this.tenantId],
+    );
+    if (!task) throw AppError.notFound('任务不存在', ResponseCode.NOT_FOUND);
+    if (task.status !== 'suspended') {
+      throw AppError.badRequest(
+        `任务状态为「${task.status}」，无法恢复。只有 suspended 状态的任务可以恢复`,
+      );
+    }
+
+    await AppDataSource.query(
+      `UPDATE production_tasks
+       SET status = 'pending', suspend_reason = NULL, updated_by = ?
+       WHERE id = ? AND tenant_id = ?`,
+      [this.userId, taskId, this.tenantId],
+    );
+
+    const [updated] = await AppDataSource.query(
+      `SELECT id, status, suspend_reason AS suspendReason, updated_at AS updatedAt
+       FROM production_tasks WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [taskId, this.tenantId],
+    );
+    return updated;
+  }
+
   // P2: 异常处理（恢复任务状态）
   async resolveException(taskId: number, resolution: string): Promise<void> {
     await AppDataSource.transaction(async (manager) => {
@@ -471,6 +527,27 @@ export class ProductionService {
     }
 
     return count;
+  }
+
+  // P0-10: 任务统计 — 按状态分组全量计数
+  async getTaskStats(): Promise<{ total: number; byStatus: Record<string, number> }> {
+    const rows = await AppDataSource.query<Array<{ status: string; count: string }>>(
+      `SELECT status, COUNT(*) AS count
+       FROM production_tasks
+       WHERE tenant_id = ?
+       GROUP BY status`,
+      [this.tenantId],
+    );
+
+    const byStatus: Record<string, number> = {};
+    let total = 0;
+    for (const row of rows) {
+      const cnt = Number(row.count);
+      byStatus[row.status] = cnt;
+      total += cnt;
+    }
+
+    return { total, byStatus };
   }
 
   // BE-P1-008: 生产进度看板

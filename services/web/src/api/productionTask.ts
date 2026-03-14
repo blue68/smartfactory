@@ -29,11 +29,14 @@ export interface TaskException {
 
 export interface TaskStats {
   total: number;
-  pending: number;
-  inProgress: number;
-  completed: number;
-  exception: number;
-  suspended: number;
+  byStatus: {
+    pending: number;
+    started: number;
+    completed: number;
+    exception: number;
+    suspended: number;
+    [key: string]: number;
+  };
 }
 
 export interface ProductionTask {
@@ -65,7 +68,7 @@ export const taskApi = {
   list: (filter: TaskListQuery) =>
     request.get<any>('/api/production/tasks', filter as Record<string, unknown>),
   stats: () =>
-    request.get<TaskStats>('/api/production-tasks/stats'),
+    request.get<TaskStats>('/api/production/tasks/stats'),
   detail: (taskId: number) =>
     request.get<ProductionTask>(`/api/production/tasks/${taskId}`),
   start: (taskId: number) =>

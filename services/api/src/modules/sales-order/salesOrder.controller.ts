@@ -55,6 +55,12 @@ const CloseSchema = z.object({
   reason: z.string().min(1).max(500),
 });
 
+const CapacityCheckQuerySchema = z.object({
+  skuId: z.coerce.number().int().positive(),
+  quantity: z.coerce.number().int().positive(),
+  expectedDelivery: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式必须为 YYYY-MM-DD'),
+});
+
 // ─── Controller ─────────────────────────────────────────────────────────────
 
 export class SalesOrderController {
@@ -192,6 +198,27 @@ export class SalesOrderController {
   /** GET /sales-orders/pending-approvals */
   async getPendingApprovals(req: Request, res: Response): Promise<void> {
     const data = await this.svc(req).getPendingApprovals();
+    success(res, data);
+  }
+
+  /**
+   * GET /sales-orders/capacity-check
+   * 下单前产能可行性预检，不修改任何数据。
+   * Query params: skuId, quantity, expectedDelivery (YYYY-MM-DD)
+   */
+  async capacityCheck(req: Request, res: Response): Promise<void> {
+    const query = CapacityCheckQuerySchema.parse(req.query);
+    const result = await this.svc(req).capacityCheck({
+      skuId: query.skuId,
+      quantity: query.quantity,
+      expectedDelivery: query.expectedDelivery,
+    });
+    success(res, result);
+  }
+
+  /** GET /sales-orders/stats */
+  async getStats(req: Request, res: Response): Promise<void> {
+    const data = await this.svc(req).getStats();
     success(res, data);
   }
 }

@@ -68,6 +68,9 @@ router.post('/schedule/confirm',
   asyncHandler(productionController.confirmSchedule.bind(productionController)),
 );
 
+// P0-10: 任务统计（固定路由，必须在 /tasks/:id 之前）
+router.get('/tasks/stats', asyncHandler(productionController.getTaskStats.bind(productionController)));
+
 // R-06: 任务列表（分页 + 筛选）
 router.get('/tasks', asyncHandler(productionController.listTasks.bind(productionController)));
 
@@ -84,6 +87,16 @@ router.post('/tasks/:id/complete',
   requireRoles('worker', 'supervisor'),
   asyncHandler(productionController.completeTask.bind(productionController)),
 );
+// P0-06: 暂停 / 恢复任务
+router.post('/tasks/:id/suspend',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(productionController.suspendTask.bind(productionController)),
+);
+router.post('/tasks/:id/resume',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(productionController.resumeTask.bind(productionController)),
+);
+
 router.post('/tasks/:id/exception',
   asyncHandler(productionController.reportException.bind(productionController)),
 );

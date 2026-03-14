@@ -284,11 +284,11 @@ export default function TaskPage() {
   // ── R06-G01: 统计卡片使用独立 stats 接口 ──────────────────
   const { data: statsData } = useTaskStats();
   const stats = {
-    total:      statsData?.total      ?? taskData.total,
-    inProgress: statsData?.inProgress ?? 0,
-    completed:  statsData?.completed  ?? 0,
-    exception:  statsData?.exception  ?? 0,
-    suspended:  statsData?.suspended  ?? 0,
+    total:      statsData?.total                    ?? taskData.total,
+    inProgress: statsData?.byStatus?.started        ?? 0,
+    completed:  statsData?.byStatus?.completed      ?? 0,
+    exception:  statsData?.byStatus?.exception      ?? 0,
+    suspended:  statsData?.byStatus?.suspended      ?? 0,
   };
 
   // ── 操作 mutations ─────────────────────────────────────────
@@ -1296,7 +1296,7 @@ function CompleteTaskModal({
                 <input
                   id="complete-hours"
                   type="number"
-                  min="0.1"
+                  min="0"
                   step="0.5"
                   className={`${styles.formInput} ${hoursError ? styles.formInputError : ''} ${isOvertimeWarning ? styles.formInputWarning : ''}`}
                   placeholder="请输入实际工时"

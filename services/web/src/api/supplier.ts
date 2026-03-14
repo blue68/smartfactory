@@ -5,7 +5,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import request from '@/utils/request';
-import { config } from '@/config';
 import type { PaginatedData } from '@/types/api';
 
 // ─────────────────────────────────────────────
@@ -223,4 +222,27 @@ export function useSupplierPerformance(id: number | null) {
     enabled: id !== null,
     staleTime: 1000 * 60 * 2,
   });
+}
+
+// ─────────────────────────────────────────────
+// 供应商导出（文件下载，不走 request 工具）
+// ─────────────────────────────────────────────
+
+/**
+ * 调用 GET /api/suppliers/export，后端返回 Excel 文件。
+ * 使用浏览器原生 fetch + Blob URL 触发下载，不经过 request 工具，
+ * 因为 request 工具只处理 JSON 响应。
+ */
+export async function exportSuppliers(): Promise<void> {
+  const response = await fetch('/api/suppliers/export');
+  if (!response.ok) throw new Error('导出失败');
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `suppliers_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
 }

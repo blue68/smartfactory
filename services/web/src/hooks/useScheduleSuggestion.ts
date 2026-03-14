@@ -111,7 +111,8 @@ export function useAcceptItem() {
 export function useRejectItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (itemId: number) => scheduleSuggestionApi.rejectItem(itemId),
+    mutationFn: ({ itemId, reason }: { itemId: number; reason: string }) =>
+      scheduleSuggestionApi.rejectItem(itemId, reason),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: scheduleKeys.latest() });
     },
@@ -125,7 +126,7 @@ export function useApplyProduction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: ApplyProductionPayload) =>
-      scheduleSuggestionApi.applyProduction(payload),
+      scheduleSuggestionApi.applyProduction(payload.itemIds[0]),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: scheduleKeys.all });
     },

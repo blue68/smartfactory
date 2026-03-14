@@ -374,6 +374,7 @@ export class SchedulerService {
    */
   async completeTask(taskId: number, params: {
     completedQty: string;
+    actualHours?: number;        // R06-G02: 实际工时（小时）
     scrapQty?: string;
     scrapReason?: 'material_defect' | 'operation_error' | 'other';
     componentBarcode?: string;
@@ -381,12 +382,25 @@ export class SchedulerService {
     images?: string[];
   }): Promise<void> {
     await AppDataSource.transaction(async (manager) => {
-      // 更新任务状态
+      // 更新任务状态，若提供了实际工时则同步写入 actual_hours 列
+      const updateSets = [
+        'status = \'completed\'',
+        'completed_qty = ?',
+        'completed_at = NOW()',
+        'updated_by = ?',
+      ];
+      const updateVals: unknown[] = [params.completedQty, this.userId];
+
+      if (params.actualHours !== undefined && params.actualHours !== null) {
+        updateSets.push('actual_hours = ?');
+        updateVals.push(params.actualHours);
+      }
+
+      updateVals.push(taskId, this.tenantId);
+
       await manager.query(
-        `UPDATE production_tasks
-         SET status = 'completed', completed_qty = ?, completed_at = NOW(), updated_by = ?
-         WHERE id = ? AND tenant_id = ?`,
-        [params.completedQty, this.userId, taskId, this.tenantId],
+        `UPDATE production_tasks SET ${updateSets.join(', ')} WHERE id = ? AND tenant_id = ?`,
+        updateVals,
       );
 
       // 查询任务关联信息（补充 tenant_id 隔离，防止跨租户越权读取）

@@ -31,7 +31,6 @@ import Tag from '@/components/common/Tag';
 import Button from '@/components/common/Button';
 import Modal from '@/components/common/Modal';
 import { exportObjectsToCSV } from '@/utils/exportExcel';
-import CategoryManager from '@/components/CategoryManager';
 import styles from './SkuPage.module.css';
 
 // ──────────────────────────────────────────────
@@ -122,7 +121,6 @@ export default function SkuPage() {
   const [editingSku, setEditingSku] = useState<Sku | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [showBatchSafety, setShowBatchSafety] = useState(false);
-  const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [batchSafetyVal, setBatchSafetyVal] = useState('');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [skuForm, setSkuForm] = useState<SkuFormData>(EMPTY_FORM);
@@ -483,7 +481,7 @@ export default function SkuPage() {
       width: 72,
       render: (_, r) => {
         const sku = r as unknown as Sku;
-        const isActive = sku.status === 'active' || sku.status === SkuStatus.ACTIVE;
+        const isActive = String(sku.status) === SkuStatus.ACTIVE;
         return (
           <span style={{
             display: 'inline-block',
@@ -506,7 +504,7 @@ export default function SkuPage() {
       width: 150,
       render: (_, r) => {
         const sku = r as unknown as Sku;
-        const isActive = sku.status === 'active' || sku.status === SkuStatus.ACTIVE;
+        const isActive = String(sku.status) === SkuStatus.ACTIVE;
         return (
           <div className={styles.action_btns}>
             <button className={styles.action_link} onClick={() => openEdit(sku)} type="button">

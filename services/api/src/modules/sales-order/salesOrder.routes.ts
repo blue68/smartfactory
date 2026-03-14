@@ -10,6 +10,12 @@ router.use(authMiddleware);
 // ── 固定路由（必须在 /:id 之前）─────────────────────────────────────────────
 router.get('/pending-count', asyncHandler(salesOrderController.getPendingCount.bind(salesOrderController)));
 router.get('/pending-approvals', requireRoles('boss'), asyncHandler(salesOrderController.getPendingApprovals.bind(salesOrderController)));
+router.get('/stats', asyncHandler(salesOrderController.getStats.bind(salesOrderController)));
+router.get(
+  '/capacity-check',
+  requireRoles('boss', 'supervisor', 'sales'),
+  asyncHandler(salesOrderController.capacityCheck.bind(salesOrderController)),
+);
 
 // ── 列表与详情 ──────────────────────────────────────────────────────────────
 router.get('/',    asyncHandler(salesOrderController.list.bind(salesOrderController)));
@@ -24,7 +30,7 @@ router.put('/:id/items',   requireRoles('boss', 'supervisor', 'sales'), asyncHan
 router.post('/:id/transition',  requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.transition.bind(salesOrderController)));
 router.post('/:id/submit',      requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.submitForApproval.bind(salesOrderController)));
 router.post('/:id/withdraw',    requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.withdraw.bind(salesOrderController)));
-router.post('/:id/confirm',     requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.confirm.bind(salesOrderController)));
+router.post('/:id/confirm',     requireRoles('boss'), asyncHandler(salesOrderController.confirm.bind(salesOrderController)));
 router.post('/:id/ship',        requireRoles('boss', 'supervisor'), asyncHandler(salesOrderController.ship.bind(salesOrderController)));
 router.post('/:id/complete',    requireRoles('boss', 'supervisor'), asyncHandler(salesOrderController.complete.bind(salesOrderController)));
 router.post('/:id/close',       requireRoles('boss'), asyncHandler(salesOrderController.close.bind(salesOrderController)));

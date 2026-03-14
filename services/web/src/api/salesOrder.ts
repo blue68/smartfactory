@@ -167,6 +167,26 @@ export async function fetchPendingApprovals(): Promise<{ count: number; orders: 
   return request.get<{ count: number; orders: SalesOrder[] }>(`${BASE}/pending-approvals`);
 }
 
+export interface OrderStats {
+  total: number;
+  byStatus: {
+    draft: number;
+    submitted: number;
+    confirmed: number;
+    pending_approval: number;
+    in_production: number;
+    shipped: number;
+    completed: number;
+    closed: number;
+    [key: string]: number;
+  };
+}
+
+/** GET /api/sales-orders/stats — 聚合统计接口 */
+export async function fetchOrderStats(): Promise<OrderStats> {
+  return request.get<OrderStats>(`${BASE}/stats`);
+}
+
 /** GET /api/inventory/check — 库存实时查询 */
 export async function checkInventory(skuId: number, qty?: number): Promise<{ available: number; sufficient: boolean; stockUnit: string }> {
   return request.get<{ available: number; sufficient: boolean; stockUnit: string }>('/api/inventory/check', { skuId, qty });
@@ -331,5 +351,13 @@ export function usePendingApprovals() {
     queryKey: ['pending-approvals'],
     queryFn: fetchPendingApprovals,
     refetchInterval: 30_000,
+  });
+}
+
+export function useOrderStats() {
+  return useQuery({
+    queryKey: ['sales-orders', 'stats'],
+    queryFn: fetchOrderStats,
+    staleTime: 30_000,
   });
 }

@@ -7,6 +7,7 @@ import type { Column } from '@/components/common/Table';
 import {
   useSalesOrderList,
   useSalesOrder,
+  useOrderStats,
   useCreateSalesOrder,
   useSubmitSalesOrder,
   useApproveSalesOrder,
@@ -880,17 +881,18 @@ export default function SalesOrderListPage() {
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
 
   const { data, isLoading: loading, error, refetch: refresh } = useSalesOrderList(query);
+  const { data: orderStatsData } = useOrderStats();
 
   const orders: SalesOrder[] = data?.list ?? [];
   const total: number = data?.total ?? 0;
   const totalPages = Math.ceil(total / (query.pageSize ?? 20));
 
-  // Summary stats derived from current page data
-  const statusCounts = useMemo(() => {
-    const sc = (data as unknown as { statusCounts?: Record<string, number> })?.statusCounts ?? {};
-    return sc;
-  }, [data]);
-  const statsTotal = data?.total ?? 0;
+  // Summary stats from dedicated aggregation API
+  const statsTotal = orderStatsData?.total ?? data?.total ?? 0;
+  const statusCounts = useMemo<Record<string, number>>(
+    () => orderStatsData?.byStatus ?? {},
+    [orderStatsData],
+  );
 
   const handleQueryChange = useCallback(
     <K extends keyof SalesOrderListQuery>(key: K, value: SalesOrderListQuery[K]) => {

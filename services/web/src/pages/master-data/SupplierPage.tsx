@@ -21,6 +21,7 @@ import {
   useSupplierSkus,
   useSupplierPriceAgreements,
   useSupplierPerformance,
+  exportSuppliers,
 } from '@/api/supplier';
 import type {
   Supplier,
@@ -1818,6 +1819,9 @@ export default function SupplierPage() {
     supplier: null,
   });
 
+  // 导出状态
+  const [isExporting, setIsExporting] = useState(false);
+
   // 表单数据
   const [form, setForm] = useState<SupplierFormData>(EMPTY_FORM);
 
@@ -1846,6 +1850,20 @@ export default function SupplierPage() {
   const { data, isLoading, error } = useSupplierList(query);
   const createMutation = useCreateSupplier();
   const updateMutation = useUpdateSupplier();
+
+  // ── 导出供应商列表 ──
+  const handleExport = useCallback(async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      await exportSuppliers();
+      showToast({ type: 'success', message: '供应商列表已导出' });
+    } catch (e) {
+      showToast({ type: 'error', message: (e as Error).message ?? '导出失败，请重试' });
+    } finally {
+      setIsExporting(false);
+    }
+  }, [isExporting, showToast]);
 
   // ── 打开新建 Drawer ──
   const openCreate = useCallback(() => {
@@ -2132,9 +2150,10 @@ export default function SupplierPage() {
           <Button
             variant="ghost"
             size="md"
-            onClick={() => showToast({ type: 'info', message: '导出功能开发中' })}
+            disabled={isExporting}
+            onClick={() => void handleExport()}
           >
-            导出
+            {isExporting ? '导出中...' : '导出'}
           </Button>
           <Button variant="primary" size="md" onClick={openCreate}>
             + 新增供应商
