@@ -79,8 +79,8 @@ export class SalesOrderService {
       params.push(filter.customerId);
     }
     if (filter.isUrgent !== undefined) {
-      conds.push('so.is_urgent = ?');
-      params.push(filter.isUrgent ? 1 : 0);
+      conds.push("so.order_type = ?");
+      params.push(filter.isUrgent ? 'urgent' : 'normal');
     }
 
     const where = conds.join(' AND ');
@@ -90,8 +90,8 @@ export class SalesOrderService {
     const [list, countRows, statusRows] = await Promise.all([
       AppDataSource.query(
         `SELECT so.id, so.order_no AS orderNo, so.customer_id AS customerId,
-                c.name AS customerName, so.order_date AS orderDate,
-                so.delivery_date AS deliveryDate, so.is_urgent AS isUrgent,
+                c.name AS customerName, DATE(so.created_at) AS orderDate,
+                so.expected_delivery AS deliveryDate, (so.order_type = 'urgent') AS isUrgent,
                 so.status, so.total_amount AS totalAmount,
                 so.created_at AS createdAt, so.updated_at AS updatedAt
          FROM sales_orders so
@@ -195,13 +195,13 @@ export class SalesOrderService {
     return AppDataSource.transaction(async (manager) => {
       const result = await manager.query(
         `INSERT INTO sales_orders
-           (tenant_id, order_no, customer_id, order_date, delivery_date,
-            is_urgent, status, total_amount, notes, created_by, updated_by)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+           (tenant_id, order_no, customer_id, expected_delivery,
+            order_type, status, total_amount, notes, created_by, updated_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
         [
           this.tenantId, orderNo, params.customerId,
-          params.orderDate, params.deliveryDate,
-          params.isUrgent ? 1 : 0, initialStatus,
+          params.deliveryDate,
+          params.isUrgent ? 'urgent' : 'normal', initialStatus,
           totalAmount, params.notes ?? null,
           this.userId, this.userId,
         ],
@@ -362,9 +362,8 @@ export class SalesOrderService {
       const values: unknown[] = [];
 
       if (params.customerId !== undefined) { updates.push('customer_id = ?'); values.push(params.customerId); }
-      if (params.orderDate !== undefined)  { updates.push('order_date = ?');  values.push(params.orderDate); }
-      if (params.deliveryDate !== undefined) { updates.push('delivery_date = ?'); values.push(params.deliveryDate); }
-      if (params.isUrgent !== undefined)   { updates.push('is_urgent = ?');   values.push(params.isUrgent ? 1 : 0); }
+      if (params.deliveryDate !== undefined) { updates.push('expected_delivery = ?'); values.push(params.deliveryDate); }
+      if (params.isUrgent !== undefined)   { updates.push("order_type = ?");   values.push(params.isUrgent ? 'urgent' : 'normal'); }
       if (params.notes !== undefined)      { updates.push('notes = ?');       values.push(params.notes ?? null); }
 
       if (params.items && params.items.length > 0) {
@@ -482,13 +481,13 @@ export class SalesOrderService {
   async getPendingApprovals(): Promise<{ count: number; orders: unknown[] }> {
     const orders = await AppDataSource.query(
       `SELECT so.id, so.order_no AS orderNo, so.customer_id AS customerId,
-              c.name AS customerName, so.order_date AS orderDate,
-              so.delivery_date AS deliveryDate, so.is_urgent AS isUrgent,
+              c.name AS customerName, DATE(so.created_at) AS orderDate,
+              so.expected_delivery AS deliveryDate, (so.order_type = 'urgent') AS isUrgent,
               so.total_amount AS totalAmount, so.created_at AS createdAt
        FROM sales_orders so
        INNER JOIN customers c ON c.id = so.customer_id
        WHERE so.tenant_id = ? AND so.status = 'pending_approval'
-       ORDER BY so.is_urgent DESC, so.created_at ASC`,
+       ORDER BY so.order_type DESC, so.created_at ASC`,
       [this.tenantId],
     );
     return { count: orders.length, orders };
