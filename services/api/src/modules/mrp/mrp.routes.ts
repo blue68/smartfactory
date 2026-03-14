@@ -27,8 +27,10 @@ router.post(
 );
 
 // POST /api/mrp/reevaluate — 入库后重新评估缺料状态
+// 权限：主管、老板
 router.post(
   '/reevaluate',
+  requireRoles('supervisor', 'boss'),
   asyncHandler(mrpController.reevaluateAfterReceipt.bind(mrpController)),
 );
 

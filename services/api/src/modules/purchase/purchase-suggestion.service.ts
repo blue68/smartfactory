@@ -208,10 +208,12 @@ export class PurchaseSuggestionService {
           `INSERT INTO purchase_orders
              (tenant_id, po_no, supplier_id, status, total_amount,
               notes, created_by, updated_by)
-           VALUES (?,?,'${supplierId}','draft',?,?,?,?)`,
+           VALUES (?,?,?,?,?,?,?,?)`,
           [
             this.tenantId,
             poNo,
+            supplierId,
+            'draft',
             totalAmount.toFixed(2),
             `批量转单，来源建议：${group.map((s) => s.suggestion_no).join(', ')}`,
             this.userId,

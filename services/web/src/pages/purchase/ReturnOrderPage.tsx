@@ -90,13 +90,13 @@ export default function ReturnOrderPage() {
       render: (_, r) => (
         <div style={{ display: 'flex', gap: 4 }}>
           {r.status === 'draft' && (
-            <Button size="sm" onClick={() => handleConfirm(r.id)}>确认</Button>
+            <Button size="sm" loading={confirmReturn.isPending} onClick={() => handleConfirm(r.id)}>确认</Button>
           )}
           {r.status === 'confirmed' && (
-            <Button size="sm" onClick={() => handleShip(r.id)}>发出</Button>
+            <Button size="sm" loading={shipReturn.isPending} onClick={() => handleShip(r.id)}>发出</Button>
           )}
           {r.status === 'shipped' && (
-            <Button size="sm" variant="success" onClick={() => handleComplete(r.id)}>完成</Button>
+            <Button size="sm" variant="success" loading={completeReturn.isPending} onClick={() => handleComplete(r.id)}>完成</Button>
           )}
         </div>
       ),

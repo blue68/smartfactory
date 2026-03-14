@@ -280,6 +280,24 @@ export class IncomingInspectionService {
       );
 
       for (const item of items) {
+        // BUG-S3-001: 校验 qty_passed + qty_failed <= qty_delivered
+        const [dbItem] = await manager.query(
+          `SELECT qty_delivered FROM incoming_inspection_items
+           WHERE id = ? AND inspection_id = ? AND tenant_id = ? LIMIT 1`,
+          [item.id, id, this.tenantId],
+        );
+        if (!dbItem) {
+          throw AppError.notFound(`质检明细 id=${item.id} 不存在`, ResponseCode.NOT_FOUND);
+        }
+        const qtyDelivered = new Decimal(dbItem.qty_delivered || '0');
+        const qtyPassed = new Decimal(item.qtyPassed || '0');
+        const qtyFailed = new Decimal(item.qtyFailed || '0');
+        if (qtyPassed.plus(qtyFailed).gt(qtyDelivered)) {
+          throw AppError.badRequest(
+            `质检明细 id=${item.id} 的合格数量+不合格数量(${qtyPassed.plus(qtyFailed).toString()})超过到货数量(${qtyDelivered.toString()})`,
+          );
+        }
+
         await manager.query(
           `UPDATE incoming_inspection_items
            SET qty_sampled = ?,
@@ -313,18 +331,17 @@ export class IncomingInspectionService {
 
   // ── 提交质检结论（核心事务逻辑）────────────────────────────────
   async submit(id: number, params: SubmitInspectionParams): Promise<void> {
-    const [record] = await AppDataSource.query(
-      `SELECT id, status, receipt_triggered, return_triggered, po_id, delivery_note_id
-       FROM incoming_inspection_records
+    // 事务外仅做存在性校验，不读取 receipt_triggered / return_triggered。
+    // 幂等位的状态检查必须在事务内通过 FOR UPDATE 行锁读取，
+    // 以防止并发请求同时通过检查后重复执行入库（CR-002）。
+    const [preCheck] = await AppDataSource.query(
+      `SELECT id FROM incoming_inspection_records
        WHERE id = ? AND tenant_id = ? LIMIT 1`,
       [id, this.tenantId],
     );
-    if (!record) throw AppError.notFound('质检单不存在', ResponseCode.NOT_FOUND);
-    if (record.status === 'passed' || record.status === 'failed' || record.status === 'partially_passed') {
-      throw AppError.conflict('质检单已完成提交，禁止重复操作');
-    }
+    if (!preCheck) throw AppError.notFound('质检单不存在', ResponseCode.NOT_FOUND);
 
-    // 读取所有质检明细
+    // 读取所有质检明细（明细数据在事务外读取即可，不涉及幂等控制）
     const items = await AppDataSource.query(
       `SELECT ii.*,
               poi.purchase_unit, poi.unit_price
@@ -338,7 +355,28 @@ export class IncomingInspectionService {
       throw AppError.badRequest('质检单无明细，请先录入质检结果');
     }
 
+    // BUG-S3-002: BD-004 校验 — 不合格品（result=fail）仅允许退货处置
+    const invalidDispositionItems = items.filter(
+      (i: any) => i.result === 'fail' && i.disposition !== 'return',
+    );
+    if (invalidDispositionItems.length > 0) {
+      throw AppError.badRequest('不合格品仅允许退货处置(BD-004)');
+    }
+
     await AppDataSource.transaction(async (manager) => {
+      // 事务内使用 SELECT ... FOR UPDATE 获取行级锁，
+      // 保证同一质检单的并发请求串行执行，幂等位检查在锁保护下进行。
+      const [record] = await manager.query(
+        `SELECT id, status, receipt_triggered, return_triggered, po_id, delivery_note_id
+         FROM incoming_inspection_records
+         WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
+        [id, this.tenantId],
+      );
+
+      if (record.status === 'passed' || record.status === 'failed' || record.status === 'partially_passed') {
+        throw AppError.conflict('质检单已完成提交，禁止重复操作');
+      }
+
       // 确定最终状态
       const allPassed = items.every((i: any) => i.result === 'pass');
       const allFailed = items.every((i: any) => i.result === 'fail');
