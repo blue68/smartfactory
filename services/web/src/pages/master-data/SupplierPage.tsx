@@ -2138,7 +2138,12 @@ export default function SupplierPage() {
     <div className={styles.page}>
       {/* 页头 */}
       <div className="page-header">
-        <h1 className="page-header__title">供应商管理</h1>
+        <div>
+          <h1 className="page-header__title">供应商管理</h1>
+          <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--color-neutral-500,#6B7280)' }}>
+            共 {totalCount} 家供应商 · 合作中 {supplierList.filter((s) => s.isActive !== false).length} 家 · 已停用 {supplierList.filter((s) => s.isActive === false).length} 家
+          </p>
+        </div>
         <div className="page-header__actions">
           <Button
             variant="ghost"

@@ -116,6 +116,7 @@ export class SkuCategoryService {
       isSystem: Number(r.tenantId) === 0,
       remark: r.remark ?? null,
       skuCount: skuCountMap.get(Number(r.id)) ?? 0,
+      createdAt: r.createdAt,
     }));
 
     // 如果仅请求二级类目，直接返回平铺列表

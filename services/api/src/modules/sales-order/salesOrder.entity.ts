@@ -35,10 +35,10 @@ export class SalesOrderEntity {
   @Column({ name: 'customer_id', type: 'bigint', unsigned: true })
   customerId: number;
 
-  @Column({ name: 'order_date', type: 'date' })
+  @Column({ name: 'order_date', type: 'date', nullable: true })
   orderDate: string;
 
-  @Column({ name: 'delivery_date', type: 'date' })
+  @Column({ name: 'expected_delivery', type: 'date' })
   deliveryDate: string;
 
   @Column({ name: 'is_urgent', type: 'tinyint', width: 1, default: 0 })

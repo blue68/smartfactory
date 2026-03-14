@@ -74,5 +74,7 @@ export interface CategoryTreeNode {
   remark: string | null;
   /** R01-BE-01: 该类目关联的 SKU 数量（category1_id 或 category2_id 匹配） */
   skuCount: number;
+  /** R01-BE-01: 类目创建时间 */
+  createdAt: Date | string;
   children?: CategoryTreeNode[];
 }

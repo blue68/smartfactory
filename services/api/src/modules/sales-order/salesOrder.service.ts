@@ -163,7 +163,16 @@ export class SalesOrderService {
 
   async getById(id: number): Promise<{ order: SalesOrderEntity; items: SalesOrderItemEntity[]; customerName: string }> {
     const [orderRows] = await AppDataSource.query<SalesOrderEntity[]>(
-      `SELECT so.*, c.name AS customerName
+      `SELECT so.id, so.tenant_id AS tenantId, so.order_no AS orderNo,
+              so.customer_id AS customerId, so.order_date AS orderDate,
+              so.expected_delivery AS deliveryDate,
+              (so.order_type = 'urgent') AS isUrgent,
+              so.status, so.total_amount AS totalAmount,
+              so.approved_by AS approvedBy, so.approved_at AS approvedAt,
+              so.submit_count AS submitCount, so.reject_reason AS rejectReason,
+              so.notes, so.created_by AS createdBy, so.updated_by AS updatedBy,
+              so.created_at AS createdAt, so.updated_at AS updatedAt,
+              c.name AS customerName
        FROM sales_orders so
        INNER JOIN customers c ON c.id = so.customer_id
        WHERE so.id = ? AND so.tenant_id = ? LIMIT 1`,
