@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>[artifact:UI代码] SKU 主数据管理 · 设计原型</title>
+  <style>
+    :root {
+      --color-primary-50:#EFF6FF; --color-primary-100:#DBEAFE; --color-primary-200:#BFDBFE;
+      --color-primary-500:#3B82F6; --color-primary-600:#2563EB; --color-primary-700:#1D4ED8;
+      --color-success-50:#F0FDF4; --color-success-500:#22C55E; --color-success-600:#16A34A;
+      --color-warning-50:#FFFBEB; --color-warning-100:#FEF3C7; --color-warning-500:#F59E0B;
+      --color-warning-600:#D97706; --color-warning-700:#B45309;
+      --color-error-50:#FEF2F2; --color-error-100:#FEE2E2; --color-error-500:#EF4444; --color-error-600:#DC2626;
+      --color-purple-50:#F5F3FF; --color-purple-500:#8B5CF6; --color-purple-600:#7C3AED;
+      --color-gray-0:#FFFFFF; --color-gray-50:#F8FAFC; --color-gray-100:#F1F5F9;
+      --color-gray-200:#E2E8F0; --color-gray-300:#CBD5E1; --color-gray-400:#94A3B8;
+      --color-gray-500:#64748B; --color-gray-600:#475569; --color-gray-700:#334155;
+      --color-gray-800:#1E293B; --color-gray-900:#0F172A;
+      --bg-page:#F8FAFC; --bg-card:#FFFFFF; --bg-sidebar:#1E293B;
+      --text-primary:#1E293B; --text-secondary:#64748B; --text-disabled:#94A3B8;
+      --border-default:#E2E8F0; --border-strong:#CBD5E1; --border-focus:#3B82F6;
+      --font-family-base:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --text-h2:1.5rem; --text-h3:1.25rem; --text-h4:1.125rem;
+      --text-body-l:1rem; --text-body-m:0.875rem; --text-body-s:0.75rem; --text-caption:0.6875rem;
+      --space-1:0.25rem; --space-2:0.5rem; --space-3:0.75rem; --space-4:1rem;
+      --space-5:1.25rem; --space-6:1.5rem; --space-8:2rem; --space-10:2.5rem; --space-12:3rem;
+      --layout-sidebar-width:240px; --layout-header-height:64px; --layout-page-padding:24px;
+      --radius-sm:4px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px; --radius-full:9999px;
+      --shadow-xs:0 1px 2px rgba(0,0,0,.05); --shadow-sm:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --shadow-xl:0 20px 25px -5px rgba(0,0,0,.1),0 10px 10px -5px rgba(0,0,0,.04);
+      --transition-fast:150ms ease; --transition-base:200ms ease; --transition-slow:300ms ease;
+      --z-dropdown:100; --z-sticky:200; --z-overlay:300; --z-modal:400; --z-toast:500;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{font-size:16px;}
+    body{font-family:var(--font-family-base);font-size:var(--text-body-m);color:var(--text-primary);background:var(--bg-page);line-height:1.6;-webkit-font-smoothing:antialiased;}
+    :focus-visible{outline:2px solid var(--color-primary-500);outline-offset:2px;border-radius:var(--radius-sm);}
+    button{font-family:inherit;cursor:pointer;border:none;background:none;}
+    button:disabled{cursor:not-allowed;opacity:.55;}
+    ::-webkit-scrollbar{width:6px;height:6px;}
+    ::-webkit-scrollbar-thumb{background:var(--color-gray-300);border-radius:var(--radius-full);}
+
+    /* 布局 */
+    .app-layout{display:flex;height:100vh;overflow:hidden;}
+    .app-layout__sidebar{width:var(--layout-sidebar-width);flex-shrink:0;background:var(--bg-sidebar);display:flex;flex-direction:column;overflow:hidden;}
+    .app-layout__main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+    .app-layout__header{height:var(--layout-header-height);flex-shrink:0;background:var(--bg-card);border-bottom:1px solid var(--border-default);box-shadow:var(--shadow-xs);display:flex;align-items:center;padding:0 var(--layout-page-padding);z-index:var(--z-sticky);gap:var(--space-4);}
+    .app-layout__content{flex:1;overflow-y:auto;padding:var(--layout-page-padding);}
+
+    /* 侧边栏 */
+    .sidebar__logo{height:var(--layout-header-height);display:flex;align-items:center;padding:0 var(--space-5);border-bottom:1px solid rgba(255,255,255,.08);}
+    .sidebar__logo-mark{width:2rem;height:2rem;background:var(--color-primary-600);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:var(--text-body-s);font-weight:700;color:#fff;}
+    .sidebar__logo-text{margin-left:var(--space-3);font-size:var(--text-body-l);font-weight:700;color:#fff;}
+    .sidebar__nav{flex:1;overflow-y:auto;padding:var(--space-4) 0;}
+    .sidebar__nav-section{margin-bottom:var(--space-6);}
+    .sidebar__nav-label{font-size:var(--text-caption);color:var(--color-gray-500);text-transform:uppercase;letter-spacing:.06em;padding:0 var(--space-5);margin-bottom:var(--space-2);}
+    .sidebar__nav-item{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-5);color:var(--color-gray-400);font-size:var(--text-body-m);cursor:pointer;transition:background var(--transition-fast),color var(--transition-fast);border-left:3px solid transparent;}
+    .sidebar__nav-item:hover{background:rgba(255,255,255,.06);color:#fff;}
+    .sidebar__nav-item--active{background:rgba(37,99,235,.2);color:#fff;border-left-color:var(--color-primary-500);}
+    .sidebar__nav-icon{width:1rem;flex-shrink:0;text-align:center;}
+
+    /* 顶栏 */
+    .header__breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-body-s);color:var(--text-secondary);}
+    .header__breadcrumb-sep{color:var(--color-gray-300);}
+    .header__breadcrumb-current{color:var(--text-primary);font-weight:500;}
+    .header__right{margin-left:auto;display:flex;align-items:center;gap:var(--space-4);}
+    .header__avatar{width:2rem;height:2rem;border-radius:var(--radius-full);background:var(--color-primary-100);color:var(--color-primary-700);display:flex;align-items:center;justify-content:center;font-size:var(--text-body-s);font-weight:600;}
+
+    /* 页头 */
+    .page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-6);gap:var(--space-4);flex-wrap:wrap;}
+    .page-header__title-wrap{}
+    .page-header__title{font-size:var(--text-h2);font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:var(--space-2);}
+    .page-header__subtitle{font-size:var(--text-body-m);color:var(--text-secondary);margin-top:var(--space-1);}
+    .page-header__actions{display:flex;align-items:center;gap:var(--space-3);}
+
+    /* 按钮 */
+    .btn{display:inline-flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-4);border-radius:var(--radius-md);font-size:var(--text-body-s);font-weight:500;cursor:pointer;transition:all var(--transition-fast);border:1px solid transparent;white-space:nowrap;}
+    .btn--primary{background:var(--color-primary-600);color:#fff;border-color:var(--color-primary-600);}
+    .btn--primary:hover{background:var(--color-primary-700);}
+    .btn--secondary{background:var(--bg-card);color:var(--text-primary);border-color:var(--border-strong);}
+    .btn--secondary:hover{background:var(--color-gray-50);}
+    .btn--danger{background:var(--color-error-600);color:#fff;}
+    .btn--danger:hover{background:#B91C1C;}
+    .btn--sm{padding:var(--space-1) var(--space-3);font-size:var(--text-caption);}
+    .btn--icon{padding:var(--space-2);}
+
+    /* 筛选栏 */
+    .filter-bar{display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);flex-wrap:wrap;}
+    .filter-bar__search{display:flex;align-items:center;gap:var(--space-2);background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);flex:1;min-width:200px;max-width:320px;}
+    .filter-bar__search input{border:none;background:none;font-family:inherit;font-size:var(--text-body-m);color:var(--text-primary);width:100%;outline:none;}
+    .filter-bar__search input::placeholder{color:var(--text-secondary);}
+    .filter-bar__select{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-family:inherit;font-size:var(--text-body-m);color:var(--text-primary);cursor:pointer;outline:none;}
+    .filter-bar__count{font-size:var(--text-body-s);color:var(--text-secondary);margin-left:auto;white-space:nowrap;}
+
+    /* 统计行 */
+    .stats-row{display:flex;align-items:center;gap:var(--space-6);padding:var(--space-3) var(--space-4);background:var(--color-gray-50);border:1px solid var(--border-default);border-radius:var(--radius-md);margin-bottom:var(--space-4);}
+    .stats-row__item{display:flex;align-items:center;gap:var(--space-2);}
+    .stats-row__label{font-size:var(--text-body-s);color:var(--text-secondary);}
+    .stats-row__value{font-size:var(--text-body-m);font-weight:600;color:var(--text-primary);}
+    .stats-row__dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+
+    /* 表格 */
+    .table-wrap{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-xs);overflow:hidden;}
+    .table{width:100%;border-collapse:collapse;}
+    .table thead tr{background:var(--color-gray-50);border-bottom:1px solid var(--border-default);}
+    .table th{padding:var(--space-3) var(--space-4);text-align:left;font-size:var(--text-body-s);font-weight:600;color:var(--text-secondary);white-space:nowrap;}
+    .table th:first-child{padding-left:var(--space-5);}
+    .table td{padding:var(--space-3) var(--space-4);font-size:var(--text-body-m);color:var(--text-primary);border-bottom:1px solid var(--color-gray-100);}
+    .table td:first-child{padding-left:var(--space-5);}
+    .table tbody tr:hover{background:var(--color-gray-50);}
+    .table tbody tr:last-child td{border-bottom:none;}
+    .table .actions{display:flex;align-items:center;gap:var(--space-2);opacity:0;transition:opacity var(--transition-fast);}
+    .table tbody tr:hover .actions{opacity:1;}
+
+    /* Badge */
+    .badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:0.125rem var(--space-2);border-radius:var(--radius-full);font-size:var(--text-caption);font-weight:500;}
+    .badge--raw{background:#FFF7ED;color:#C2410C;}
+    .badge--semi{background:#EFF6FF;color:#1D4ED8;}
+    .badge--finished{background:#F0FDF4;color:#15803D;}
+    .badge--low{background:var(--color-error-50);color:var(--color-error-600);}
+    .badge--warning{background:var(--color-warning-50);color:var(--color-warning-700);}
+    .badge--normal{background:var(--color-success-50);color:var(--color-success-600);}
+    .badge--stale{background:var(--color-gray-100);color:var(--text-secondary);}
+    .badge--purple{background:var(--color-purple-50);color:var(--color-purple-600);}
+    .badge--preset{background:var(--color-gray-100);color:var(--text-secondary);}
+
+    /* 库存状态指示 */
+    .stock-indicator{display:flex;align-items:center;gap:var(--space-2);}
+    .stock-indicator__dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+    .stock-indicator__dot--critical{background:var(--color-error-500);}
+    .stock-indicator__dot--warning{background:var(--color-warning-500);}
+    .stock-indicator__dot--normal{background:var(--color-success-500);}
+    .stock-indicator__dot--stale{background:var(--color-gray-400);}
+    .stock-indicator__text{font-size:var(--text-body-s);font-variant-numeric:tabular-nums;}
+
+    /* 分页 */
+    .pagination{display:flex;align-items:center;justify-content:space-between;padding:var(--space-4) var(--space-5);border-top:1px solid var(--border-default);}
+    .pagination__info{font-size:var(--text-body-s);color:var(--text-secondary);}
+    .pagination__controls{display:flex;align-items:center;gap:var(--space-2);}
+    .pagination__btn{width:2rem;height:2rem;display:flex;align-items:center;justify-content:center;border:1px solid var(--border-default);border-radius:var(--radius-md);font-size:var(--text-body-s);cursor:pointer;background:var(--bg-card);transition:all var(--transition-fast);}
+    .pagination__btn:hover{background:var(--color-gray-50);}
+    .pagination__btn--active{background:var(--color-primary-600);color:#fff;border-color:var(--color-primary-600);}
+    .pagination__btn:disabled{opacity:.4;cursor:not-allowed;}
+
+    /* 骨架屏 */
+    @keyframes shimmer{0%{background-position:-800px 0;}100%{background-position:800px 0;}}
+    .skeleton{background:linear-gradient(90deg,var(--color-gray-100) 25%,var(--color-gray-50) 50%,var(--color-gray-100) 75%);background-size:800px 100%;animation:shimmer 1.5s infinite;border-radius:var(--radius-sm);}
+
+    /* Modal */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:var(--z-overlay);display:flex;align-items:center;justify-content:center;padding:var(--space-5);}
+    .modal{background:var(--bg-card);border-radius:var(--radius-xl);box-shadow:var(--shadow-xl);width:100%;max-width:600px;max-height:90vh;overflow-y:auto;}
+    .modal__header{display:flex;align-items:center;justify-content:space-between;padding:var(--space-5) var(--space-6);border-bottom:1px solid var(--border-default);}
+    .modal__title{font-size:var(--text-h3);font-weight:600;color:var(--text-primary);}
+    .modal__close{width:2rem;height:2rem;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-md);color:var(--text-secondary);cursor:pointer;transition:background var(--transition-fast);}
+    .modal__close:hover{background:var(--color-gray-100);}
+    .modal__body{padding:var(--space-6);}
+    .modal__footer{display:flex;justify-content:flex-end;gap:var(--space-3);padding:var(--space-4) var(--space-6);border-top:1px solid var(--border-default);}
+
+    /* 表单 */
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-5);}
+    .form-grid--full{grid-column:1/-1;}
+    .form-field{display:flex;flex-direction:column;gap:var(--space-2);}
+    .form-label{font-size:var(--text-body-s);font-weight:500;color:var(--text-primary);}
+    .form-label--required::after{content:" *";color:var(--color-error-500);}
+    .form-input{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-family:inherit;font-size:var(--text-body-m);color:var(--text-primary);outline:none;transition:border-color var(--transition-fast);}
+    .form-input:focus{border-color:var(--border-focus);box-shadow:0 0 0 3px rgba(59,130,246,.1);}
+    .form-input--error{border-color:var(--color-error-500);}
+    .form-select{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-family:inherit;font-size:var(--text-body-m);color:var(--text-primary);cursor:pointer;outline:none;transition:border-color var(--transition-fast);}
+    .form-select:focus{border-color:var(--border-focus);}
+    .form-hint{font-size:var(--text-caption);color:var(--text-secondary);}
+    .form-error{font-size:var(--text-caption);color:var(--color-error-600);}
+
+    /* 段落分隔 */
+    .form-section-title{font-size:var(--text-body-m);font-weight:600;color:var(--text-primary);padding-bottom:var(--space-3);border-bottom:1px solid var(--border-default);margin-bottom:var(--space-4);}
+
+    /* 缸号标识 */
+    .vat-badge{display:inline-flex;align-items:center;gap:var(--space-1);background:var(--color-purple-50);color:var(--color-purple-600);font-size:var(--text-caption);font-weight:500;padding:0.1rem var(--space-2);border-radius:var(--radius-full);}
+
+    /* 缸号子展开行 */
+    .vat-row{background:var(--color-purple-50)!important;}
+    .vat-row td{font-size:var(--text-body-s);color:var(--color-purple-600)!important;padding-top:var(--space-2)!important;padding-bottom:var(--space-2)!important;}
+    .vat-indent{padding-left:var(--space-8)!important;}
+
+    /* 标注说明区 */
+    .state-section{margin-top:var(--space-8);padding-top:var(--space-8);border-top:2px dashed var(--color-gray-200);}
+    .state-label{display:inline-flex;align-items:center;gap:var(--space-2);background:var(--color-gray-800);color:#fff;font-size:var(--text-body-s);font-weight:600;padding:var(--space-2) var(--space-4);border-radius:var(--radius-md);margin-bottom:var(--space-5);}
+
+    /* 单位换算展示 */
+    .unit-chips{display:flex;gap:var(--space-2);flex-wrap:wrap;}
+    .unit-chip{display:inline-flex;align-items:center;gap:var(--space-1);background:var(--color-primary-50);color:var(--color-primary-700);font-size:var(--text-caption);padding:0.125rem var(--space-2);border-radius:var(--radius-full);}
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════
+  状态 1：列表正常态
+══════════════════════════════════════ -->
+<div class="state-label">状态 1 — 列表正常态</div>
+<div class="app-layout">
+  <aside class="app-layout__sidebar">
+    <div class="sidebar__logo">
+      <div class="sidebar__logo-mark">智</div>
+      <span class="sidebar__logo-text">智造管家</span>
+    </div>
+    <nav class="sidebar__nav">
+      <div class="sidebar__nav-section">
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">⊞</span> 首页驾驶舱
+        </div>
+      </div>
+      <div class="sidebar__nav-section">
+        <div class="sidebar__nav-label">基础数据</div>
+        <div class="sidebar__nav-item sidebar__nav-item--active">
+          <span class="sidebar__nav-icon">🗂</span> SKU 主数据
+        </div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">🧩</span> BOM 管理
+        </div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">⚙</span> 工序配置
+        </div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">🏷</span> 类目管理
+        </div>
+      </div>
+      <div class="sidebar__nav-section">
+        <div class="sidebar__nav-label">物料管理</div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">📦</span> 库存总览
+        </div>
+      </div>
+      <div class="sidebar__nav-section">
+        <div class="sidebar__nav-label">采购管理</div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">🏢</span> 供应商管理
+        </div>
+        <div class="sidebar__nav-item">
+          <span class="sidebar__nav-icon">💰</span> 价格管理
+        </div>
+      </div>
+    </nav>
+  </aside>
+
+  <main class="app-layout__main">
+    <header class="app-layout__header">
+      <div class="header__breadcrumb">
+        <span>基础数据</span>
+        <span class="header__breadcrumb-sep">/</span>
+        <span class="header__breadcrumb-current">SKU 主数据</span>
+      </div>
+      <div class="header__right">
+        <div style="width:2rem;height:2rem;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-md);color:var(--text-secondary);cursor:pointer;position:relative;">
+          🔔
+          <span style="position:absolute;top:2px;right:2px;width:1rem;height:1rem;background:var(--color-error-500);color:#fff;border-radius:50%;font-size:0.625rem;font-weight:700;display:flex;align-items:center;justify-content:center;">1</span>
+        </div>
+        <div class="header__avatar">采</div>
+      </div>
+    </header>
+
+    <div class="app-layout__content">
+      <!-- 页头 -->
+      <div class="page-header">
+        <div class="page-header__title-wrap">
+          <div class="page-header__title">🗂 SKU 主数据</div>
+          <div class="page-header__subtitle">共 1,024 个 SKU · 原材料 721 · 半成品 168 · 成品 135</div>
+        </div>
+        <div class="page-header__actions">
+          <button class="btn btn--secondary">📥 批量导入</button>
+          <button class="btn btn--secondary">📤 导出 Excel</button>
+          <button class="btn btn--primary">+ 新增 SKU</button>
+        </div>
+      </div>
+
+      <!-- 筛选栏 -->
+      <div class="filter-bar">
+        <div class="filter-bar__search">
+          <span style="color:var(--text-secondary);">🔍</span>
+          <input type="text" placeholder="搜索 SKU 名称、编码、规格..." />
+        </div>
+        <select class="filter-bar__select">
+          <option>全部一级分类</option>
+          <option selected>原材料</option>
+          <option>半成品</option>
+          <option>成品</option>
+        </select>
+        <select class="filter-bar__select">
+          <option>全部二级分类</option>
+          <option selected>板材类</option>
+          <option>五金类</option>
+          <option>面料类</option>
+          <option>海绵类</option>
+          <option>油漆涂料类</option>
+          <option>胶粘剂类</option>
+          <option>包装材料类</option>
+          <option>其他辅料</option>
+        </select>
+        <select class="filter-bar__select">
+          <option selected>全部库存状态</option>
+          <option>低于安全库存</option>
+          <option>临近预警</option>
+          <option>正常</option>
+          <option>呆滞风险</option>
+        </select>
+        <span class="filter-bar__count">共 721 条，当前第 1-20 条</span>
+      </div>
+
+      <!-- 统计行 -->
+      <div class="stats-row">
+        <div class="stats-row__item">
+          <div class="stats-row__dot" style="background:var(--color-error-500);"></div>
+          <span class="stats-row__label">低于安全库存：</span>
+          <span class="stats-row__value" style="color:var(--color-error-600);">8</span>
+        </div>
+        <div class="stats-row__item">
+          <div class="stats-row__dot" style="background:var(--color-warning-500);"></div>
+          <span class="stats-row__label">临近预警：</span>
+          <span class="stats-row__value" style="color:var(--color-warning-700);">12</span>
+        </div>
+        <div class="stats-row__item">
+          <div class="stats-row__dot" style="background:var(--color-success-500);"></div>
+          <span class="stats-row__label">库存正常：</span>
+          <span class="stats-row__value" style="color:var(--color-success-600);">695</span>
+        </div>
+        <div class="stats-row__item">
+          <div class="stats-row__dot" style="background:var(--color-gray-400);"></div>
+          <span class="stats-row__label">呆滞风险（>90天）：</span>
+          <span class="stats-row__value">6</span>
+        </div>
+        <div style="margin-left:auto;">
+          <span style="font-size:var(--text-body-s);color:var(--text-secondary);">面料类 SKU 含缸号管理</span>
+          <span class="vat-badge" style="margin-left:var(--space-2);">🧵 缸号追踪</span>
+        </div>
+      </div>
+
+      <!-- 数据表格 -->
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th><input type="checkbox" title="全选" /></th>
+              <th>SKU 编码</th>
+              <th>SKU 名称 / 规格</th>
+              <th>一级分类</th>
+              <th>二级分类</th>
+              <th>库存单位</th>
+              <th>当前库存</th>
+              <th>安全库存</th>
+              <th>库存状态</th>
+              <th>单位换算</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- 正常行 -->
+            <tr>
+              <td><input type="checkbox" /></td>
+              <td style="font-family:var(--font-family-mono);font-size:var(--text-body-s);color:var(--text-secondary);">SKU-10001</td>
+              <td>
+                <div style="font-weight:500;">红橡木板</div>
+                <div style="font-size:var(--text-body-s);color:var(--text-secondary);">200×2400×18mm</div>
+              </td>
+              <td><span class="badge badge--raw">原材料</span></td>
+              <td><span style="font-size:var(--text-body-s);">板材类</span></td>
+              <td>张</td>
+              <td>
+                <div class="stock-indicator">
+                  <div class="stock-indicator__dot stock-indicator__dot--critical"></div>
+                  <span class="stock-indicator__text" style="color:var(--color-error-600);font-weight:600;">8</span>
+                </div>
+              </td>
+              <td style="color:var(--text-secondary);">20</td>
+              <td><span class="badge badge--low">🔴 低于安全库存</span></td>
+              <td>
+                <div class="unit-chips">
+                  <span class="unit-chip">采购: 张</span>
+                  <span class="unit-chip">生产: 张</span>
+                </div>
+              </td>
+              <td>
+                <div class="actions">
+                  <button class="btn btn--sm btn--secondary">编辑</button>
+                  <button class="btn btn--sm btn--secondary">查看库存</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- 临近预警行 -->
+            <tr>
+              <td><input type="checkbox" /></td>
+              <td style="font-family:var(--font-family-mono);font-size:var(--text-body-s);color:var(--text-secondary);">SKU-10002</td>
+              <td>
+                <div style="font-weight:500;">白色烤漆板</div>
+                <div style="font-size:var(--text-body-s);color:var(--text-secondary);">1220×2440×18mm</div>
+              </td>
+              <td><span class="badge badge--raw">原材料</span></td>
+              <td><span style="font-size:var(--text-body-s);">板材类</span></td>
+              <td>张</td>
+              <td>
+                <div class="stock-indicator">
+                  <div class="stock-indicator__dot stock-indicator__dot--warning"></div>
+                  <span class="stock-indicator__text" style="color:var(--color-warning-700);font-weight:600;">15</span>
+                </div>
+              </td>
+              <td style="color:var(--text-secondary);">20</td>
+              <td><span class="badge badge--warning">🟡 临近预警</span></td>
+              <td>
+                <div class="unit-chips">
+                  <span class="unit-chip">采购: 张</span>
+                  <span class="unit-chip">生产: 张</span>
+                </div>
+              </td>
+              <td>
+                <div class="actions">
+                  <button class="btn btn--sm btn--secondary">编辑</button>
+                  <button class="btn btn--sm btn--secondary">查看库存</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- 正常行 -->
+            <tr>
+              <td><input type="checkbox" /></td>
+              <td style="font-family:var(--font-family-mono);font-size:var(--text-body-s);color:var(--text-secondary);">SKU-10003</td>
+              <td>
+                <div style="font-weight:500;">不锈钢铰链（全盖）</div>
+                <div style="font-size:var(--text-body-s);color:var(--text-secondary);">35mm 阻尼型</div>
+              </td>
+              <td><span class="badge badge--raw">原材料</span></td>
+              <td><span style="font-size:var(--text-body-s);">五金类</span></td>
+              <td>个</td>
+              <td>
+                <div class="stock-indicator">
+                  <div class="stock-indicator__dot stock-indicator__dot--normal"></div>
+                  <span class="stock-indicator__text">256</span>
+                </div>
+              </td>
+              <td style="color:var(--text-secondary);">100</td>
+              <td><span class="badge badge--normal">🟢 正常</span></td>
+              <td>
+                <div class="unit-chips">
+                  <span class="unit-chip">采购: 包(100个)</span>
+                  <span class="unit-chip">生产: 个</span>
+                </div>
+              </td>
+              <td>
+                <div class="actions">
+                  <button class="btn btn--sm btn--secondary">编辑</button>
+                  <button class="btn btn--sm btn--secondary">查看库存</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- 面料类 — 含缸号展开 -->
+            <tr style="background:var(--color-purple-50);">
+              <td><input type="checkbox" /></td>
+              <td style="font-family:var(--font-family-mono);font-size:var(--text-body-s);color:var(--text-secondary);">SKU-20041</td>
+              <td>
+                <div style="display:flex;align-items:center;gap:var(--space-2);">
+                  <span style="font-weight:500;">浅灰布料</span>
+                  <span class="vat-badge">🧵 缸号管理</span>
+                </div>
+                <div style="font-size:var(--text-body-s);color:var(--text-secondary);">WF-2024-GY01 · 幅宽 150cm</div>
+              </td>
+              <td><span class="badge badge--raw">原材料</span></td>
+              <td><span style="font-size:var(--text-body-s);">面料类</span></td>
+              <td>米</td>
+              <td>
+                <div class="stock-indicator">
+                  <div class="stock-indicator__dot stock-indicator__dot--normal"></div>
+                  <span class="stock-indicator__text">48</span>
+                </div>
+              </td>
+              <td style="color:var(--text-secondary);">20</td>
+              <td><span class="badge badge--normal">🟢 正常</span></td>
+              <td>
+                <button class="btn btn--sm" style="background:var(--color-purple-50);border:1px solid var(--color-purple-500);color:var(--color-purple-600);">▾ 展开 3 缸号</button>
+              </td>
+              <td>
+                <div class="actions">
+                  <button class="btn btn--sm btn--secondary">编辑</button>
+                  <button class="btn btn--sm btn--secondary">缸号管理</button>
+                </div>
+              </td>
+            </tr>
+            <!-- 缸号子行 1 -->
+            <tr class="vat-row">
+              <td></td>
+              <td class="vat-indent" colspan="2" style="color:var(--color-purple-700);">└ 缸号 GY-2024-001</td>
+              <td colspan="2" style="font-size:var(--text-body-s);color:var(--color-purple-600);">入库 2024-11-15</td>
+              <td>米</td>
+              <td style="color:var(--color-purple-700);font-weight:500;">22 米</td>
+              <td>—</td>
+              <td><span class="badge" style="background:var(--color-success-50);color:var(--color-success-600);">在用</span></td>
+              <td colspan="2" style="font-size:var(--text-body-s);color:var(--text-secondary);">先进先出推荐出库</td>
+            </tr>
+            <tr class="vat-row">
+              <td></td>
+              <td class="vat-indent" colspan="2" style="color:var(--color-purple-700);">└ 缸号 GY-2024-002</td>
+              <td colspan="2" style="font-size:var(--text-body-s);color:var(--color-purple-600);">入库 2024-12-03</td>
+              <td>米</td>
+              <td style="color:var(--color-purple-700);font-weight:500;">16 米</td>
+              <td>—</td>
+              <td><span class="badge" style="background:var(--color-success-50);color:var(--color-success-600);">在用</span></td>
+              <td colspan="2" style="font-size:var(--text-body-s);color:var(--text-secondary);"></td>
+            </tr>
+            <tr class="vat-row">
+              <td></td>
+              <td class="vat-indent" colspan="2" style="color:var(--color-purple-700);">└ 缸号 GY-2025-001</td>
+              <td colspan="2" style="font-size:var(--text-body-s);color:var(--color-purple-600);">入库 2025-01-20</td>
+              <td>米</td>
+              <td style="color:var(--color-purple-700);font-weight:500;">10 米</td>
+              <td>—</td>
+              <td><span class="badge" style="background:var(--color-warning-50);color:var(--color-warning-700);">备用</span></td>
+              <td colspan="2" style="font-size:var(--text-body-s);color:var(--text-secondary);"></td>
+            </tr>
+
+            <!-- 呆滞风险行 -->
+            <tr>
+              <td><input type="checkbox" /></td>
+              <td style="font-family:var(--font-family-mono);font-size:var(--text-body-s);color:var(--text-secondary);">SKU-10088</td>
+              <td>
+                <div style="font-weight:500;">实木脚线 L型</div>
+                <div style="font-size:var(--text-body-s);color:var(--text-secondary);">2400mm 松木</div>
+              </td>
+              <td><span class="badge badge--raw">原材料</span></td>
+              <td><span style="font-size:var(--text-body-s);">板材类</span></td>
+              <td>根</td>
+              <td>
+                <div class="stock-indicator">
+                  <div class="stock-indicator__dot stock-indicator__dot--stale"></div>
+                  <span class="stock-indicator__text">120</span>
+                </div>
+              </td>
+              <td style="color:var(--text-secondary);">30</td>
+              <td><span class="badge badge--stale">🔵 呆滞风险 92天</span></td>
+              <td><span class="unit-chip">采购: 根</span></td>
+              <td>
+                <div class="actions">
+                  <button class="btn btn--sm btn--secondary">编辑</button>
+                  <button class="btn btn--sm btn--secondary">查看库存</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- 成品行 -->
+            <tr>
+              <td><input type="checkbox" /></td>
+              <td style="font-family:var(--font-family-mono);font-size:var(--text-body-s);color:var(--text-secondary);">SKU-30001</td>
+              <td>
+                <div style="font-weight:500;">红橡实木储物柜</div>
+                <div style="font-size:var(--text-body-s);color:var(--text-secondary);">L1200×W450×H1800mm 3门</div>
+              </td>
+              <td><span class="badge badge--finished">成品</span></td>
+              <td><span style="font-size:var(--text-body-s);">柜类</span></td>
+              <td>套</td>
+              <td>
+                <div class="stock-indicator">
+                  <div class="stock-indicator__dot stock-indicator__dot--normal"></div>
+                  <span class="stock-indicator__text">2</span>
+                </div>
+              </td>
+              <td style="color:var(--text-secondary);">0</td>
+              <td><span class="badge badge--normal">🟢 正常</span></td>
+              <td>—</td>
+              <td>
+                <div class="actions">
+                  <button class="btn btn--sm btn--secondary">编辑</button>
+                  <button class="btn btn--sm btn--secondary">查看 BOM</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <!-- 分页 -->
+        <div class="pagination">
+          <div class="pagination__info">共 721 条 · 当前第 1-20 条</div>
+          <div class="pagination__controls">
+            <button class="pagination__btn" disabled>‹</button>
+            <button class="pagination__btn pagination__btn--active">1</button>
+            <button class="pagination__btn">2</button>
+            <button class="pagination__btn">3</button>
+            <span style="font-size:var(--text-body-s);color:var(--text-secondary);">...</span>
+            <button class="pagination__btn">37</button>
+            <button class="pagination__btn">›</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ══════════════════════════════════════
+  状态 2：新增/编辑 SKU Modal
+══════════════════════════════════════ -->
+<div class="state-section">
+  <div class="state-label">状态 2 — 新增 SKU Modal</div>
+  <div style="position:relative;height:700px;background:var(--color-gray-100);border-radius:var(--radius-lg);display:flex;align-items:center;justify-content:center;">
+    <div style="position:absolute;inset:0;background:rgba(0,0,0,.5);border-radius:var(--radius-lg);"></div>
+    <div style="position:relative;z-index:1;background:var(--bg-card);border-radius:var(--radius-xl);box-shadow:var(--shadow-xl);width:600px;max-height:680px;overflow-y:auto;">
+      <div class="modal__header">
+        <div class="modal__title">新增 SKU</div>
+        <button class="modal__close">✕</button>
+      </div>
+      <div class="modal__body">
+        <!-- 基础信息 -->
+        <div class="form-section-title">基础信息</div>
+        <div class="form-grid" style="margin-bottom:var(--space-5);">
+          <div class="form-field">
+            <label class="form-label form-label--required">SKU 名称</label>
+            <input class="form-input" type="text" placeholder="如：红橡木板" value="红橡木板" />
+          </div>
+          <div class="form-field">
+            <label class="form-label">规格描述</label>
+            <input class="form-input" type="text" placeholder="如：200×2400×18mm" value="200×2400×18mm" />
+          </div>
+          <div class="form-field">
+            <label class="form-label form-label--required">一级分类</label>
+            <select class="form-select">
+              <option>请选择</option>
+              <option selected>原材料</option>
+              <option>半成品</option>
+              <option>成品</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="form-label form-label--required">二级分类
+              <span style="color:var(--text-secondary);font-weight:400;">（随一级联动）</span>
+            </label>
+            <select class="form-select">
+              <option>请先选择一级分类</option>
+              <option selected>板材类</option>
+              <option>五金类</option>
+              <option>面料类</option>
+              <option>海绵类</option>
+              <option>油漆涂料类</option>
+            </select>
+          </div>
+          <div class="form-field form-grid--full">
+            <label class="form-label">SKU 编码</label>
+            <input class="form-input" type="text" placeholder="留空则系统自动生成" style="font-family:var(--font-family-mono);" />
+            <div class="form-hint">系统将自动生成编码（如：SKU-10001），也可手动指定</div>
+          </div>
+        </div>
+
+        <!-- 单位配置 -->
+        <div class="form-section-title">单位配置</div>
+        <div class="form-grid" style="margin-bottom:var(--space-5);">
+          <div class="form-field">
+            <label class="form-label form-label--required">库存单位</label>
+            <input class="form-input" type="text" placeholder="如：张、个、米" value="张" />
+          </div>
+          <div class="form-field">
+            <label class="form-label">采购单位</label>
+            <input class="form-input" type="text" placeholder="留空则与库存单位相同" value="张" />
+          </div>
+          <div class="form-field">
+            <label class="form-label">生产领用单位</label>
+            <input class="form-input" type="text" placeholder="留空则与库存单位相同" value="张" />
+          </div>
+          <div class="form-field">
+            <label class="form-label">换算系数</label>
+            <input class="form-input" type="number" placeholder="如：1 采购单位 = ? 库存单位" value="1" />
+            <div class="form-hint">1 张（采购）= 1 张（库存）</div>
+          </div>
+          <div class="form-field form-grid--full">
+            <label class="form-label">安全库存（库存单位）</label>
+            <input class="form-input" type="number" placeholder="低于此值触发预警" value="20" />
+          </div>
+        </div>
+
+        <!-- 面料类特有：缸号管理 -->
+        <div style="background:var(--color-purple-50);border:1px solid #DDD6FE;border-radius:var(--radius-md);padding:var(--space-4);margin-bottom:var(--space-5);">
+          <div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-3);">
+            <span class="vat-badge">🧵 面料类专属</span>
+            <span style="font-size:var(--text-body-s);font-weight:600;color:var(--color-purple-700);">缸号批次管理</span>
+          </div>
+          <div style="font-size:var(--text-body-s);color:var(--color-purple-600);">
+            面料类 SKU 需启用缸号管理。入库时必须填写缸号，出库时按先进先出优先推荐同缸号物料。
+          </div>
+          <div style="margin-top:var(--space-3);display:flex;align-items:center;gap:var(--space-3);">
+            <label style="display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-body-s);cursor:pointer;">
+              <input type="checkbox" checked /> 启用缸号管理
+            </label>
+            <label style="display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-body-s);cursor:pointer;">
+              <input type="checkbox" checked /> 先进先出出库规则
+            </label>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn--secondary">取消</button>
+        <button class="btn btn--primary">保存 SKU</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+  状态 3：骨架屏加载态
+══════════════════════════════════════ -->
+<div class="state-section">
+  <div class="state-label">状态 3 — 骨架屏加载态</div>
+  <div style="background:var(--bg-page);padding:var(--layout-page-padding);border-radius:var(--radius-lg);border:1px solid var(--border-default);">
+    <div style="display:flex;justify-content:space-between;margin-bottom:var(--space-6);">
+      <div>
+        <div class="skeleton" style="width:160px;height:1.5rem;margin-bottom:var(--space-2);"></div>
+        <div class="skeleton" style="width:320px;height:0.875rem;"></div>
+      </div>
+      <div style="display:flex;gap:var(--space-3);">
+        <div class="skeleton" style="width:100px;height:2rem;border-radius:var(--radius-md);"></div>
+        <div class="skeleton" style="width:100px;height:2rem;border-radius:var(--radius-md);"></div>
+        <div class="skeleton" style="width:100px;height:2rem;border-radius:var(--radius-md);"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-4);">
+      <div class="skeleton" style="height:2.25rem;flex:1;max-width:320px;border-radius:var(--radius-md);"></div>
+      <div class="skeleton" style="height:2.25rem;width:140px;border-radius:var(--radius-md);"></div>
+      <div class="skeleton" style="height:2.25rem;width:140px;border-radius:var(--radius-md);"></div>
+      <div class="skeleton" style="height:2.25rem;width:140px;border-radius:var(--radius-md);"></div>
+    </div>
+    <div style="background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);overflow:hidden;">
+      <div style="background:var(--color-gray-50);padding:var(--space-3) var(--space-5);border-bottom:1px solid var(--border-default);">
+        <div class="skeleton" style="width:80%;height:0.75rem;"></div>
+      </div>
+      <div style="padding:var(--space-4) var(--space-5);display:flex;flex-direction:column;gap:var(--space-4);">
+        <div class="skeleton" style="height:2.5rem;"></div>
+        <div class="skeleton" style="height:2.5rem;"></div>
+        <div class="skeleton" style="height:2.5rem;"></div>
+        <div class="skeleton" style="height:2.5rem;"></div>
+        <div class="skeleton" style="height:2.5rem;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+  状态 4：空态（无搜索结果）
+══════════════════════════════════════ -->
+<div class="state-section">
+  <div class="state-label">状态 4 — 空态（无搜索结果）</div>
+  <div style="background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-12) var(--space-5);text-align:center;">
+    <div style="font-size:3rem;margin-bottom:var(--space-4);">🔍</div>
+    <div style="font-size:var(--text-h3);font-weight:600;color:var(--text-primary);margin-bottom:var(--space-2);">未找到匹配的 SKU</div>
+    <div style="font-size:var(--text-body-m);color:var(--text-secondary);margin-bottom:var(--space-6);">
+      搜索词"红橡木 200×2400"在当前分类下无结果<br>试试去掉筛选条件或调整搜索词
+    </div>
+    <div style="display:flex;justify-content:center;gap:var(--space-3);">
+      <button class="btn btn--secondary">清空筛选条件</button>
+      <button class="btn btn--primary">+ 新增该 SKU</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+  状态 5：批量导入弹窗（入口提示）
+══════════════════════════════════════ -->
+<div class="state-section">
+  <div class="state-label">状态 5 — 批量导入确认弹窗</div>
+  <div style="position:relative;height:260px;background:var(--color-gray-100);border-radius:var(--radius-lg);display:flex;align-items:center;justify-content:center;">
+    <div style="position:absolute;inset:0;background:rgba(0,0,0,.4);border-radius:var(--radius-lg);"></div>
+    <div style="position:relative;z-index:1;background:var(--bg-card);border-radius:var(--radius-xl);box-shadow:var(--shadow-xl);padding:var(--space-8);width:480px;">
+      <div style="font-size:var(--text-h3);font-weight:600;margin-bottom:var(--space-2);">批量导入 SKU</div>
+      <div style="font-size:var(--text-body-s);color:var(--text-secondary);margin-bottom:var(--space-5);">通过 Excel 批量导入 SKU 主数据，支持字段智能映射和数据清洗。</div>
+      <div style="background:var(--color-primary-50);border:1px solid var(--color-primary-100);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);margin-bottom:var(--space-5);font-size:var(--text-body-s);color:var(--color-primary-700);">
+        📎 <strong>下载标准模板：</strong> SKU导入模板.xlsx（含示例数据，约 28KB）
+      </div>
+      <div style="display:flex;gap:var(--space-3);justify-content:flex-end;">
+        <button class="btn btn--secondary">取消</button>
+        <button class="btn btn--secondary">📥 下载模板</button>
+        <button class="btn btn--primary">📂 选择文件上传</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
