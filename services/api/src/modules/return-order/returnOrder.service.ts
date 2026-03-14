@@ -328,15 +328,91 @@ export class ReturnOrderService {
 
   // ── 标记完成（complete）──────────────────────────────────────
   async complete(id: number): Promise<void> {
-    const record = await this.findAndValidate(id, 'shipped');
+    // Fetch full record so we have source_po_id available after validation.
+    const [record] = await AppDataSource.query(
+      `SELECT id, status, source_po_id FROM return_orders
+       WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [id, this.tenantId],
+    );
 
-    await AppDataSource.query(
-      `UPDATE return_orders
-       SET status = 'completed',
-           completed_at = NOW(),
-           updated_by = ?
+    if (!record) {
+      throw AppError.notFound('退货单不存在', ResponseCode.NOT_FOUND);
+    }
+
+    if (record.status !== 'shipped') {
+      throw AppError.conflict(
+        `退货单当前状态为 ${record.status}，不允许此操作（须为 shipped）`,
+      );
+    }
+
+    await AppDataSource.transaction(async (manager) => {
+      await manager.query(
+        `UPDATE return_orders
+         SET status = 'completed',
+             completed_at = NOW(),
+             updated_by = ?
+         WHERE id = ? AND tenant_id = ?`,
+        [this.userId, record.id, this.tenantId],
+      );
+
+      if (record.source_po_id) {
+        await this.recalculatePOStatus(manager, record.source_po_id);
+      }
+    });
+  }
+
+  /**
+   * 退货完成后重新计算源 PO 头的状态。
+   * 仅当 PO 当前为 'received' 时才做修正，避免干扰 ordered / cancelled 等状态。
+   *
+   * 规则：
+   *   total_received >= total_ordered  → 保持 'received'（无需写库）
+   *   0 < total_received < total_ordered → 'partial_received'
+   *   total_received = 0               → 'ordered'（回退至待收货）
+   */
+  private async recalculatePOStatus(manager: EntityManager, poId: number): Promise<void> {
+    const [po] = await manager.query(
+      `SELECT id, status FROM purchase_orders
+       WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [poId, this.tenantId],
+    );
+
+    // Only correct POs that are in 'received' state; leave all others untouched.
+    if (!po || po.status !== 'received') {
+      return;
+    }
+
+    const [agg] = await manager.query(
+      `SELECT
+         SUM(qty_ordered)               AS total_ordered,
+         SUM(COALESCE(qty_received, 0)) AS total_received,
+         SUM(COALESCE(qty_rejected, 0)) AS total_rejected
+       FROM purchase_order_items
+       WHERE purchase_order_id = ? AND tenant_id = ?`,
+      [poId, this.tenantId],
+    );
+
+    const totalOrdered = new Decimal(agg?.total_ordered ?? '0');
+    const totalReceived = new Decimal(agg?.total_received ?? '0');
+
+    // Net quantity actually in stock after accounting for rejections.
+    const netReceived = totalReceived.minus(new Decimal(agg?.total_rejected ?? '0'));
+
+    let newStatus: string;
+    if (netReceived.gte(totalOrdered)) {
+      // Still fully received — nothing to change.
+      return;
+    } else if (netReceived.gt(new Decimal(0))) {
+      newStatus = 'partial_received';
+    } else {
+      newStatus = 'ordered';
+    }
+
+    await manager.query(
+      `UPDATE purchase_orders
+       SET status = ?, updated_by = ?
        WHERE id = ? AND tenant_id = ?`,
-      [this.userId, record.id, this.tenantId],
+      [newStatus, this.userId, poId, this.tenantId],
     );
   }
 

@@ -5,52 +5,194 @@
  * 页面布局：
  *  1. 顶部统计行：4 列 ScheduleStatCard
  *  2. 中间内容区：左60% 采购建议 + 右40% 排产建议
- *  3. 底部历史记录 Tab（采购历史 / 排产历史）
+ *  3. 底部历史记录 Tab（批次历史）
+ *  4. 触发计算按钮 + 计算状态轮询
  *
- * 当前使用静态 mock 数据；后续替换为 API hook。
+ * 数据来源：真实 API hooks（不再使用静态 mock）
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import ScheduleStatCard from '@/components/ScheduleStatCard/ScheduleStatCard';
+import {
+  useLatestSuggestion,
+  useTriggerCalculation,
+  useCalculationStatus,
+  useAcceptItem,
+  useRejectItem,
+  useSuggestionHistory,
+} from '@/hooks/useScheduleSuggestion';
+import type {
+  PurchaseSuggestionItem,
+  WorkOrderSuggestionItem,
+  SuggestionHistoryBatch,
+} from '@/api/scheduleSuggestion';
 import styles from './ScheduleSuggestionPage.module.css';
 
-// ─── Mock 数据 ────────────────────────────────
-const mockStats = {
-  pendingPurchase: 12,
-  pendingProduction: 8,
-  stockAlerts: 3,
-  capacityRate: '78%',
-};
+// ─── 工具：格式化日期 ─────────────────────────
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  return iso.slice(0, 10);
+}
 
-/** 采购建议 mock 列表 */
-const mockPurchaseSuggestions = [
-  { id: 'P001', skuName: '橡木板材 (18mm)', qty: 200, unit: '张', urgency: 'high', reason: '库存低于安全线', deadline: '2026-03-16' },
-  { id: 'P002', skuName: '沙发面料 (灰色)', qty: 80, unit: '米', urgency: 'normal', reason: 'MRP 周期补货', deadline: '2026-03-20' },
-  { id: 'P003', skuName: '海绵块 (50mm)', qty: 150, unit: '块', urgency: 'high', reason: '工单缺料预警', deadline: '2026-03-15' },
-  { id: 'P004', skuName: '五金合页 (60mm)', qty: 500, unit: '个', urgency: 'normal', reason: 'MRP 周期补货', deadline: '2026-03-22' },
-];
+// ─── Loading 骨架 ─────────────────────────────
+function SkeletonRows({ count = 3 }: { count?: number }) {
+  return (
+    <ul className={styles.suggestion_list} role="list" aria-busy="true" aria-label="加载中">
+      {Array.from({ length: count }).map((_, i) => (
+        <li key={i} className={styles.suggestion_item} style={{ opacity: 0.4 }}>
+          <div className={styles.suggestion_item__top}>
+            <span
+              className={styles.suggestion_item__name}
+              style={{ background: 'var(--color-gray-200)', borderRadius: 4, color: 'transparent', minWidth: 120 }}
+            >
+              &nbsp;
+            </span>
+          </div>
+          <div className={styles.suggestion_item__meta} style={{ height: 16, background: 'var(--color-gray-100)', borderRadius: 4 }} />
+        </li>
+      ))}
+    </ul>
+  );
+}
 
-/** 排产建议 mock 列表 */
-const mockProductionSuggestions = [
-  { id: 'W001', orderNo: 'SO-2026-0312', skuName: '三人位布艺沙发', qty: 20, unit: '套', priority: 'urgent', deadline: '2026-03-18' },
-  { id: 'W002', orderNo: 'SO-2026-0308', skuName: '实木餐椅', qty: 50, unit: '把', priority: 'normal', deadline: '2026-03-25' },
-  { id: 'W003', orderNo: 'SO-2026-0310', skuName: '橡木书桌', qty: 10, unit: '张', priority: 'high', deadline: '2026-03-21' },
-];
+// ─── 错误占位 ─────────────────────────────────
+function ErrorBlock({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div
+      style={{
+        padding: 'var(--space-6)',
+        textAlign: 'center',
+        color: 'var(--color-error-600)',
+        fontSize: 'var(--text-body-s)',
+      }}
+    >
+      <p>{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          className={styles.btn_approve}
+          style={{ marginTop: 'var(--space-3)' }}
+          onClick={onRetry}
+        >
+          重试
+        </button>
+      )}
+    </div>
+  );
+}
 
-/** 历史记录 mock */
-const mockPurchaseHistory = [
-  { id: 'H-P01', date: '2026-03-13', action: '批准采购建议 P-230', operator: '张主管', result: '已转采购单' },
-  { id: 'H-P02', date: '2026-03-12', action: '批准采购建议 P-228', operator: '张主管', result: '已转采购单' },
-  { id: 'H-P03', date: '2026-03-11', action: '驳回采购建议 P-225', operator: '李老板', result: '已驳回' },
-];
+// ─── 空状态占位 ───────────────────────────────
+function EmptyBlock({ onTrigger, triggering }: { onTrigger: () => void; triggering: boolean }) {
+  return (
+    <div
+      style={{
+        padding: 'var(--space-8)',
+        textAlign: 'center',
+        color: 'var(--text-secondary)',
+        fontSize: 'var(--text-body-m)',
+      }}
+    >
+      <p style={{ marginBottom: 'var(--space-3)' }}>暂无建议数据，点击触发 AI 计算</p>
+      <button
+        type="button"
+        className={styles.btn_approve}
+        disabled={triggering}
+        onClick={onTrigger}
+        style={{ opacity: triggering ? 0.6 : 1 }}
+      >
+        {triggering ? '计算中…' : '触发计算'}
+      </button>
+    </div>
+  );
+}
 
-const mockProductionHistory = [
-  { id: 'H-W01', date: '2026-03-13', action: '排产工单 W-450', operator: '赵车间主管', result: '已排产' },
-  { id: 'H-W02', date: '2026-03-12', action: '排产工单 W-448', operator: '赵车间主管', result: '已排产' },
-];
+// ─── 计算进度横幅 ──────────────────────────────
+function CalcProgressBanner({
+  jobId,
+  onDone,
+}: {
+  jobId: string;
+  onDone: () => void;
+}) {
+  const { data, isError } = useCalculationStatus(jobId);
+
+  useEffect(() => {
+    if (data?.status === 'completed' || data?.status === 'failed') {
+      onDone();
+    }
+  }, [data?.status, onDone]);
+
+  const statusText = isError
+    ? '状态查询失败'
+    : data?.status === 'running'
+    ? `AI 计算中… ${data.progress != null ? `${data.progress}%` : ''}`
+    : data?.status === 'failed'
+    ? `计算失败：${data.errorMessage ?? '未知错误'}`
+    : data?.status === 'completed'
+    ? '计算完成，正在刷新…'
+    : '任务排队中…';
+
+  const isFailure = isError || data?.status === 'failed';
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        padding: 'var(--space-3) var(--space-5)',
+        background: isFailure ? 'var(--color-error-50)' : 'var(--color-primary-50)',
+        borderLeft: `4px solid ${isFailure ? 'var(--color-error-500)' : 'var(--color-primary-500)'}`,
+        color: isFailure ? 'var(--color-error-700)' : 'var(--color-primary-700)',
+        fontSize: 'var(--text-body-s)',
+        fontWeight: 500,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--space-2)',
+      }}
+    >
+      {!isFailure && (
+        <span
+          style={{
+            display: 'inline-block',
+            width: 12,
+            height: 12,
+            borderRadius: '50%',
+            border: '2px solid var(--color-primary-400)',
+            borderTopColor: 'transparent',
+            animation: 'spin 0.8s linear infinite',
+            flexShrink: 0,
+          }}
+          aria-hidden="true"
+        />
+      )}
+      {statusText}
+    </div>
+  );
+}
 
 // ─── 子组件：采购建议区 ──────────────────────
-function PurchaseSuggestionPanel() {
+interface PurchasePanelProps {
+  items: PurchaseSuggestionItem[];
+  loading: boolean;
+  error: boolean;
+  onRefetch: () => void;
+  onTrigger: () => void;
+  triggering: boolean;
+}
+
+function PurchaseSuggestionPanel({
+  items,
+  loading,
+  error,
+  onRefetch,
+  onTrigger,
+  triggering,
+}: PurchasePanelProps) {
+  const { mutate: acceptItem, isPending: accepting } = useAcceptItem();
+  const { mutate: rejectItem, isPending: rejecting } = useRejectItem();
+
+  const pendingItems = items.filter((i) => i.status === 'pending');
+
   return (
     <section className={styles.panel} aria-labelledby="purchase-panel-title">
       <div className={styles.panel__header}>
@@ -58,43 +200,130 @@ function PurchaseSuggestionPanel() {
           <span className={styles.panel__title_icon} aria-hidden="true">🛒</span>
           采购建议
         </h3>
-        <span className={styles.panel__badge}>{mockPurchaseSuggestions.length} 条待处理</span>
+        {!loading && !error && (
+          <span className={styles.panel__badge}>{pendingItems.length} 条待处理</span>
+        )}
       </div>
 
-      <ul className={styles.suggestion_list} role="list">
-        {mockPurchaseSuggestions.map((item) => (
-          <li key={item.id} className={styles.suggestion_item}>
-            <div className={styles.suggestion_item__top}>
-              <span className={styles.suggestion_item__name}>{item.skuName}</span>
-              <span
-                className={[
-                  styles.suggestion_item__urgency,
-                  item.urgency === 'high' ? styles['suggestion_item__urgency--high'] : '',
-                ].join(' ')}
-              >
-                {item.urgency === 'high' ? '紧急' : '普通'}
-              </span>
-            </div>
-            <div className={styles.suggestion_item__meta}>
-              <span>建议采购：<strong>{item.qty} {item.unit}</strong></span>
-              <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
-              <span>{item.reason}</span>
-              <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
-              <span>需求日期：{item.deadline}</span>
-            </div>
-            <div className={styles.suggestion_item__actions}>
-              <button type="button" className={styles.btn_approve}>批准</button>
-              <button type="button" className={styles.btn_reject}>驳回</button>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {loading ? (
+        <SkeletonRows count={3} />
+      ) : error ? (
+        <ErrorBlock message="采购建议加载失败" onRetry={onRefetch} />
+      ) : items.length === 0 ? (
+        <EmptyBlock onTrigger={onTrigger} triggering={triggering} />
+      ) : (
+        <ul className={styles.suggestion_list} role="list">
+          {items.map((item) => (
+            <li key={item.id} className={styles.suggestion_item}>
+              <div className={styles.suggestion_item__top}>
+                <span className={styles.suggestion_item__name}>{item.skuName}</span>
+                <span
+                  className={[
+                    styles.suggestion_item__urgency,
+                    item.status === 'pending' ? '' : '',
+                    item.source === 'shortage_trigger' ? styles['suggestion_item__urgency--high'] : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  {item.source === 'shortage_trigger' ? '紧急' : '普通'}
+                </span>
+              </div>
+              <div className={styles.suggestion_item__meta}>
+                <span>
+                  建议采购：<strong>{item.suggestedQty} {item.unit}</strong>
+                </span>
+                <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                <span>{item.reason}</span>
+                {item.neededByDate && (
+                  <>
+                    <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                    <span>需求日期：{fmtDate(item.neededByDate)}</span>
+                  </>
+                )}
+                {item.supplierName && (
+                  <>
+                    <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                    <span>供应商：{item.supplierName}</span>
+                  </>
+                )}
+              </div>
+              {item.status === 'pending' ? (
+                <div className={styles.suggestion_item__actions}>
+                  <button
+                    type="button"
+                    className={styles.btn_approve}
+                    disabled={accepting || rejecting}
+                    onClick={() => acceptItem(item.id)}
+                    aria-label={`批准 ${item.skuName} 采购建议`}
+                  >
+                    {accepting ? '处理中…' : '批准'}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btn_reject}
+                    disabled={accepting || rejecting}
+                    onClick={() =>
+                      rejectItem({ itemId: item.id, reason: '人工驳回' })
+                    }
+                    aria-label={`驳回 ${item.skuName} 采购建议`}
+                  >
+                    驳回
+                  </button>
+                </div>
+              ) : (
+                <div className={styles.suggestion_item__actions}>
+                  <span
+                    className={[
+                      styles.suggestion_item__urgency,
+                      item.status === 'rejected' ? styles['suggestion_item__urgency--high'] : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    style={item.status === 'accepted' || item.status === 'applied' ? {
+                      background: 'var(--color-success-100)',
+                      color: 'var(--color-success-700)',
+                    } : undefined}
+                  >
+                    {item.status === 'accepted'
+                      ? '已批准'
+                      : item.status === 'applied'
+                      ? '已应用'
+                      : '已驳回'}
+                  </span>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
 
 // ─── 子组件：排产建议区 ──────────────────────
-function ProductionSuggestionPanel() {
+interface ProductionPanelProps {
+  items: WorkOrderSuggestionItem[];
+  loading: boolean;
+  error: boolean;
+  onRefetch: () => void;
+  onTrigger: () => void;
+  triggering: boolean;
+}
+
+function ProductionSuggestionPanel({
+  items,
+  loading,
+  error,
+  onRefetch,
+  onTrigger,
+  triggering,
+}: ProductionPanelProps) {
+  const { mutate: acceptItem, isPending: accepting } = useAcceptItem();
+  const { mutate: rejectItem, isPending: rejecting } = useRejectItem();
+
+  const pendingItems = items.filter((i) => i.status === 'pending');
+
   return (
     <section className={styles.panel} aria-labelledby="production-panel-title">
       <div className={styles.panel__header}>
@@ -102,37 +331,98 @@ function ProductionSuggestionPanel() {
           <span className={styles.panel__title_icon} aria-hidden="true">🏭</span>
           排产建议
         </h3>
-        <span className={styles.panel__badge}>{mockProductionSuggestions.length} 条待排产</span>
+        {!loading && !error && (
+          <span className={styles.panel__badge}>{pendingItems.length} 条待排产</span>
+        )}
       </div>
 
-      <ul className={styles.suggestion_list} role="list">
-        {mockProductionSuggestions.map((item) => (
-          <li key={item.id} className={styles.suggestion_item}>
-            <div className={styles.suggestion_item__top}>
-              <span className={styles.suggestion_item__name}>{item.skuName}</span>
-              <span
-                className={[
-                  styles.suggestion_item__urgency,
-                  item.priority === 'urgent' ? styles['suggestion_item__urgency--high'] : '',
-                ].join(' ')}
-              >
-                {item.priority === 'urgent' ? '紧急' : item.priority === 'high' ? '高优' : '普通'}
-              </span>
-            </div>
-            <div className={styles.suggestion_item__meta}>
-              <span>订单：<strong>{item.orderNo}</strong></span>
-              <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
-              <span>数量：<strong>{item.qty} {item.unit}</strong></span>
-              <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
-              <span>交期：{item.deadline}</span>
-            </div>
-            <div className={styles.suggestion_item__actions}>
-              <button type="button" className={styles.btn_approve}>确认排产</button>
-              <button type="button" className={styles.btn_reject}>延后</button>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {loading ? (
+        <SkeletonRows count={2} />
+      ) : error ? (
+        <ErrorBlock message="排产建议加载失败" onRetry={onRefetch} />
+      ) : items.length === 0 ? (
+        <EmptyBlock onTrigger={onTrigger} triggering={triggering} />
+      ) : (
+        <ul className={styles.suggestion_list} role="list">
+          {items.map((item) => (
+            <li key={item.id} className={styles.suggestion_item}>
+              <div className={styles.suggestion_item__top}>
+                <span className={styles.suggestion_item__name}>{item.skuName}</span>
+                <span
+                  className={[
+                    styles.suggestion_item__urgency,
+                    item.rank === 1 ? styles['suggestion_item__urgency--high'] : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  {item.rank === 1 ? '紧急' : item.totalScore >= 80 ? '高优' : '普通'}
+                </span>
+              </div>
+              <div className={styles.suggestion_item__meta}>
+                <span>
+                  工单：<strong>{item.workOrderNo}</strong>
+                </span>
+                <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                <span>综合评分：<strong>{item.totalScore}</strong></span>
+                <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                <span>排名第 {item.rank}</span>
+                {item.recommendedWorkerName && (
+                  <>
+                    <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                    <span>推荐工人：{item.recommendedWorkerName}</span>
+                  </>
+                )}
+              </div>
+              {item.status === 'pending' ? (
+                <div className={styles.suggestion_item__actions}>
+                  <button
+                    type="button"
+                    className={styles.btn_approve}
+                    disabled={accepting || rejecting}
+                    onClick={() => acceptItem(item.id)}
+                    aria-label={`确认排产 ${item.workOrderNo}`}
+                  >
+                    {accepting ? '处理中…' : '确认排产'}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btn_reject}
+                    disabled={accepting || rejecting}
+                    onClick={() =>
+                      rejectItem({ itemId: item.id, reason: '延后处理' })
+                    }
+                    aria-label={`延后排产 ${item.workOrderNo}`}
+                  >
+                    延后
+                  </button>
+                </div>
+              ) : (
+                <div className={styles.suggestion_item__actions}>
+                  <span
+                    className={[
+                      styles.suggestion_item__urgency,
+                      item.status === 'rejected' ? styles['suggestion_item__urgency--high'] : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    style={item.status === 'accepted' || item.status === 'applied' ? {
+                      background: 'var(--color-success-100)',
+                      color: 'var(--color-success-700)',
+                    } : undefined}
+                  >
+                    {item.status === 'accepted'
+                      ? '已确认'
+                      : item.status === 'applied'
+                      ? '已排产'
+                      : '已延后'}
+                  </span>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -142,6 +432,10 @@ type HistoryTab = 'purchase' | 'production';
 
 function HistoryPanel() {
   const [activeTab, setActiveTab] = useState<HistoryTab>('purchase');
+  const [page] = useState(1);
+  const { data, isLoading, isError } = useSuggestionHistory(page, 10);
+
+  const batches: SuggestionHistoryBatch[] = data?.list ?? [];
 
   return (
     <section className={styles.history} aria-labelledby="history-title">
@@ -181,73 +475,100 @@ function HistoryPanel() {
       <div
         id="tab-panel-purchase"
         role="tabpanel"
-        aria-labelledby="tab-purchase"
         hidden={activeTab !== 'purchase'}
         className={styles.tab_panel}
       >
-        <table className={styles.history_table}>
-          <thead>
-            <tr>
-              <th>日期</th>
-              <th>操作</th>
-              <th>操作人</th>
-              <th>结果</th>
-            </tr>
-          </thead>
-          <tbody>
-            {mockPurchaseHistory.map((row) => (
-              <tr key={row.id}>
-                <td>{row.date}</td>
-                <td>{row.action}</td>
-                <td>{row.operator}</td>
-                <td>
-                  <span className={[
-                    styles.history_result,
-                    row.result === '已驳回' ? styles['history_result--rejected'] : styles['history_result--approved'],
-                  ].join(' ')}>
-                    {row.result}
-                  </span>
-                </td>
+        {isLoading ? (
+          <p style={{ padding: 'var(--space-5)', color: 'var(--text-secondary)', fontSize: 'var(--text-body-s)' }}>
+            加载中…
+          </p>
+        ) : isError ? (
+          <p style={{ padding: 'var(--space-5)', color: 'var(--color-error-600)', fontSize: 'var(--text-body-s)' }}>
+            历史记录加载失败
+          </p>
+        ) : batches.length === 0 ? (
+          <p style={{ padding: 'var(--space-5)', color: 'var(--text-secondary)', fontSize: 'var(--text-body-s)' }}>
+            暂无历史记录
+          </p>
+        ) : (
+          <table className={styles.history_table}>
+            <thead>
+              <tr>
+                <th>计算时间</th>
+                <th>批次 ID</th>
+                <th>采购条目</th>
+                <th>预估金额</th>
+                <th>类型</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {batches.map((row) => (
+                <tr key={row.batchId}>
+                  <td>{fmtDate(row.calculatedAt)}</td>
+                  <td>{row.batchId}</td>
+                  <td>{row.summary.totalPurchaseItems} 条</td>
+                  <td>{row.summary.estimatedTotalAmount != null ? `¥${row.summary.estimatedTotalAmount}` : '—'}</td>
+                  <td>
+                    <span
+                      className={[
+                        styles.history_result,
+                        row.isColdStart ? styles['history_result--approved'] : styles['history_result--approved'],
+                      ].join(' ')}
+                    >
+                      {row.isColdStart ? '冷启动' : 'AI计算'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div
         id="tab-panel-production"
         role="tabpanel"
-        aria-labelledby="tab-production"
         hidden={activeTab !== 'production'}
         className={styles.tab_panel}
       >
-        <table className={styles.history_table}>
-          <thead>
-            <tr>
-              <th>日期</th>
-              <th>操作</th>
-              <th>操作人</th>
-              <th>结果</th>
-            </tr>
-          </thead>
-          <tbody>
-            {mockProductionHistory.map((row) => (
-              <tr key={row.id}>
-                <td>{row.date}</td>
-                <td>{row.action}</td>
-                <td>{row.operator}</td>
-                <td>
-                  <span className={[
-                    styles.history_result,
-                    styles['history_result--approved'],
-                  ].join(' ')}>
-                    {row.result}
-                  </span>
-                </td>
+        {isLoading ? (
+          <p style={{ padding: 'var(--space-5)', color: 'var(--text-secondary)', fontSize: 'var(--text-body-s)' }}>
+            加载中…
+          </p>
+        ) : isError ? (
+          <p style={{ padding: 'var(--space-5)', color: 'var(--color-error-600)', fontSize: 'var(--text-body-s)' }}>
+            历史记录加载失败
+          </p>
+        ) : batches.length === 0 ? (
+          <p style={{ padding: 'var(--space-5)', color: 'var(--text-secondary)', fontSize: 'var(--text-body-s)' }}>
+            暂无历史记录
+          </p>
+        ) : (
+          <table className={styles.history_table}>
+            <thead>
+              <tr>
+                <th>计算时间</th>
+                <th>批次 ID</th>
+                <th>排产条目</th>
+                <th>类型</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {batches.map((row) => (
+                <tr key={row.batchId}>
+                  <td>{fmtDate(row.calculatedAt)}</td>
+                  <td>{row.batchId}</td>
+                  <td>{row.summary.totalProductionItems} 条</td>
+                  <td>
+                    <span className={[styles.history_result, styles['history_result--approved']].join(' ')}>
+                      {row.isColdStart ? '冷启动' : 'AI计算'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </section>
   );
@@ -255,6 +576,46 @@ function HistoryPanel() {
 
 // ─── 页面主体 ─────────────────────────────────
 export default function ScheduleSuggestionPage() {
+  // ── 触发计算状态 ──
+  const [pollingJobId, setPollingJobId] = useState<string | null>(null);
+
+  const { mutate: triggerCalc, isPending: triggering } = useTriggerCalculation();
+  const {
+    data: batch,
+    isLoading: batchLoading,
+    isError: batchError,
+    refetch: batchRefetch,
+  } = useLatestSuggestion();
+
+  const handleTrigger = () => {
+    triggerCalc(undefined, {
+      onSuccess: (res) => {
+        if (res?.jobId) {
+          setPollingJobId(res.jobId);
+        }
+      },
+    });
+  };
+
+  const handlePollDone = () => {
+    setPollingJobId(null);
+    void batchRefetch();
+  };
+
+  // ── 统计数据 ──
+  const purchaseItems = batch?.purchaseItems ?? [];
+  const productionItems = batch?.productionItems ?? [];
+  const pendingPurchase = purchaseItems.filter((i) => i.status === 'pending').length;
+  const pendingProduction = productionItems.filter((i) => i.status === 'pending').length;
+  const stockAlerts = purchaseItems.filter((i) => i.source === 'shortage_trigger').length;
+  const capacityRate = batch
+    ? `${Math.round(
+        (productionItems.length > 0
+          ? (productionItems.reduce((s, i) => s + i.totalScore, 0) / productionItems.length / 100) * 100
+          : 0)
+      )}%`
+    : '—';
+
   return (
     <div className={styles.page}>
       {/* 页面标题 */}
@@ -264,43 +625,61 @@ export default function ScheduleSuggestionPage() {
           <span className={styles.page__breadcrumb_sep} aria-hidden="true">/</span>
           <span className={styles.page__breadcrumb_item} aria-current="page">调度建议</span>
         </div>
-        <h2 className={styles.page__title}>
-          <span aria-hidden="true">⚡</span> 智能调度建议
-        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)' }}>
+          <h2 className={styles.page__title}>
+            <span aria-hidden="true">⚡</span> 智能调度建议
+          </h2>
+          <button
+            type="button"
+            className={styles.btn_approve}
+            disabled={triggering || pollingJobId !== null}
+            onClick={handleTrigger}
+            aria-label="触发 AI 重新计算调度建议"
+          >
+            {triggering || pollingJobId !== null ? '计算中…' : '触发计算'}
+          </button>
+        </div>
         <p className={styles.page__subtitle}>
           基于当前库存、销售订单与产能数据，AI 自动生成采购与排产建议
         </p>
+        {batch?.calculatedAt && (
+          <p className={styles.page__subtitle} style={{ fontSize: 'var(--text-body-s)' }}>
+            最近一次计算时间：{fmtDate(batch.calculatedAt)}
+          </p>
+        )}
       </header>
+
+      {/* 计算进度横幅 */}
+      {pollingJobId && (
+        <CalcProgressBanner jobId={pollingJobId} onDone={handlePollDone} />
+      )}
 
       {/* 顶部统计卡片行 */}
       <div className={styles.stats_row} role="region" aria-label="调度统计概览">
         <ScheduleStatCard
           title="待处理采购建议"
-          value={mockStats.pendingPurchase}
+          value={batchLoading ? '—' : pendingPurchase}
           unit="条"
           variant="warning"
           icon="🛒"
-          onClick={() => { /* TODO: 跳转或展开采购建议列表 */ }}
         />
         <ScheduleStatCard
           title="待排产工单"
-          value={mockStats.pendingProduction}
+          value={batchLoading ? '—' : pendingProduction}
           unit="单"
           variant="info"
           icon="🏭"
-          onClick={() => { /* TODO: 跳转或展开排产建议列表 */ }}
         />
         <ScheduleStatCard
           title="库存预警"
-          value={mockStats.stockAlerts}
+          value={batchLoading ? '—' : stockAlerts}
           unit="项"
           variant="danger"
           icon="⚠️"
-          onClick={() => { /* TODO: 跳转库存预警详情 */ }}
         />
         <ScheduleStatCard
           title="产能利用率"
-          value={mockStats.capacityRate}
+          value={batchLoading ? '—' : capacityRate}
           variant="normal"
           icon="📊"
         />
@@ -310,12 +689,26 @@ export default function ScheduleSuggestionPage() {
       <div className={styles.content_row}>
         {/* 左60%：采购建议 */}
         <div className={styles.content_left}>
-          <PurchaseSuggestionPanel />
+          <PurchaseSuggestionPanel
+            items={purchaseItems}
+            loading={batchLoading}
+            error={batchError}
+            onRefetch={() => void batchRefetch()}
+            onTrigger={handleTrigger}
+            triggering={triggering}
+          />
         </div>
 
         {/* 右40%：排产建议 */}
         <div className={styles.content_right}>
-          <ProductionSuggestionPanel />
+          <ProductionSuggestionPanel
+            items={productionItems}
+            loading={batchLoading}
+            error={batchError}
+            onRefetch={() => void batchRefetch()}
+            onTrigger={handleTrigger}
+            triggering={triggering}
+          />
         </div>
       </div>
 

@@ -434,6 +434,82 @@ export class SchedulerService {
         [params.completedQty, this.userId, task.production_order_id, this.tenantId],
       );
 
+      // ── 检查该工单所有任务是否已全部完工 ──────────────────────────────────
+      // 若无剩余待处理/进行中任务，则将工单标记为 completed 并触发成品入库
+      const [remainingRow] = await manager.query<Array<{ remaining: string }>>(
+        `SELECT COUNT(*) AS remaining
+         FROM production_tasks
+         WHERE production_order_id = ? AND tenant_id = ?
+           AND status NOT IN ('completed', 'cancelled')`,
+        [task.production_order_id, this.tenantId],
+      );
+
+      if (Number(remainingRow.remaining) === 0) {
+        // 1. 将工单状态更新为 completed（仅当当前状态为 in_progress，幂等保护）
+        await manager.query(
+          `UPDATE production_orders
+           SET status = 'completed', actual_end = NOW(), updated_by = ?
+           WHERE id = ? AND tenant_id = ? AND status = 'in_progress'`,
+          [this.userId, task.production_order_id, this.tenantId],
+        );
+
+        // 2. 获取工单的 sku_id 与实际完工数量（用于成品入库）
+        const [order] = await manager.query<Array<{
+          sku_id: number;
+          work_order_no: string;
+          qty_completed: string;
+        }>>(
+          `SELECT sku_id, work_order_no, qty_completed
+           FROM production_orders
+           WHERE id = ? AND tenant_id = ? LIMIT 1`,
+          [task.production_order_id, this.tenantId],
+        );
+
+        if (order && new Decimal(order.qty_completed).gt(0)) {
+          const completedQty = new Decimal(order.qty_completed);
+          // 生成成品入库流水号：格式 PROD-IN-{timestamp}{random}
+          const txNo = `PROD-IN-${Date.now()}${Math.floor(Math.random() * 999).toString().padStart(3, '0')}`;
+
+          // 3. 写入库存流水（PRODUCTION_IN，成品入库）
+          await manager.query(
+            `INSERT INTO inventory_transactions
+               (tenant_id, transaction_no, sku_id, transaction_type, direction,
+                qty_input, input_unit, qty_stock_unit, stock_unit,
+                reference_type, reference_id, reference_no, notes, created_by)
+             VALUES (?,?,?,'PRODUCTION_IN','IN',
+                     ?,?,?,?,
+                     'production_order',?,?,?,?)`,
+            [
+              this.tenantId,
+              txNo,
+              order.sku_id,
+              completedQty.toFixed(4),     // qty_input（原始数量，已是库存单位）
+              'pcs',                        // input_unit — 成品单位，生产模块统一使用 pcs
+              completedQty.toFixed(4),     // qty_stock_unit
+              'pcs',                        // stock_unit
+              task.production_order_id,
+              order.work_order_no,
+              `生产工单 ${order.work_order_no} 全部任务完工，成品自动入库`,
+              this.userId,
+            ],
+          );
+
+          // 4. UPSERT 库存快照：增加 qty_on_hand（首次则新建行）
+          await manager.query(
+            `INSERT INTO inventory (tenant_id, sku_id, qty_on_hand, qty_reserved, qty_in_transit, last_in_at)
+             VALUES (?, ?, ?, 0, 0, NOW())
+             ON DUPLICATE KEY UPDATE
+               qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
+               last_in_at  = NOW()`,
+            [this.tenantId, order.sku_id, completedQty.toFixed(4)],
+          );
+
+          console.info(
+            `[SchedulerService] 工单 ${order.work_order_no} 全部完工 → 成品入库 SKU#${order.sku_id} qty=${completedQty.toFixed(4)} tx=${txNo}`,
+          );
+        }
+      }
+
       // 异步写入溯源链（通过队列，此处直接写简化版）
       const [orderDyeLot] = await manager.query<Array<{ dye_lot_no: string }>>(
         `SELECT dye_lot_no FROM order_dye_lot_bindings

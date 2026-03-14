@@ -17,6 +17,7 @@ import { useProductionOrderList } from '@/api/production';
 import { useInventoryList } from '@/api/inventory';
 import { useSuggestionList, useApproveSuggestion } from '@/api/purchase';
 import { useDashboardKpi } from '@/api/analytics';
+import { useLatestSuggestion } from '@/hooks/useScheduleSuggestion';
 import {
   ProductionOrderStatus,
   SuggestionStatus,
@@ -29,6 +30,7 @@ import Button from '@/components/common/Button';
 import { formatCNY, formatDate } from '@/utils/format';
 import type { PurchaseSuggestion } from '@/types/models';
 import { usePermission } from '@/hooks/usePermission';
+import type { SuggestionBatch } from '@/api/scheduleSuggestion';
 import styles from './DashboardPage.module.css';
 
 // ─────────────────────────────────────────────
@@ -240,6 +242,150 @@ function SuggestionItem({ suggestion, onApprove, onReject, approving, canApprove
 }
 
 // ─────────────────────────────────────────────
+// 调度建议摘要 Widget
+// ─────────────────────────────────────────────
+interface ScheduleSuggestionWidgetProps {
+  batch: SuggestionBatch | null | undefined;
+  isLoading: boolean;
+  onNavigate: () => void;
+}
+
+function ScheduleSuggestionWidget({ batch, isLoading, onNavigate }: ScheduleSuggestionWidgetProps) {
+  const pendingPurchase = batch?.purchaseItems.filter((i) => i.status === 'pending').length ?? 0;
+  const pendingProduction = batch?.productionItems.filter((i) => i.status === 'pending').length ?? 0;
+  const totalPending = pendingPurchase + pendingProduction;
+
+  // Derive a simple status label
+  let batchStatusLabel = '无数据';
+  let batchStatusColor = 'var(--color-gray-400)';
+  if (isLoading) {
+    batchStatusLabel = '加载中…';
+  } else if (batch) {
+    if (totalPending > 0) {
+      batchStatusLabel = '待处理';
+      batchStatusColor = 'var(--color-warning-600)';
+    } else {
+      batchStatusLabel = '已处理完毕';
+      batchStatusColor = 'var(--color-success-600)';
+    }
+  }
+
+  return (
+    <section aria-label="智能调度建议摘要">
+      <div className={styles.card}>
+        <div className={styles.card_header}>
+          <h2 className={styles.card_title}>
+            <span aria-hidden="true">⚡</span>
+            {' '}智能调度建议
+          </h2>
+          <a
+            href="#"
+            className={styles.card_link}
+            onClick={(e) => { e.preventDefault(); onNavigate(); }}
+          >
+            查看详情 →
+          </a>
+        </div>
+
+        {isLoading ? (
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+            加载中…
+          </p>
+        ) : !batch ? (
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+            暂无调度建议，前往调度建议页触发计算。
+          </p>
+        ) : (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 'var(--space-4)',
+            }}
+          >
+            {/* 批次状态 */}
+            <div
+              style={{
+                padding: 'var(--space-3)',
+                background: 'var(--bg-page)',
+                borderRadius: 'var(--radius-md)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-1)',
+              }}
+            >
+              <span style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>批次状态</span>
+              <span
+                style={{
+                  fontSize: '0.9375rem',
+                  fontWeight: 700,
+                  color: batchStatusColor,
+                }}
+              >
+                {batchStatusLabel}
+              </span>
+              <span style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>
+                最近计算：{batch.calculatedAt ? batch.calculatedAt.slice(0, 10) : '—'}
+              </span>
+            </div>
+
+            {/* 待处理采购 */}
+            <div
+              style={{
+                padding: 'var(--space-3)',
+                background: pendingPurchase > 0 ? 'var(--color-warning-50)' : 'var(--bg-page)',
+                borderRadius: 'var(--radius-md)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-1)',
+              }}
+            >
+              <span style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>待处理采购建议</span>
+              <span
+                style={{
+                  fontSize: '1.5rem',
+                  fontWeight: 700,
+                  color: pendingPurchase > 0 ? 'var(--color-warning-600)' : 'var(--color-gray-400)',
+                  lineHeight: 1,
+                }}
+              >
+                {pendingPurchase}
+              </span>
+              <span style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>条</span>
+            </div>
+
+            {/* 待排产工单 */}
+            <div
+              style={{
+                padding: 'var(--space-3)',
+                background: pendingProduction > 0 ? 'var(--color-primary-50)' : 'var(--bg-page)',
+                borderRadius: 'var(--radius-md)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-1)',
+              }}
+            >
+              <span style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>待排产工单</span>
+              <span
+                style={{
+                  fontSize: '1.5rem',
+                  fontWeight: 700,
+                  color: pendingProduction > 0 ? 'var(--color-primary-600)' : 'var(--color-gray-400)',
+                  lineHeight: 1,
+                }}
+              >
+                {pendingProduction}
+              </span>
+              <span style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>单</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────
 // 页面主体
 // ─────────────────────────────────────────────
 export default function DashboardPage() {
@@ -271,6 +417,9 @@ export default function DashboardPage() {
   const { data: suggestionsData } = useSuggestionList(SuggestionStatus.PENDING, 1, 5);
 
   const { mutate: approveMutate, isPending: approving } = useApproveSuggestion();
+
+  // ── 调度建议摘要 ──
+  const { data: scheduleBatch, isLoading: scheduleLoading } = useLatestSuggestion();
 
   const handleApprove = (id: number) => {
     approveMutate({ id, payload: { approved: true } });
@@ -474,7 +623,14 @@ export default function DashboardPage() {
         </section>
       </div>
 
-      {/* ── 4. 待审批 AI 采购建议 ── */}
+      {/* ── 4. 智能调度建议摘要 ── */}
+      <ScheduleSuggestionWidget
+        batch={scheduleBatch}
+        isLoading={scheduleLoading}
+        onNavigate={() => navigate('/schedule/suggestions')}
+      />
+
+      {/* ── 5. 待审批 AI 采购建议 ── */}
       <section aria-label="待审批：AI采购建议">
         <div className={styles.card}>
           <div className={styles.card_header}>

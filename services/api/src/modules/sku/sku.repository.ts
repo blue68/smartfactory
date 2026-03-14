@@ -7,6 +7,12 @@ import { ResponseCode } from '../../shared/ApiResponse';
 export interface SkuListFilter {
   category1Id?: number;
   category2Id?: number;
+  /**
+   * Filter by level-1 category code (e.g. 'MATERIAL' | 'SEMIFIN' | 'FINISHED' | 'PACKING').
+   * Translated to a category1_id sub-query at query time so no schema change is needed.
+   * Ignored when category1Id is also supplied (category1Id takes precedence).
+   */
+  category1Code?: string;
   keyword?: string;
   hasDyeLot?: boolean;
   status?: 'active' | 'inactive';
@@ -37,6 +43,12 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
     if (filter.category1Id) {
       conditions.push('s.category1_id = ?');
       params.push(filter.category1Id);
+    } else if (filter.category1Code) {
+      // Resolve code → id via sub-query; tenant_id = 0 covers system-seeded categories
+      conditions.push(
+        's.category1_id = (SELECT id FROM sku_categories WHERE code = ? AND level = 1 AND tenant_id IN (0, ?) LIMIT 1)',
+      );
+      params.push(filter.category1Code, this.tenantId);
     }
     if (filter.category2Id) {
       conditions.push('s.category2_id = ?');
@@ -93,6 +105,11 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
     if (filter.category1Id) {
       conditions.push('s.category1_id = ?');
       params.push(filter.category1Id);
+    } else if (filter.category1Code) {
+      conditions.push(
+        's.category1_id = (SELECT id FROM sku_categories WHERE code = ? AND level = 1 AND tenant_id IN (0, ?) LIMIT 1)',
+      );
+      params.push(filter.category1Code, this.tenantId);
     }
     if (filter.category2Id) {
       conditions.push('s.category2_id = ?');
