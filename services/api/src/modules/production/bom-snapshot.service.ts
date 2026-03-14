@@ -3,6 +3,7 @@ import { EntityManager } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
 import { BomExpansionService, ExpandedMaterial } from './bom-expansion.service';
+import { generateNo } from '../../shared/generateNo';
 
 export interface SnapshotResult {
   snapshotId: number;
@@ -82,14 +83,7 @@ export class BomSnapshotService {
     const bomVersion = bomVersionRows[0]?.version ?? '1';
 
     // Step 5: 生成快照编号
-    const today = new Date();
-    const dateStr = [
-      today.getFullYear(),
-      String(today.getMonth() + 1).padStart(2, '0'),
-      String(today.getDate()).padStart(2, '0'),
-    ].join('');
-    const rand = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-    const snapshotNo = `BS-${dateStr}-${rand}`;
+    const snapshotNo = await generateNo('bom_snapshot', this.tenantId);
 
     // Step 6: INSERT bom_version_snapshots
     const insertResult = await manager.query(

@@ -8,7 +8,7 @@ const RejectSchema = z.object({
 });
 
 const BatchToPOSchema = z.object({
-  suggestionIds: z.array(z.number().int().positive()).min(1),
+  suggestionIds: z.array(z.number().int().positive()).min(1).max(100),
 });
 
 class PurchaseSuggestionController {

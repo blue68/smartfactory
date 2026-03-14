@@ -4,18 +4,7 @@ import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import Decimal from 'decimal.js';
-
-// ─── 编号生成 ─────────────────────────────────────────────────────
-function generateReturnNo(): string {
-  const now = new Date();
-  const date = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, '0'),
-    String(now.getDate()).padStart(2, '0'),
-  ].join('');
-  const rand = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-  return `RTN-${date}-${rand}`;
-}
+import { generateNo } from '../../shared/generateNo';
 
 // ─── 参数类型定义 ─────────────────────────────────────────────────
 
@@ -157,7 +146,7 @@ export class ReturnOrderService {
     }
 
     return AppDataSource.transaction(async (manager) => {
-      const returnNo = generateReturnNo();
+      const returnNo = await generateNo('return_order', this.tenantId);
 
       const totalQty = params.items.reduce((sum: Decimal, item) => {
         return sum.plus(new Decimal(item.qtyReturn));
@@ -237,7 +226,7 @@ export class ReturnOrderService {
       throw AppError.notFound('质检单不存在', ResponseCode.NOT_FOUND);
     }
 
-    const returnNo = generateReturnNo();
+    const returnNo = await generateNo('return_order', this.tenantId);
 
     const totalQty = failedItems.reduce((sum: Decimal, item) => {
       return sum.plus(new Decimal(item.qty_failed || '0'));

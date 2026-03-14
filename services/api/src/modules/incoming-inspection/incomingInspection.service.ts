@@ -4,29 +4,7 @@ import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import Decimal from 'decimal.js';
-
-// ─── 编号生成（本地实现，格式 IQC-YYYYMMDD-NNNN）────────────────
-function generateInspectionNo(): string {
-  const now = new Date();
-  const date = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, '0'),
-    String(now.getDate()).padStart(2, '0'),
-  ].join('');
-  const rand = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-  return `IQC-${date}-${rand}`;
-}
-
-function generateReceiptNo(): string {
-  const now = new Date();
-  const date = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, '0'),
-    String(now.getDate()).padStart(2, '0'),
-  ].join('');
-  const rand = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-  return `RC-${date}-${rand}`;
-}
+import { generateNo } from '../../shared/generateNo';
 
 // ─── 参数类型定义 ─────────────────────────────────────────────────
 
@@ -206,7 +184,7 @@ export class IncomingInspectionService {
     }
 
     return AppDataSource.transaction(async (manager) => {
-      const inspectionNo = generateInspectionNo();
+      const inspectionNo = await generateNo('incoming_inspection', this.tenantId);
 
       const result = await manager.query(
         `INSERT INTO incoming_inspection_records
@@ -429,7 +407,7 @@ export class IncomingInspectionService {
     record: any,
     passedItems: any[],
   ): Promise<void> {
-    const receiptNo = generateReceiptNo();
+    const receiptNo = await generateNo('incoming_inspection', this.tenantId);
 
     // 计算入库总金额
     const totalAmount = passedItems.reduce((sum: Decimal, item: any) => {
@@ -556,14 +534,7 @@ export class IncomingInspectionService {
       [record.po_id, this.tenantId],
     );
 
-    const now = new Date();
-    const dateStr = [
-      now.getFullYear(),
-      String(now.getMonth() + 1).padStart(2, '0'),
-      String(now.getDate()).padStart(2, '0'),
-    ].join('');
-    const rand = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-    const returnNo = `RTN-${dateStr}-${rand}`;
+    const returnNo = await generateNo('return_order', this.tenantId);
 
     const totalQty = failedItems.reduce((sum: Decimal, item: any) => {
       return sum.plus(new Decimal(item.qty_failed || '0'));

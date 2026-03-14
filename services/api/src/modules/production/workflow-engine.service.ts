@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { EntityManager } from 'typeorm';
 import { TenantContext } from '../../shared/BaseRepository';
+import { generateNo } from '../../shared/generateNo';
 
 interface TaskRow {
   production_order_id: number;
@@ -124,14 +125,7 @@ export class WorkflowEngineService {
     completedQty: string,
     manager: EntityManager,
   ): Promise<void> {
-    const today = new Date();
-    const dateStr = [
-      today.getFullYear(),
-      String(today.getMonth() + 1).padStart(2, '0'),
-      String(today.getDate()).padStart(2, '0'),
-    ].join('');
-    const rand = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-    const transactionNo = `TX-${dateStr}-${rand}`;
+    const transactionNo = await generateNo('transaction', this.tenantId);
 
     // 写入库存流水（半成品生产入库）
     await manager.query(

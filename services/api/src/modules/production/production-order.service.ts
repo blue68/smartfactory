@@ -5,6 +5,7 @@ import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import { BomSnapshotService } from './bom-snapshot.service';
+import { generateNo } from '../../shared/generateNo';
 
 // ─── 内部行类型 ──────────────────────────────────────────────────────────────
 
@@ -181,14 +182,7 @@ export class ProductionOrderService {
         );
 
         // 3d. 生成工单编号
-        const today = new Date();
-        const dateStr = [
-          today.getFullYear(),
-          String(today.getMonth() + 1).padStart(2, '0'),
-          String(today.getDate()).padStart(2, '0'),
-        ].join('');
-        const rand = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-        const workOrderNo = `WO-${dateStr}-${rand}`;
+        const workOrderNo = await generateNo('work_order', this.tenantId);
 
         // 3e. INSERT production_orders（含 bom_snapshot_id，material_status 初始为 unchecked）
         const orderResult = await manager.query(
@@ -418,7 +412,7 @@ export class ProductionOrderService {
               po.actual_start AS actualStart, po.actual_end AS actualEnd,
               po.notes, po.created_at AS createdAt, po.updated_at AS updatedAt,
               s.name AS skuName, s.sku_code AS skuCode,
-              so.order_no AS salesOrderNo, so.expected_delivery, so.customer_id,
+              so.order_no AS salesOrderNo, so.expected_delivery,
               ROUND(po.qty_completed / NULLIF(po.qty_planned, 0) * 100, 1) AS progressPct,
               bvs.snapshot_no AS bomSnapshotNo, bvs.bom_version AS bomVersion
        FROM production_orders po
