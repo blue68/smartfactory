@@ -46,9 +46,11 @@ router.post('/orders',
 
 // Sprint 3: 工单物料需求和缺料检测
 router.get('/orders/:id/materials',
+  requireRoles('supervisor', 'boss', 'purchase'),
   asyncHandler(productionOrderController.getMaterialRequirements.bind(productionOrderController)),
 );
 router.get('/orders/:id/material-check',
+  requireRoles('supervisor', 'boss'),
   asyncHandler(productionOrderController.checkMaterialStatus.bind(productionOrderController)),
 );
 router.put('/orders/:id/cancel',

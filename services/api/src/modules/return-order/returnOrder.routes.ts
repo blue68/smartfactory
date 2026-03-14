@@ -15,6 +15,7 @@ router.use(authMiddleware);
  */
 router.get(
   '/',
+  requireRoles('warehouse', 'supervisor', 'boss', 'purchase'),
   asyncHandler(returnOrderController.list.bind(returnOrderController)),
 );
 
@@ -24,6 +25,7 @@ router.get(
  */
 router.get(
   '/:id',
+  requireRoles('warehouse', 'supervisor', 'boss', 'purchase'),
   asyncHandler(returnOrderController.getById.bind(returnOrderController)),
 );
 

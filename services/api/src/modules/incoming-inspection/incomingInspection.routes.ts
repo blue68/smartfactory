@@ -15,6 +15,7 @@ router.use(authMiddleware);
  */
 router.get(
   '/',
+  requireRoles('warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.list.bind(incomingInspectionController)),
 );
 
@@ -24,6 +25,7 @@ router.get(
  */
 router.get(
   '/:id',
+  requireRoles('warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.getById.bind(incomingInspectionController)),
 );
 
@@ -67,6 +69,7 @@ router.post(
  */
 router.get(
   '/:id/preview-receipt',
+  requireRoles('warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.previewReceipt.bind(incomingInspectionController)),
 );
 

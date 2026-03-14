@@ -9,12 +9,14 @@ router.use(authMiddleware);
 // GET /api/mrp/shortage-report/:productionOrderId — 获取工单缺料报告明细
 router.get(
   '/shortage-report/:productionOrderId',
+  requireRoles('supervisor', 'boss', 'purchase'),
   asyncHandler(mrpController.getShortageReport.bind(mrpController)),
 );
 
 // GET /api/mrp/shortage-summary — 全局缺料汇总（跨工单合并同类项）
 router.get(
   '/shortage-summary',
+  requireRoles('supervisor', 'boss', 'purchase'),
   asyncHandler(mrpController.getGlobalShortageSummary.bind(mrpController)),
 );
 
@@ -37,6 +39,7 @@ router.post(
 // GET /api/mrp/supply-chain-dashboard — 供应链状态看板数据
 router.get(
   '/supply-chain-dashboard',
+  requireRoles('supervisor', 'boss', 'purchase'),
   asyncHandler(mrpController.getSupplyChainDashboard.bind(mrpController)),
 );
 
