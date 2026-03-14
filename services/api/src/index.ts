@@ -5,6 +5,7 @@ import app from './app';
 // Sprint 4：BullMQ Worker（import 即在同进程内启动消费者）
 import { closeMrpWorker } from './workers/mrp.worker';
 import { closeNotificationWorker } from './workers/notification.worker';
+import { closeSuggestionWorker } from './workers/suggestion.worker';
 import { queueService } from './shared/queue-service';
 import { QUEUE_SUGGESTION_CALCULATE } from './shared/queue.config';
 import type { SuggestionCalculateJobData } from './shared/queue-service';
@@ -88,9 +89,11 @@ async function gracefulShutdown(signal: string): Promise<void> {
   console.log(`[API] 收到 ${signal}，正在优雅退出...`);
   try {
     // 并行关闭所有 Worker（等待当前正在处理的 Job 完成）
+    // CR-S4-002 fix: 补充 SuggestionWorker 优雅退出
     await Promise.all([
       closeMrpWorker(),
       closeNotificationWorker(),
+      closeSuggestionWorker(),
     ]);
     // 关闭 BullMQ Queue 连接
     await queueService.close();

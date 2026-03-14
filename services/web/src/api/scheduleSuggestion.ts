@@ -117,19 +117,19 @@ export const scheduleSuggestionApi = {
       pageSize,
     }),
 
-  /** 获取历史批次快照详情 */
+  /** 获取历史批次快照详情 — CR-S4-007 fix: 路径对齐后端 /:id */
   getBatchSnapshot: (batchId: string) =>
-    request.get<SuggestionBatch>(`/api/schedule-suggestions/history/${batchId}`),
+    request.get<SuggestionBatch>(`/api/schedule-suggestions/${batchId}`),
 
   /** 接受采购/排产建议条目 */
-  acceptItem: (itemId: number) =>
-    request.post<ItemActionResult>(`/api/schedule-suggestions/items/${itemId}/accept`),
+  acceptItem: (itemId: number, modifiedQty?: string) =>
+    request.post<ItemActionResult>(`/api/schedule-suggestions/items/${itemId}/accept`, { modifiedQty }),
 
-  /** 驳回条目 */
-  rejectItem: (itemId: number) =>
-    request.post<ItemActionResult>(`/api/schedule-suggestions/items/${itemId}/reject`),
+  /** 驳回条目 — CR-S4-006 fix: 传递 reason 参数 */
+  rejectItem: (itemId: number, reason: string) =>
+    request.post<ItemActionResult>(`/api/schedule-suggestions/items/${itemId}/reject`, { reason }),
 
-  /** 应用排产建议（批量） */
-  applyProduction: (payload: ApplyProductionPayload) =>
-    request.post<ItemActionResult>('/api/schedule-suggestions/items/apply', payload),
+  /** 应用排产建议（单条） — CR-S4-008 fix: 对齐后端单条路由 */
+  applyProduction: (itemId: number) =>
+    request.post<ItemActionResult>(`/api/schedule-suggestions/items/${itemId}/apply`),
 };

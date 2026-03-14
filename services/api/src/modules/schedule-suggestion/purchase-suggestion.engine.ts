@@ -135,6 +135,82 @@ export class PurchaseSuggestionEngine {
       return [];
     }
 
+    const skuIds = skuRows.map((r) => Number(r.sku_id));
+    const skuPlaceholders = skuIds.map(() => '?').join(',');
+
+    // CR-S4-004 fix: 批量预查询，消除 N+1 问题
+    // 批量查询库存
+    const inventoryRows = await AppDataSource.query<(InventoryRow & { sku_id: number })[]>(
+      `SELECT sku_id,
+              COALESCE(qty_on_hand, 0)    AS qty_on_hand,
+              COALESCE(qty_reserved, 0)   AS qty_reserved,
+              COALESCE(qty_in_transit, 0) AS qty_in_transit
+       FROM inventory
+       WHERE sku_id IN (${skuPlaceholders}) AND tenant_id = ?`,
+      [...skuIds, tenantId],
+    );
+    const inventoryMap = new Map(inventoryRows.map((r) => [Number(r.sku_id), r]));
+
+    // 批量查询最近采购单价（每个 SKU 取最新一条）
+    const lastPriceRows = await AppDataSource.query<(LastPurchasePriceRow & { sku_id: number })[]>(
+      `SELECT poi.sku_id, poi.unit_price
+       FROM purchase_order_items poi
+       INNER JOIN purchase_orders po ON po.id = poi.po_id AND po.tenant_id = poi.tenant_id
+       WHERE poi.sku_id IN (${skuPlaceholders}) AND poi.tenant_id = ?
+         AND po.status NOT IN ('draft', 'cancelled')
+       ORDER BY poi.created_at DESC`,
+      [...skuIds, tenantId],
+    );
+    // 每个 SKU 只取第一条（最新）
+    const lastPriceMap = new Map<number, string>();
+    for (const row of lastPriceRows) {
+      const sid = Number(row.sku_id);
+      if (!lastPriceMap.has(sid)) {
+        lastPriceMap.set(sid, row.unit_price);
+      }
+    }
+
+    // 批量查询供应商频次
+    const freqRows = await AppDataSource.query<(SupplierFreqRow & { sku_id: number })[]>(
+      `SELECT poi.sku_id, poi.supplier_id, sup.name AS supplier_name,
+              COUNT(poi.id) AS freq,
+              AVG(CAST(poi.unit_price AS DECIMAL(20,6))) AS avg_price
+       FROM purchase_order_items poi
+       INNER JOIN purchase_orders po ON po.id = poi.po_id AND po.tenant_id = poi.tenant_id
+       INNER JOIN suppliers sup ON sup.id = poi.supplier_id AND sup.tenant_id = poi.tenant_id
+       WHERE poi.sku_id IN (${skuPlaceholders}) AND poi.tenant_id = ?
+         AND po.status NOT IN ('draft', 'cancelled')
+         AND po.created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+       GROUP BY poi.sku_id, poi.supplier_id, sup.name
+       ORDER BY poi.sku_id, freq DESC`,
+      [...skuIds, tenantId],
+    );
+    const freqMap = new Map<number, (SupplierFreqRow & { sku_id: number })[]>();
+    for (const row of freqRows) {
+      const sid = Number(row.sku_id);
+      if (!freqMap.has(sid)) freqMap.set(sid, []);
+      freqMap.get(sid)!.push(row);
+    }
+
+    // 批量查询供应商报价
+    const supplierPriceRows = await AppDataSource.query<(SupplierPriceRow & { sku_id: number })[]>(
+      `SELECT sp.sku_id, sp.supplier_id, sup.name AS supplier_name,
+              sp.unit_price, sp.lead_time_days
+       FROM supplier_prices sp
+       INNER JOIN suppliers sup ON sup.id = sp.supplier_id AND sup.tenant_id = sp.tenant_id
+       WHERE sp.sku_id IN (${skuPlaceholders}) AND sp.tenant_id = ?
+         AND sp.status = 'active'
+         AND (sp.effective_to IS NULL OR sp.effective_to >= CURDATE())
+         AND (sp.effective_from IS NULL OR sp.effective_from <= CURDATE())`,
+      [...skuIds, tenantId],
+    );
+    const supplierPriceMap = new Map<number, SupplierPriceRow[]>();
+    for (const row of supplierPriceRows) {
+      const sid = Number(row.sku_id);
+      if (!supplierPriceMap.has(sid)) supplierPriceMap.set(sid, []);
+      supplierPriceMap.get(sid)!.push(row);
+    }
+
     const results: PurchaseSuggestionResult[] = [];
 
     for (const row of skuRows) {
@@ -143,16 +219,7 @@ export class PurchaseSuggestionEngine {
 
       // ── Step 1: 缺口计算（ShortageCalculation） ──────────────────
 
-      // 查询当前库存快照
-      const [inv] = await AppDataSource.query<InventoryRow[]>(
-        `SELECT
-           COALESCE(qty_on_hand, 0)    AS qty_on_hand,
-           COALESCE(qty_reserved, 0)   AS qty_reserved,
-           COALESCE(qty_in_transit, 0) AS qty_in_transit
-         FROM inventory
-         WHERE sku_id = ? AND tenant_id = ? LIMIT 1`,
-        [skuId, tenantId],
-      );
+      const inv = inventoryMap.get(skuId);
 
       const qtyOnHand    = new Decimal(inv?.qty_on_hand    ?? 0);
       const qtyReserved  = new Decimal(inv?.qty_reserved   ?? 0);
@@ -210,20 +277,8 @@ export class PurchaseSuggestionEngine {
 
       // ── Step 3: 资金占用评估（CapitalEvaluation） ────────────────
 
-      // 查询历史最近采购单价（purchase_order_items 最新一条）
-      const [lastPriceRow] = await AppDataSource.query<LastPurchasePriceRow[]>(
-        `SELECT poi.unit_price
-         FROM purchase_order_items poi
-         INNER JOIN purchase_orders po
-           ON po.id = poi.po_id AND po.tenant_id = poi.tenant_id
-         WHERE poi.sku_id = ? AND poi.tenant_id = ?
-           AND po.status NOT IN ('draft', 'cancelled')
-         ORDER BY poi.created_at DESC
-         LIMIT 1`,
-        [skuId, tenantId],
-      );
-
-      const lastPurchasePrice = new Decimal(lastPriceRow?.unit_price ?? 0);
+      // 使用批量预查询的最近采购单价
+      const lastPurchasePrice = new Decimal(lastPriceMap.get(skuId) ?? 0);
       const capitalCost = suggestedQty.mul(lastPurchasePrice);
 
       calcSteps.push({
@@ -240,48 +295,13 @@ export class PurchaseSuggestionEngine {
 
       // ── Step 4: 供应商推荐（SupplierRecommendation） ─────────────
 
-      // 查询近6个月历史采购频次和平均价格（按 supplier_id 分组）
-      const freqRows = await AppDataSource.query<SupplierFreqRow[]>(
-        `SELECT
-           poi.supplier_id,
-           sup.name       AS supplier_name,
-           COUNT(poi.id)  AS freq,
-           AVG(CAST(poi.unit_price AS DECIMAL(20,6))) AS avg_price
-         FROM purchase_order_items poi
-         INNER JOIN purchase_orders po
-           ON po.id = poi.po_id AND po.tenant_id = poi.tenant_id
-         INNER JOIN suppliers sup
-           ON sup.id = poi.supplier_id AND sup.tenant_id = poi.tenant_id
-         WHERE poi.sku_id = ?
-           AND poi.tenant_id = ?
-           AND po.status NOT IN ('draft', 'cancelled')
-           AND po.created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
-         GROUP BY poi.supplier_id, sup.name
-         ORDER BY freq DESC`,
-        [skuId, tenantId],
-      );
-
-      // 查询当前有效供应商报价（用于交期和基准价）
-      const supplierPriceRows = await AppDataSource.query<SupplierPriceRow[]>(
-        `SELECT
-           sp.supplier_id,
-           sup.name AS supplier_name,
-           sp.unit_price,
-           sp.lead_time_days
-         FROM supplier_prices sp
-         INNER JOIN suppliers sup
-           ON sup.id = sp.supplier_id AND sup.tenant_id = sp.tenant_id
-         WHERE sp.sku_id = ?
-           AND sp.tenant_id = ?
-           AND sp.status = 'active'
-           AND (sp.effective_to IS NULL OR sp.effective_to >= CURDATE())
-           AND (sp.effective_from IS NULL OR sp.effective_from <= CURDATE())`,
-        [skuId, tenantId],
-      );
+      // 使用批量预查询的供应商数据
+      const skuFreqRows = freqMap.get(skuId) ?? [];
+      const skuSupplierPriceRows = supplierPriceMap.get(skuId) ?? [];
 
       // 构建供应商报价 Map（supplier_id -> 报价行）
       const priceMap = new Map<number, SupplierPriceRow>();
-      for (const sp of supplierPriceRows) {
+      for (const sp of skuSupplierPriceRows) {
         priceMap.set(Number(sp.supplier_id), sp);
       }
 
@@ -292,11 +312,11 @@ export class PurchaseSuggestionEngine {
       let supplierScore = new Decimal(0);
       let leadTimeDays: number | null = null;
 
-      if (freqRows.length > 0) {
-        const maxFreq = new Decimal(freqRows[0].freq); // 已按 freq DESC 排序
+      if (skuFreqRows.length > 0) {
+        const maxFreq = new Decimal(skuFreqRows[0].freq); // 已按 freq DESC 排序
 
         // 找出所有供应商的最低和最高均价，用于价格归一化
-        const allPrices = freqRows
+        const allPrices = skuFreqRows
           .map((r) => new Decimal(r.avg_price))
           .filter((p) => p.gt(0));
         const minPrice = allPrices.length > 0 ? Decimal.min(...allPrices) : new Decimal(1);
@@ -305,7 +325,7 @@ export class PurchaseSuggestionEngine {
 
         let bestScore = new Decimal(-1);
 
-        for (const freqRow of freqRows) {
+        for (const freqRow of skuFreqRows) {
           const freq        = new Decimal(freqRow.freq);
           const avgPrice    = new Decimal(freqRow.avg_price);
           const supplierId  = Number(freqRow.supplier_id);
@@ -333,9 +353,9 @@ export class PurchaseSuggestionEngine {
             leadTimeDays        = priceInfo?.lead_time_days ?? null;
           }
         }
-      } else if (supplierPriceRows.length > 0) {
+      } else if (skuSupplierPriceRows.length > 0) {
         // 无历史采购记录时，取报价最低的供应商
-        const sorted = [...supplierPriceRows].sort(
+        const sorted = [...skuSupplierPriceRows].sort(
           (a, b) => new Decimal(a.unit_price).minus(new Decimal(b.unit_price)).toNumber(),
         );
         const best        = sorted[0];
@@ -350,8 +370,8 @@ export class PurchaseSuggestionEngine {
         title: '供应商推荐',
         description: '综合历史采购频次（权重60%）与平均采购价格（权重40%）评分，推荐最优供应商',
         inputs: [
-          { label: '历史采购供应商数量', value: freqRows.length,                       unit: '家' },
-          { label: '有效报价供应商数量', value: supplierPriceRows.length,              unit: '家' },
+          { label: '历史采购供应商数量', value: skuFreqRows.length,                    unit: '家' },
+          { label: '有效报价供应商数量', value: skuSupplierPriceRows.length,           unit: '家' },
           { label: '评分权重-采购频次',  value: '60%' },
           { label: '评分权重-采购价格',  value: '40%' },
         ],

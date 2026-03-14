@@ -166,19 +166,19 @@ export class ScheduleSuggestionService {
     if (!batch) {
       throw AppError.notFound(`调度批次 #${batchId} 不存在`, ResponseCode.NOT_FOUND);
     }
-    if (batch.status !== 'pending') {
-      // 防止重复执行（BullMQ 重试场景）
-      console.warn(`[ScheduleSuggestionService] 批次 #${batchId} 状态为 ${batch.status}，跳过重复执行`);
-      return;
-    }
 
-    // 标记为计算中
-    await AppDataSource.query(
+    // CR-S4-003 fix: 乐观锁防并发竞态（TOCTOU）
+    // 使用 WHERE status='pending' 原子性检查+更新，affectedRows=0 说明已被其他 Worker 抢占
+    const updateResult = await AppDataSource.query(
       `UPDATE schedule_suggestions
        SET status = 'calculating', calc_started_at = NOW(), updated_by = ?
-       WHERE id = ? AND tenant_id = ?`,
-      [0, batchId, tenantId], // 系统操作 updated_by=0
+       WHERE id = ? AND tenant_id = ? AND status = 'pending'`,
+      [0, batchId, tenantId],
     );
+    if (updateResult.affectedRows === 0) {
+      console.warn(`[ScheduleSuggestionService] 批次 #${batchId} 已被其他 Worker 处理或状态非 pending，跳过`);
+      return;
+    }
 
     try {
       // ── 执行两个引擎计算 ──────────────────────────────────────────────────
@@ -187,74 +187,77 @@ export class ScheduleSuggestionService {
         this.productionEngine.calculate(tenantId),
       ]);
 
-      // ── 清理旧明细（同批次重算场景，正常情况不存在旧明细） ──────────────
-      await AppDataSource.query(
-        `DELETE FROM schedule_suggestion_items
-         WHERE suggestion_id = ? AND tenant_id = ?`,
-        [batchId, tenantId],
-      );
-
-      // ── 写入采购建议明细 ─────────────────────────────────────────────────
-      for (const item of purchaseResults) {
-        await AppDataSource.query(
-          `INSERT INTO schedule_suggestion_items
-             (tenant_id, suggestion_id, item_type,
-              sku_id, suggested_qty, purchase_unit, suggested_supplier_id,
-              safety_stock_qty, current_stock_qty, shortage_qty, capital_cost,
-              calc_steps, status)
-           VALUES (?, ?, 'purchase', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-          [
-            tenantId,
-            batchId,
-            item.skuId,
-            item.suggestedQty,
-            item.purchaseUnit,
-            item.suggestedSupplierId,
-            item.safetyStockQty,
-            item.currentStock,
-            item.shortageQty,
-            item.capitalCost,
-            JSON.stringify(item.calcSteps),
-          ],
+      // CR-S4-005 fix: 事务包裹明细写入，防止 partial write
+      await AppDataSource.transaction(async (manager) => {
+        // 清理旧明细（同批次重算场景）
+        await manager.query(
+          `DELETE FROM schedule_suggestion_items
+           WHERE suggestion_id = ? AND tenant_id = ?`,
+          [batchId, tenantId],
         );
-      }
 
-      // ── 写入排产建议明细 ─────────────────────────────────────────────────
-      for (const item of productionResults) {
-        await AppDataSource.query(
-          `INSERT INTO schedule_suggestion_items
-             (tenant_id, suggestion_id, item_type,
-              production_order_id, deadline_score, priority_score,
-              material_score, total_score, suggested_rank,
-              suggested_workers, calc_steps, status)
-           VALUES (?, ?, 'production', ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-          [
-            tenantId,
-            batchId,
-            item.productionOrderId,
-            item.deadlineScore,
-            item.priorityScore,
-            item.materialScore,
-            item.totalScore,
-            item.suggestedRank,
-            JSON.stringify(item.suggestedWorkers),
-            JSON.stringify(item.calcSteps),
-          ],
+        // 写入采购建议明细
+        for (const item of purchaseResults) {
+          await manager.query(
+            `INSERT INTO schedule_suggestion_items
+               (tenant_id, suggestion_id, item_type,
+                sku_id, suggested_qty, purchase_unit, suggested_supplier_id,
+                safety_stock_qty, current_stock_qty, shortage_qty, capital_cost,
+                calc_steps, status)
+             VALUES (?, ?, 'purchase', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+            [
+              tenantId,
+              batchId,
+              item.skuId,
+              item.suggestedQty,
+              item.purchaseUnit,
+              item.suggestedSupplierId,
+              item.safetyStockQty,
+              item.currentStock,
+              item.shortageQty,
+              item.capitalCost,
+              JSON.stringify(item.calcSteps),
+            ],
+          );
+        }
+
+        // 写入排产建议明细
+        for (const item of productionResults) {
+          await manager.query(
+            `INSERT INTO schedule_suggestion_items
+               (tenant_id, suggestion_id, item_type,
+                production_order_id, deadline_score, priority_score,
+                material_score, total_score, suggested_rank,
+                suggested_workers, calc_steps, status)
+             VALUES (?, ?, 'production', ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+            [
+              tenantId,
+              batchId,
+              item.productionOrderId,
+              item.deadlineScore,
+              item.priorityScore,
+              item.materialScore,
+              item.totalScore,
+              item.suggestedRank,
+              JSON.stringify(item.suggestedWorkers),
+              JSON.stringify(item.calcSteps),
+            ],
+          );
+        }
+
+        // 更新批次状态为 completed
+        await manager.query(
+          `UPDATE schedule_suggestions
+           SET status = 'completed',
+               purchase_count = ?,
+               production_count = ?,
+               calc_finished_at = NOW(),
+               error_message = NULL,
+               updated_by = ?
+           WHERE id = ? AND tenant_id = ?`,
+          [purchaseResults.length, productionResults.length, 0, batchId, tenantId],
         );
-      }
-
-      // ── 更新批次状态为 completed ─────────────────────────────────────────
-      await AppDataSource.query(
-        `UPDATE schedule_suggestions
-         SET status = 'completed',
-             purchase_count = ?,
-             production_count = ?,
-             calc_finished_at = NOW(),
-             error_message = NULL,
-             updated_by = ?
-         WHERE id = ? AND tenant_id = ?`,
-        [purchaseResults.length, productionResults.length, 0, batchId, tenantId],
-      );
+      });
 
       console.info(
         `[ScheduleSuggestionService] 批次 #${batchId} 计算完成：` +
@@ -308,7 +311,13 @@ export class ScheduleSuggestionService {
       !this.roles.includes('supervisor') &&
       !this.roles.includes('boss');
 
-    const itemTypeCond = isPurchaseOnly ? `AND ssi.item_type = 'purchase'` : '';
+    // CR-S4-001 fix: 使用参数化查询代替字符串拼接
+    const itemParams: unknown[] = [batch.id, this.tenantId];
+    let itemTypeFilter = '';
+    if (isPurchaseOnly) {
+      itemTypeFilter = 'AND ssi.item_type = ?';
+      itemParams.push('purchase');
+    }
 
     const items = await AppDataSource.query<ScheduleSuggestionItemRow[]>(
       `SELECT ssi.*,
@@ -321,9 +330,9 @@ export class ScheduleSuggestionService {
        LEFT JOIN production_orders po
          ON po.id = ssi.production_order_id AND po.tenant_id = ssi.tenant_id
        WHERE ssi.suggestion_id = ? AND ssi.tenant_id = ?
-       ${itemTypeCond}
+       ${itemTypeFilter}
        ORDER BY COALESCE(ssi.suggested_rank, 9999) ASC, ssi.id ASC`,
-      [batch.id, this.tenantId],
+      itemParams,
     );
 
     return { batch, items };

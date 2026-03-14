@@ -375,7 +375,8 @@ export class ProductionSuggestionEngine {
   // ── 查询可用工人及本周工时 ──────────────────────────────────────
 
   private async queryWorkerLoads(tenantId: number): Promise<WorkerLoad[]> {
-    // 查询角色为 worker 的活跃用户及其本周已分配任务工时
+    // CR-S4-009 fix: planned_qty 是生产件数不是工时
+    // 使用任务数量 × 8 小时估算工作负载（每个任务约 1 个工作日）
     const weekStart = this.getWeekStart();
     const weekEnd = this.getWeekEnd();
 
@@ -383,9 +384,10 @@ export class ProductionSuggestionEngine {
       `SELECT
          u.id AS worker_id,
          u.real_name,
-         COALESCE(SUM(
-           CASE WHEN pt.status IN ('pending', 'started') THEN pt.planned_qty ELSE 0 END
-         ), 0) AS weekly_hours
+         COALESCE(
+           COUNT(CASE WHEN pt.status IN ('pending', 'started') THEN 1 END) * 8,
+           0
+         ) AS weekly_hours
        FROM users u
        INNER JOIN user_roles ur ON ur.user_id = u.id AND ur.tenant_id = u.tenant_id
        INNER JOIN roles r ON r.id = ur.role_id AND r.code = 'worker'
