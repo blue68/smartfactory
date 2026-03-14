@@ -309,15 +309,21 @@ function RadarChart({ suppliers }: { suppliers: RadarSupplierData[] }) {
 
       {/* Legend */}
       <div className={styles.radarLegend}>
-        {suppliers.map((sup, si) => (
-          <div key={si} className={styles.radarLegendItem}>
-            <span
-              className={styles.radarLegendDot}
-              style={{ background: COMPARE_COLORS[si % COMPARE_COLORS.length] }}
-            />
-            <span>{sup.name}</span>
-          </div>
-        ))}
+        {suppliers.map((sup, si) => {
+          const compositeScore = Math.round(sup.scores.reduce((a, b) => a + b, 0) / sup.scores.length);
+          return (
+            <div key={si} className={styles.radarLegendItem}>
+              <span
+                className={styles.radarLegendDot}
+                style={{ background: COMPARE_COLORS[si % COMPARE_COLORS.length] }}
+              />
+              <span>{sup.name}</span>
+              <span style={{ marginLeft: '6px', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+                综合评分：{compositeScore}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

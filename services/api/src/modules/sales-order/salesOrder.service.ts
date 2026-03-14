@@ -4,6 +4,7 @@ import { SalesOrderEntity, SalesOrderStatus } from './salesOrder.entity';
 import { SalesOrderItemEntity } from './salesOrderItem.entity';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
+import { NotificationService } from '../notification/notification.service';
 
 // ─── 产能检查常量 ─────────────────────────────────────────────────────────────
 /** 默认日产能（件/天），当工作站表无数据时降级使用 */
@@ -331,6 +332,17 @@ export class SalesOrderService {
        WHERE id = ? AND tenant_id = ?`,
       [approverId, approverId, id, this.tenantId],
     );
+
+    // GAP-R08-25: 通知订单创建者审批已通过
+    const notificationService = new NotificationService({ tenantId: this.tenantId, userId: approverId });
+    await notificationService.create(
+      order.createdBy,
+      'approval_result',
+      '销售订单审批通过',
+      `订单 ${order.orderNo} 已审批通过`,
+      'sales_order',
+      id,
+    );
   }
 
   // ── 8. 驳回（pending_approval → closed）──────────────────────────────────
@@ -351,6 +363,17 @@ export class SalesOrderService {
        SET status = 'closed', reject_reason = ?, updated_by = ?
        WHERE id = ? AND tenant_id = ?`,
       [reason, rejectorId, id, this.tenantId],
+    );
+
+    // GAP-R08-25: 通知订单创建者审批已驳回
+    const notificationService = new NotificationService({ tenantId: this.tenantId, userId: rejectorId });
+    await notificationService.create(
+      order.createdBy,
+      'approval_result',
+      '销售订单已驳回',
+      `订单 ${order.orderNo} 已被驳回，原因：${reason}`,
+      'sales_order',
+      id,
     );
   }
 
