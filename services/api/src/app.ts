@@ -178,6 +178,7 @@ app.use('/api/mrp',                  mrpRoutes);
 app.use('/api/purchase-suggestions', purchaseSuggestionRoutes);
 // Sprint 4 路由
 app.use('/api/schedule-suggestions', scheduleSuggestionRoutes);
+app.use('/api/notifications',        notificationRoutes);
 
 // ── 404 处理 ────────────────────────────────────────────────
 app.use((_req, res) => {
