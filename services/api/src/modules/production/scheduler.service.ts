@@ -319,19 +319,34 @@ export class SchedulerService {
       [this.tenantId, date],
     );
 
-    for (const s of schedules) {
-      const taskNo = `TK${Date.now()}${Math.floor(Math.random() * 999).toString().padStart(3, '0')}`;
-      await AppDataSource.query(
-        `INSERT IGNORE INTO production_tasks
-           (tenant_id, task_no, schedule_id, production_order_id, process_step_id,
-            worker_id, task_date, planned_qty, status, created_by, updated_by)
-         VALUES (?,?,?,?,?,?,?,?,'pending',?,?)`,
-        [
-          this.tenantId, taskNo, s.id, s.production_order_id,
-          s.process_step_id, s.worker_id, date, s.planned_qty,
-          this.userId, this.userId,
-        ],
-      );
+    if (schedules.length > 0) {
+      // Batch INSERT in chunks of 500 to respect MySQL max_allowed_packet limits.
+      // task_no must be unique per row; generate them all up front before chunking.
+      const rows = schedules.map((s) => {
+        const taskNo = `TK${Date.now()}${Math.floor(Math.random() * 999).toString().padStart(3, '0')}`;
+        return { s, taskNo };
+      });
+
+      const CHUNK_SIZE = 500;
+      for (let offset = 0; offset < rows.length; offset += CHUNK_SIZE) {
+        const chunk = rows.slice(offset, offset + CHUNK_SIZE);
+        const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,\'pending\',?,?)').join(', ');
+        const params: unknown[] = [];
+        for (const { s, taskNo } of chunk) {
+          params.push(
+            this.tenantId, taskNo, s.id, s.production_order_id,
+            s.process_step_id, s.worker_id, date, s.planned_qty,
+            this.userId, this.userId,
+          );
+        }
+        await AppDataSource.query(
+          `INSERT IGNORE INTO production_tasks
+             (tenant_id, task_no, schedule_id, production_order_id, process_step_id,
+              worker_id, task_date, planned_qty, status, created_by, updated_by)
+           VALUES ${placeholders}`,
+          params,
+        );
+      }
     }
   }
 
@@ -655,17 +670,25 @@ export class SchedulerService {
       [this.tenantId, date],
     );
 
-    for (const s of schedules) {
+    // Batch INSERT in chunks of 500 to respect MySQL max_allowed_packet limits.
+    const CHUNK_SIZE = 500;
+    for (let offset = 0; offset < schedules.length; offset += CHUNK_SIZE) {
+      const chunk = schedules.slice(offset, offset + CHUNK_SIZE);
+      const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,\'planned\',1,?,?)').join(', ');
+      const params: unknown[] = [];
+      for (const s of chunk) {
+        params.push(
+          this.tenantId, date, s.productionOrderId, s.processStepId,
+          s.workstationId, s.workerId, s.plannedQty,
+          this.userId, this.userId,
+        );
+      }
       await AppDataSource.query(
         `INSERT INTO production_schedules
            (tenant_id, schedule_date, production_order_id, process_step_id,
             workstation_id, worker_id, planned_qty, status, ai_generated, created_by, updated_by)
-         VALUES (?,?,?,?,?,?,?,'planned',1,?,?)`,
-        [
-          this.tenantId, date, s.productionOrderId, s.processStepId,
-          s.workstationId, s.workerId, s.plannedQty,
-          this.userId, this.userId,
-        ],
+         VALUES ${placeholders}`,
+        params,
       );
     }
   }

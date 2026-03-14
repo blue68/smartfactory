@@ -391,7 +391,7 @@ export class SalesOrderService {
 
     // 仅申请人(created_by)或 boss 可撤回
     if (order.createdBy !== this.userId) {
-      throw AppError.forbidden('只有订单创建者或管理员可撤回审批');
+      throw AppError.forbidden('只有订单创建者可撤回审批');
     }
 
     await AppDataSource.query(
@@ -607,7 +607,7 @@ export class SalesOrderService {
       `SELECT COALESCE(SUM(qty_planned), 0) AS currentLoad
        FROM production_orders
        WHERE tenant_id = ?
-         AND status != 'cancelled'
+         AND status IN ('pending', 'scheduled', 'in_progress')
          AND (planned_end IS NULL OR planned_end <= ?)`,
       [this.tenantId, params.expectedDelivery],
     );
