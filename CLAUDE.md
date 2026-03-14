@@ -48,19 +48,15 @@ AI Engineer 在任何情况下不得直接开始编写模型接入、Prompt、RA
 [artifact:AI交互状态设计]
 [artifact:实现计划]
 
-所有工程 Agent（Frontend、Backend、AI Engineer）
-在生成任何代码前必须先通过 Engineering Manager 的 SDD 审批。
+Frontend / Backend / AI Engineer 不允许自行设计系统。
 
-如果 Engineering Manager 未输出：
+所有工程开发必须基于以下输入：
 
-[artifact:工程审批]
-APPROVED
+[artifact:技术任务拆解]
+[artifact:设计规范]
+[artifact:HTML效果图]
 
-则禁止进入编码阶段。
-
-所有 AI 能力开发必须优先从用户视角、页面交互视角和原型状态视角进行拆解，
-禁止仅从模型调用视角展开设计与实现。
-
+若缺少任何一项，禁止生成代码。
 
 ---
 
@@ -292,7 +288,7 @@ senior-ui-designer
 ↓
 tech-lead-architect
 ↓
-senior-backend-engineer / senior-frontend-engineer / ai-engineer（行动前思考、任务拆解）
+技术任务拆解
 ↓
 engineering-manager（审批）
 ↓

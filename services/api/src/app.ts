@@ -146,6 +146,11 @@ app.use('/api/purchase',   purchaseRoutes);
 // modules/sales → /api/sales/orders
 // 职责：约束引擎（产能/库存可行性校验）、紧急插单分析、发货/收货/结算流程
 // 调用方：modules/production（排产约束检查）
+// GAP-R08-22 双轨分析结论：
+//   sales.service（此路由）与 salesOrder.service（/api/sales-orders）职责不重叠：
+//   - sales       负责约束检查/插单分析/发货收货/财务结算（供应链复杂流程）
+//   - sales-order 负责订单 CRUD/状态机/审批工作流（前端主交互路由）
+//   两个模块均需保留，不做合并。
 app.use('/api/sales/orders', salesRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/quality',    qualityRoutes);
@@ -153,6 +158,8 @@ app.use('/api/ai',         aiRoutes);
 app.use('/api/suppliers',  supplierRoutes);
 app.use('/api/prices',     priceRoutes);
 app.use('/api/process-configs', processConfigRoutes);
+// GAP-R07-G07：/api/customers 已挂载完整版 sales-customer 模块（含联系人/订单子资源）
+// modules/customer（简版）未被任何路由引用，可在后续清理 Sprint 中安全删除。
 app.use('/api/customers',  customerRoutes);
 // modules/sales-order → /api/sales-orders
 // 职责：销售订单完整 CRUD、状态机流转、审批工作流（提交/审批/驳回/撤回）

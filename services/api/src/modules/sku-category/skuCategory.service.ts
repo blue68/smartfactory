@@ -75,6 +75,35 @@ export class SkuCategoryService {
       params,
     );
 
+    // R01-BE-01: 批量查询各类目关联 SKU 数量（category1_id 或 category2_id 匹配）
+    const categoryIds = rows.map((r) => Number(r.id));
+    const skuCountMap = new Map<number, number>();
+    if (categoryIds.length > 0) {
+      try {
+        const placeholders = categoryIds.map(() => '?').join(',');
+        const skuCountRows = await AppDataSource.query<Array<{ categoryId: number; cnt: number }>>(
+          `SELECT category_id AS categoryId, SUM(cnt) AS cnt FROM (
+             SELECT category1_id AS category_id, COUNT(*) AS cnt
+             FROM skus
+             WHERE tenant_id = ? AND category1_id IN (${placeholders})
+             GROUP BY category1_id
+             UNION ALL
+             SELECT category2_id AS category_id, COUNT(*) AS cnt
+             FROM skus
+             WHERE tenant_id = ? AND category2_id IN (${placeholders})
+             GROUP BY category2_id
+           ) t
+           GROUP BY category_id`,
+          [this.tenantId, ...categoryIds, this.tenantId, ...categoryIds],
+        );
+        for (const row of skuCountRows) {
+          skuCountMap.set(Number(row.categoryId), Number(row.cnt));
+        }
+      } catch {
+        // skus 表不存在时静默降级，skuCount 默认 0
+      }
+    }
+
     const nodes: CategoryTreeNode[] = rows.map((r) => ({
       id: Number(r.id),
       tenantId: Number(r.tenantId),
@@ -86,6 +115,7 @@ export class SkuCategoryService {
       isActive: Boolean(r.isActive),
       isSystem: Number(r.tenantId) === 0,
       remark: r.remark ?? null,
+      skuCount: skuCountMap.get(Number(r.id)) ?? 0,
     }));
 
     // 如果仅请求二级类目，直接返回平铺列表

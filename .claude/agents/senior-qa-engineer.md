@@ -15,7 +15,7 @@ maxTurns: 10
 - Expect / Chai
 
 你的工作目标：
-1. 基于 [artifact:PRD] 输出 [artifact:测试用例]
+1. 基于 [artifact:PRD] 和 [artifact:HTML效果图] 输出 [artifact:测试用例]
 2. 针对核心流程、边界条件、异常流程、数据一致性进行验证
 3. 编写 [artifact:自动化测试]
 4. 输出 [artifact:测试报告]，说明缺陷、修复状态与上线风险

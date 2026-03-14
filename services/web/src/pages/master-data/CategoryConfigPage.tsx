@@ -1,11 +1,12 @@
 /**
- * [artifact:前端代码] — 类目管理页 R-01
- * 功能：树形列表（扁平展示一级/二级）/ 新增 Modal / 编辑 Modal / 删除确认 Modal / 搜索筛选
- * Batch-2 新增：FE-01-01 骨架屏 / FE-01-02 拖拽排序 / FE-01-03 操作日志 Drawer
- *               FE-01-04 四种删除 Modal / FE-01-05 行内编辑 / FE-01-06 PATCH
+ * [artifact:前端代码] — 类目管理页 R-01（双面板重构）
+ * 功能：左侧一级类目导航面板 / 右侧二级子类目表格
+ * 保留：FE-01-01 骨架屏 / FE-01-02 拖拽排序 / FE-01-03 操作日志 Drawer
+ *       FE-01-04 四种删除 Modal / FE-01-05 行内编辑 / FE-01-06 PATCH
  */
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import {
   useSkuCategoryList,
@@ -24,64 +25,52 @@ import type {
 import type { SkuCategoryFull, CreateCategoryPayload, UpdateCategoryPayload } from '@/types/models';
 import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
-import Table from '@/components/common/Table';
-import type { Column } from '@/components/common/Table';
 import styles from './CategoryConfigPage.module.css';
 
-// ─── 扁平行类型（含层级信息，用于树形渲染） ─────────────────
-interface FlatRow extends SkuCategoryFull {
-  _isChild: boolean;
-  _parentName?: string;
-  [key: string]: unknown;
-}
-
 // ─────────────────────────────────────────────
-// FE-01-01: 骨架屏组件
+// FE-01-01: 骨架屏（双面板结构）
 // ─────────────────────────────────────────────
 
 function SkeletonLoading() {
-  const listWidths = [80, 65, 90, 70, 60];
-  const tableWidths = [75, 60, 85, 70, 65];
-
   return (
-    <div style={{ display: 'flex', gap: 16 }}>
-      {/* Left skeleton list */}
-      <div
-        style={{
-          width: 240,
-          flexShrink: 0,
-          background: 'var(--bg-card, #fff)',
-          border: '1px solid var(--border-default, #E2E8F0)',
-          borderRadius: 'var(--radius-md, 8px)',
-          padding: 16,
-        }}
-      >
-        {listWidths.map((w, i) => (
-          <div key={i} style={{ marginBottom: 12 }}>
-            <div
-              className={`${styles.skeleton} ${styles.skeletonRow}`}
-              style={{ width: `${w}%` }}
-            />
+    <div className={styles.skeletonLayout}>
+      {/* 左侧骨架 */}
+      <div className={styles.skeletonCat1}>
+        <div className={styles.skeletonCat1Header}>
+          <div className={`${styles.skeleton} ${styles.skeletonRow}`} style={{ width: 70 }} />
+          <div className={`${styles.skeleton}`} style={{ width: 52, height: 28, borderRadius: 6 }} />
+        </div>
+        <div className={styles.skeletonCat1Search}>
+          <div className={`${styles.skeleton}`} style={{ height: 34, borderRadius: 8 }} />
+        </div>
+        {[80, 65, 90, 70, 60].map((w, i) => (
+          <div key={i} className={styles.skeletonCat1Item}>
+            <div className={`${styles.skeleton}`} style={{ width: 12, height: 12, borderRadius: '50%', flexShrink: 0 }} />
+            <div className={`${styles.skeleton} ${styles.skeletonRow}`} style={{ flex: 1 }} />
+            <div className={`${styles.skeleton}`} style={{ width: `${w * 0.4}px`, height: 18, borderRadius: 10 }} />
           </div>
         ))}
       </div>
 
-      {/* Right skeleton table */}
-      <div
-        style={{
-          flex: 1,
-          background: 'var(--bg-card, #fff)',
-          border: '1px solid var(--border-default, #E2E8F0)',
-          borderRadius: 'var(--radius-md, 8px)',
-          overflow: 'hidden',
-        }}
-      >
-        {tableWidths.map((w, i) => (
-          <div key={i} className={styles.skeletonTableRow}>
-            <div
-              className={`${styles.skeleton} ${styles.skeletonTableCell}`}
-              style={{ width: `${w}%` }}
-            />
+      {/* 右侧骨架 */}
+      <div className={styles.skeletonCat2}>
+        <div className={styles.skeletonCat2Header}>
+          <div className={`${styles.skeleton} ${styles.skeletonRow}`} style={{ width: 120 }} />
+          <div className={`${styles.skeleton}`} style={{ width: 80, height: 28, borderRadius: 6 }} />
+        </div>
+        <div className={styles.skeletonCat2TH}>
+          {[40, 60, 56, 44, 52].map((w, i) => (
+            <div key={i} className={`${styles.skeleton}`} style={{ width: w, height: 12, borderRadius: 4 }} />
+          ))}
+        </div>
+        {[75, 60, 85, 70, 65].map((w, i) => (
+          <div key={i} className={styles.skeletonCat2Row}>
+            <div className={`${styles.skeleton}`} style={{ width: 12, height: 12, borderRadius: '50%', flexShrink: 0 }} />
+            <div className={`${styles.skeleton} ${styles.skeletonRow}`} style={{ width: `${w * 1.4}px`, maxWidth: 160 }} />
+            <div className={`${styles.skeleton} ${styles.skeletonRow}`} style={{ width: 80 }} />
+            <div className={`${styles.skeleton} ${styles.skeletonRow}`} style={{ width: 50 }} />
+            <div className={`${styles.skeleton} ${styles.skeletonRow}`} style={{ width: 72 }} />
+            <div className={`${styles.skeleton}`} style={{ width: 64, height: 26, borderRadius: 6, marginLeft: 'auto' }} />
           </div>
         ))}
       </div>
@@ -252,7 +241,6 @@ function DeleteModalV2({ open, target, preview, previewLoading, onClose, onConfi
 
   if (!target || !open) return null;
 
-  // Loading preview state — show a waiting modal
   if (previewLoading) {
     return (
       <Modal
@@ -271,7 +259,7 @@ function DeleteModalV2({ open, target, preview, previewLoading, onClose, onConfi
 
   if (!preview) return null;
 
-  // Variant 1: System preset — button is disabled upstream, but guard here too
+  // Variant 1: System preset
   if (preview.isSystem) {
     return (
       <Modal
@@ -297,7 +285,7 @@ function DeleteModalV2({ open, target, preview, previewLoading, onClose, onConfi
     );
   }
 
-  // Variant 2: Custom, no associations — simple confirm
+  // Variant 2: Custom, no associations
   if (preview.childCount === 0 && preview.skuCount === 0) {
     return (
       <Modal
@@ -325,7 +313,7 @@ function DeleteModalV2({ open, target, preview, previewLoading, onClose, onConfi
     );
   }
 
-  // Variant 3 & 4: Has associations — requires typing category name to confirm
+  // Variant 3 & 4: Has associations — requires typing category name
   const nameMatched = confirmInput.trim() === target.name;
 
   return (
@@ -358,7 +346,6 @@ function DeleteModalV2({ open, target, preview, previewLoading, onClose, onConfi
         </div>
       </div>
 
-      {/* Stats */}
       <div className={styles.deleteStatsGrid}>
         <div className={styles.deleteStatCard}>
           <div className={styles.deleteStatValue}>{preview.childCount}</div>
@@ -370,7 +357,6 @@ function DeleteModalV2({ open, target, preview, previewLoading, onClose, onConfi
         </div>
       </div>
 
-      {/* Name confirm input */}
       <div className={styles.deleteConfirmInputWrap}>
         <label className={styles.deleteConfirmInputLabel}>
           请输入类目名称 <strong>{target.name}</strong> 以确认删除：
@@ -393,6 +379,10 @@ function DeleteModalV2({ open, target, preview, previewLoading, onClose, onConfi
 interface CategoryModalProps {
   open: boolean;
   initial?: SkuCategoryFull | null;
+  /** 预填层级（新增一级或二级时使用） */
+  defaultLevel?: 1 | 2;
+  /** 预填父类目（新增二级子类目时使用） */
+  defaultParentId?: number | null;
   level1List: SkuCategoryFull[];
   onClose: () => void;
 }
@@ -405,7 +395,7 @@ const EMPTY_CREATE: CreateCategoryPayload = {
   sortOrder: undefined,
 };
 
-function CategoryModal({ open, initial, level1List, onClose }: CategoryModalProps) {
+function CategoryModal({ open, initial, defaultLevel, defaultParentId, level1List, onClose }: CategoryModalProps) {
   const isEdit = Boolean(initial);
   const createMut = useCreateCategory();
   const updateMut = useUpdateCategory();
@@ -424,11 +414,15 @@ function CategoryModal({ open, initial, level1List, onClose }: CategoryModalProp
           sortOrder: initial.sortOrder,
         });
       } else {
-        setForm({ ...EMPTY_CREATE });
+        setForm({
+          ...EMPTY_CREATE,
+          level: defaultLevel ?? 1,
+          parentId: defaultParentId ?? null,
+        });
       }
       setErrors({});
     }
-  }, [open, initial]);
+  }, [open, initial, defaultLevel, defaultParentId]);
 
   function set<K extends keyof CreateCategoryPayload>(key: K, value: CreateCategoryPayload[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -544,6 +538,7 @@ function CategoryModal({ open, initial, level1List, onClose }: CategoryModalProp
           value={form.name}
           onChange={(e) => set('name', e.target.value)}
           placeholder="如：真皮沙发类"
+          // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
         />
         {errors.name && <p className={styles.formError}>{errors.name}</p>}
@@ -564,18 +559,49 @@ function CategoryModal({ open, initial, level1List, onClose }: CategoryModalProp
   );
 }
 
+// ─── 格式化日期 ──────────────────────────────────────────────
+
+function formatDate(iso: string | undefined): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 // ─── 主页面 ──────────────────────────────────────────────────
 
 export default function CategoryConfigPage() {
   const { setPageTitle, showToast } = useAppStore();
+  // useNavigate may not always be available in tests, fallback gracefully
+  let navigate: ReturnType<typeof useNavigate> | null = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    navigate = useNavigate();
+  } catch {
+    navigate = null;
+  }
 
   useEffect(() => {
-    setPageTitle('类目管理');
+    setPageTitle('SKU 类目管理');
   }, [setPageTitle]);
 
-  const [keyword, setKeyword] = useState('');
+  // ─── 选中状态（双面板核心） ──────────────────
+  const [selectedCatId, setSelectedCatId] = useState<number | null>(null);
+
+  // ─── 左侧搜索关键词 ──────────────────────────
+  const [cat1Keyword, setCat1Keyword] = useState('');
+
+  // ─── Modal 状态 ──────────────────────────────
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<SkuCategoryFull | null>(null);
+  const [modalDefaultLevel, setModalDefaultLevel] = useState<1 | 2>(1);
+  const [modalDefaultParentId, setModalDefaultParentId] = useState<number | null>(null);
 
   // FE-01-04: Delete modal state
   const [deleteTarget, setDeleteTarget] = useState<SkuCategoryFull | null>(null);
@@ -586,13 +612,12 @@ export default function CategoryConfigPage() {
   // FE-01-02: Drag-and-drop state
   const [orderedLevel1Ids, setOrderedLevel1Ids] = useState<number[]>([]);
   const [dragSourceId, setDragSourceId] = useState<number | null>(null);
-  // dropInfo: { targetId, position } — position is 'before' or 'after'
   const [dropInfo, setDropInfo] = useState<{ targetId: number; position: 'before' | 'after' } | null>(null);
 
   // FE-01-03: Audit log drawer
   const [auditDrawerOpen, setAuditDrawerOpen] = useState(false);
 
-  // FE-01-05: Inline edit state
+  // FE-01-05: Inline edit state (right panel table)
   const [inlineEditId, setInlineEditId] = useState<number | null>(null);
   const [inlineEditValue, setInlineEditValue] = useState('');
   const inlineEditInputRef = useRef<HTMLInputElement>(null);
@@ -607,6 +632,14 @@ export default function CategoryConfigPage() {
     const ids = rawList.filter((c) => c.level === 1).map((c) => c.id);
     setOrderedLevel1Ids(ids);
   }, [rawList]);
+
+  // Auto-select first category when data loads
+  useEffect(() => {
+    if (!isLoading && rawList.length > 0 && selectedCatId === null) {
+      const first = rawList.find((c) => c.level === 1);
+      if (first) setSelectedCatId(first.id);
+    }
+  }, [isLoading, rawList, selectedCatId]);
 
   const level1List = useMemo(
     () => rawList.filter((c) => c.level === 1),
@@ -628,48 +661,61 @@ export default function CategoryConfigPage() {
     return result;
   }, [level1List, orderedLevel1Ids]);
 
-  const flatRows = useMemo((): FlatRow[] => {
-    const rows: FlatRow[] = [];
-    const kw = keyword.toLowerCase();
-    for (const cat of sortedLevel1) {
-      const nameMatch =
-        cat.name.toLowerCase().includes(kw) || cat.code.toLowerCase().includes(kw);
-      const children = cat.children ?? rawList.filter((c) => c.parentId === cat.id);
-      const matchedChildren = children.filter(
-        (c) =>
-          !kw ||
-          c.name.toLowerCase().includes(kw) ||
-          c.code.toLowerCase().includes(kw),
-      );
-      if (!kw || nameMatch || matchedChildren.length > 0) {
-        rows.push({ ...cat, _isChild: false });
-        const childrenToShow = kw && !nameMatch ? matchedChildren : children;
-        for (const child of childrenToShow) {
-          rows.push({ ...child, _isChild: true, _parentName: cat.name });
-        }
-      }
-    }
-    return rows;
-  }, [sortedLevel1, rawList, keyword]);
+  // Left panel: filter by keyword
+  const filteredLevel1 = useMemo(() => {
+    if (!cat1Keyword.trim()) return sortedLevel1;
+    const kw = cat1Keyword.toLowerCase();
+    return sortedLevel1.filter(
+      (c) => c.name.toLowerCase().includes(kw) || c.code.toLowerCase().includes(kw),
+    );
+  }, [sortedLevel1, cat1Keyword]);
 
-  function handleCreate() {
+  // Right panel: children of selected category
+  const selectedCat1 = useMemo(
+    () => level1List.find((c) => c.id === selectedCatId) ?? null,
+    [level1List, selectedCatId],
+  );
+
+  const level2Rows = useMemo(() => {
+    if (selectedCatId === null) return [];
+    return rawList.filter((c) => c.level === 2 && c.parentId === selectedCatId);
+  }, [rawList, selectedCatId]);
+
+  // ─── Count children of a level-1 category ───
+  function childCount(catId: number): number {
+    return rawList.filter((c) => c.level === 2 && c.parentId === catId).length;
+  }
+
+  // ─── Modal openers ────────────────────────────
+  function openCreateCat1() {
     setEditTarget(null);
+    setModalDefaultLevel(1);
+    setModalDefaultParentId(null);
     setModalOpen(true);
   }
 
-  function handleEdit(row: FlatRow) {
-    setEditTarget(row);
+  function openCreateCat2() {
+    setEditTarget(null);
+    setModalDefaultLevel(2);
+    setModalDefaultParentId(selectedCatId);
+    setModalOpen(true);
+  }
+
+  function openEdit(cat: SkuCategoryFull) {
+    setEditTarget(cat);
+    setModalDefaultLevel(cat.level as 1 | 2);
+    setModalDefaultParentId(cat.parentId ?? null);
     setModalOpen(true);
   }
 
   // FE-01-04: Click delete — fetch preview first
-  async function handleDeleteClick(row: FlatRow) {
-    setDeleteTarget(row);
+  async function handleDeleteClick(cat: SkuCategoryFull) {
+    setDeleteTarget(cat);
     setDeleteModalOpen(true);
     setDeletePreview(null);
     setDeletePreviewLoading(true);
     try {
-      const preview = await fetchDeletePreview(row.id);
+      const preview = await fetchDeletePreview(cat.id);
       setDeletePreview(preview);
     } catch {
       showToast({ type: 'error', message: '获取关联数据失败，请刷新后重试' });
@@ -684,6 +730,8 @@ export default function CategoryConfigPage() {
     try {
       await deleteMut.mutateAsync(deleteTarget.id);
       showToast({ type: 'success', message: `已删除类目：${deleteTarget.name}` });
+      // If deleted category was selected, clear selection
+      if (deleteTarget.id === selectedCatId) setSelectedCatId(null);
       setDeleteModalOpen(false);
       setDeleteTarget(null);
       setDeletePreview(null);
@@ -699,13 +747,13 @@ export default function CategoryConfigPage() {
     setDeletePreviewLoading(false);
   }
 
-  // ─── FE-01-02: Drag handlers ───────────────────────────────
+  // ─── FE-01-02: Drag handlers (left panel) ────
   const handleDragStart = useCallback((e: React.DragEvent, id: number) => {
     setDragSourceId(id);
     e.dataTransfer.effectAllowed = 'move';
   }, []);
 
-  const handleDragOverCell = useCallback((e: React.DragEvent, id: number) => {
+  const handleDragOverItem = useCallback((e: React.DragEvent, id: number) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -717,7 +765,7 @@ export default function CategoryConfigPage() {
     });
   }, []);
 
-  const handleDropCell = useCallback(
+  const handleDropItem = useCallback(
     async (e: React.DragEvent, targetId: number) => {
       e.preventDefault();
       setDropInfo(null);
@@ -735,9 +783,7 @@ export default function CategoryConfigPage() {
         return;
       }
 
-      // Remove source from its position
       newOrder.splice(srcIndex, 1);
-      // Find new target index after removal
       const newTgtIndex = newOrder.indexOf(targetId);
       const insertAt = dropInfo?.position === 'after' ? newTgtIndex + 1 : newTgtIndex;
       newOrder.splice(insertAt, 0, dragSourceId);
@@ -760,8 +806,8 @@ export default function CategoryConfigPage() {
     setDropInfo(null);
   }, []);
 
-  // ─── FE-01-05: Inline edit handlers ──────────────────────
-  function startInlineEdit(row: FlatRow) {
+  // ─── FE-01-05: Inline edit handlers (right panel) ──
+  function startInlineEdit(row: SkuCategoryFull) {
     setInlineEditId(row.id);
     setInlineEditValue(row.name);
     setTimeout(() => inlineEditInputRef.current?.focus(), 0);
@@ -772,7 +818,7 @@ export default function CategoryConfigPage() {
     setInlineEditValue('');
   }
 
-  async function saveInlineEdit(row: FlatRow) {
+  async function saveInlineEdit(row: SkuCategoryFull) {
     const trimmed = inlineEditValue.trim();
     if (!trimmed || trimmed === row.name) {
       cancelInlineEdit();
@@ -788,7 +834,7 @@ export default function CategoryConfigPage() {
     cancelInlineEdit();
   }
 
-  function handleInlineKeyDown(e: React.KeyboardEvent, row: FlatRow) {
+  function handleInlineKeyDown(e: React.KeyboardEvent, row: SkuCategoryFull) {
     if (e.key === 'Enter') {
       e.preventDefault();
       void saveInlineEdit(row);
@@ -797,201 +843,26 @@ export default function CategoryConfigPage() {
     }
   }
 
-  // ─── Table columns ─────────────────────────────────────────
-  const columns: Column<FlatRow>[] = [
-    {
-      key: 'name',
-      title: '类目名称',
-      render: (_, row) => {
-        const isEditing = inlineEditId === row.id;
-
-        // FE-01-05: Inline edit for level-2 rows
-        if (row._isChild && isEditing) {
-          return (
-            <div className={styles.inlineEditCell}>
-              <span className={styles.childIndent} aria-hidden="true" />
-              <input
-                ref={inlineEditInputRef}
-                className={styles.inlineEditInput}
-                value={inlineEditValue}
-                onChange={(e) => setInlineEditValue(e.target.value)}
-                onKeyDown={(e) => handleInlineKeyDown(e, row)}
-              />
-              <div className={styles.inlineEditActions}>
-                <button
-                  className={styles.inlineSaveBtn}
-                  onClick={() => void saveInlineEdit(row)}
-                  title="保存（Enter）"
-                >
-                  ✓
-                </button>
-                <button
-                  className={styles.inlineCancelBtn}
-                  onClick={cancelInlineEdit}
-                  title="取消（Esc）"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          );
-        }
-
-        // FE-01-02: Level-1 rows get drag handle + drop indicator
-        if (!row._isChild) {
-          const isBeingDragged = dragSourceId === row.id;
-          const isDropTarget = dropInfo?.targetId === row.id;
-
-          return (
-            <div
-              className={[
-                styles.parentNameCell,
-                isBeingDragged ? styles.draggingRow : '',
-                isDropTarget && dropInfo?.position === 'before' ? styles.dropIndicator : '',
-                isDropTarget && dropInfo?.position === 'after' ? styles.dropIndicatorBottom : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              onDragOver={(e) => handleDragOverCell(e, row.id)}
-              onDrop={(e) => void handleDropCell(e, row.id)}
-            >
-              <span
-                className={styles.dragHandle}
-                draggable
-                onDragStart={(e) => handleDragStart(e, row.id)}
-                onDragEnd={handleDragEnd}
-                title="拖拽排序"
-                aria-label="拖拽排序"
-              >
-                ⠿
-              </span>
-              <span className={styles.parentName}>{row.name}</span>
-              {row.isSystem && <span className={styles.systemBadge}>系统</span>}
-            </div>
-          );
-        }
-
-        // Level-2 normal display
-        return (
-          <div className={styles.childNameCell}>
-            <span className={styles.childIndent} aria-hidden="true" />
-            <span className={styles.childName}>{row.name}</span>
-            {row.isSystem && <span className={styles.systemBadge}>系统</span>}
-          </div>
-        );
-      },
-    },
-    {
-      key: 'code',
-      title: '编码',
-      width: 160,
-      render: (_, row) => (
-        <code
-          className={`${styles.codeText} ${row._isChild ? styles.codeChild : styles.codeParent}`}
-        >
-          {row.code}
-        </code>
-      ),
-    },
-    {
-      key: 'level',
-      title: '层级',
-      width: 80,
-      render: (_, row) => (
-        <span
-          className={`${styles.levelBadge} ${row.level === 1 ? styles.levelBadge1 : styles.levelBadge2}`}
-        >
-          {row.level === 1 ? '一级' : '二级'}
-        </span>
-      ),
-    },
-    {
-      key: 'sortOrder',
-      title: '排序',
-      width: 70,
-      align: 'right',
-      render: (v) => (
-        <span style={{ color: 'var(--text-secondary, #64748B)', fontSize: 13 }}>
-          {v as number}
-        </span>
-      ),
-    },
-    {
-      key: 'isActive',
-      title: '状态',
-      width: 80,
-      render: (v) => (
-        <span
-          className={`${styles.statusBadge} ${v ? styles.statusActive : styles.statusInactive}`}
-        >
-          {v ? '启用' : '停用'}
-        </span>
-      ),
-    },
-    {
-      key: 'id',
-      title: '操作',
-      width: 160,
-      render: (_, row) => {
-        // Hide action column when in inline edit mode
-        if (inlineEditId === row.id) return null;
-
-        return (
-          <div className={styles.actions}>
-            {/* FE-01-05: Inline edit for level-2, modal edit for level-1 */}
-            <button
-              className={`${styles.actionBtn} ${styles.actionBtnEdit}`}
-              onClick={() => {
-                if (row._isChild) {
-                  startInlineEdit(row);
-                } else {
-                  handleEdit(row);
-                }
-              }}
-            >
-              编辑
-            </button>
-
-            {/* FE-01-04: System preset delete is disabled with tooltip */}
-            {row.isSystem ? (
-              <span className={styles.tooltipWrap}>
-                <button
-                  className={`${styles.actionBtn} ${styles.actionBtnDeleteDisabled}`}
-                  disabled
-                  aria-disabled="true"
-                >
-                  删除
-                </button>
-                <span className={styles.tooltip}>系统预置类目不可删除</span>
-              </span>
-            ) : (
-              <button
-                className={`${styles.actionBtn} ${styles.actionBtnDelete}`}
-                onClick={() => void handleDeleteClick(row)}
-              >
-                删除
-              </button>
-            )}
-          </div>
-        );
-      },
-    },
-  ];
-
-  // Row class for inline editing (applied via CSS by checking editingRow on name cell wrapper)
-  // The Table component doesn't support rowClassName, so we use inline style within the cell render.
+  // ─── Return ───────────────────────────────────
 
   return (
     <div className={styles.page}>
       {/* 页头 */}
       <div className={styles.pageHeader}>
         <div>
-          <h1 className={styles.pageTitle}>类目管理</h1>
+          <button
+            className={styles.backBtn}
+            onClick={() => navigate ? navigate(-1) : window.history.back()}
+            aria-label="返回 SKU 列表"
+            style={{ marginBottom: 8 }}
+          >
+            ← 返回 SKU 列表
+          </button>
+          <h1 className={styles.pageTitle}>SKU 类目管理</h1>
           <p className={styles.pageSubtitle}>
             管理 SKU 的一级/二级分类体系，支持自定义类目
           </p>
         </div>
-        {/* FE-01-03: Audit log + create buttons */}
         <div className={styles.pageHeaderActions}>
           <button
             className={styles.auditLogBtn}
@@ -999,42 +870,349 @@ export default function CategoryConfigPage() {
           >
             📋 操作日志
           </button>
-          <Button variant="primary" size="sm" onClick={handleCreate}>
-            + 新增类目
-          </Button>
         </div>
       </div>
 
-      {/* 筛选栏 */}
-      <div className={styles.filterBar}>
-        <div className={styles.searchWrap}>
-          <span className={styles.searchIcon}>&#x1F50D;</span>
-          <input
-            className={styles.searchInput}
-            placeholder="搜索类目名称或编码..."
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-          />
-        </div>
-        <span className={styles.filterTip}>
-          共 {level1List.length} 个一级类目，
-          {rawList.filter((c) => c.level === 2).length} 个二级类目
-        </span>
-      </div>
-
-      {/* FE-01-01: Skeleton loading OR table */}
+      {/* FE-01-01: 骨架屏 or 双面板主体 */}
       {isLoading ? (
         <SkeletonLoading />
+      ) : isError ? (
+        <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-error-500)' }}>
+          类目列表加载失败，请刷新重试
+        </div>
       ) : (
-        <div className={styles.tableCard}>
-          <Table<FlatRow>
-            columns={columns}
-            dataSource={flatRows}
-            rowKey={(r) => r.id}
-            loading={false}
-            error={isError ? '类目列表加载失败，请刷新重试' : null}
-            emptyText="暂无类目数据"
-          />
+        <div className={styles.categoryLayout}>
+
+          {/* ── 左侧：一级类目面板 ── */}
+          <div className={styles.cat1Panel}>
+            <div className={styles.cat1Header}>
+              <span className={styles.cat1Title}>一级类目</span>
+              <Button variant="primary" size="sm" onClick={openCreateCat1}>
+                + 新增
+              </Button>
+            </div>
+
+            <div className={styles.cat1SearchWrap}>
+              <input
+                className={styles.cat1Search}
+                type="search"
+                placeholder="搜索类目名称..."
+                value={cat1Keyword}
+                onChange={(e) => setCat1Keyword(e.target.value)}
+                aria-label="搜索一级类目"
+              />
+            </div>
+
+            <ul className={styles.cat1List} role="listbox" aria-label="一级类目列表">
+              {filteredLevel1.map((cat) => {
+                const isActive = selectedCatId === cat.id;
+                const isDragging = dragSourceId === cat.id;
+                const isDropTarget = dropInfo?.targetId === cat.id;
+                const childrenCount = childCount(cat.id);
+
+                const itemClass = [
+                  styles.cat1Item,
+                  isActive ? styles.cat1ItemActive : '',
+                  isDragging ? styles.cat1ItemDragging : '',
+                  isDropTarget && dropInfo?.position === 'before' ? styles.cat1ItemDropBefore : '',
+                  isDropTarget && dropInfo?.position === 'after' ? styles.cat1ItemDropAfter : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ');
+
+                return (
+                  <li
+                    key={cat.id}
+                    className={itemClass}
+                    role="option"
+                    aria-selected={isActive}
+                    onClick={() => setSelectedCatId(cat.id)}
+                    onDragOver={(e) => handleDragOverItem(e, cat.id)}
+                    onDrop={(e) => void handleDropItem(e, cat.id)}
+                  >
+                    {/* 拖拽手柄 */}
+                    <span
+                      className={styles.cat1DragHandle}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, cat.id)}
+                      onDragEnd={handleDragEnd}
+                      onClick={(e) => e.stopPropagation()}
+                      title="拖拽排序"
+                      aria-label="拖拽排序"
+                      aria-hidden="true"
+                    >
+                      ⠿
+                    </span>
+
+                    {/* 名称 */}
+                    <span className={styles.cat1ItemName} title={cat.name}>
+                      {cat.name}
+                    </span>
+
+                    {/* 徽章（hover 时隐藏，交由 CSS 控制） */}
+                    <div className={styles.cat1ItemMeta}>
+                      {cat.isSystem ? (
+                        <span className={styles.badgeSystem}>预置</span>
+                      ) : (
+                        <span className={styles.badgeCustom}>自定义</span>
+                      )}
+                      <span className={styles.badgeCount}>{childrenCount} 子</span>
+                    </div>
+
+                    {/* 操作按钮（hover/active 时显示） */}
+                    <div className={styles.cat1ItemActions}>
+                      <button
+                        className={styles.cat1IconBtn}
+                        title="编辑"
+                        aria-label={`编辑 ${cat.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEdit(cat);
+                        }}
+                      >
+                        ✏️
+                      </button>
+
+                      {cat.isSystem ? (
+                        <span className={styles.tooltipWrap}>
+                          <button
+                            className={`${styles.cat1IconBtn} ${styles.cat1IconBtnDisabled}`}
+                            disabled
+                            aria-disabled="true"
+                            aria-label="系统预置类目不可删除"
+                            title="系统预置类目不可删除"
+                          >
+                            🗑
+                          </button>
+                          <span className={styles.tooltip}>系统预置类目不可删除</span>
+                        </span>
+                      ) : (
+                        <button
+                          className={`${styles.cat1IconBtn} ${styles.cat1IconBtnDelete}`}
+                          title={`删除 ${cat.name}`}
+                          aria-label={`删除 ${cat.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDeleteClick(cat);
+                          }}
+                        >
+                          🗑
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+
+              {filteredLevel1.length === 0 && (
+                <li style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+                  {cat1Keyword ? '无匹配类目' : '暂无一级类目'}
+                </li>
+              )}
+            </ul>
+
+            {/* 底部快捷新增按钮 */}
+            <div className={styles.cat1AddWrap}>
+              <button className={styles.cat1AddBtn} onClick={openCreateCat1}>
+                + 新增一级类目
+              </button>
+            </div>
+          </div>
+
+          {/* ── 右侧：二级类目面板 ── */}
+          <div className={styles.cat2Panel}>
+            {selectedCat1 === null ? (
+              /* 未选中占位 */
+              <div className={styles.cat2Placeholder}>
+                <div className={styles.cat2PlaceholderIcon}>🗂</div>
+                <div className={styles.cat2PlaceholderTitle}>请选择一级类目</div>
+                <div className={styles.cat2PlaceholderDesc}>
+                  从左侧列表选择一个一级类目，查看并管理其下的子类目
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* 右侧面板头 */}
+                <div className={styles.cat2Header}>
+                  <div className={styles.cat2TitleGroup}>
+                    <span className={styles.cat2TitleText}>{selectedCat1.name}</span>
+                    {selectedCat1.isSystem ? (
+                      <span className={styles.badgeSystem}>预置</span>
+                    ) : (
+                      <span className={styles.badgeCustom}>自定义</span>
+                    )}
+                    <span className={styles.cat2Subtitle}>
+                      共 {level2Rows.length} 个子类目
+                    </span>
+                  </div>
+                  <Button variant="primary" size="sm" onClick={openCreateCat2}>
+                    + 新增子类目
+                  </Button>
+                </div>
+
+                {/* 二级类目表格 or 空状态 */}
+                {level2Rows.length === 0 ? (
+                  <div className={styles.cat2EmptyWrap}>
+                    <div className={styles.cat2EmptyIcon}>📂</div>
+                    <div className={styles.cat2EmptyTitle}>暂无子类目</div>
+                    <div className={styles.cat2EmptyDesc}>
+                      当前一级类目下尚未创建子类目
+                    </div>
+                    <Button variant="primary" size="sm" onClick={openCreateCat2}>
+                      + 新增子类目
+                    </Button>
+                  </div>
+                ) : (
+                  <div className={styles.cat2TableWrap}>
+                    <table className={styles.cat2Table} aria-label="二级类目列表">
+                      <thead>
+                        <tr>
+                          <th className={styles.cat2ThDrag} aria-hidden="true" />
+                          <th>类目名称</th>
+                          <th>类目编码</th>
+                          <th>关联 SKU 数</th>
+                          <th>创建时间</th>
+                          <th>操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {level2Rows.map((row) => {
+                          const isEditing = inlineEditId === row.id;
+
+                          return (
+                            <tr key={row.id} style={isEditing ? { background: 'var(--color-primary-50)' } : undefined}>
+                              {/* 拖拽手柄（二级类目排序预留） */}
+                              <td>
+                                <span
+                                  style={{
+                                    color: 'var(--color-gray-300)',
+                                    cursor: 'grab',
+                                    fontSize: 14,
+                                    userSelect: 'none',
+                                  }}
+                                  aria-hidden="true"
+                                  title="拖拽排序"
+                                >
+                                  ⠿
+                                </span>
+                              </td>
+
+                              {/* 类目名称 */}
+                              <td>
+                                <div className={styles.cat2NameCell}>
+                                  {row.name}
+                                  {row.isSystem && (
+                                    <span className={styles.badgeSystem}>系统</span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* 类目编码 */}
+                              <td>
+                                <code className={styles.cat2CodeText}>{row.code}</code>
+                              </td>
+
+                              {/* 关联 SKU 数（API 扩展字段，如无则显示"—"） */}
+                              <td>
+                                {(() => {
+                                  const r = row as unknown as Record<string, unknown>;
+                                  const count = r['skuCount'];
+                                  return (
+                                    <span className={styles.cat2SkuCount}>
+                                      {count !== undefined ? (
+                                        <>
+                                          <strong>{count as number}</strong>
+                                          <span className={styles.cat2SkuCountUnit}>件</span>
+                                        </>
+                                      ) : '—'}
+                                    </span>
+                                  );
+                                })()}
+                              </td>
+
+                              {/* 创建时间 */}
+                              <td>
+                                <span className={styles.cat2DateText}>
+                                  {formatDate((row as unknown as Record<string, unknown>)['createdAt'] as string | undefined)}
+                                </span>
+                              </td>
+
+                              {/* 操作列 */}
+                              <td>
+                                {isEditing ? (
+                                  /* FE-01-05: 内联编辑状态 */
+                                  <div className={styles.cat2InlineEditCell}>
+                                    <input
+                                      ref={inlineEditInputRef}
+                                      className={styles.cat2InlineInput}
+                                      value={inlineEditValue}
+                                      onChange={(e) => setInlineEditValue(e.target.value)}
+                                      onKeyDown={(e) => handleInlineKeyDown(e, row)}
+                                      aria-label={`编辑类目名称：${row.name}`}
+                                    />
+                                    <button
+                                      className={`${styles.actionBtn} ${styles.actionBtnEdit}`}
+                                      style={{ background: 'var(--color-primary-600)', color: '#fff', border: 'none' }}
+                                      onClick={() => void saveInlineEdit(row)}
+                                      title="保存（Enter）"
+                                    >
+                                      保存
+                                    </button>
+                                    <button
+                                      className={`${styles.actionBtn}`}
+                                      style={{ borderColor: 'var(--border-default)', color: 'var(--text-secondary)' }}
+                                      onClick={cancelInlineEdit}
+                                      title="取消（Esc）"
+                                    >
+                                      取消
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className={styles.cat2RowActions}>
+                                    {/* 编辑：二级类目用内联编辑 */}
+                                    <button
+                                      className={`${styles.actionBtn} ${styles.actionBtnEdit}`}
+                                      onClick={() => startInlineEdit(row)}
+                                      aria-label={`编辑 ${row.name}`}
+                                    >
+                                      编辑
+                                    </button>
+
+                                    {/* 删除 */}
+                                    {row.isSystem ? (
+                                      <span className={styles.tooltipWrap}>
+                                        <button
+                                          className={`${styles.actionBtn} ${styles.actionBtnDeleteDisabled}`}
+                                          disabled
+                                          aria-disabled="true"
+                                        >
+                                          删除
+                                        </button>
+                                        <span className={styles.tooltip}>系统预置类目不可删除</span>
+                                      </span>
+                                    ) : (
+                                      <button
+                                        className={`${styles.actionBtn} ${styles.actionBtnDelete}`}
+                                        onClick={() => void handleDeleteClick(row)}
+                                        aria-label={`删除 ${row.name}`}
+                                      >
+                                        删除
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
         </div>
       )}
 
@@ -1042,6 +1220,8 @@ export default function CategoryConfigPage() {
       <CategoryModal
         open={modalOpen}
         initial={editTarget}
+        defaultLevel={modalDefaultLevel}
+        defaultParentId={modalDefaultParentId}
         level1List={level1List}
         onClose={() => setModalOpen(false)}
       />

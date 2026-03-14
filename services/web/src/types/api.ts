@@ -17,6 +17,8 @@ export interface PaginatedData<T> {
   page: number;
   pageSize: number;
   totalPages: number;
+  /** 各状态全量计数（可选，由特定列表接口返回，如销售订单列表） */
+  statusCounts?: Record<string, number>;
 }
 
 /** 分页响应 */

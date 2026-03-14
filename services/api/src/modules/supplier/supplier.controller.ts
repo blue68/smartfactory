@@ -10,6 +10,8 @@ const ListQuerySchema = PaginationSchema.extend({
   keyword: z.string().max(100).optional(),
   rating: z.enum(['A', 'B', 'C', 'D']).optional(),
   isActive: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+  // R02-BE-03: 按品类筛选
+  category: z.string().max(100).optional(),
 });
 
 /** 导出筛选参数（与列表相同，无需分页） */
@@ -153,6 +155,7 @@ export class SupplierController {
       keyword: q.keyword,
       rating: q.rating,
       isActive: q.isActive,
+      category: q.category,
     });
     const mapped = list.map((e) => toFrontendFormat(e as unknown as Record<string, unknown>));
     success(res, buildPaginated(mapped, total, q.page, q.pageSize));

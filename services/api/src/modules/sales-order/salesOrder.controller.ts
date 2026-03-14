@@ -69,7 +69,8 @@ export class SalesOrderController {
 
   async list(req: Request, res: Response): Promise<void> {
     const q = ListQuerySchema.parse(req.query);
-    const { list, total } = await this.svc(req).list({
+    // GAP-R08-04: statusCounts 为全量状态统计，不依赖当前分页/过滤条件
+    const { list, total, statusCounts } = await this.svc(req).list({
       page: q.page,
       pageSize: q.pageSize,
       keyword: q.keyword,
@@ -77,7 +78,7 @@ export class SalesOrderController {
       customerId: q.customerId,
       isUrgent: q.isUrgent,
     });
-    success(res, buildPaginated(list, total, q.page, q.pageSize));
+    success(res, { ...buildPaginated(list, total, q.page, q.pageSize), statusCounts });
   }
 
   async getOne(req: Request, res: Response): Promise<void> {

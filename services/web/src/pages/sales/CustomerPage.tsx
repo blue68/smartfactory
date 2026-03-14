@@ -146,12 +146,14 @@ function CustomerModal({ open, initial, onClose }: CustomerModalProps) {
     >
       <div className={styles.formGrid}>
         <div className={styles.formGroup}>
-          <label className={styles.formLabel}>客户编码 *</label>
+          <label className={styles.formLabel}>客户编码</label>
           <input
             className={styles.formInput}
             value={form.code}
-            onChange={(e) => set('code', e.target.value)}
-            placeholder="如：C-0001"
+            onChange={(e) => !isEdit && set('code', e.target.value)}
+            placeholder={isEdit ? form.code : '系统自动生成'}
+            disabled={!isEdit}
+            style={!isEdit ? { background: 'var(--color-neutral-50,#F9FAFB)', color: 'var(--color-neutral-400,#9CA3AF)', cursor: 'not-allowed' } : undefined}
           />
         </div>
         <div className={styles.formGroup}>
@@ -264,7 +266,7 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
   const deleteContact = useDeleteCustomerContact();
   const updateContact = useUpdateCustomerContact();
 
-  const [newContact, setNewContact] = useState({ name: '', phone: '', title: '' });
+  const [newContact, setNewContact] = useState({ name: '', phone: '', title: '', email: '' });
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [editContactForm, setEditContactForm] = useState<{ name: string; phone: string; title: string; isPrimary: boolean }>({
     name: '', phone: '', title: '', isPrimary: false,
@@ -273,7 +275,7 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
   async function handleAddContact() {
     if (!customerId || !newContact.name) return;
     await createContact.mutateAsync({ customerId, payload: newContact });
-    setNewContact({ name: '', phone: '', title: '' });
+    setNewContact({ name: '', phone: '', title: '', email: '' });
   }
 
   async function handleDeleteContact(contactId: number) {
@@ -295,6 +297,16 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
     });
     setEditingContactId(null);
   }
+
+  const ORDER_STATUS_MAP: Record<string, string> = {
+    draft: '草稿',
+    pending_approval: '待审批',
+    confirmed: '已确认',
+    in_production: '生产中',
+    shipped: '已发货',
+    completed: '已完成',
+    closed: '已关闭',
+  };
 
   const orders = ordersData?.list ?? [];
 
@@ -469,6 +481,13 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
                 value={newContact.phone}
                 onChange={(e) => setNewContact((p) => ({ ...p, phone: e.target.value }))}
               />
+              <input
+                className={styles.addContactInput}
+                type="email"
+                placeholder="邮箱"
+                value={newContact.email}
+                onChange={(e) => setNewContact((p) => ({ ...p, email: e.target.value }))}
+              />
               <Button
                 variant="primary"
                 size="sm"
@@ -507,7 +526,7 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
                       <span className={`${styles.statusBadge} ${
                         o.status === 'completed' ? styles.statusActive : styles.statusInactive
                       }`} style={{ fontSize: 11 }}>
-                        {o.status}
+                        {ORDER_STATUS_MAP[o.status] ?? o.status}
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--color-neutral-500,#6B7280)', marginTop: 4 }}>
@@ -544,6 +563,7 @@ export default function CustomerPage() {
   const [editTarget, setEditTarget] = useState<Customer | null>(null);
   const [drawerCustomerId, setDrawerCustomerId] = useState<number | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<Customer | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const patchStatus = usePatchCustomerStatus();
 
@@ -599,8 +619,10 @@ export default function CustomerPage() {
     try {
       await patchStatus.mutateAsync({ id: confirmTarget.id, status: 'inactive' });
       setConfirmTarget(null);
-    } catch {
-      // API will return error with active order count — handled by global error handler
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || '操作失败，请稍后重试';
+      setConfirmTarget(null);
+      setErrorMsg(msg);
     }
   }
 
@@ -697,6 +719,38 @@ export default function CustomerPage() {
 
   return (
     <div className={styles.page}>
+      {/* 错误提示 */}
+      {errorMsg && (
+        <div
+          role="alert"
+          style={{
+            position: 'fixed',
+            top: 20,
+            right: 24,
+            zIndex: 9999,
+            background: '#FEF2F2',
+            border: '1px solid #FECACA',
+            color: '#DC2626',
+            padding: '10px 16px',
+            borderRadius: 8,
+            fontSize: 14,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+            maxWidth: 360,
+          }}
+        >
+          <span style={{ flex: 1 }}>{errorMsg}</span>
+          <button
+            onClick={() => setErrorMsg(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#DC2626', fontWeight: 700, fontSize: 16, lineHeight: 1, padding: 0 }}
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {/* 页头 */}
       <div className={styles.pageHeader}>
         <h1 className={styles.pageTitle}>客户管理</h1>

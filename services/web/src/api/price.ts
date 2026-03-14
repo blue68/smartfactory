@@ -100,10 +100,18 @@ export interface ImportRowIssue {
 export interface ImportResult {
   successCount: number;
   failCount: number;
+  /** 跳过的错误行数量（导入完成后由后端返回） */
+  skipCount?: number;
+  /** 重复追加行数量（同一 SKU+供应商 已有记录，将追加新版本） */
+  duplicateCount?: number;
   errors: ImportRowIssue[];
   warnings: ImportRowIssue[];
   /** 价格异常行（偏差 > 30% 的行，由后端标记，可选） */
   anomalies?: ImportRowIssue[];
+  /** 重复追加行（同一 SKU+供应商 已有记录的行，由后端标记） */
+  duplicates?: ImportRowIssue[];
+  /** 总行数（不含表头） */
+  totalCount?: number;
 }
 
 /** 异步导入任务进度 */

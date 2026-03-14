@@ -33,6 +33,7 @@ export class ProductionService {
 
   async completeTask(taskId: number, params: {
     completedQty: string;
+    actualHours?: number;        // R06-G02: 实际工时（小时）
     scrapQty?: string;
     scrapReason?: 'material_defect' | 'operation_error' | 'other';
     componentBarcode?: string;
@@ -221,15 +222,20 @@ export class ProductionService {
 
     const [list, countRows] = await Promise.all([
       AppDataSource.query(
+        // R06-G12: 补充 priority、version、actual_hours、skuName（产品名）字段
         `SELECT pt.id, pt.task_date AS taskDate, pt.status,
                 pt.planned_qty AS plannedQty, pt.completed_qty AS completedQty,
-                po.work_order_no AS orderNo, ps.step_name AS processName,
-                ws.name AS workstationName, u.real_name AS workerName
+                pt.version, pt.actual_hours AS actualHours,
+                po.work_order_no AS orderNo, po.priority,
+                ps.step_name AS processName,
+                ws.name AS workstationName, u.real_name AS workerName,
+                s.name AS skuName, s.sku_code AS skuCode
          FROM production_tasks pt
          INNER JOIN production_orders po ON po.id = pt.production_order_id
          INNER JOIN process_steps ps ON ps.id = pt.process_step_id
          LEFT JOIN workstations ws ON ws.id = pt.workstation_id
          LEFT JOIN users u ON u.id = pt.worker_id
+         LEFT JOIN skus s ON s.id = po.sku_id
          WHERE ${where}
          ORDER BY pt.task_date DESC, pt.id DESC
          LIMIT ? OFFSET ?`,

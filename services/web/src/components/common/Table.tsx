@@ -36,6 +36,8 @@ export interface TableProps<T extends Record<string, unknown>> {
   };
   onSort?: (key: string, order: SortOrder) => void;
   className?: string;
+  /** 行附加 className，返回空字符串表示无额外样式 */
+  rowClassName?: (record: T, index: number) => string;
 }
 
 export default function Table<T extends Record<string, unknown>>({
@@ -49,6 +51,7 @@ export default function Table<T extends Record<string, unknown>>({
   pagination,
   onSort,
   className = '',
+  rowClassName,
 }: TableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>(null);
@@ -148,7 +151,7 @@ export default function Table<T extends Record<string, unknown>>({
                   <>
                     <tr
                       key={key}
-                      className={`${styles.tr} ${idx % 2 === 1 ? styles['tr--stripe'] : ''}`}
+                      className={`${styles.tr} ${idx % 2 === 1 ? styles['tr--stripe'] : ''} ${rowClassName ? rowClassName(record, idx) : ''}`}
                     >
                       {expandedRowRender && (
                         <td className={styles.td} style={{ textAlign: 'center' }}>

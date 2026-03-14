@@ -73,12 +73,27 @@
   border: 1px solid var(--border-default, #E2E8F0);
   border-radius: var(--radius-lg, 12px);
   box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,.06));
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  transition: box-shadow 0.15s ease, transform 0.15s ease, border-bottom-color 0.15s ease;
+  cursor: default;
+  text-align: left;
+  width: 100%;
+  position: relative;
 }
 
-.statCard:hover {
+/* R06-G06: 可点击状态 */
+.statCard--clickable {
+  cursor: pointer;
+}
+
+.statCard--clickable:hover {
   box-shadow: var(--shadow-md, 0 4px 12px rgba(0,0,0,.1));
   transform: translateY(-1px);
+}
+
+/* R06-G06: 选中状态 — 底部蓝色实线 + 背景高亮 */
+.statCard--active {
+  background: var(--color-primary-50, #EFF6FF);
+  border-bottom: 3px solid var(--color-primary-500, #3B82F6) !important;
 }
 
 /* Variant tints */

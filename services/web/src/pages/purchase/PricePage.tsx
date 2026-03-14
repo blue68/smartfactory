@@ -1450,7 +1450,7 @@ export default function PricePage() {
       if (drawerMode === 'create') {
         const result = await createMutation.mutateAsync(payload);
         // Check if backend flagged price anomaly
-        const resultAny = result as Record<string, unknown>;
+        const resultAny = result as unknown as Record<string, unknown>;
         if (resultAny.priceAnomaly) {
           const avg = parseFloat(String(resultAny.avgPrice ?? 0));
           const current = parseFloat(priceForm.unitPrice);
@@ -1500,12 +1500,15 @@ export default function PricePage() {
   // SKU results for drawer
   const skuResults = useMemo(() => {
     if (!skuData?.list) return [];
-    return skuData.list.map((s: Record<string, unknown>) => ({
-      id: Number(s.id),
-      skuCode: String(s.skuCode ?? s.sku_code ?? ''),
-      name: String(s.name ?? ''),
-      unit: String(s.purchaseUnit ?? s.purchase_unit ?? s.stockUnit ?? s.stock_unit ?? '件'),
-    }));
+    return skuData.list.map((s) => {
+      const a = s as unknown as Record<string, unknown>;
+      return {
+        id: Number(s.id),
+        skuCode: String(s.skuCode ?? a['sku_code'] ?? ''),
+        name: String(s.name ?? ''),
+        unit: String(a['purchaseUnit'] ?? a['purchase_unit'] ?? a['stockUnit'] ?? a['stock_unit'] ?? '件'),
+      };
+    });
   }, [skuData]);
 
   const isSaving = createMutation.isPending || updateMutation.isPending;

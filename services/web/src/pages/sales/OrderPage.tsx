@@ -4,11 +4,14 @@
  * 功能：创建销售订单、交期产能预估、约束引擎检查、紧急插单AI分析
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
-import { useCreateSalesOrder, useUrgentAnalysis } from '@/api/sales';
-import { OrderType, ConstraintResult } from '@/types/enums';
+import { useUrgentAnalysis } from '@/api/sales';
+import { useCreateSalesOrder } from '@/api/salesOrder';
+import { useCustomerOptions } from '@/api/customer';
+import { useSkuList } from '@/api/sku';
+import { ConstraintResult } from '@/types/enums';
 import type {
   SalesOrderCreateResult,
   UrgentAnalysisResult,
@@ -17,21 +20,6 @@ import type {
 import Button from '@/components/common/Button';
 import Modal from '@/components/common/Modal';
 import styles from './OrderPage.module.css';
-
-// ─── Mock customer / product options ─────────────────────────────────────────
-const CUSTOMERS = [
-  { value: 'c1', label: '南京美家装饰有限公司' },
-  { value: 'c2', label: '上海博艺家具设计工作室' },
-  { value: 'c3', label: '杭州绿筑室内装饰' },
-  { value: 'c4', label: '成都雅居装饰工程' },
-];
-
-const PRODUCTS = [
-  { value: 'p1', label: '欧式双人沙发（BOM-021）', skuId: 1, bomId: 21 },
-  { value: 'p2', label: '布艺三人沙发（BOM-018）', skuId: 2, bomId: 18 },
-  { value: 'p3', label: '单人休闲椅（BOM-009）', skuId: 3, bomId: 9 },
-  { value: 'p4', label: '皮革脚凳（BOM-031）', skuId: 4, bomId: 31 },
-];
 
 // ─── 静态预估数据（库存可用性文本后端暂无专用字段，保留 mock）────────────────
 // TODO: inventory.text 等待后端 /api/sales/orders/estimate 接口支持后替换
@@ -238,10 +226,18 @@ export default function OrderPage() {
   const { setPageTitle, showToast } = useAppStore();
   const navigate = useNavigate();
 
+  // ─── 真实 API 数据：客户列表 & 成品 SKU 列表 ─────────────────────────────
+  const { data: customerOptions = [] } = useCustomerOptions();
+  const { data: skuPage } = useSkuList({ pageSize: 200 });
+  const finishedSkus = useMemo(
+    () => (skuPage?.list ?? []),
+    [skuPage],
+  );
+
   const [form, setForm] = useState<FormState>({
-    customer: 'c4',
+    customer: '',
     orderType: 'normal',
-    product: 'p2',
+    product: '',
     qty: '8',
     deadline: '2026-03-25',
     notes: '',
@@ -351,12 +347,12 @@ export default function OrderPage() {
       // API 完成后保留结果，倒计时结束时取最新数据展示
       let analysisResult: UrgentAnalysisResult | null = null;
 
-      const product = PRODUCTS.find((p) => p.value === form.product);
+      const selectedSkuId = form.product ? Number(form.product) : 0;
 
       // 发起 API 调用（与倒计时并行，不等待）
       urgentMutation.mutateAsync({
-        skuId: product?.skuId ?? 1,
-        bomId: product?.bomId ?? 1,
+        skuId: selectedSkuId || 1,
+        bomId: 1,
         qty: form.qty,
         expectedDelivery: form.deadline,
       }).then((data) => {
@@ -388,34 +384,33 @@ export default function OrderPage() {
 
     // Normal order
     try {
-      const product = PRODUCTS.find((p) => p.value === form.product);
-      const customerIdx = CUSTOMERS.findIndex((c) => c.value === form.customer);
+      const selectedCustomer = customerOptions.find((c) => String(c.id) === form.customer);
+      const selectedSku = finishedSkus.find((s) => String(s.id) === form.product);
       const result = await createMutation.mutateAsync({
-        customerId: customerIdx + 1,
-        orderType: OrderType.NORMAL,
-        expectedDelivery: form.deadline,
+        customerId: selectedCustomer?.id ?? 1,
+        orderDate: new Date().toISOString().slice(0, 10),
+        deliveryDate: form.deadline,
+        isUrgent: false,
         notes: form.notes,
         items: [
           {
-            skuId: product?.skuId ?? 1,
-            bomId: product?.bomId ?? 1,
-            qtyOrdered: form.qty,
+            skuId: selectedSku?.id ?? 1,
+            productName: selectedSku?.name ?? '',
+            quantity: Number(form.qty),
             unitPrice: '0',
           },
         ],
       });
 
-      setCreateResult(result);
-
-      // 普通订单：createOrder 后端只返回 overallResult，无各维度详情。
-      // 此处用简化版展示；如需完整维度数据，可在此追加 getOrderById 请求。
-      setConstraintChecks(buildConstraintChecksFromCreateResult(result));
+      setCreateResult(result as unknown as SalesOrderCreateResult);
       setShowConstraintCard(true);
 
-      if (result.constraintResult === ConstraintResult.BLOCK || result.requiresApproval) {
+      const cr = result as unknown as SalesOrderCreateResult;
+      if (cr.constraintResult === ConstraintResult.BLOCK || cr.requiresApproval) {
+        setConstraintChecks(buildConstraintChecksFromCreateResult(cr));
         setTimeout(() => setConstraintModalOpen(true), 400);
       } else {
-        showToast({ type: 'success', message: `订单 ${result.orderNo} 已创建成功` });
+        showToast({ type: 'success', message: `订单 ${cr.orderNo ?? '已'} 创建成功` });
       }
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
@@ -483,8 +478,8 @@ export default function OrderPage() {
                   onChange={handleFormChange}
                 >
                   <option value="">请选择客户</option>
-                  {CUSTOMERS.map((c) => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
+                  {customerOptions.map((c) => (
+                    <option key={c.id} value={String(c.id)}>{c.name}</option>
                   ))}
                 </select>
               </div>
@@ -536,8 +531,8 @@ export default function OrderPage() {
                   onChange={handleFormChange}
                 >
                   <option value="">请选择产品</option>
-                  {PRODUCTS.map((p) => (
-                    <option key={p.value} value={p.value}>{p.label}</option>
+                  {finishedSkus.map((s) => (
+                    <option key={s.id} value={String(s.id)}>{s.name} ({s.skuCode})</option>
                   ))}
                 </select>
               </div>

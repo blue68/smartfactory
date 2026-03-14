@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import Modal from '@/components/common/Modal';
 import Drawer from '@/components/common/Drawer';
 import Button from '@/components/common/Button';
@@ -765,35 +765,100 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
 }
 
 // ---------------------------------------------------------------------------
+// CountUp hook — 数字滚动动画
+// ---------------------------------------------------------------------------
+
+function useCountUp(target: number, duration = 600): number {
+  const [display, setDisplay] = useState(target);
+  const prevRef = useRef(target);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const start = prevRef.current;
+    if (start === target) return;
+    const startTime = performance.now();
+    const animate = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // easeOutQuart
+      const eased = 1 - Math.pow(1 - progress, 4);
+      setDisplay(Math.round(start + (target - start) * eased));
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(animate);
+      } else {
+        prevRef.current = target;
+      }
+    };
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [target, duration]);
+
+  return display;
+}
+
+// ---------------------------------------------------------------------------
 // Summary Cards
 // ---------------------------------------------------------------------------
 
-interface SummaryCardsProps {
-  total: number;
-  pendingApproval: number;
-  inProduction: number;
-  completed: number;
+interface StatCardDef {
+  key: SalesOrderStatus | '';
+  label: string;
+  colorClass: string;
 }
 
-function SummaryCards({ total, pendingApproval, inProduction, completed }: SummaryCardsProps) {
+const STAT_CARD_DEFS: StatCardDef[] = [
+  { key: '',                label: '全部',   colorClass: 'statCardTotal' },
+  { key: 'pending_approval', label: '待审批', colorClass: 'statCardPending' },
+  { key: 'confirmed',        label: '已确认', colorClass: 'statCardConfirmed' },
+  { key: 'in_production',    label: '生产中', colorClass: 'statCardProduction' },
+  { key: 'shipped',          label: '已发货', colorClass: 'statCardShipped' },
+  { key: 'completed',        label: '已完成', colorClass: 'statCardCompleted' },
+  { key: 'closed',           label: '已关闭', colorClass: 'statCardClosed' },
+];
+
+interface AnimatedStatValueProps {
+  value: number;
+}
+
+function AnimatedStatValue({ value }: AnimatedStatValueProps) {
+  const display = useCountUp(value);
+  return <span>{display}</span>;
+}
+
+interface SummaryCardsProps {
+  total: number;
+  statusCounts: Record<string, number>;
+  activeStatus: SalesOrderStatus | '';
+  onStatusClick: (status: SalesOrderStatus | '') => void;
+}
+
+function SummaryCards({ total, statusCounts, activeStatus, onStatusClick }: SummaryCardsProps) {
+  const getCount = (key: SalesOrderStatus | ''): number => {
+    if (key === '') return total;
+    return statusCounts[key] ?? 0;
+  };
+
   return (
     <div className={styles.statsRow}>
-      <div className={`${styles.statCard} ${styles.statCardTotal}`}>
-        <div className={styles.statValue}>{total}</div>
-        <div className={styles.statLabel}>订单总数</div>
-      </div>
-      <div className={`${styles.statCard} ${styles.statCardPending}`}>
-        <div className={styles.statValue}>{pendingApproval}</div>
-        <div className={styles.statLabel}>待审批</div>
-      </div>
-      <div className={`${styles.statCard} ${styles.statCardProduction}`}>
-        <div className={styles.statValue}>{inProduction}</div>
-        <div className={styles.statLabel}>生产中</div>
-      </div>
-      <div className={`${styles.statCard} ${styles.statCardCompleted}`}>
-        <div className={styles.statValue}>{completed}</div>
-        <div className={styles.statLabel}>已完成</div>
-      </div>
+      {STAT_CARD_DEFS.map((def) => {
+        const count = getCount(def.key);
+        const isActive = activeStatus === def.key;
+        return (
+          <button
+            key={def.key}
+            type="button"
+            className={`${styles.statCard} ${styles[def.colorClass]} ${isActive ? styles.statCardActive : ''}`}
+            onClick={() => onStatusClick(def.key)}
+            aria-pressed={isActive}
+          >
+            <div className={styles.statValue}>
+              <AnimatedStatValue value={count} />
+            </div>
+            <div className={styles.statLabel}>{def.label}</div>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -821,12 +886,11 @@ export default function SalesOrderListPage() {
   const totalPages = Math.ceil(total / (query.pageSize ?? 20));
 
   // Summary stats derived from current page data
-  const stats = {
-    total: data?.total ?? 0,
-    pendingApproval: orders.filter((o) => o.status === 'pending_approval').length,
-    inProduction: orders.filter((o) => o.status === 'in_production').length,
-    completed: orders.filter((o) => o.status === 'completed').length,
-  };
+  const statusCounts = useMemo(() => {
+    const sc = (data as unknown as { statusCounts?: Record<string, number> })?.statusCounts ?? {};
+    return sc;
+  }, [data]);
+  const statsTotal = data?.total ?? 0;
 
   const handleQueryChange = useCallback(
     <K extends keyof SalesOrderListQuery>(key: K, value: SalesOrderListQuery[K]) => {
@@ -906,10 +970,10 @@ export default function SalesOrderListPage() {
 
       {/* Summary cards */}
       <SummaryCards
-        total={stats.total}
-        pendingApproval={stats.pendingApproval}
-        inProduction={stats.inProduction}
-        completed={stats.completed}
+        total={statsTotal}
+        statusCounts={statusCounts}
+        activeStatus={(query.status ?? '') as SalesOrderStatus | ''}
+        onStatusClick={(s) => handleQueryChange('status', s || undefined)}
       />
 
       {/* Filter bar */}

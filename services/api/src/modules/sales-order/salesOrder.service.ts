@@ -58,7 +58,11 @@ export class SalesOrderService {
 
   // ── 1. 列表（联表查询客户名，支持关键字 / 状态 / 客户 / 紧急）──────────────
 
-  async list(filter: SalesOrderListFilter): Promise<{ list: unknown[]; total: number }> {
+  async list(filter: SalesOrderListFilter): Promise<{
+    list: unknown[];
+    total: number;
+    statusCounts: Record<string, number>;
+  }> {
     const conds: string[] = ['so.tenant_id = ?'];
     const params: unknown[] = [this.tenantId];
 
@@ -82,7 +86,8 @@ export class SalesOrderService {
     const where = conds.join(' AND ');
     const offset = (filter.page - 1) * filter.pageSize;
 
-    const [list, countRows] = await Promise.all([
+    // GAP-R08-04: 全量状态统计不依赖分页，仅以 tenant_id 为条件
+    const [list, countRows, statusRows] = await Promise.all([
       AppDataSource.query(
         `SELECT so.id, so.order_no AS orderNo, so.customer_id AS customerId,
                 c.name AS customerName, so.order_date AS orderDate,
@@ -103,9 +108,22 @@ export class SalesOrderService {
          WHERE ${where}`,
         params,
       ),
+      AppDataSource.query<Array<{ status: string; count: string }>>(
+        `SELECT status, COUNT(*) AS count
+         FROM sales_orders
+         WHERE tenant_id = ?
+         GROUP BY status`,
+        [this.tenantId],
+      ),
     ]);
 
-    return { list, total: Number(countRows[0]?.total ?? 0) };
+    // 将状态统计行转换为 { draft: 3, confirmed: 5, ... } 结构
+    const statusCounts: Record<string, number> = {};
+    for (const row of statusRows) {
+      statusCounts[row.status] = Number(row.count);
+    }
+
+    return { list, total: Number(countRows[0]?.total ?? 0), statusCounts };
   }
 
   // ── 1.5 待审批数量 ───────────────────────────────────────────────────────
@@ -284,7 +302,8 @@ export class SalesOrderService {
     );
   }
 
-  // ── 8. 驳回（pending_approval → draft）───────────────────────────────────
+  // ── 8. 驳回（pending_approval → closed）──────────────────────────────────
+  // GAP-R08-14: 驳回后状态改为 closed，不允许再次提交
 
   async reject(id: number, rejectorId: number, reason: string): Promise<void> {
     const order = await this._loadOrder(id);
@@ -298,7 +317,7 @@ export class SalesOrderService {
 
     await AppDataSource.query(
       `UPDATE sales_orders
-       SET status = 'draft', reject_reason = ?, updated_by = ?
+       SET status = 'closed', reject_reason = ?, updated_by = ?
        WHERE id = ? AND tenant_id = ?`,
       [reason, rejectorId, id, this.tenantId],
     );

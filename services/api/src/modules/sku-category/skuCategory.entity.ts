@@ -72,5 +72,7 @@ export interface CategoryTreeNode {
   isActive: boolean;
   isSystem: boolean;
   remark: string | null;
+  /** R01-BE-01: 该类目关联的 SKU 数量（category1_id 或 category2_id 匹配） */
+  skuCount: number;
   children?: CategoryTreeNode[];
 }
