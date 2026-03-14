@@ -41,9 +41,26 @@ const CreateSkuSchema = z.object({
   description: z.string().optional(),
 });
 
+/**
+ * Maps the public-facing `skuType` query parameter to the level-1 category
+ * code stored in `sku_categories`.  The mapping must stay in sync with the
+ * actual codes seeded in the database:
+ *   raw_material  → MATERIAL
+ *   semi_finished → SEMIFIN
+ *   finished      → FINISHED
+ *   packing       → PACKING
+ */
+const SKU_TYPE_TO_CATEGORY_CODE: Record<string, string> = {
+  raw_material:  'MATERIAL',
+  semi_finished: 'SEMIFIN',
+  finished:      'FINISHED',
+  packing:       'PACKING',
+};
+
 const ListSkuQuerySchema = PaginationSchema.extend({
   category1Id: z.coerce.number().int().positive().optional(),
   category2Id: z.coerce.number().int().positive().optional(),
+  skuType: z.enum(['raw_material', 'semi_finished', 'finished', 'packing']).optional(),
   keyword: z.string().max(100).optional(),
   hasDyeLot: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
   status: z.enum(['active', 'inactive']).optional(),
@@ -75,10 +92,18 @@ export class SkuController {
 
   async list(req: Request, res: Response): Promise<void> {
     const q = ListSkuQuerySchema.parse(req.query);
+    // `skuType` is a convenience alias; it takes effect only when `category1Id`
+    // is not explicitly supplied (category1Id always takes precedence per
+    // repository contract).
+    const category1Code =
+      !q.category1Id && q.skuType
+        ? SKU_TYPE_TO_CATEGORY_CODE[q.skuType]
+        : undefined;
     const [list, total] = await this.svc(req).listSkus({
       page: q.page,
       pageSize: q.pageSize,
       category1Id: q.category1Id,
+      category1Code,
       category2Id: q.category2Id,
       keyword: q.keyword,
       hasDyeLot: q.hasDyeLot,
@@ -145,8 +170,14 @@ export class SkuController {
   async exportExcel(req: Request, res: Response): Promise<void> {
     const q = ListSkuQuerySchema.omit({ page: true, pageSize: true }).parse(req.query);
 
+    const category1Code =
+      !q.category1Id && q.skuType
+        ? SKU_TYPE_TO_CATEGORY_CODE[q.skuType]
+        : undefined;
+
     const list = await this.svc(req).exportSkus({
       category1Id: q.category1Id,
+      category1Code,
       category2Id: q.category2Id,
       keyword: q.keyword,
       hasDyeLot: q.hasDyeLot,

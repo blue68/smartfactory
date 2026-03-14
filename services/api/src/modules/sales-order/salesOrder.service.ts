@@ -228,13 +228,15 @@ export class SalesOrderService {
       const result = await manager.query(
         `INSERT INTO sales_orders
            (tenant_id, order_no, customer_id, expected_delivery,
-            order_type, status, total_amount, notes, created_by, updated_by)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+            order_type, status, total_amount, notes,
+            sales_person_id, created_by, updated_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
         [
           this.tenantId, orderNo, params.customerId,
           params.deliveryDate,
           params.isUrgent ? 'urgent' : 'normal', initialStatus,
           totalAmount, params.notes ?? null,
+          this.userId,   // sales_person_id = the authenticated user placing the order
           this.userId, this.userId,
         ],
       );
