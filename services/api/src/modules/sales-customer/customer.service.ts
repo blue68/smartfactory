@@ -22,6 +22,7 @@ export interface CreateCustomerParams {
   phone?: string;
   email?: string;
   address?: string;
+  region?: string;
   creditLimit?: string | null;
   paymentDays?: number | null;
   status?: CustomerStatus;
@@ -84,15 +85,20 @@ export class CustomerService {
     return [list, Number(countRows[0]?.total ?? 0)];
   }
 
-  // ── 客户详情 ────────────────────────────────────────────────────────────────
+  // ── 客户详情（含联系人列表）──────────────────────────────────────────────────
 
-  async getById(id: number): Promise<CustomerEntity> {
+  async getById(id: number): Promise<CustomerEntity & { contacts?: CustomerContactEntity[] }> {
     const repo = AppDataSource.getRepository(CustomerEntity);
     const customer = await repo.findOne({ where: { id, tenantId: this.tenantId } });
     if (!customer) {
       throw AppError.notFound('客户不存在', ResponseCode.CUSTOMER_NOT_FOUND);
     }
-    return customer;
+    const contactRepo = AppDataSource.getRepository(CustomerContactEntity);
+    const contacts = await contactRepo.find({
+      where: { tenantId: this.tenantId, customerId: id },
+      order: { isPrimary: 'DESC', createdAt: 'ASC' },
+    });
+    return Object.assign(customer, { contacts });
   }
 
   // ── 创建客户 ────────────────────────────────────────────────────────────────
@@ -119,6 +125,7 @@ export class CustomerService {
       phone: params.phone ?? null,
       email: params.email ?? null,
       address: params.address ?? null,
+      region: params.region ?? null,
       creditLimit: params.creditLimit ?? null,
       paymentDays: params.paymentDays ?? null,
       status: params.status ?? 'active',
@@ -128,6 +135,33 @@ export class CustomerService {
     });
 
     return repo.save(entity);
+  }
+
+  // ── 客户启用/停用 ────────────────────────────────────────────────────────────
+
+  async updateStatus(id: number, status: CustomerStatus): Promise<CustomerEntity> {
+    const customer = await this.getById(id);
+
+    if (status === 'inactive') {
+      const [row] = await AppDataSource.query<Array<{ cnt: string }>>(
+        `SELECT COUNT(*) AS cnt FROM sales_orders
+         WHERE tenant_id = ? AND customer_id = ?
+         AND status IN ('draft', 'pending_approval', 'confirmed', 'in_production')`,
+        [this.tenantId, id],
+      );
+      const activeOrderCount = Number(row?.cnt ?? 0);
+      if (activeOrderCount > 0) {
+        throw AppError.badRequest(
+          `该客户有 ${activeOrderCount} 个进行中的订单，无法停用`,
+          ResponseCode.CUSTOMER_HAS_ACTIVE_ORDERS,
+        );
+      }
+    }
+
+    const repo = AppDataSource.getRepository(CustomerEntity);
+    customer.status = status;
+    customer.updatedBy = this.userId;
+    return repo.save(customer);
   }
 
   // ── 更新客户 ────────────────────────────────────────────────────────────────
@@ -156,6 +190,7 @@ export class CustomerService {
     if (params.phone !== undefined)       updateFields.phone       = params.phone ?? null;
     if (params.email !== undefined)       updateFields.email       = params.email ?? null;
     if (params.address !== undefined)     updateFields.address     = params.address ?? null;
+    if (params.region !== undefined)      updateFields.region      = params.region ?? null;
     if (params.creditLimit !== undefined) updateFields.creditLimit = params.creditLimit ?? null;
     if (params.paymentDays !== undefined) updateFields.paymentDays = params.paymentDays ?? null;
     if (params.status !== undefined)      updateFields.status      = params.status;

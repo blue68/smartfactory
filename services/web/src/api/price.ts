@@ -88,6 +88,12 @@ export interface ImportRowIssue {
   column?: string;
   /** 错误描述 */
   message: string;
+  /** 导入单价（价格异常检测用，单位：元） */
+  importedPrice?: number;
+  /** 历史参考价（后端返回，用于前端判断价格偏差，单位：元） */
+  historicalPrice?: number;
+  /** 原始行数据（用于失败明细下载） */
+  rawData?: Record<string, string | number | null>;
 }
 
 /** 导入接口返回结果 */
@@ -96,6 +102,8 @@ export interface ImportResult {
   failCount: number;
   errors: ImportRowIssue[];
   warnings: ImportRowIssue[];
+  /** 价格异常行（偏差 > 30% 的行，由后端标记，可选） */
+  anomalies?: ImportRowIssue[];
 }
 
 /** 异步导入任务进度 */

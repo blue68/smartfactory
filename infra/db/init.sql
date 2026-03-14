@@ -577,14 +577,21 @@ CREATE TABLE IF NOT EXISTS `customers` (
   `status`     ENUM('active','inactive') NOT NULL DEFAULT 'active',
   `contact`    VARCHAR(100)    DEFAULT NULL,
   `phone`      VARCHAR(30)     DEFAULT NULL,
-  `address`    VARCHAR(300)    DEFAULT NULL,
+  `address`       VARCHAR(300)    DEFAULT NULL,
+  `region`        VARCHAR(100)    DEFAULT NULL COMMENT '区域',
+  `email`         VARCHAR(200)    DEFAULT NULL,
+  `grade`         ENUM('VIP','A','B','C') NOT NULL DEFAULT 'B',
+  `credit_limit`  DECIMAL(14,2)   DEFAULT NULL COMMENT '信用额度',
+  `payment_days`  INT             DEFAULT NULL COMMENT '账期天数',
+  `notes`         TEXT            DEFAULT NULL,
   `created_at` DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   `updated_at` DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   `created_by` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `updated_by` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_tenant_code` (`tenant_id`, `code`),
-  KEY `idx_tenant_status` (`tenant_id`, `status`)
+  KEY `idx_tenant_status` (`tenant_id`, `status`),
+  KEY `idx_tenant_grade` (`tenant_id`, `grade`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户表';
 
 -- ─────────────────────────────────────────────────────────────────────────────

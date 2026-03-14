@@ -214,4 +214,164 @@ export class ProcessConfigService {
 
     return wageRepo.save(wage);
   }
+
+  // ─── BE-05-03: 批量工价设置 ──────────────────────────────────────────────
+
+  /**
+   * 批量 UPSERT 指定工序步骤的所有等级工价。
+   * 在事务中处理，保证原子性。
+   */
+  async setWagesBatch(
+    stepId: number,
+    wages: Array<{ grade: 'skilled' | 'apprentice'; unitPrice: number }>,
+  ): Promise<ProcessWageEntity[]> {
+    const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
+    const step = await stepRepo.findOne({ where: { id: stepId, tenantId: this.tenantId } });
+    if (!step) throw AppError.notFound('工序步骤不存在');
+
+    const wageRepo = AppDataSource.getRepository(ProcessWageEntity);
+    const results: ProcessWageEntity[] = [];
+
+    await AppDataSource.transaction(async (manager) => {
+      for (const item of wages) {
+        let wage = await manager.findOne(ProcessWageEntity, {
+          where: { tenantId: this.tenantId, stepId, workerGrade: item.grade },
+        });
+
+        if (wage) {
+          wage.unitPrice = item.unitPrice.toString();
+          wage.updatedBy = this.userId;
+        } else {
+          wage = manager.create(ProcessWageEntity, {
+            tenantId: this.tenantId,
+            stepId,
+            workerGrade: item.grade,
+            unitPrice: item.unitPrice.toString(),
+            createdBy: this.userId,
+            updatedBy: this.userId,
+          });
+        }
+
+        const saved = await manager.save(ProcessWageEntity, wage);
+        results.push(saved);
+      }
+    });
+
+    return results;
+  }
+
+  // ─── BE-05-01: 工资汇总报表 ──────────────────────────────────────────────
+
+  /**
+   * 按工序模板汇总工人工资。
+   * 关联路径：process_steps → process_wages → production_tasks → users
+   * 支持日期范围、工人 ID 列表、工种等级过滤。
+   */
+  async getWageSummary(
+    templateId: number,
+    filter: {
+      from?: string;
+      to?: string;
+      workerIds?: number[];
+      grade?: 'skilled' | 'apprentice';
+    },
+  ): Promise<Array<{
+    userId: number;
+    userName: string;
+    workerGrade: string;
+    steps: Array<{ stepName: string; qty: number; unitPrice: number; subtotal: number }>;
+    totalWage: number;
+  }>> {
+    const conditions: string[] = [
+      'pt.tenant_id = ?',
+      'ps.template_id = ?',
+    ];
+    const params: unknown[] = [this.tenantId, templateId];
+
+    if (filter.from) {
+      conditions.push('pt.task_date >= ?');
+      params.push(filter.from);
+    }
+    if (filter.to) {
+      conditions.push('pt.task_date <= ?');
+      params.push(filter.to);
+    }
+    if (filter.workerIds && filter.workerIds.length > 0) {
+      const ph = filter.workerIds.map(() => '?').join(',');
+      conditions.push(`pt.worker_id IN (${ph})`);
+      params.push(...filter.workerIds);
+    }
+    if (filter.grade) {
+      conditions.push('u.worker_grade = ?');
+      params.push(filter.grade);
+    }
+
+    const rows = await AppDataSource.query<Array<{
+      userId: number;
+      userName: string;
+      workerGrade: string;
+      stepId: number;
+      stepName: string;
+      completedQty: string;
+      unitPrice: string | null;
+    }>>(
+      `SELECT
+         u.id            AS userId,
+         u.real_name     AS userName,
+         u.worker_grade  AS workerGrade,
+         ps.id           AS stepId,
+         ps.step_name    AS stepName,
+         SUM(pt.completed_qty) AS completedQty,
+         pw.unit_price   AS unitPrice
+       FROM production_tasks pt
+       INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+       INNER JOIN users u ON u.id = pt.worker_id
+       LEFT JOIN process_wages pw
+         ON pw.step_id = ps.id
+         AND pw.tenant_id = pt.tenant_id
+         AND pw.worker_grade = u.worker_grade
+       WHERE ${conditions.join(' AND ')}
+         AND pt.status = 'completed'
+       GROUP BY u.id, u.real_name, u.worker_grade, ps.id, ps.step_name, pw.unit_price
+       ORDER BY u.real_name, ps.step_name`,
+      params,
+    );
+
+    // 按工人聚合
+    const workerMap = new Map<number, {
+      userId: number;
+      userName: string;
+      workerGrade: string;
+      steps: Array<{ stepName: string; qty: number; unitPrice: number; subtotal: number }>;
+      totalWage: number;
+    }>();
+
+    for (const row of rows) {
+      const uid = Number(row.userId);
+      const qty = Number(row.completedQty ?? 0);
+      const price = Number(row.unitPrice ?? 0);
+      const subtotal = Math.round(qty * price * 100) / 100;
+
+      if (!workerMap.has(uid)) {
+        workerMap.set(uid, {
+          userId: uid,
+          userName: row.userName,
+          workerGrade: row.workerGrade ?? '',
+          steps: [],
+          totalWage: 0,
+        });
+      }
+
+      const worker = workerMap.get(uid)!;
+      worker.steps.push({
+        stepName: row.stepName,
+        qty,
+        unitPrice: price,
+        subtotal,
+      });
+      worker.totalWage = Math.round((worker.totalWage + subtotal) * 100) / 100;
+    }
+
+    return Array.from(workerMap.values());
+  }
 }

@@ -4,6 +4,7 @@ import request from '@/utils/request';
 export const taskKeys = {
   all: ['production-tasks'] as const,
   list: (filter: Record<string, unknown>) => [...taskKeys.all, 'list', filter] as const,
+  detail: (taskId: number) => [...taskKeys.all, 'detail', taskId] as const,
 };
 
 export interface TaskListQuery {
@@ -11,6 +12,18 @@ export interface TaskListQuery {
   pageSize?: number;
   status?: string;
   keyword?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  processId?: number;
+}
+
+export interface TaskException {
+  id: number;
+  type: string;
+  description: string;
+  severity: string;
+  createdAt: string;
+  resolvedAt?: string;
 }
 
 export interface ProductionTask {
@@ -19,15 +32,25 @@ export interface ProductionTask {
   status: 'pending' | 'in_progress' | 'completed' | 'exception';
   plannedQty: number;
   completedQty: number;
+  scrapQty?: number;
   orderNo: string;
   processName: string;
   workstationName: string;
   workerName: string;
+  skuCode?: string;
+  skuName?: string;
+  priority?: number;
+  isOvertime?: boolean;
+  maxHours?: number;
+  actualHours?: number;
+  exceptions?: TaskException[];
 }
 
 export const taskApi = {
   list: (filter: TaskListQuery) =>
     request.get<any>('/api/production/tasks', filter as Record<string, unknown>),
+  detail: (taskId: number) =>
+    request.get<ProductionTask>(`/api/production/tasks/${taskId}`),
   start: (taskId: number) =>
     request.post<any>(`/api/production/tasks/${taskId}/start`),
   complete: (taskId: number, data: { completedQty: string; notes?: string }) =>
@@ -40,6 +63,14 @@ export function useTaskList(filter: TaskListQuery) {
   return useQuery({
     queryKey: taskKeys.list(filter as Record<string, unknown>),
     queryFn: () => taskApi.list(filter),
+  });
+}
+
+export function useTaskDetail(taskId: number | null) {
+  return useQuery({
+    queryKey: taskKeys.detail(taskId!),
+    queryFn: () => taskApi.detail(taskId!),
+    enabled: taskId !== null && taskId > 0,
   });
 }
 

@@ -84,11 +84,22 @@ export class ProductionController {
     success(res, null, '完工已上报');
   }
 
-  // R-06: 任务列表
+  // BE-06-01: 任务详情
+  async getTask(req: Request, res: Response): Promise<void> {
+    const taskId = Number(req.params.taskId);
+    const data = await this.svc(req).getTaskDetail(taskId);
+    success(res, data);
+  }
+
+  // R-06: 任务列表 (BE-06-02: 增加筛选参数)
   async listTasks(req: Request, res: Response): Promise<void> {
     const q = PaginationSchema.extend({
       status: z.string().optional(),
       keyword: z.string().max(100).optional(),
+      processId: z.coerce.number().int().positive().optional(),
+      dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      priority: z.coerce.number().int().optional(),
     }).parse(req.query);
     const { list, total } = await this.svc(req).listTasks(q);
     success(res, buildPaginated(list, total, q.page, q.pageSize));

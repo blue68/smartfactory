@@ -5,8 +5,13 @@
  * 功能：
  *   - Step1：下载模板（含列说明规格表）
  *   - Step2：拖拽/点击上传 .xlsx/.xls 文件
+ *             FE-03-01: 大文件（>500KB）解析时显示进度条
+ *             FE-03-05: 4 种解析状态反馈（解析中/成功/警告/错误过多）
  *   - Step3：预览校验结果（错误行红色 / 警告行黄色）+ 处理方式单选
- *   - Step4：导入结果展示（成功数 / 失败数）+ 关闭刷新列表
+ *             FE-03-02: 错误 > 50 条时显示错误过多状态，隐藏明细表
+ *             FE-03-03: 价格异常行黄色高亮 + 确认异常复选框
+ *   - Step4：导入结果展示（成功数 / 失败数）
+ *             FE-03-04: 失败行时显示"下载失败明细"按钮
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
@@ -22,6 +27,18 @@ import styles from './PriceImport.module.css';
 
 type Step = 1 | 2 | 3 | 4;
 type HandleMode = 'import-valid' | 'abort-all';
+
+/** FE-03-05: 解析状态类型 */
+type ParseState = 'idle' | 'parsing' | 'success' | 'warning' | 'error';
+
+/** 大文件阈值：500KB */
+const LARGE_FILE_THRESHOLD = 512000;
+
+/** 错误过多阈值 */
+const TOO_MANY_ERRORS_THRESHOLD = 50;
+
+/** 价格异常偏差阈值：30% */
+const PRICE_ANOMALY_THRESHOLD = 0.3;
 
 const STEP_LABELS = ['下载模板', '上传文件', '预览校验', '导入结果'];
 const ACCEPTED_EXTS = ['.xlsx', '.xls'];
@@ -39,6 +56,84 @@ const TEMPLATE_COLUMNS = [
 ] as const;
 
 // ─────────────────────────────────────────────
+// 工具函数
+// ─────────────────────────────────────────────
+
+/** 判断某行是否为价格异常行（偏差 > 30%） */
+function isAnomalyRow(issue: ImportRowIssue): boolean {
+  if (
+    issue.importedPrice !== undefined &&
+    issue.historicalPrice !== undefined &&
+    issue.historicalPrice > 0
+  ) {
+    const deviation = Math.abs(issue.importedPrice - issue.historicalPrice) / issue.historicalPrice;
+    return deviation > PRICE_ANOMALY_THRESHOLD;
+  }
+  return false;
+}
+
+/**
+ * FE-03-04: 生成并下载失败明细 CSV
+ * 文件名格式：价格导入失败明细_{YYYYMMDD_HHmmss}.csv
+ */
+function downloadFailedDetailCSV(errors: ImportRowIssue[]): void {
+  const now = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+  const datePart = [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+  ].join('');
+  const timePart = [
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds()),
+  ].join('');
+  const filename = `价格导入失败明细_${datePart}_${timePart}.csv`;
+
+  // 构建 CSV 内容
+  const headers = ['行号', '错误列', '错误原因', '导入单价', '历史参考价'];
+  const rows = errors.map((err) => [
+    `第 ${err.row} 行`,
+    err.column ?? '',
+    err.message,
+    err.importedPrice !== undefined ? String(err.importedPrice) : '',
+    err.historicalPrice !== undefined ? String(err.historicalPrice) : '',
+  ]);
+
+  // 如果有 rawData 字段，追加原始列
+  const hasRawData = errors.some((e) => e.rawData && Object.keys(e.rawData).length > 0);
+  if (hasRawData) {
+    const rawKeys = Array.from(
+      new Set(errors.flatMap((e) => (e.rawData ? Object.keys(e.rawData) : [])))
+    );
+    headers.push(...rawKeys);
+    rows.forEach((row, i) => {
+      rawKeys.forEach((key) => {
+        const val = errors[i].rawData?.[key];
+        row.push(val !== undefined && val !== null ? String(val) : '');
+      });
+    });
+  }
+
+  const csvLines = [headers, ...rows].map((cols) =>
+    cols.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+  );
+  // BOM for Excel UTF-8 recognition
+  const bom = '\uFEFF';
+  const csvContent = bom + csvLines.join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// ─────────────────────────────────────────────
 // 子组件：步骤条
 // ─────────────────────────────────────────────
 
@@ -49,7 +144,6 @@ function WizardStepper({ current }: { current: Step }) {
         const stepNum = (idx + 1) as Step;
         const isDone    = stepNum < current;
         const isActive  = stepNum === current;
-        const isPending = stepNum > current;
 
         const circleClass = isDone
           ? styles['step__circle--done']
@@ -191,6 +285,12 @@ interface Step2UploadProps {
   uploading: boolean;
   uploadProgress: number;
   uploadError: string | null;
+  /** FE-03-01: 是否显示大文件解析进度条（文件 > 500KB） */
+  showParseProgress: boolean;
+  parseProgress: number;
+  /** FE-03-05: 当前解析状态 */
+  parseState: ParseState;
+  parseResult: ImportResult | null;
 }
 
 function Step2Upload({
@@ -201,6 +301,10 @@ function Step2Upload({
   uploading,
   uploadProgress,
   uploadError,
+  showParseProgress,
+  parseProgress,
+  parseState,
+  parseResult,
 }: Step2UploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -245,6 +349,56 @@ function Step2Upload({
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  // FE-03-05: 渲染解析状态反馈块
+  const renderParseStatus = () => {
+    if (parseState === 'idle') return null;
+
+    if (parseState === 'parsing') {
+      return (
+        <div className={`${styles.parseStatus} ${styles['parseStatus--parsing']}`}>
+          <span className={styles.parseStatus__spinner} aria-hidden="true" />
+          <span className={styles.parseStatus__text}>正在解析文件...</span>
+        </div>
+      );
+    }
+
+    if (parseState === 'success' && parseResult) {
+      return (
+        <div className={`${styles.parseStatus} ${styles['parseStatus--success']}`}>
+          <span className={styles.parseStatus__icon}>✅</span>
+          <span className={styles.parseStatus__text}>
+            文件解析完成，共 <strong>{parseResult.successCount}</strong> 条有效记录
+          </span>
+        </div>
+      );
+    }
+
+    if (parseState === 'warning' && parseResult) {
+      const errorCount = parseResult.errors.length + parseResult.warnings.length;
+      return (
+        <div className={`${styles.parseStatus} ${styles['parseStatus--warning']}`}>
+          <span className={styles.parseStatus__icon}>⚠️</span>
+          <span className={styles.parseStatus__text}>
+            发现 <strong>{errorCount}</strong> 条问题，请检查后继续
+          </span>
+        </div>
+      );
+    }
+
+    if (parseState === 'error' && parseResult) {
+      return (
+        <div className={`${styles.parseStatus} ${styles['parseStatus--error']}`}>
+          <span className={styles.parseStatus__icon}>❌</span>
+          <span className={styles.parseStatus__text}>
+            错误行数过多（<strong>{parseResult.errors.length}</strong> 条），请检查文件格式后重新上传
+          </span>
+        </div>
+      );
+    }
+
+    return null;
   };
 
   return (
@@ -295,14 +449,37 @@ function Step2Upload({
               className={styles.fileCard__removebtn}
               onClick={() => onFileChange(null)}
               aria-label="移除文件"
+              disabled={uploading}
             >
               ×
             </button>
           </div>
         )}
 
-        {/* 上传进度条 */}
-        {uploading && (
+        {/* FE-03-01: 大文件解析进度条（文件 > 500KB 且正在上传时显示） */}
+        {showParseProgress && uploading && (
+          <div className={styles.parseProgressWrap}>
+            <div className={styles.parseProgressWrap__header}>
+              <span className={styles.parseProgressWrap__label}>
+                <span className={styles.uploadingBar__spinner} aria-hidden="true" />
+                正在解析文件，请稍候...
+              </span>
+              <span className={styles.parseProgressWrap__pct}>{parseProgress}%</span>
+            </div>
+            <div
+              className={styles.progressBar}
+              role="progressbar"
+              aria-valuenow={parseProgress}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div className={styles.progressFill} style={{ width: `${parseProgress}%` }} />
+            </div>
+          </div>
+        )}
+
+        {/* 普通上传进度条（文件 <= 500KB 时使用原有样式） */}
+        {uploading && !showParseProgress && (
           <div className={styles.uploadingBar}>
             <div className={styles.uploadingBar__header}>
               <span className={styles.uploadingBar__label}>
@@ -318,6 +495,9 @@ function Step2Upload({
             </div>
           </div>
         )}
+
+        {/* FE-03-05: 解析状态反馈 */}
+        {!uploading && renderParseStatus()}
 
         {/* 上传错误提示 */}
         {uploadError && !uploading && (
@@ -352,7 +532,7 @@ function Step2Upload({
           <Button
             variant="primary"
             onClick={onNext}
-            disabled={!selectedFile || uploading}
+            disabled={!selectedFile || uploading || parseState === 'parsing'}
             loading={uploading}
           >
             {uploading ? '校验中...' : '下一步 →'}
@@ -384,6 +564,9 @@ interface Step3PreviewProps {
   onPrev: () => void;
   onConfirm: () => void;
   confirming: boolean;
+  /** FE-03-03: 异常确认状态 */
+  anomalyConfirmed: boolean;
+  onAnomalyConfirmedChange: (checked: boolean) => void;
 }
 
 function Step3Preview({
@@ -393,10 +576,25 @@ function Step3Preview({
   onPrev,
   onConfirm,
   confirming,
+  anomalyConfirmed,
+  onAnomalyConfirmedChange,
 }: Step3PreviewProps) {
   const totalRows = result.successCount + result.failCount;
   const hasErrors   = result.errors.length > 0;
   const hasWarnings = result.warnings.length > 0;
+
+  // FE-03-02: 检测错误过多状态
+  const tooManyErrors = result.errors.length > TOO_MANY_ERRORS_THRESHOLD;
+
+  // FE-03-03: 从 result.anomalies 或 result.warnings 中检测价格异常行
+  // 后端可在 anomalies 字段标记，或在 warnings 中包含 historicalPrice/importedPrice
+  const anomalyRows: ImportRowIssue[] = [
+    ...(result.anomalies ?? []),
+    ...result.warnings.filter(isAnomalyRow),
+  ];
+  // 去重（按行号）
+  const anomalyRowNumbers = new Set(anomalyRows.map((r) => r.row));
+  const hasAnomalies = anomalyRowNumbers.size > 0;
 
   // 合并错误和警告，按行号排序用于表格展示
   type IssueRow = ImportRowIssue & { type: 'error' | 'warning' };
@@ -404,6 +602,12 @@ function Step3Preview({
     ...result.errors.map((e) => ({ ...e, type: 'error' as const })),
     ...result.warnings.map((w) => ({ ...w, type: 'warning' as const })),
   ].sort((a, b) => a.row - b.row);
+
+  // FE-03-03: 是否禁用导入按钮（有异常行且未确认时禁用）
+  const importDisabled =
+    confirming ||
+    (handleMode === 'import-valid' && result.successCount === 0) ||
+    (hasAnomalies && !anomalyConfirmed);
 
   return (
     <div className={styles.body} key="step3">
@@ -448,104 +652,146 @@ function Step3Preview({
           )}
         </div>
 
-        {/* 处理方式选择（仅当有错误行时展示） */}
-        {hasErrors && (
-          <div className={styles.handleOptions}>
-            <label
-              className={`${styles.handleOption} ${handleMode === 'import-valid' ? styles['handleOption--selected'] : ''}`}
-            >
-              <input
-                type="radio"
-                name="handleMode"
-                className={styles.handleOption__radio}
-                checked={handleMode === 'import-valid'}
-                onChange={() => onHandleModeChange('import-valid')}
-              />
-              <div className={styles.handleOption__text}>
-                <div className={styles.handleOption__label}>仅导入合法行</div>
-                <div className={styles.handleOption__desc}>
-                  跳过错误行，将 {result.successCount} 条合法数据写入系统
-                </div>
-              </div>
-            </label>
-            <label
-              className={`${styles.handleOption} ${handleMode === 'abort-all' ? styles['handleOption--selected'] : ''}`}
-            >
-              <input
-                type="radio"
-                name="handleMode"
-                className={styles.handleOption__radio}
-                checked={handleMode === 'abort-all'}
-                onChange={() => onHandleModeChange('abort-all')}
-              />
-              <div className={styles.handleOption__text}>
-                <div className={styles.handleOption__label}>全部放弃</div>
-                <div className={styles.handleOption__desc}>
-                  放弃本次导入，返回修正后重新上传
-                </div>
-              </div>
-            </label>
-          </div>
-        )}
-
-        {/* 全部合法时提示 */}
-        {!hasErrors && (
-          <div className={styles.allOkBanner}>
-            <span>✅</span>
-            <span>数据校验通过，全部 {result.successCount} 行均合法，可直接导入。</span>
-          </div>
-        )}
-
-        {/* 问题行表格 */}
-        {allIssues.length > 0 && (
-          <div className={styles.previewTableWrap} style={{ marginTop: 'var(--space-4)' }}>
-            <div className={styles.previewTableHeader}>
-              <span>问题行详情（错误行 {result.errors.length} 条 / 价格预警 {result.warnings.length} 条）</span>
-            </div>
-            <div className={styles.previewScroll}>
-              <table className={styles.previewTable}>
-                <thead>
-                  <tr>
-                    <th>类型</th>
-                    <th>行号</th>
-                    <th>列</th>
-                    <th>问题描述</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allIssues.map((issue, i) => (
-                    <tr
-                      key={i}
-                      className={issue.type === 'error' ? styles['row--error'] : styles['row--warning']}
-                    >
-                      <td>
-                        {issue.type === 'error' ? (
-                          <span style={{ color: 'var(--color-error-600)', fontWeight: 600 }}>❌ 错误</span>
-                        ) : (
-                          <span style={{ color: 'var(--color-warning-600)', fontWeight: 600 }}>⚠️ 预警</span>
-                        )}
-                      </td>
-                      <td>第 {issue.row} 行</td>
-                      <td>{issue.column ?? '—'}</td>
-                      <td>
-                        {issue.type === 'error' ? (
-                          <span className={styles.errorReason}>
-                            <span>•</span>
-                            <span>{issue.message}</span>
-                          </span>
-                        ) : (
-                          <span className={styles.warnReason}>
-                            <span>•</span>
-                            <span>{issue.message}</span>
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {/* FE-03-02: 错误过多状态 — 替换整个结果区域，隐藏错误明细表 */}
+        {tooManyErrors ? (
+          <div className={styles.errorOverflow}>
+            <span className={styles.errorOverflow__icon}>🚫</span>
+            <div className={styles.errorOverflow__title}>错误行数过多</div>
+            <div className={styles.errorOverflow__message}>
+              错误行数过多（{result.errors.length} 条），请检查文件格式后重新上传
             </div>
           </div>
+        ) : (
+          <>
+            {/* 处理方式选择（仅当有错误行时展示） */}
+            {hasErrors && (
+              <div className={styles.handleOptions}>
+                <label
+                  className={`${styles.handleOption} ${handleMode === 'import-valid' ? styles['handleOption--selected'] : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="handleMode"
+                    className={styles.handleOption__radio}
+                    checked={handleMode === 'import-valid'}
+                    onChange={() => onHandleModeChange('import-valid')}
+                  />
+                  <div className={styles.handleOption__text}>
+                    <div className={styles.handleOption__label}>仅导入合法行</div>
+                    <div className={styles.handleOption__desc}>
+                      跳过错误行，将 {result.successCount} 条合法数据写入系统
+                    </div>
+                  </div>
+                </label>
+                <label
+                  className={`${styles.handleOption} ${handleMode === 'abort-all' ? styles['handleOption--selected'] : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="handleMode"
+                    className={styles.handleOption__radio}
+                    checked={handleMode === 'abort-all'}
+                    onChange={() => onHandleModeChange('abort-all')}
+                  />
+                  <div className={styles.handleOption__text}>
+                    <div className={styles.handleOption__label}>全部放弃</div>
+                    <div className={styles.handleOption__desc}>
+                      放弃本次导入，返回修正后重新上传
+                    </div>
+                  </div>
+                </label>
+              </div>
+            )}
+
+            {/* 全部合法时提示 */}
+            {!hasErrors && (
+              <div className={styles.allOkBanner}>
+                <span>✅</span>
+                <span>数据校验通过，全部 {result.successCount} 行均合法，可直接导入。</span>
+              </div>
+            )}
+
+            {/* 问题行表格 */}
+            {allIssues.length > 0 && (
+              <div className={styles.previewTableWrap} style={{ marginTop: 'var(--space-4)' }}>
+                <div className={styles.previewTableHeader}>
+                  <span>问题行详情（错误行 {result.errors.length} 条 / 价格预警 {result.warnings.length} 条）</span>
+                </div>
+                <div className={styles.previewScroll}>
+                  <table className={styles.previewTable}>
+                    <thead>
+                      <tr>
+                        <th>类型</th>
+                        <th>行号</th>
+                        <th>列</th>
+                        <th>问题描述</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allIssues.map((issue, i) => {
+                        // FE-03-03: 价格异常行使用 anomalyRow 样式
+                        const isAnomaly = issue.type === 'warning' && anomalyRowNumbers.has(issue.row);
+                        const rowClass = issue.type === 'error'
+                          ? styles['row--error']
+                          : isAnomaly
+                          ? styles.anomalyRow
+                          : styles['row--warning'];
+
+                        return (
+                          <tr key={i} className={rowClass}>
+                            <td>
+                              {issue.type === 'error' ? (
+                                <span style={{ color: 'var(--color-error-600)', fontWeight: 600 }}>❌ 错误</span>
+                              ) : isAnomaly ? (
+                                <span className={styles.anomalyBadge}>⚠ 价格异常</span>
+                              ) : (
+                                <span style={{ color: 'var(--color-warning-600)', fontWeight: 600 }}>⚠️ 预警</span>
+                              )}
+                            </td>
+                            <td>第 {issue.row} 行</td>
+                            <td>{issue.column ?? '—'}</td>
+                            <td>
+                              {issue.type === 'error' ? (
+                                <span className={styles.errorReason}>
+                                  <span>•</span>
+                                  <span>{issue.message}</span>
+                                </span>
+                              ) : (
+                                <span className={styles.warnReason}>
+                                  <span>•</span>
+                                  <span>{issue.message}</span>
+                                  {isAnomaly && issue.importedPrice !== undefined && issue.historicalPrice !== undefined && (
+                                    <span style={{ color: 'var(--color-warning-600)', marginLeft: 4 }}>
+                                      （导入价 {issue.importedPrice} / 历史价 {issue.historicalPrice}）
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* FE-03-03: 价格异常确认复选框 */}
+            {hasAnomalies && handleMode === 'import-valid' && (
+              <label className={styles.anomalyConfirmRow}>
+                <input
+                  type="checkbox"
+                  className={styles.anomalyConfirmRow__checkbox}
+                  checked={anomalyConfirmed}
+                  onChange={(e) => onAnomalyConfirmedChange(e.target.checked)}
+                />
+                <span className={styles.anomalyConfirmRow__text}>
+                  我已确认价格异常行（共 {anomalyRowNumbers.size} 条），了解导入价格与历史价格偏差超过 30%
+                </span>
+              </label>
+            )}
+          </>
         )}
       </div>
 
@@ -557,7 +803,12 @@ function Step3Preview({
           </Button>
         </div>
         <div className={styles.footer__right}>
-          {handleMode === 'abort-all' ? (
+          {/* FE-03-02: 错误过多时只显示返回按钮 */}
+          {tooManyErrors ? (
+            <Button variant="danger" onClick={onPrev}>
+              重新上传
+            </Button>
+          ) : handleMode === 'abort-all' ? (
             <Button variant="danger" onClick={onPrev}>
               全部放弃，重新上传
             </Button>
@@ -566,7 +817,8 @@ function Step3Preview({
               variant="primary"
               onClick={onConfirm}
               loading={confirming}
-              disabled={confirming || (handleMode === 'import-valid' && result.successCount === 0)}
+              disabled={importDisabled}
+              title={hasAnomalies && !anomalyConfirmed ? '请先勾选确认异常价格后再导入' : undefined}
             >
               {confirming ? '导入中...' : '确认导入'}
             </Button>
@@ -588,6 +840,11 @@ interface Step4ResultProps {
 
 function Step4Result({ result, onClose }: Step4ResultProps) {
   const allSuccess = result.failCount === 0;
+
+  // FE-03-04: 下载失败明细处理
+  const handleDownloadFailed = useCallback(() => {
+    downloadFailedDetailCSV(result.errors);
+  }, [result.errors]);
 
   return (
     <div className={styles.body} key="step4">
@@ -634,36 +891,55 @@ function Step4Result({ result, onClose }: Step4ResultProps) {
 
         {/* 失败行详情 */}
         {result.errors.length > 0 && (
-          <div className={styles.previewTableWrap}>
-            <div className={styles.previewTableHeader}>
-              <span>失败详情（{result.errors.length} 条）</span>
+          <>
+            {/* FE-03-04: 下载失败明细操作栏 */}
+            <div className={styles.failDownloadBar}>
+              <div className={styles.failDownloadBar__info}>
+                <span className={styles.failDownloadBar__icon}>📄</span>
+                <span>
+                  共 <strong>{result.errors.length}</strong> 条记录导入失败，可下载明细文件逐行排查
+                </span>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleDownloadFailed}
+              >
+                ↓ 下载失败明细
+              </Button>
             </div>
-            <div className={styles.previewScroll}>
-              <table className={styles.previewTable}>
-                <thead>
-                  <tr>
-                    <th>行号</th>
-                    <th>列</th>
-                    <th>失败原因</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.errors.map((err, i) => (
-                    <tr key={i} className={styles['row--error']}>
-                      <td>第 {err.row} 行</td>
-                      <td>{err.column ?? '—'}</td>
-                      <td>
-                        <span className={styles.errorReason}>
-                          <span>•</span>
-                          <span>{err.message}</span>
-                        </span>
-                      </td>
+
+            <div className={styles.previewTableWrap} style={{ marginTop: 'var(--space-4)' }}>
+              <div className={styles.previewTableHeader}>
+                <span>失败详情（{result.errors.length} 条）</span>
+              </div>
+              <div className={styles.previewScroll}>
+                <table className={styles.previewTable}>
+                  <thead>
+                    <tr>
+                      <th>行号</th>
+                      <th>列</th>
+                      <th>失败原因</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {result.errors.map((err, i) => (
+                      <tr key={i} className={styles['row--error']}>
+                        <td>第 {err.row} 行</td>
+                        <td>{err.column ?? '—'}</td>
+                        <td>
+                          <span className={styles.errorReason}>
+                            <span>•</span>
+                            <span>{err.message}</span>
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 
@@ -705,6 +981,16 @@ export default function PriceImportWizard({
   const [handleMode, setHandleMode] = useState<HandleMode>('import-valid');
   const [confirming, setConfirming] = useState(false);
 
+  // FE-03-01: 大文件解析进度条状态
+  const [showParseProgress, setShowParseProgress] = useState(false);
+  const [parseProgress, setParseProgress] = useState(0);
+
+  // FE-03-05: 解析状态反馈
+  const [parseState, setParseState] = useState<ParseState>('idle');
+
+  // FE-03-03: 价格异常确认
+  const [anomalyConfirmed, setAnomalyConfirmed] = useState(false);
+
   // 关闭时重置全部状态
   const resetState = useCallback(() => {
     setStep(1);
@@ -715,6 +1001,10 @@ export default function PriceImportWizard({
     setUploadResult(null);
     setHandleMode('import-valid');
     setConfirming(false);
+    setShowParseProgress(false);
+    setParseProgress(0);
+    setParseState('idle');
+    setAnomalyConfirmed(false);
   }, []);
 
   // 弹框关闭（非成功关闭）
@@ -736,9 +1026,20 @@ export default function PriceImportWizard({
     setUploadError(null);
     setUploading(true);
     setUploadProgress(10);
+    setParseProgress(0);
+
+    // FE-03-01: 判断是否为大文件（> 500KB）
+    const isLargeFile = selectedFile.size > LARGE_FILE_THRESHOLD;
+    setShowParseProgress(isLargeFile);
+
+    // FE-03-05: 进入解析中状态
+    setParseState('parsing');
 
     // 模拟进度（实际上传为同步等待）
     const ticker = setInterval(() => {
+      if (isLargeFile) {
+        setParseProgress((prev) => Math.min(prev + 12, 85));
+      }
       setUploadProgress((prev) => Math.min(prev + 15, 85));
     }, 300);
 
@@ -746,13 +1047,30 @@ export default function PriceImportWizard({
       const result = await priceApi.importPrices(selectedFile);
       clearInterval(ticker);
       setUploadProgress(100);
+      setParseProgress(100);
       setUploadResult(result);
+
       // 短暂延迟让进度条视觉完成
       await new Promise((r) => setTimeout(r, 300));
+
+      // FE-03-05: 根据错误数量切换解析状态
+      const errorCount = result.errors.length;
+      if (errorCount > TOO_MANY_ERRORS_THRESHOLD) {
+        setParseState('error');
+      } else if (errorCount > 0 || result.warnings.length > 0) {
+        setParseState('warning');
+      } else {
+        setParseState('success');
+      }
+
+      // 短暂展示状态后再推进到 Step3
+      await new Promise((r) => setTimeout(r, 800));
       setStep(3);
     } catch (e: unknown) {
       clearInterval(ticker);
       setUploadProgress(0);
+      setParseProgress(0);
+      setParseState('idle');
       const msg = e instanceof Error ? e.message : '上传失败，请检查文件格式后重试';
       setUploadError(msg);
     } finally {
@@ -763,7 +1081,6 @@ export default function PriceImportWizard({
   // Step3 → Step4：确认导入（仅合法行）
   // 说明：当用户选择「仅导入合法行」时，后端已在 POST /import 时完成合法行写入。
   // 此处不再二次发起写入请求，直接推进至 Step4 展示结果。
-  // 若后端需要二次确认（如大量数据异步任务），可在此处调用异步任务接口。
   const handleConfirmImport = useCallback(async () => {
     if (!uploadResult) return;
     if (handleMode === 'abort-all') {
@@ -813,12 +1130,19 @@ export default function PriceImportWizard({
               setSelectedFile(f);
               setUploadError(null);
               setUploadProgress(0);
+              setParseProgress(0);
+              setParseState('idle');
+              setShowParseProgress(false);
             }}
             onPrev={() => setStep(1)}
             onNext={handleUpload}
             uploading={uploading}
             uploadProgress={uploadProgress}
             uploadError={uploadError}
+            showParseProgress={showParseProgress}
+            parseProgress={parseProgress}
+            parseState={parseState}
+            parseResult={uploadResult}
           />
         )}
 
@@ -830,9 +1154,13 @@ export default function PriceImportWizard({
             onPrev={() => {
               setStep(2);
               setUploadResult(null);
+              setParseState('idle');
+              setAnomalyConfirmed(false);
             }}
             onConfirm={handleConfirmImport}
             confirming={confirming}
+            anomalyConfirmed={anomalyConfirmed}
+            onAnomalyConfirmedChange={setAnomalyConfirmed}
           />
         )}
 

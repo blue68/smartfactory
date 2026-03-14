@@ -329,6 +329,152 @@ export class SalesOrderService {
     );
   }
 
+  // ── 10. 编辑订单（仅 draft 状态）────────────────────────────────────────────
+
+  async updateOrder(id: number, params: Partial<CreateSalesOrderParams>): Promise<{ id: number; orderNo: string }> {
+    const order = await this._loadOrder(id);
+
+    if (order.status !== 'draft') {
+      throw AppError.badRequest('只有草稿状态的订单才能编辑', ResponseCode.ORDER_NOT_DRAFT);
+    }
+
+    await AppDataSource.transaction(async (manager) => {
+      const updates: string[] = [];
+      const values: unknown[] = [];
+
+      if (params.customerId !== undefined) { updates.push('customer_id = ?'); values.push(params.customerId); }
+      if (params.orderDate !== undefined)  { updates.push('order_date = ?');  values.push(params.orderDate); }
+      if (params.deliveryDate !== undefined) { updates.push('delivery_date = ?'); values.push(params.deliveryDate); }
+      if (params.isUrgent !== undefined)   { updates.push('is_urgent = ?');   values.push(params.isUrgent ? 1 : 0); }
+      if (params.notes !== undefined)      { updates.push('notes = ?');       values.push(params.notes ?? null); }
+
+      if (params.items && params.items.length > 0) {
+        const totalAmount = this._calcTotal(params.items);
+        updates.push('total_amount = ?');
+        values.push(totalAmount);
+        await manager.query(`DELETE FROM sales_order_items WHERE order_id = ? AND tenant_id = ?`, [id, this.tenantId]);
+        await this._insertItems(manager, id, params.items);
+      }
+
+      if (updates.length > 0) {
+        updates.push('updated_by = ?');
+        values.push(this.userId, id, this.tenantId);
+        await manager.query(`UPDATE sales_orders SET ${updates.join(', ')} WHERE id = ? AND tenant_id = ?`, values);
+      }
+    });
+
+    return { id, orderNo: order.orderNo };
+  }
+
+  // ── 11. 常规订单直接确认（仅 draft，boss 可跳过审批）──────────────────────
+  // 注意：pending_approval 应走 approve() 流程
+
+  async confirm(id: number): Promise<void> {
+    const order = await this._loadOrder(id);
+    if (order.status !== 'draft') {
+      throw AppError.badRequest('只有草稿状态的订单才能直接确认（待审批订单请使用审批功能）', ResponseCode.ORDER_INVALID_TRANSITION);
+    }
+    await AppDataSource.query(
+      `UPDATE sales_orders SET status = 'confirmed', approved_by = ?, approved_at = NOW(3), updated_by = ? WHERE id = ? AND tenant_id = ?`,
+      [this.userId, this.userId, id, this.tenantId],
+    );
+  }
+
+  // ── 12. 标记发货 ──────────────────────────────────────────────────────────
+
+  async ship(id: number): Promise<void> {
+    const order = await this._loadOrder(id);
+    if (order.status !== 'in_production' && order.status !== 'confirmed') {
+      throw AppError.badRequest('只有已确认或生产中的订单才能标记发货', ResponseCode.ORDER_INVALID_TRANSITION);
+    }
+    await AppDataSource.query(
+      `UPDATE sales_orders SET status = 'shipped', updated_by = ? WHERE id = ? AND tenant_id = ?`,
+      [this.userId, id, this.tenantId],
+    );
+  }
+
+  // ── 13. 标记完成 ──────────────────────────────────────────────────────────
+
+  async complete(id: number): Promise<void> {
+    const order = await this._loadOrder(id);
+    if (order.status !== 'shipped') {
+      throw AppError.badRequest('只有已发货的订单才能标记完成', ResponseCode.ORDER_INVALID_TRANSITION);
+    }
+    await AppDataSource.query(
+      `UPDATE sales_orders SET status = 'completed', updated_by = ? WHERE id = ? AND tenant_id = ?`,
+      [this.userId, id, this.tenantId],
+    );
+  }
+
+  // ── 14. 关闭订单 ──────────────────────────────────────────────────────────
+
+  async close(id: number, reason: string): Promise<void> {
+    const order = await this._loadOrder(id);
+    if (order.status === 'closed' || order.status === 'completed') {
+      throw AppError.badRequest('已完成或已关闭的订单不能再关闭', ResponseCode.ORDER_INVALID_TRANSITION);
+    }
+    await AppDataSource.query(
+      `UPDATE sales_orders SET status = 'closed', reject_reason = ?, updated_by = ? WHERE id = ? AND tenant_id = ?`,
+      [reason, this.userId, id, this.tenantId],
+    );
+  }
+
+  // ── 15. 触发建工单 ────────────────────────────────────────────────────────
+
+  async createProductionOrders(id: number): Promise<{ productionOrderIds: number[] }> {
+    const order = await this._loadOrder(id);
+    if (order.status !== 'confirmed') {
+      throw AppError.badRequest('只有已确认的订单才能创建生产工单', ResponseCode.ORDER_INVALID_TRANSITION);
+    }
+
+    const items = await AppDataSource.query<Array<{ id: number; sku_id: number; quantity: string }>>(
+      `SELECT soi.id, soi.sku_id, soi.quantity FROM sales_order_items soi WHERE soi.order_id = ? AND soi.tenant_id = ?`,
+      [id, this.tenantId],
+    );
+
+    if (!items || items.length === 0) {
+      throw AppError.badRequest('订单无明细行，无法创建生产工单');
+    }
+
+    const productionOrderIds: number[] = [];
+
+    await AppDataSource.transaction(async (manager) => {
+      for (const item of items) {
+        const woNo = `WO-${order.orderNo}-${String(productionOrderIds.length + 1).padStart(2, '0')}`;
+        const result = await manager.query(
+          `INSERT INTO production_orders (tenant_id, work_order_no, sku_id, qty_planned, status, sales_order_id, bom_header_id, process_template_id, created_by, updated_by)
+           VALUES (?, ?, ?, ?, 'pending', ?, 0, 0, ?, ?)`,
+          [this.tenantId, woNo, item.sku_id, item.quantity, id, this.userId, this.userId],
+        );
+        productionOrderIds.push(Number(result.insertId));
+      }
+
+      await manager.query(
+        `UPDATE sales_orders SET status = 'in_production', updated_by = ? WHERE id = ? AND tenant_id = ?`,
+        [this.userId, id, this.tenantId],
+      );
+    });
+
+    return { productionOrderIds };
+  }
+
+  // ── 16. 待审批列表 ────────────────────────────────────────────────────────
+
+  async getPendingApprovals(): Promise<{ count: number; orders: unknown[] }> {
+    const orders = await AppDataSource.query(
+      `SELECT so.id, so.order_no AS orderNo, so.customer_id AS customerId,
+              c.name AS customerName, so.order_date AS orderDate,
+              so.delivery_date AS deliveryDate, so.is_urgent AS isUrgent,
+              so.total_amount AS totalAmount, so.created_at AS createdAt
+       FROM sales_orders so
+       INNER JOIN customers c ON c.id = so.customer_id
+       WHERE so.tenant_id = ? AND so.status = 'pending_approval'
+       ORDER BY so.is_urgent DESC, so.created_at ASC`,
+      [this.tenantId],
+    );
+    return { count: orders.length, orders };
+  }
+
   // ─── 私有工具方法 ────────────────────────────────────────────────────────
 
   /**

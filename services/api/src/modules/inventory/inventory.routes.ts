@@ -12,6 +12,8 @@ router.use(authMiddleware);
 router.get('/',                              asyncHandler(inventoryController.list.bind(inventoryController)));
 // BE-P1-005: 库存汇总看板（必须在 /:skuId 参数路由之前注册，避免路由歧义）
 router.get('/summary',                       asyncHandler(inventoryController.getSummary.bind(inventoryController)));
+// BE-08-08: 库存实时查询
+router.get('/check',                         asyncHandler(inventoryController.checkAvailability.bind(inventoryController)));
 router.get('/:skuId/dye-lots',              asyncHandler(inventoryController.getDyeLots.bind(inventoryController)));
 router.get('/:skuId/available',             asyncHandler(inventoryController.getAvailable.bind(inventoryController)));
 router.get('/:skuId/fifo-dye-lot',          asyncHandler(inventoryController.fifoDyeLot.bind(inventoryController)));

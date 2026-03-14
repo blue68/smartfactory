@@ -17,8 +17,11 @@ import {
   useUpdateCustomer,
   useCreateCustomerContact,
   useDeleteCustomerContact,
+  usePatchCustomerStatus,
+  useUpdateCustomerContact,
+  useCustomerOrders,
 } from '@/api/customer';
-import type { Customer, CustomerGrade, CustomerStatus, CreateCustomerPayload } from '@/api/customer';
+import type { Customer, CustomerGrade, CustomerStatus, CreateCustomerPayload, CustomerContact } from '@/api/customer';
 import styles from './CustomerPage.module.css';
 
 // ─────────────────────────────────────────────
@@ -256,10 +259,16 @@ interface CustomerDrawerProps {
 function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
   const { data: customer } = useCustomer(customerId);
   const { data: contacts = [], isLoading: contactsLoading } = useCustomerContacts(customerId);
+  const { data: ordersData } = useCustomerOrders(customerId);
   const createContact = useCreateCustomerContact();
   const deleteContact = useDeleteCustomerContact();
+  const updateContact = useUpdateCustomerContact();
 
   const [newContact, setNewContact] = useState({ name: '', phone: '', title: '' });
+  const [editingContactId, setEditingContactId] = useState<number | null>(null);
+  const [editContactForm, setEditContactForm] = useState<{ name: string; phone: string; title: string; isPrimary: boolean }>({
+    name: '', phone: '', title: '', isPrimary: false,
+  });
 
   async function handleAddContact() {
     if (!customerId || !newContact.name) return;
@@ -271,6 +280,23 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
     if (!customerId) return;
     await deleteContact.mutateAsync({ contactId, customerId });
   }
+
+  function startEditContact(c: CustomerContact) {
+    setEditingContactId(c.id);
+    setEditContactForm({ name: c.name, phone: c.phone ?? '', title: c.title ?? '', isPrimary: c.isPrimary });
+  }
+
+  async function saveEditContact() {
+    if (!customerId || !editingContactId) return;
+    await updateContact.mutateAsync({
+      customerId,
+      contactId: editingContactId,
+      payload: editContactForm,
+    });
+    setEditingContactId(null);
+  }
+
+  const orders = ordersData?.list ?? [];
 
   return (
     <Drawer
@@ -330,6 +356,16 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
             </div>
           </div>
 
+          {/* 区域信息（补充） */}
+          {customer.region && (
+            <div className={styles.drawerSection}>
+              <div className={styles.infoItem} style={{ gridColumn: '1/-1' }}>
+                <span className={styles.infoKey}>区域</span>
+                <span className={styles.infoVal}>{customer.region}</span>
+              </div>
+            </div>
+          )}
+
           {/* 联系人列表 */}
           <div className={styles.drawerSection}>
             <p className={styles.drawerSectionTitle}>联系人</p>
@@ -340,22 +376,75 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
             ) : (
               contacts.map((c) => (
                 <div key={c.id} className={styles.contactItem}>
-                  <div className={styles.contactInfo}>
-                    <span className={styles.contactName}>
-                      {c.name}
-                      {c.isPrimary && <span className={styles.primaryBadge}>主要</span>}
-                    </span>
-                    <span className={styles.contactMeta}>
-                      {[c.title, c.phone, c.email].filter(Boolean).join(' · ')}
-                    </span>
-                  </div>
-                  <button
-                    className={styles.deleteBtn}
-                    onClick={() => handleDeleteContact(c.id)}
-                    title="删除联系人"
-                  >
-                    ×
-                  </button>
+                  {editingContactId === c.id ? (
+                    /* 行内编辑模式 */
+                    <div className={styles.contactEditForm}>
+                      <input
+                        className={styles.addContactInput}
+                        value={editContactForm.name}
+                        onChange={(e) => setEditContactForm((p) => ({ ...p, name: e.target.value }))}
+                        placeholder="姓名"
+                        onKeyDown={(e) => e.key === 'Enter' && saveEditContact()}
+                      />
+                      <input
+                        className={styles.addContactInput}
+                        value={editContactForm.title}
+                        onChange={(e) => setEditContactForm((p) => ({ ...p, title: e.target.value }))}
+                        placeholder="职位"
+                      />
+                      <input
+                        className={styles.addContactInput}
+                        value={editContactForm.phone}
+                        onChange={(e) => setEditContactForm((p) => ({ ...p, phone: e.target.value }))}
+                        placeholder="电话"
+                      />
+                      <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <input
+                          type="checkbox"
+                          checked={editContactForm.isPrimary}
+                          onChange={(e) => setEditContactForm((p) => ({ ...p, isPrimary: e.target.checked }))}
+                        />
+                        主要联系人
+                      </label>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <Button variant="primary" size="sm" onClick={saveEditContact} loading={updateContact.isPending}>
+                          保存
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => setEditingContactId(null)}>
+                          取消
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* 展示模式 */
+                    <>
+                      <div className={styles.contactInfo}>
+                        <span className={styles.contactName}>
+                          {c.name}
+                          {c.isPrimary && <span className={styles.primaryBadge}>主要</span>}
+                        </span>
+                        <span className={styles.contactMeta}>
+                          {[c.title, c.phone, c.email].filter(Boolean).join(' · ')}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button
+                          className={styles.editBtn}
+                          onClick={() => startEditContact(c)}
+                          title="编辑联系人"
+                        >
+                          ✏
+                        </button>
+                        <button
+                          className={styles.deleteBtn}
+                          onClick={() => handleDeleteContact(c.id)}
+                          title="删除联系人"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))
             )}
@@ -391,6 +480,47 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
               </Button>
             </div>
           </div>
+          {/* 历史订单 */}
+          <div className={styles.drawerSection}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <p className={styles.drawerSectionTitle}>历史订单</p>
+              {orders.length > 0 && (
+                <a
+                  href={`/sales/orders?customerId=${customerId}`}
+                  className={styles.viewAllLink}
+                  style={{ fontSize: 12, color: 'var(--color-primary-600,#2563EB)' }}
+                >
+                  查看全部 →
+                </a>
+              )}
+            </div>
+            {orders.length === 0 ? (
+              <p className={styles.empty}>暂无订单记录</p>
+            ) : (
+              <div className={styles.orderList}>
+                {orders.map((o) => (
+                  <div key={o.id} className={styles.orderItem}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--color-neutral-600,#4B5563)' }}>
+                        {o.orderNo}
+                      </span>
+                      <span className={`${styles.statusBadge} ${
+                        o.status === 'completed' ? styles.statusActive : styles.statusInactive
+                      }`} style={{ fontSize: 11 }}>
+                        {o.status}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--color-neutral-500,#6B7280)', marginTop: 4 }}>
+                      <span>{o.orderDate}</span>
+                      <span style={{ fontWeight: 500, color: 'var(--color-neutral-700,#374151)' }}>
+                        ¥{Number(o.totalAmount).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </>
       )}
     </Drawer>
@@ -413,6 +543,9 @@ export default function CustomerPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Customer | null>(null);
   const [drawerCustomerId, setDrawerCustomerId] = useState<number | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<Customer | null>(null);
+
+  const patchStatus = usePatchCustomerStatus();
 
   // 统计查询（无筛选）
   const { data: allData } = useCustomerList({ page: 1, pageSize: 9999 });
@@ -452,6 +585,25 @@ export default function CustomerPage() {
     setEditTarget(null);
   }
 
+  async function handleToggleStatus(row: Customer) {
+    const newStatus = row.status === 'active' ? 'inactive' : 'active';
+    if (newStatus === 'inactive') {
+      setConfirmTarget(row);
+    } else {
+      await patchStatus.mutateAsync({ id: row.id, status: newStatus });
+    }
+  }
+
+  async function confirmDeactivate() {
+    if (!confirmTarget) return;
+    try {
+      await patchStatus.mutateAsync({ id: confirmTarget.id, status: 'inactive' });
+      setConfirmTarget(null);
+    } catch {
+      // API will return error with active order count — handled by global error handler
+    }
+  }
+
   const columns: Column<Customer>[] = [
     {
       key: 'code',
@@ -484,6 +636,26 @@ export default function CustomerPage() {
     { key: 'contact', title: '联系人', width: 100 },
     { key: 'phone', title: '电话', width: 130 },
     {
+      key: 'region',
+      title: '区域',
+      width: 100,
+      render: (v) => (
+        <span style={{ color: v ? 'var(--color-neutral-700,#374151)' : 'var(--color-neutral-400,#9CA3AF)' }}>
+          {(v as string) || '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'paymentDays',
+      title: '付款条件',
+      width: 110,
+      render: (v) => {
+        const days = v as number | null | undefined;
+        if (days == null) return <span style={{ color: 'var(--color-neutral-400,#9CA3AF)' }}>—</span>;
+        return <span>{days === 0 ? '即时付款' : `${days}天账期`}</span>;
+      },
+    },
+    {
       key: 'creditLimit',
       title: '信用额度',
       width: 120,
@@ -503,7 +675,7 @@ export default function CustomerPage() {
     {
       key: 'id',
       title: '操作',
-      width: 120,
+      width: 160,
       render: (_, row) => (
         <div className={styles.actions}>
           <button className={`${styles.actionBtn} ${styles.actionBtnEdit}`} onClick={() => handleEdit(row)}>
@@ -511,6 +683,12 @@ export default function CustomerPage() {
           </button>
           <button className={`${styles.actionBtn} ${styles.actionBtnView}`} onClick={() => setDrawerCustomerId(row.id)}>
             详情
+          </button>
+          <button
+            className={`${styles.actionBtn} ${row.status === 'active' ? styles.actionBtnDelete : styles.actionBtnEdit}`}
+            onClick={() => handleToggleStatus(row)}
+          >
+            {row.status === 'active' ? '停用' : '启用'}
           </button>
         </div>
       ),
@@ -646,6 +824,22 @@ export default function CustomerPage() {
         customerId={drawerCustomerId}
         onClose={() => setDrawerCustomerId(null)}
       />
+
+      {/* 停用确认 Modal */}
+      <Modal
+        open={confirmTarget !== null}
+        title="确认停用客户"
+        onClose={() => setConfirmTarget(null)}
+        onConfirm={confirmDeactivate}
+        confirmLabel="确认停用"
+        confirmLoading={patchStatus.isPending}
+        confirmVariant="danger"
+        size="sm"
+      >
+        <p style={{ margin: 0, fontSize: 14, color: 'var(--color-neutral-700,#374151)' }}>
+          确定要停用客户 <strong>{confirmTarget?.name}</strong> 吗？停用后该客户将无法用于新订单。
+        </p>
+      </Modal>
     </div>
   );
 }

@@ -9,7 +9,7 @@
  * 绩效对比 Modal：横向柱状图 + AI 建议块
  */
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -112,12 +112,369 @@ function QualityRateCell({ rate }: { rate: number }) {
 }
 
 // ─────────────────────────────────────────────
-// 子组件：绩效对比 Modal（横向柱状图）
+// FE-02-04: Compare button 3-state
+// ─────────────────────────────────────────────
+
+const MAX_COMPARE = 3;
+
+/** Returns which compare-state a supplier row is in */
+function getCompareState(
+  supplierId: number,
+  selectedIds: number[],
+): 'not-selected' | 'selected' | 'max-reached' {
+  if (selectedIds.includes(supplierId)) return 'selected';
+  if (selectedIds.length >= MAX_COMPARE) return 'max-reached';
+  return 'not-selected';
+}
+
+export function CompareToggleButton({
+  supplierId,
+  selectedIds,
+  onToggle,
+}: {
+  supplierId: number;
+  selectedIds: number[];
+  onToggle: (id: number) => void;
+}) {
+  const state = getCompareState(supplierId, selectedIds);
+
+  if (state === 'selected') {
+    return (
+      <button
+        type="button"
+        className={styles.compareBtnSelected}
+        onClick={() => onToggle(supplierId)}
+        aria-pressed="true"
+      >
+        ✓ 已加入
+      </button>
+    );
+  }
+  if (state === 'max-reached') {
+    return (
+      <button
+        type="button"
+        className={styles.compareBtnDisabled}
+        disabled
+        aria-disabled="true"
+      >
+        对比已满
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={styles.compareBtnDefault}
+      onClick={() => onToggle(supplierId)}
+      aria-pressed="false"
+    >
+      加入对比
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────
+// FE-02-05: Data anomaly marker
+// ─────────────────────────────────────────────
+
+function AnomalyIcon({ deviationPct }: { deviationPct: number }) {
+  const [tooltipVisible, setTooltipVisible] = React.useState(false);
+  return (
+    <span
+      className={styles.anomalyIconWrap}
+      onMouseEnter={() => setTooltipVisible(true)}
+      onMouseLeave={() => setTooltipVisible(false)}
+    >
+      <span className={styles.anomalyIcon}>⚠</span>
+      {tooltipVisible && (
+        <span className={styles.anomalyTooltip}>
+          价格偏差 {deviationPct.toFixed(0)}%，超过均值 20%
+        </span>
+      )}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────
+// FE-02-02: SVG Radar Chart
+// ─────────────────────────────────────────────
+
+const RADAR_AXES = ['准时交货率', '价格竞争力', '质量合格率', '响应速度', '订单完成率', '服务评分'];
+const COMPARE_COLORS = ['#3B82F6', '#F97316', '#22C55E', '#8B5CF6', '#F43F5E'];
+const RADAR_SIZE = 220;
+const RADAR_CENTER = RADAR_SIZE / 2;
+const RADAR_RADIUS = 88;
+const RADAR_LEVELS = 5;
+
+function polarToXY(angleDeg: number, r: number, cx: number, cy: number) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+interface RadarSupplierData {
+  name: string;
+  scores: number[]; // 0-100 for each axis
+}
+
+function RadarChart({ suppliers }: { suppliers: RadarSupplierData[] }) {
+  const n = RADAR_AXES.length;
+  const angleStep = 360 / n;
+
+  // Build grid polygon points for each level
+  const gridPolygons = Array.from({ length: RADAR_LEVELS }, (_, lvl) => {
+    const r = (RADAR_RADIUS * (lvl + 1)) / RADAR_LEVELS;
+    const pts = Array.from({ length: n }, (__, i) => {
+      const { x, y } = polarToXY(i * angleStep, r, RADAR_CENTER, RADAR_CENTER);
+      return `${x},${y}`;
+    }).join(' ');
+    return pts;
+  });
+
+  // Axis lines
+  const axisLines = Array.from({ length: n }, (_, i) => {
+    const { x, y } = polarToXY(i * angleStep, RADAR_RADIUS, RADAR_CENTER, RADAR_CENTER);
+    return { x, y };
+  });
+
+  // Labels
+  const labels = Array.from({ length: n }, (_, i) => {
+    const { x, y } = polarToXY(i * angleStep, RADAR_RADIUS + 22, RADAR_CENTER, RADAR_CENTER);
+    return { label: RADAR_AXES[i], x, y };
+  });
+
+  // Supplier polygons
+  const supplierPolygons = suppliers.map((sup, si) => {
+    const pts = sup.scores.map((score, i) => {
+      const r = (score / 100) * RADAR_RADIUS;
+      const { x, y } = polarToXY(i * angleStep, r, RADAR_CENTER, RADAR_CENTER);
+      return `${x},${y}`;
+    }).join(' ');
+    return { pts, color: COMPARE_COLORS[si % COMPARE_COLORS.length], name: sup.name };
+  });
+
+  return (
+    <div className={styles.radarWrap}>
+      <svg width={RADAR_SIZE} height={RADAR_SIZE} viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`} aria-label="供应商雷达图">
+        {/* Grid polygons */}
+        {gridPolygons.map((pts, lvl) => (
+          <polygon
+            key={lvl}
+            points={pts}
+            fill="none"
+            stroke="var(--border-default)"
+            strokeWidth={0.8}
+          />
+        ))}
+
+        {/* Axis lines */}
+        {axisLines.map(({ x, y }, i) => (
+          <line
+            key={i}
+            x1={RADAR_CENTER} y1={RADAR_CENTER}
+            x2={x} y2={y}
+            stroke="var(--border-default)"
+            strokeWidth={0.8}
+          />
+        ))}
+
+        {/* Supplier data polygons */}
+        {supplierPolygons.map(({ pts, color }, si) => (
+          <polygon
+            key={si}
+            points={pts}
+            fill={color}
+            fillOpacity={0.15}
+            stroke={color}
+            strokeWidth={2}
+          />
+        ))}
+
+        {/* Axis labels */}
+        {labels.map(({ label, x, y }, i) => (
+          <text
+            key={i}
+            x={x}
+            y={y}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={9}
+            fill="var(--text-secondary)"
+          >
+            {label}
+          </text>
+        ))}
+      </svg>
+
+      {/* Legend */}
+      <div className={styles.radarLegend}>
+        {suppliers.map((sup, si) => (
+          <div key={si} className={styles.radarLegendItem}>
+            <span
+              className={styles.radarLegendDot}
+              style={{ background: COMPARE_COLORS[si % COMPARE_COLORS.length] }}
+            />
+            <span>{sup.name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// FE-02-03: SVG Line Chart (price trend)
+// ─────────────────────────────────────────────
+
+interface LineChartSeries {
+  name: string;
+  data: number[]; // monthly values
+}
+
+const CHART_W = 320;
+const CHART_H = 160;
+const CHART_PAD = { top: 16, right: 16, bottom: 28, left: 44 };
+
+function LineChart({ series, labels }: { series: LineChartSeries[]; labels: string[] }) {
+  const allValues = series.flatMap((s) => s.data).filter((v) => v > 0);
+  const maxVal = allValues.length > 0 ? Math.ceil(Math.max(...allValues) / 10) * 10 : 100;
+  const minVal = 0;
+
+  const innerW = CHART_W - CHART_PAD.left - CHART_PAD.right;
+  const innerH = CHART_H - CHART_PAD.top - CHART_PAD.bottom;
+  const n = labels.length;
+
+  const toX = (i: number) => CHART_PAD.left + (i / (n - 1)) * innerW;
+  const toY = (v: number) => CHART_PAD.top + innerH - ((v - minVal) / (maxVal - minVal)) * innerH;
+
+  const yTicks = 4;
+
+  return (
+    <div className={styles.lineChartWrap}>
+      <svg width="100%" viewBox={`0 0 ${CHART_W} ${CHART_H}`} style={{ overflow: 'visible' }} aria-label="价格趋势折线图">
+        {/* Y-axis ticks */}
+        {Array.from({ length: yTicks + 1 }, (_, i) => {
+          const val = minVal + (maxVal - minVal) * (i / yTicks);
+          const y = toY(val);
+          return (
+            <g key={i}>
+              <line x1={CHART_PAD.left} y1={y} x2={CHART_PAD.left + innerW} y2={y} stroke="var(--border-default)" strokeWidth={0.5} />
+              <text x={CHART_PAD.left - 4} y={y} textAnchor="end" dominantBaseline="middle" fontSize={8} fill="var(--text-secondary)">
+                {val.toFixed(0)}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* X-axis labels */}
+        {labels.map((lbl, i) => (
+          <text key={i} x={toX(i)} y={CHART_H - 4} textAnchor="middle" fontSize={8} fill="var(--text-secondary)">
+            {lbl}
+          </text>
+        ))}
+
+        {/* Series lines */}
+        {series.map((s, si) => {
+          const color = COMPARE_COLORS[si % COMPARE_COLORS.length];
+          const points = s.data.map((v, i) => `${toX(i)},${toY(v)}`).join(' ');
+          const hasData = s.data.some((v) => v > 0);
+          return (
+            <g key={si}>
+              <polyline
+                points={points}
+                fill="none"
+                stroke={color}
+                strokeWidth={2}
+                strokeDasharray={hasData ? undefined : '6,4'}
+                opacity={hasData ? 1 : 0.5}
+              />
+              {s.data.map((v, i) => (
+                v > 0 && (
+                  <circle key={i} cx={toX(i)} cy={toY(v)} r={3} fill={color} />
+                )
+              ))}
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Line legend */}
+      <div className={styles.radarLegend}>
+        {series.map((s, si) => (
+          <div key={si} className={styles.radarLegendItem}>
+            <span className={styles.radarLegendLine} style={{ background: COMPARE_COLORS[si % COMPARE_COLORS.length] }} />
+            <span>{s.name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// FE-02-01: Stats Summary Bar (for compare section)
+// ─────────────────────────────────────────────
+
+interface CompareSupplier {
+  id: number;
+  name: string;
+  onTime: number;
+  quality: number;
+  price: number; // lower is better
+  scores: number[];
+}
+
+function CompareSummaryBar({ suppliers }: { suppliers: CompareSupplier[] }) {
+  const highest = suppliers.reduce((best, s) => {
+    const scoreA = (s.onTime + (100 - s.quality * 10) + (100 - s.price)) / 3;
+    const scoreB = (best.onTime + (100 - best.quality * 10) + (100 - best.price)) / 3;
+    return scoreA > scoreB ? s : best;
+  }, suppliers[0]);
+
+  const lowestPrice = suppliers.reduce((best, s) => (s.price < best.price ? s : best), suppliers[0]);
+
+  return (
+    <div className={styles.compareSummaryBar}>
+      <div className={styles.compareSummaryCard}>
+        <span className={styles.compareSummaryIcon} style={{ background: 'var(--color-primary-50)', color: 'var(--color-primary-600)' }}>
+          🏢
+        </span>
+        <div>
+          <div className={styles.compareSummaryLabel}>选中供应商数</div>
+          <div className={styles.compareSummaryValue}>{suppliers.length}</div>
+        </div>
+      </div>
+      <div className={styles.compareSummaryCard}>
+        <span className={styles.compareSummaryIcon} style={{ background: 'var(--color-success-50)', color: 'var(--color-success-600)' }}>
+          🏆
+        </span>
+        <div>
+          <div className={styles.compareSummaryLabel}>综合评分最高</div>
+          <div className={styles.compareSummaryValue}>{highest?.name ?? '—'}</div>
+        </div>
+      </div>
+      <div className={styles.compareSummaryCard}>
+        <span className={styles.compareSummaryIcon} style={{ background: 'var(--color-accent-50)', color: 'var(--color-accent-600)' }}>
+          💰
+        </span>
+        <div>
+          <div className={styles.compareSummaryLabel}>价格最优</div>
+          <div className={styles.compareSummaryValue}>{lowestPrice?.name ?? '—'}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 子组件：绩效对比 Modal（横向柱状图 + Radar + Line）
 // ─────────────────────────────────────────────
 
 type PerfModalProps = {
   open: boolean;
   onClose: () => void;
+  compareIds: number[];
+  suppliers: SupplierRecord[];
 };
 
 const PERF_DATA = [
@@ -180,7 +537,7 @@ function HBarRow({
   );
 }
 
-function PerfModal({ open, onClose }: PerfModalProps) {
+function PerfModal({ open, onClose, compareIds, suppliers }: PerfModalProps) {
   useEffect(() => {
     if (!open) return;
     const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -192,17 +549,75 @@ function PerfModal({ open, onClose }: PerfModalProps) {
 
   if (!open) return null;
 
+  // Build compare supplier data: use selected ids if any, otherwise fallback to PERF_DATA
+  const compareSuppliers: CompareSupplier[] = compareIds.length > 0
+    ? compareIds.slice(0, MAX_COMPARE).map((id, idx) => {
+        const s = suppliers.find((sp) => sp.id === id);
+        const perfEntry = PERF_DATA[idx % PERF_DATA.length];
+        return {
+          id,
+          name: s?.name ?? perfEntry.name,
+          onTime: typeof (s as Record<string, unknown> | undefined)?.['onTimeRate'] === 'number'
+            ? ((s as Record<string, unknown>)['onTimeRate'] as number)
+            : perfEntry.onTime,
+          quality: typeof s?.qualityRate === 'number' ? s.qualityRate : perfEntry.quality,
+          price: 100 - idx * 8, // mock relative price score
+          scores: [
+            perfEntry.onTime,
+            100 - idx * 5,
+            100 - perfEntry.quality * 10,
+            80 + idx * 4,
+            perfEntry.onTime - 5,
+            90 - idx * 3,
+          ],
+        };
+      })
+    : PERF_DATA.slice(0, 3).map((d, idx) => ({
+        id: idx,
+        name: d.name,
+        onTime: d.onTime,
+        quality: d.quality,
+        price: 100 - idx * 8,
+        scores: [d.onTime, 90 - idx * 5, 100 - d.quality * 10, 82, d.onTime - 4, 88 - idx * 3],
+      }));
+
+  const radarSuppliers: RadarSupplierData[] = compareSuppliers.map((cs) => ({
+    name: cs.name,
+    scores: cs.scores,
+  }));
+
+  // Mock monthly price trend data (6 months)
+  const priceMonths = ['10月', '11月', '12月', '1月', '2月', '3月'];
+  const priceSeries: LineChartSeries[] = compareSuppliers.map((cs, idx) => ({
+    name: cs.name,
+    data: priceMonths.map((_, mi) => {
+      const base = 120 - idx * 10;
+      return base + (mi % 3 === 0 ? 5 : mi % 3 === 1 ? -3 : 2);
+    }),
+  }));
+
+  // Price anomaly mock: supplier index 1 has anomaly (>20% from avg)
+  const avgPrices = priceSeries[0]?.data ?? [];
+  const avgPriceAvg = avgPrices.length > 0
+    ? avgPrices.reduce((a, b) => a + b, 0) / avgPrices.length
+    : 100;
+
   return createPortal(
     <div
       className={`${styles.perfOverlay} ${styles.perfOverlayOpen}`}
       role="dialog"
       aria-modal="true"
-      aria-label="供应商绩效对比"
+      aria-labelledby="compare-title"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className={styles.perfModal}>
         <div className={styles.perfModalHeader}>
-          <div className={styles.perfModalTitle}>供应商绩效对比</div>
+          <div className={styles.perfModalTitle} id="compare-title">
+            供应商绩效对比
+            <span style={{ fontSize: '0.875rem', fontWeight: 400, color: 'var(--text-secondary)', marginLeft: 8 }}>
+              已选 {compareSuppliers.length} 家
+            </span>
+          </div>
           <select
             className={styles.perfPeriodSelect}
             value={period}
@@ -212,28 +627,52 @@ function PerfModal({ open, onClose }: PerfModalProps) {
             <option>近6个月</option>
             <option>近12个月</option>
           </select>
-          <Button variant="ghost" size="sm" onClick={onClose}>关闭</Button>
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="关闭对比弹框">✕ 关闭</Button>
         </div>
 
         <div className={styles.perfModalBody}>
+          {/* FE-02-01: Stats summary bar */}
+          <CompareSummaryBar suppliers={compareSuppliers} />
+
+          {/* Charts: Radar + Line in two columns */}
+          <div className={styles.compareChartsGrid}>
+            {/* FE-02-02: Radar chart */}
+            <div className={styles.compareChartCard}>
+              <div className={styles.perfSectionTitle}>多维雷达对比</div>
+              <RadarChart suppliers={radarSuppliers} />
+            </div>
+
+            {/* FE-02-03: Line chart price trend */}
+            <div className={styles.compareChartCard}>
+              <div className={styles.perfSectionTitle}>月度采购价格趋势</div>
+              <LineChart series={priceSeries} labels={priceMonths} />
+            </div>
+          </div>
+
           {/* 准时交货率对比 */}
           <div>
-            <div className={styles.perfSectionTitle}>准时交货率对比（A/B级供应商）</div>
+            <div className={styles.perfSectionTitle}>准时交货率对比</div>
             <div className={styles.hbarChart}>
-              {PERF_DATA.map((d) => {
+              {compareSuppliers.map((d) => {
                 const tier = d.onTime >= 80 ? 'good' : d.onTime >= 65 ? 'mid' : 'warn';
                 const isLow = d.onTime < 60;
+                // FE-02-05: anomaly check — flag if quality rate is >20% above average
+                const avgQuality = compareSuppliers.reduce((s, c) => s + c.quality, 0) / compareSuppliers.length;
+                const deviationPct = avgQuality > 0 ? ((d.quality - avgQuality) / avgQuality) * 100 : 0;
+                const hasAnomaly = deviationPct > 20;
                 return (
-                  <HBarRow
-                    key={d.name}
-                    label={d.name}
-                    pct={d.onTime}
-                    valLabel={`${d.onTime}%`}
-                    tier={tier}
-                    warningAt={isLow ? 60 : undefined}
-                    warningLabel={isLow ? '60% 预警线' : undefined}
-                    tagLabel={isLow ? '← 低于60%预警线' : undefined}
-                  />
+                  <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                    <HBarRow
+                      label={d.name}
+                      pct={d.onTime}
+                      valLabel={`${d.onTime}%`}
+                      tier={tier}
+                      warningAt={isLow ? 60 : undefined}
+                      warningLabel={isLow ? '60% 预警线' : undefined}
+                      tagLabel={isLow ? '← 低于60%预警线' : undefined}
+                    />
+                    {hasAnomaly && <AnomalyIcon deviationPct={deviationPct} />}
+                  </div>
                 );
               })}
             </div>
@@ -243,23 +682,30 @@ function PerfModal({ open, onClose }: PerfModalProps) {
           <div>
             <div className={styles.perfSectionTitle}>质量异常率对比（越低越好）</div>
             <div className={styles.hbarChart}>
-              {PERF_DATA.map((d) => {
-                const scaledPct = d.quality * 10; // scale: 0–10% → 0–100%
+              {compareSuppliers.map((d) => {
+                const scaledPct = d.quality * 10;
                 const isExceed = d.quality > 5;
                 const tier: 'good' | 'mid' | 'warn' = isExceed ? 'warn' : d.quality > 3 ? 'mid' : 'good';
                 const valOut = scaledPct < 20;
+                // FE-02-05: price anomaly in price trend data
+                const myAvgPrice = priceSeries.find((ps) => ps.name === d.name)?.data.reduce((a, b) => a + b, 0) ?? 0;
+                const myAvg = myAvgPrice / (priceSeries[0]?.data.length ?? 1);
+                const priceDeviation = avgPriceAvg > 0 ? Math.abs(((myAvg - avgPriceAvg) / avgPriceAvg) * 100) : 0;
+                const hasPriceAnomaly = priceDeviation > 20;
                 return (
-                  <HBarRow
-                    key={d.name}
-                    label={d.name}
-                    pct={scaledPct}
-                    valLabel={`${d.quality}%`}
-                    tier={tier}
-                    valOut={valOut}
-                    warningAt={isExceed ? 50 : undefined}
-                    warningLabel={isExceed ? '5% 预警线' : undefined}
-                    tagLabel={isExceed ? '← 超5%预警' : undefined}
-                  />
+                  <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                    <HBarRow
+                      label={d.name}
+                      pct={scaledPct}
+                      valLabel={`${d.quality}%`}
+                      tier={tier}
+                      valOut={valOut}
+                      warningAt={isExceed ? 50 : undefined}
+                      warningLabel={isExceed ? '5% 预警线' : undefined}
+                      tagLabel={isExceed ? '← 超5%预警' : undefined}
+                    />
+                    {hasPriceAnomaly && <AnomalyIcon deviationPct={priceDeviation} />}
+                  </div>
                 );
               })}
             </div>
@@ -272,7 +718,7 @@ function PerfModal({ open, onClose }: PerfModalProps) {
               <span className={styles.aiSuggestionTitle}>AI 供应商评估建议</span>
             </div>
             <div className={styles.aiSuggestionBody}>
-              联鑫材料质量异常率持续偏高（6.2%，超过5%预警阈值），近3个月已触发 2 次到货质检不合格。建议采购员与联鑫材料沟通整改方案，或评估是否调整为 C 级并寻找替代供应商。
+              综合对比来看，{compareSuppliers[0]?.name ?? '华森木业'} 在准时交货率和综合评分方面表现最优。建议重点关注质量异常率偏高的供应商，推动整改或寻找替代方案。
             </div>
           </div>
         </div>
@@ -1362,6 +1808,8 @@ export default function SupplierPage() {
 
   // Modal 状态
   const [perfModalOpen, setPerfModalOpen] = useState(false);
+  const [compareSelectedIds, setCompareSelectedIds] = useState<number[]>([]);
+  void setCompareSelectedIds; // will be wired to CompareToggleButton
 
   // Drawer 状态
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
@@ -1788,7 +2236,7 @@ export default function SupplierPage() {
       </div>
 
       {/* 绩效对比 Modal */}
-      <PerfModal open={perfModalOpen} onClose={() => setPerfModalOpen(false)} />
+      <PerfModal open={perfModalOpen} onClose={() => setPerfModalOpen(false)} compareIds={compareSelectedIds} suppliers={supplierList} />
 
       {/* 新建供应商 Drawer */}
       <Drawer

@@ -159,8 +159,9 @@ export const processConfigApi = {
     request.delete<{ id: number }>(`/api/process-configs/${id}`),
 
   // ── R-05 新增 ──
+  // FE-05-07: 使用 PATCH 替代 PUT（语义更准确，仅更新指定字段）
   setMaxHours: (stepId: number, maxHours: number) =>
-    request.put<{ stepId: number; maxHours: number }>(
+    request.patch<{ stepId: number; maxHours: number }>(
       `/api/process-config/steps/${stepId}/max-hours`,
       { maxHours } satisfies SetMaxHoursPayload,
     ),
@@ -169,7 +170,7 @@ export const processConfigApi = {
     request.get<StepWageItem[]>(`/api/process-config/steps/${stepId}/wages`),
 
   setWages: (stepId: number, payload: SetWagesPayload) =>
-    request.put<StepWageItem>(
+    request.patch<StepWageItem>(
       `/api/process-config/steps/${stepId}/wages`,
       payload,
     ),

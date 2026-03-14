@@ -18,7 +18,43 @@ export const skuCategoryKeys = {
   list: (params?: { level?: number; parentId?: number; includeInactive?: boolean }) =>
     [...skuCategoryKeys.lists(), params] as const,
   detail: (id: number) => [...skuCategoryKeys.all, 'detail', id] as const,
+  deletePreview: (id: number) => [...skuCategoryKeys.all, 'delete-preview', id] as const,
+  auditLogs: (params?: AuditLogParams) => [...skuCategoryKeys.all, 'audit-logs', params] as const,
 };
+
+// ── 审计日志参数 ──────────────────────────────
+export interface AuditLogParams {
+  type?: 'create' | 'update' | 'delete' | '';
+  from?: string; // ISO date string
+  to?: string;   // ISO date string
+}
+
+// ── 审计日志条目 ──────────────────────────────
+export interface AuditLogEntry {
+  id: number;
+  type: 'create' | 'update' | 'delete';
+  categoryId: number;
+  categoryName: string;
+  operatorName: string;
+  operatedAt: string; // ISO datetime
+  diff?: {
+    field: string;
+    oldValue: string;
+    newValue: string;
+  }[];
+}
+
+// ── 删除预览结果 ──────────────────────────────
+export interface DeletePreviewResult {
+  childCount: number;
+  skuCount: number;
+  isSystem: boolean;
+}
+
+// ── 排序载荷 ─────────────────────────────────
+export interface ReorderPayload {
+  ids: number[]; // ordered list of category ids
+}
 
 // ── 原始请求函数 ─────────────────────────────
 export const skuCategoryApi = {
@@ -30,13 +66,25 @@ export const skuCategoryApi = {
   create: (payload: CreateCategoryPayload) =>
     request.post<SkuCategoryFull>('/api/sku-categories', payload),
 
-  /** PUT /api/sku-categories/:id — 编辑类目名称/排序 */
+  /** PATCH /api/sku-categories/:id — 编辑类目名称/排序（FE-01-06: PUT → PATCH） */
   update: (id: number, payload: UpdateCategoryPayload) =>
-    request.put<SkuCategoryFull>(`/api/sku-categories/${id}`, payload),
+    request.patch<SkuCategoryFull>(`/api/sku-categories/${id}`, payload),
 
   /** DELETE /api/sku-categories/:id — 删除类目（软删除，含级联） */
   delete: (id: number) =>
     request.delete<void>(`/api/sku-categories/${id}`),
+
+  /** GET /api/sku-categories/:id/delete-preview — 查询删除前关联数据（FE-01-04） */
+  deletePreview: (id: number) =>
+    request.get<DeletePreviewResult>(`/api/sku-categories/${id}/delete-preview`),
+
+  /** PATCH /api/sku-categories/reorder — 批量更新排序（FE-01-02） */
+  reorder: (payload: ReorderPayload) =>
+    request.patch<void>('/api/sku-categories/reorder', payload),
+
+  /** GET /api/sku-categories/audit-logs — 获取操作日志（FE-01-03） */
+  getAuditLogs: (params?: AuditLogParams) =>
+    request.get<AuditLogEntry[]>('/api/sku-categories/audit-logs', params as Record<string, unknown>),
 };
 
 // ── React Query Hooks ────────────────────────
@@ -65,7 +113,7 @@ export function useCreateCategory() {
   });
 }
 
-/** 编辑类目 Mutation */
+/** 编辑类目 Mutation（PATCH） */
 export function useUpdateCategory() {
   const qc = useQueryClient();
   return useMutation({
@@ -86,4 +134,44 @@ export function useDeleteCategory() {
       void qc.invalidateQueries({ queryKey: skuCategoryKeys.lists() });
     },
   });
+}
+
+/** 删除预览查询（FE-01-04） */
+export function useDeletePreview(id: number | null) {
+  return useQuery({
+    queryKey: skuCategoryKeys.deletePreview(id ?? 0),
+    queryFn: () => skuCategoryApi.deletePreview(id!),
+    enabled: id !== null,
+    staleTime: 0, // 每次都重新获取最新关联数
+  });
+}
+
+/** 批量排序 Mutation（FE-01-02） */
+export function useReorderCategories() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ReorderPayload) => skuCategoryApi.reorder(payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: skuCategoryKeys.lists() });
+    },
+  });
+}
+
+/** 操作日志查询（FE-01-03） */
+export function useAuditLogs(params?: AuditLogParams) {
+  return useQuery({
+    queryKey: skuCategoryKeys.auditLogs(params),
+    queryFn: () => skuCategoryApi.getAuditLogs(params),
+    staleTime: 1000 * 30, // 30 秒缓存
+  });
+}
+
+/** 获取单条分类的删除预览数据（命令式，用于弹框前查询） */
+export async function fetchDeletePreview(id: number): Promise<DeletePreviewResult> {
+  return skuCategoryApi.deletePreview(id);
+}
+
+/** 获取审计日志（命令式） */
+export async function fetchAuditLogs(params?: AuditLogParams): Promise<AuditLogEntry[]> {
+  return skuCategoryApi.getAuditLogs(params);
 }

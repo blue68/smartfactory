@@ -42,6 +42,9 @@ export class CustomerEntity {
   @Column({ type: 'varchar', length: 300, nullable: true })
   address: string | null;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  region: string | null;
+
   @Column({ name: 'credit_limit', type: 'decimal', precision: 14, scale: 2, nullable: true })
   creditLimit: string | null;
 

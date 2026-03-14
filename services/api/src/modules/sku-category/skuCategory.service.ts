@@ -306,6 +306,132 @@ export class SkuCategoryService {
     });
   }
 
+  // ───────────────────────── BE-01-02: 审计日志 ────────────────────────────
+
+  /**
+   * 从 sku_categories 表推断操作类型作为简易审计日志。
+   * 推断规则：
+   *   add    - created_at = updated_at（创建后未变更）
+   *   edit   - updated_at > created_at AND is_active = 1
+   *   delete - is_active = 0
+   */
+  async getAuditLogs(filter: {
+    type?: 'add' | 'edit' | 'delete';
+    from?: string;
+    to?: string;
+  }): Promise<Array<{
+    id: number;
+    type: 'add' | 'edit' | 'delete';
+    categoryName: string;
+    operator: number;
+    timestamp: string;
+    detail: string;
+  }>> {
+    const conditions: string[] = [
+      '(tenant_id = 0 OR tenant_id = ?)',
+    ];
+    const params: unknown[] = [this.tenantId];
+
+    // 日期范围过滤（以 updated_at 为基准）
+    if (filter.from) {
+      conditions.push('updated_at >= ?');
+      params.push(`${filter.from} 00:00:00`);
+    }
+    if (filter.to) {
+      conditions.push('updated_at <= ?');
+      params.push(`${filter.to} 23:59:59`);
+    }
+
+    // 操作类型过滤（转换为 SQL 条件）
+    if (filter.type === 'add') {
+      conditions.push('(ABS(TIMESTAMPDIFF(SECOND, created_at, updated_at)) <= 1)');
+    } else if (filter.type === 'edit') {
+      conditions.push('(TIMESTAMPDIFF(SECOND, created_at, updated_at) > 1 AND is_active = 1)');
+    } else if (filter.type === 'delete') {
+      conditions.push('is_active = 0');
+    }
+
+    const rows = await AppDataSource.query<Array<{
+      id: number;
+      name: string;
+      is_active: number;
+      updated_by: number;
+      created_at: string;
+      updated_at: string;
+    }>>(
+      `SELECT id, name, is_active, updated_by, created_at, updated_at
+       FROM sku_categories
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY updated_at DESC
+       LIMIT 200`,
+      params,
+    );
+
+    return rows.map((r) => {
+      let type: 'add' | 'edit' | 'delete';
+      const diffSeconds = Math.abs(
+        new Date(r.updated_at).getTime() - new Date(r.created_at).getTime(),
+      ) / 1000;
+
+      if (Number(r.is_active) === 0) {
+        type = 'delete';
+      } else if (diffSeconds <= 1) {
+        type = 'add';
+      } else {
+        type = 'edit';
+      }
+
+      const typeLabel: Record<string, string> = {
+        add: '新增类目',
+        edit: '修改类目',
+        delete: '删除类目',
+      };
+
+      return {
+        id: Number(r.id),
+        type,
+        categoryName: r.name,
+        operator: Number(r.updated_by),
+        timestamp: r.updated_at,
+        detail: `${typeLabel[type]}：${r.name}`,
+      };
+    });
+  }
+
+  // ───────────────────────── BE-01-03: 拖拽重排 ────────────────────────────
+
+  /**
+   * 批量更新类目 sort_order（拖拽重排）。
+   * 在事务中执行，校验所有 ID 均属于当前租户。
+   */
+  async reorder(orders: Array<{ id: number; sortOrder: number }>): Promise<void> {
+    const ids = orders.map((o) => o.id);
+    const placeholders = ids.map(() => '?').join(',');
+
+    // 一次性校验所有 ID 的归属
+    const owned = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT id FROM sku_categories
+       WHERE tenant_id = ? AND id IN (${placeholders}) AND is_active = 1`,
+      [this.tenantId, ...ids],
+    );
+    const ownedIds = new Set(owned.map((r) => Number(r.id)));
+    const invalid = ids.filter((id) => !ownedIds.has(id));
+    if (invalid.length > 0) {
+      throw AppError.forbidden(`以下类目 ID 无操作权限或不存在：${invalid.join(', ')}`);
+    }
+
+    await AppDataSource.transaction(async (manager) => {
+      for (const item of orders) {
+        await manager.query(
+          `UPDATE sku_categories
+           SET sort_order = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP(3)
+           WHERE id = ? AND tenant_id = ?`,
+          [item.sortOrder, this.userId, item.id, this.tenantId],
+        );
+      }
+    });
+  }
+
   // ───────────────────────────────── 私有辅助 ──────────────────────────────
 
   /**

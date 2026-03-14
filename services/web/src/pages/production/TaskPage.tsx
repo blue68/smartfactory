@@ -3,21 +3,31 @@
  *
  * 功能范围：
  *   - 统计卡片行：总任务数 / 进行中 / 已完成 / 异常
- *   - 筛选栏：关键词搜索 + 状态下拉
- *   - 任务列表表格（带分页）
+ *   - 筛选栏：关键词搜索 + 状态下拉 + 日期范围 + 工序筛选
+ *   - 任务列表表格（带分页）—— 点击行打开详情抽屉
+ *   - 优先级标签（高优先级 / 普通）
+ *   - 超时预警角标
+ *   - 任务详情侧边抽屉：基本信息 / 生产数据 / SKU信息 / 异常记录 / 操作按钮
  *   - 开始任务：一键将 pending → in_progress
  *   - 完成任务弹窗：填写完成数量 + 备注
  *   - 上报异常弹窗：异常类型 / 严重程度 / 描述
  *   - 状态徽章：pending=待开始(grey) / in_progress=进行中(blue) / completed=已完成(green) / exception=异常(red)
  *
+ * FE-06-01: 任务详情 Drawer
+ * FE-06-02: 日期范围筛选
+ * FE-06-03: 工序筛选下拉
+ * FE-06-04: 优先级标签
+ * FE-06-05: 超时预警角标
+ *
  * API 来源：/api/productionTask.ts
- *   hooks: useTaskList / useStartTask / useCompleteTask / useReportException
+ *   hooks: useTaskList / useTaskDetail / useStartTask / useCompleteTask / useReportException
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import {
   useTaskList,
+  useTaskDetail,
   useStartTask,
   useCompleteTask,
   useReportException,
@@ -25,6 +35,7 @@ import {
 import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
 import Table from '@/components/common/Table';
+import Drawer from '@/components/common/Drawer';
 import type { Column } from '@/components/common/Table';
 import styles from './TaskPage.module.css';
 
@@ -35,6 +46,15 @@ type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'exception';
 type ExceptionType = '设备故障' | '物料缺失' | '质量异常' | '其他';
 type ExceptionSeverity = 'low' | 'medium' | 'high';
 
+interface TaskException {
+  id: number;
+  type: string;
+  description: string;
+  severity: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
 interface ProductionTask {
   id: number;
   taskDate: string;
@@ -44,7 +64,15 @@ interface ProductionTask {
   workerName: string;
   plannedQty: number;
   completedQty: number;
+  scrapQty?: number;
+  skuCode?: string;
+  skuName?: string;
   status: TaskStatus;
+  priority?: number;
+  isOvertime?: boolean;
+  maxHours?: number;
+  actualHours?: number;
+  exceptions?: TaskException[];
   [key: string]: unknown;
 }
 
@@ -77,7 +105,34 @@ const SEVERITY_OPTIONS: { value: ExceptionSeverity; label: string }[] = [
   { value: 'high',   label: '高' },
 ];
 
+const SEVERITY_LABEL: Record<string, string> = {
+  low:    '低',
+  medium: '中',
+  high:   '高',
+};
+
 const PAGE_SIZE = 20;
+
+// ─── 工具函数 ─────────────────────────────────────────────
+
+/** 判断任务是否超时：completedQty > 0 且实际工时 > maxHours × 1.2 */
+function isTaskOvertime(task: ProductionTask): boolean {
+  if (task.isOvertime === true) return true;
+  if (
+    task.completedQty > 0 &&
+    task.maxHours != null &&
+    task.actualHours != null &&
+    task.actualHours > task.maxHours * 1.2
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** 优先级是否为高优：priority >= 80 */
+function isHighPriority(task: ProductionTask): boolean {
+  return typeof task.priority === 'number' && task.priority >= 80;
+}
 
 // ─── 主页面组件 ───────────────────────────────────────────
 
@@ -86,10 +141,18 @@ export default function TaskPage() {
 
   useEffect(() => { setPageTitle('生产任务管理'); }, [setPageTitle]);
 
-  // 筛选状态
-  const [keyword, setKeyword]         = useState('');
+  // ── 筛选状态 ────────────────────────────────────────────
+  const [keyword, setKeyword]           = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [page, setPage]               = useState(1);
+  const [page, setPage]                 = useState(1);
+
+  // FE-06-02: 日期范围
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo]     = useState('');
+  const [dateError, setDateError] = useState('');
+
+  // FE-06-03: 工序筛选
+  const [processFilter, setProcessFilter] = useState('');
 
   // 防抖搜索关键词
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
@@ -104,12 +167,45 @@ export default function TaskPage() {
     setPage(1);
   }, []);
 
+  // FE-06-02: 日期范围变化时验证并重置分页
+  const handleDateFromChange = useCallback((v: string) => {
+    setDateFrom(v);
+    setDateError('');
+    setPage(1);
+  }, []);
+
+  const handleDateToChange = useCallback((v: string) => {
+    if (dateFrom && v && v < dateFrom) {
+      setDateError('结束日期不能早于开始日期');
+    } else {
+      setDateError('');
+    }
+    setDateTo(v);
+    setPage(1);
+  }, [dateFrom]);
+
+  const handleClearDates = useCallback(() => {
+    setDateFrom('');
+    setDateTo('');
+    setDateError('');
+    setPage(1);
+  }, []);
+
+  // FE-06-03: 工序筛选变化
+  const handleProcessFilterChange = useCallback((v: string) => {
+    setProcessFilter(v);
+    setPage(1);
+  }, []);
+
   // ── 数据查询 ──────────────────────────────────────────────
   const filter = {
     page,
     pageSize: PAGE_SIZE,
     status:   statusFilter || undefined,
     keyword:  debouncedKeyword || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo:   (dateTo && !dateError) ? dateTo : undefined,
+    processId: processFilter ? Number(processFilter) : undefined,
   };
 
   const { data: rawData, isLoading, isError } = useTaskList(filter);
@@ -122,7 +218,21 @@ export default function TaskPage() {
     return { list: d.list ?? [], total: d.total ?? 0 };
   })();
 
-  // ── 统计卡片数据（从当前列表计算，全量统计需后端支持 summary 字段）
+  // ── FE-06-03: 从任务列表提取唯一工序列表作为筛选选项
+  const processOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const opts: { label: string; value: string }[] = [];
+    taskData.list.forEach((t) => {
+      const key = t.processName;
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        opts.push({ label: key, value: key });
+      }
+    });
+    return opts;
+  }, [taskData.list]);
+
+  // ── 统计卡片数据（从当前列表计算）
   const stats = {
     total:      taskData.total,
     inProgress: taskData.list.filter((t) => t.status === 'in_progress').length,
@@ -134,6 +244,19 @@ export default function TaskPage() {
   const startMutation    = useStartTask();
   const completeMutation = useCompleteTask();
   const exceptionMutation = useReportException();
+
+  // ── FE-06-01: 任务详情抽屉状态 ────────────────────────────
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const { data: taskDetailRaw, isLoading: detailLoading } = useTaskDetail(selectedTaskId);
+  const taskDetail = taskDetailRaw as ProductionTask | undefined;
+
+  const openDrawer = useCallback((task: ProductionTask) => {
+    setSelectedTaskId(task.id);
+  }, []);
+
+  const closeDrawer = useCallback(() => {
+    setSelectedTaskId(null);
+  }, []);
 
   // ── 完成任务弹窗状态 ──────────────────────────────────────
   const [completeOpen, setCompleteOpen]   = useState(false);
@@ -214,6 +337,22 @@ export default function TaskPage() {
     }
   }, [startMutation, showToast]);
 
+  // ── 从抽屉发起操作（与表格操作共用 handlers） ──────────────
+  const handleStartFromDrawer = useCallback(async () => {
+    if (!taskDetail) return;
+    await handleStart(taskDetail as ProductionTask);
+  }, [taskDetail, handleStart]);
+
+  const handleCompleteFromDrawer = useCallback(() => {
+    if (!taskDetail) return;
+    openCompleteModal(taskDetail as ProductionTask);
+  }, [taskDetail, openCompleteModal]);
+
+  const handleExceptionFromDrawer = useCallback(() => {
+    if (!taskDetail) return;
+    openExceptionModal(taskDetail as ProductionTask);
+  }, [taskDetail, openExceptionModal]);
+
   // ── 表格列定义 ───────────────────────────────────────────
   const columns: Column<ProductionTask>[] = [
     {
@@ -278,17 +417,34 @@ export default function TaskPage() {
         );
       },
     },
+    // FE-06-04: 优先级列
+    {
+      key:   'priority',
+      title: '优先级',
+      width: 90,
+      render: (_, record) => (
+        isHighPriority(record)
+          ? <span className={styles.priorityBadgeHigh}>高优先级</span>
+          : <span className={styles.priorityBadgeNormal}>普通</span>
+      ),
+    },
     {
       key:   'status',
       title: '状态',
-      width: 100,
+      width: 130,
       render: (_, record) => (
-        <span
-          className={`${styles.statusBadge} ${STATUS_BADGE_CLASS[record.status] ?? styles.badgePending}`}
-          aria-label={STATUS_LABEL[record.status] ?? record.status}
-        >
-          {STATUS_LABEL[record.status] ?? record.status}
-        </span>
+        <div className={styles.statusCell}>
+          <span
+            className={`${styles.statusBadge} ${STATUS_BADGE_CLASS[record.status] ?? styles.badgePending}`}
+            aria-label={STATUS_LABEL[record.status] ?? record.status}
+          >
+            {STATUS_LABEL[record.status] ?? record.status}
+          </span>
+          {/* FE-06-05: 超时预警角标 */}
+          {isTaskOvertime(record) && (
+            <span className={styles.overtimeBadge} title="实际工时超出计划工时 20%">超时</span>
+          )}
+        </div>
       ),
     },
     {
@@ -297,6 +453,7 @@ export default function TaskPage() {
       width: 200,
       render: (_, record) => (
         <div className={styles.actionGroup}>
+          <Button variant="ghost" size="sm" onClick={() => openDrawer(record)}>详情</Button>
           {record.status === 'pending' && (
             <Button
               variant="primary"
@@ -379,6 +536,7 @@ export default function TaskPage() {
 
       {/* ── 筛选栏 ── */}
       <div className={styles.filterBar}>
+        {/* 关键词搜索 */}
         <div className={styles.searchWrap}>
           <span className={styles.searchIcon} aria-hidden="true">🔍</span>
           <input
@@ -390,6 +548,8 @@ export default function TaskPage() {
             aria-label="关键词搜索"
           />
         </div>
+
+        {/* 状态筛选 */}
         <select
           className={styles.select}
           value={statusFilter}
@@ -402,6 +562,56 @@ export default function TaskPage() {
           <option value="completed">已完成</option>
           <option value="exception">异常</option>
         </select>
+
+        {/* FE-06-03: 工序筛选 */}
+        <select
+          className={styles.select}
+          value={processFilter}
+          onChange={(e) => handleProcessFilterChange(e.target.value)}
+          aria-label="工序筛选"
+        >
+          <option value="">全部工序</option>
+          {processOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+
+        {/* FE-06-02: 日期范围筛选 */}
+        <div className={styles.dateRangeWrap}>
+          <label className={styles.dateRangeLabel} htmlFor="date-from">日期</label>
+          <input
+            id="date-from"
+            className={`${styles.dateInput} ${dateError ? styles.dateInputError : ''}`}
+            type="date"
+            value={dateFrom}
+            onChange={(e) => handleDateFromChange(e.target.value)}
+            aria-label="开始日期"
+          />
+          <span className={styles.dateRangeSep}>至</span>
+          <input
+            id="date-to"
+            className={`${styles.dateInput} ${dateError ? styles.dateInputError : ''}`}
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => handleDateToChange(e.target.value)}
+            aria-label="结束日期"
+            aria-describedby={dateError ? 'date-error' : undefined}
+          />
+          {(dateFrom || dateTo) && (
+            <button
+              type="button"
+              className={styles.dateClearBtn}
+              onClick={handleClearDates}
+              aria-label="清除日期筛选"
+            >
+              ×
+            </button>
+          )}
+          {dateError && (
+            <span id="date-error" className={styles.dateError} role="alert">{dateError}</span>
+          )}
+        </div>
       </div>
 
       {/* ── 任务表格 ── */}
@@ -425,6 +635,31 @@ export default function TaskPage() {
           }
         />
       </div>
+
+      {/* ── FE-06-01: 任务详情侧边抽屉 ── */}
+      <Drawer
+        open={selectedTaskId !== null}
+        title="任务详情"
+        onClose={closeDrawer}
+        width={480}
+        footer={
+          taskDetail ? (
+            <TaskDrawerFooter
+              task={taskDetail as ProductionTask}
+              startLoading={startMutation.isPending}
+              completeLoading={completeMutation.isPending}
+              onStart={() => void handleStartFromDrawer()}
+              onComplete={handleCompleteFromDrawer}
+              onException={handleExceptionFromDrawer}
+            />
+          ) : null
+        }
+      >
+        <TaskDetailContent
+          task={taskDetail as ProductionTask | undefined}
+          loading={detailLoading}
+        />
+      </Drawer>
 
       {/* ── 完成任务弹窗 ── */}
       <CompleteTaskModal
@@ -481,6 +716,209 @@ function StatCard({ label, value, icon, iconClass, variant = 'default' }: StatCa
       </div>
     </div>
   );
+}
+
+// ─── TaskDetailContent — 抽屉主体内容 ───────────────────
+
+interface TaskDetailContentProps {
+  task: ProductionTask | undefined;
+  loading: boolean;
+}
+
+function TaskDetailContent({ task, loading }: TaskDetailContentProps) {
+  if (loading) {
+    return (
+      <div className={styles.drawerLoading}>
+        <div className={styles.skeletonLine} style={{ width: '60%' }} />
+        <div className={styles.skeletonLine} style={{ width: '80%' }} />
+        <div className={styles.skeletonLine} style={{ width: '50%' }} />
+        <div className={styles.skeletonLine} style={{ width: '70%' }} />
+      </div>
+    );
+  }
+
+  if (!task) {
+    return <div className={styles.drawerEmpty}>暂无任务详情</div>;
+  }
+
+  const overtime = isTaskOvertime(task);
+
+  return (
+    <div className={styles.drawerContent}>
+      {/* 基本信息 */}
+      <section className={styles.drawerSection}>
+        <h3 className={styles.drawerSectionTitle}>基本信息</h3>
+        <dl className={styles.infoGrid}>
+          <DetailItem label="任务日期" value={task.taskDate || '—'} />
+          <DetailItem label="订单号"   value={task.orderNo || '—'} />
+          <DetailItem label="工序名称" value={task.processName || '—'} />
+          <DetailItem label="工作站"   value={task.workstationName || '—'} />
+          <DetailItem label="工人"     value={task.workerName || '—'} />
+          <DetailItem
+            label="状态"
+            value={
+              <span
+                className={`${styles.statusBadge} ${STATUS_BADGE_CLASS[task.status] ?? styles.badgePending}`}
+              >
+                {STATUS_LABEL[task.status] ?? task.status}
+              </span>
+            }
+          />
+        </dl>
+      </section>
+
+      {/* 生产数据 */}
+      <section className={styles.drawerSection}>
+        <h3 className={styles.drawerSectionTitle}>生产数据</h3>
+        <dl className={styles.infoGrid}>
+          <DetailItem label="计划数量" value={String(task.plannedQty ?? '—')} />
+          <DetailItem label="已完成"   value={String(task.completedQty ?? 0)} />
+          <DetailItem label="报废数量" value={String(task.scrapQty ?? 0)} />
+          {overtime && (
+            <DetailItem
+              label="超时预警"
+              value={<span className={styles.overtimeBadge}>超时</span>}
+            />
+          )}
+        </dl>
+      </section>
+
+      {/* SKU 信息 */}
+      {(task.skuCode || task.skuName) && (
+        <section className={styles.drawerSection}>
+          <h3 className={styles.drawerSectionTitle}>SKU 信息</h3>
+          <dl className={styles.infoGrid}>
+            {task.skuCode && <DetailItem label="SKU 编码" value={task.skuCode} />}
+            {task.skuName && <DetailItem label="SKU 名称" value={task.skuName} />}
+          </dl>
+        </section>
+      )}
+
+      {/* 异常记录 */}
+      <section className={styles.drawerSection}>
+        <h3 className={styles.drawerSectionTitle}>异常记录</h3>
+        {(!task.exceptions || task.exceptions.length === 0) ? (
+          <p className={styles.drawerEmptyText}>暂无异常记录</p>
+        ) : (
+          <ul className={styles.exceptionTimeline}>
+            {task.exceptions.map((exc) => (
+              <li key={exc.id} className={styles.exceptionTimelineItem}>
+                <span className={styles.exceptionDot} />
+                <div className={styles.exceptionTimelineBody}>
+                  <div className={styles.exceptionTimelineHeader}>
+                    <span className={styles.exceptionTypeTag}>{exc.type}</span>
+                    <span className={styles.exceptionSeverityTag} data-severity={exc.severity}>
+                      严重度：{SEVERITY_LABEL[exc.severity] ?? exc.severity}
+                    </span>
+                    {exc.resolvedAt && (
+                      <span className={styles.exceptionResolvedTag}>已处理</span>
+                    )}
+                  </div>
+                  <p className={styles.exceptionDesc}>{exc.description}</p>
+                  <time className={styles.exceptionTime} dateTime={exc.createdAt}>
+                    上报时间：{exc.createdAt}
+                  </time>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ─── DetailItem — 信息条目 ──────────────────────────────
+
+interface DetailItemProps {
+  label: string;
+  value: string | React.ReactNode;
+}
+
+function DetailItem({ label, value }: DetailItemProps) {
+  return (
+    <>
+      <dt className={styles.infoLabel}>{label}</dt>
+      <dd className={styles.infoValue}>{value}</dd>
+    </>
+  );
+}
+
+// ─── TaskDrawerFooter — 抽屉底部操作按钮 ────────────────
+
+interface TaskDrawerFooterProps {
+  task: ProductionTask;
+  startLoading: boolean;
+  completeLoading: boolean;
+  onStart: () => void;
+  onComplete: () => void;
+  onException: () => void;
+}
+
+function TaskDrawerFooter({
+  task,
+  startLoading,
+  completeLoading,
+  onStart,
+  onComplete,
+  onException,
+}: TaskDrawerFooterProps) {
+  if (task.status === 'pending') {
+    return (
+      <div className={styles.drawerFooterActions}>
+        <Button
+          variant="primary"
+          size="md"
+          loading={startLoading}
+          onClick={onStart}
+          style={{ width: '100%' }}
+        >
+          开始生产
+        </Button>
+      </div>
+    );
+  }
+
+  if (task.status === 'in_progress') {
+    return (
+      <div className={styles.drawerFooterActions}>
+        <Button
+          variant="success"
+          size="md"
+          loading={completeLoading}
+          onClick={onComplete}
+          style={{ flex: 1 }}
+        >
+          完工上报
+        </Button>
+        <Button
+          variant="danger"
+          size="md"
+          onClick={onException}
+          style={{ flex: 1 }}
+        >
+          处理异常
+        </Button>
+      </div>
+    );
+  }
+
+  if (task.status === 'exception') {
+    return (
+      <div className={styles.drawerFooterActions}>
+        <Button
+          variant="danger"
+          size="md"
+          onClick={onException}
+          style={{ width: '100%' }}
+        >
+          处理异常
+        </Button>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 // ─── CompleteTaskModal — 完成任务弹窗 ────────────────────

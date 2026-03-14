@@ -22,6 +22,7 @@ export interface Customer {
   phone?: string;
   email?: string;
   address?: string;
+  region?: string;
   creditLimit?: string;
   paymentDays?: number;
   notes?: string;
@@ -45,6 +46,18 @@ export interface CustomerOption {
   name: string;
   code: string;
   grade: CustomerGrade;
+  paymentDays?: number;
+}
+
+/** 客户关联订单概要 */
+export interface CustomerOrderSummary {
+  id: number;
+  orderNo: string;
+  orderDate: string;
+  deliveryDate: string;
+  isUrgent: boolean;
+  status: string;
+  totalAmount: string;
 }
 
 export interface CustomerListQuery {
@@ -63,6 +76,7 @@ export interface CreateCustomerPayload {
   phone?: string;
   email?: string;
   address?: string;
+  region?: string;
   creditLimit?: string;
   paymentDays?: number;
   notes?: string;
@@ -112,6 +126,33 @@ export async function createCustomerContact(customerId: number, payload: CreateC
 
 export async function deleteCustomerContact(customerId: number, contactId: number): Promise<void> {
   return request.delete<void>(`${BASE}/${customerId}/contacts/${contactId}`);
+}
+
+/** PATCH /api/customers/:id/status — 启用/禁用客户 */
+export async function patchCustomerStatus(id: number, status: CustomerStatus): Promise<{ id: number; status: CustomerStatus }> {
+  return request.patch<{ id: number; status: CustomerStatus }>(`${BASE}/${id}/status`, { status });
+}
+
+/** PUT /api/customers/:id/contacts/:contactId — 更新联系人 */
+export async function updateCustomerContact(
+  customerId: number,
+  contactId: number,
+  payload: Partial<CreateContactPayload>,
+): Promise<CustomerContact> {
+  return request.put<CustomerContact>(`${BASE}/${customerId}/contacts/${contactId}`, payload);
+}
+
+/** GET /api/customers/:id/orders — 客户关联订单概要（最近 5 条） */
+export async function fetchCustomerOrders(
+  customerId: number,
+  params?: { page?: number; pageSize?: number },
+): Promise<import('@/types/api').PaginatedData<CustomerOrderSummary>> {
+  return request.get(`${BASE}/${customerId}/orders`, { page: 1, pageSize: 5, ...params });
+}
+
+/** GET /api/customers/:id — 检查客户是否有进行中订单（通过订单接口） */
+export async function checkCustomerActiveOrders(id: number): Promise<{ count: number }> {
+  return request.get<{ count: number }>(`${BASE}/${id}/orders/active-count`);
 }
 
 // ─────────────────────────────────────────────
@@ -192,5 +233,46 @@ export function useDeleteCustomerContact() {
     onSuccess: (_, { customerId }) => {
       qc.invalidateQueries({ queryKey: ['customer-contacts', customerId] });
     },
+  });
+}
+
+/** Hook: 启用/禁用客户 */
+export function usePatchCustomerStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: number; status: CustomerStatus }) =>
+      patchCustomerStatus(id, status),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['customer', id] });
+    },
+  });
+}
+
+/** Hook: 更新联系人 */
+export function useUpdateCustomerContact() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      customerId,
+      contactId,
+      payload,
+    }: {
+      customerId: number;
+      contactId: number;
+      payload: Partial<CreateContactPayload>;
+    }) => updateCustomerContact(customerId, contactId, payload),
+    onSuccess: (_, { customerId }) => {
+      qc.invalidateQueries({ queryKey: ['customer-contacts', customerId] });
+    },
+  });
+}
+
+/** Hook: 获取客户关联订单（最近 5 条） */
+export function useCustomerOrders(customerId: number | null) {
+  return useQuery({
+    queryKey: ['customer-orders', customerId],
+    queryFn: () => fetchCustomerOrders(customerId!, { pageSize: 5 }),
+    enabled: customerId !== null,
   });
 }

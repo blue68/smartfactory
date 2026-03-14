@@ -132,8 +132,60 @@ export class ProductionService {
   }
 
   // R-06: 任务列表（支持分页、状态筛选、关键字搜索）
+  // BE-06-01: 任务详情
+  async getTaskDetail(taskId: number): Promise<unknown> {
+    const tasks = await AppDataSource.query(
+        `SELECT pt.id, pt.task_date AS taskDate, pt.status,
+                pt.planned_qty AS plannedQty, pt.completed_qty AS completedQty,
+                pt.scrap_qty AS scrapQty, pt.worker_id AS workerId,
+                pt.workstation_id AS workstationId, pt.process_step_id AS processStepId,
+                pt.production_order_id AS productionOrderId,
+                pt.started_at AS startedAt, pt.completed_at AS completedAt,
+                pt.created_at AS createdAt, pt.updated_at AS updatedAt,
+                po.work_order_no AS orderNo, po.priority,
+                po.sales_order_id AS salesOrderId, po.sku_id AS skuId,
+                ps.step_name AS processName, ps.step_no AS stepNo,
+                ps.standard_hours AS standardHours, ps.max_hours AS maxHours,
+                ws.name AS workstationName,
+                u.real_name AS workerName,
+                s.name AS skuName, s.sku_code AS skuCode
+         FROM production_tasks pt
+         INNER JOIN production_orders po ON po.id = pt.production_order_id
+         INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+         LEFT JOIN workstations ws ON ws.id = pt.workstation_id
+         LEFT JOIN users u ON u.id = pt.worker_id
+         LEFT JOIN skus s ON s.id = po.sku_id
+         WHERE pt.id = ? AND pt.tenant_id = ?`,
+      [taskId, this.tenantId],
+    );
+
+    if (!tasks || tasks.length === 0) {
+      throw AppError.notFound('任务不存在', ResponseCode.NOT_FOUND);
+    }
+
+    const task = tasks[0];
+
+    // 获取异常记录作为操作时间线
+    const exceptions = await AppDataSource.query(
+      `SELECT te.id, te.exception_type AS type, te.description,
+              te.severity, te.reported_by AS reportedBy,
+              te.resolved_at AS resolvedAt, te.resolved_by AS resolvedBy,
+              te.resolution, te.created_at AS createdAt,
+              ru.real_name AS reporterName, resu.real_name AS resolverName
+       FROM task_exceptions te
+       LEFT JOIN users ru ON ru.id = te.reported_by
+       LEFT JOIN users resu ON resu.id = te.resolved_by
+       WHERE te.task_id = ? AND te.tenant_id = ?
+       ORDER BY te.created_at ASC`,
+      [taskId, this.tenantId],
+    );
+
+    return { ...task, exceptions };
+  }
+
   async listTasks(params: {
     page: number; pageSize: number; status?: string; keyword?: string;
+    processId?: number; dateFrom?: string; dateTo?: string; priority?: number;
   }) {
     const conds = ['pt.tenant_id = ?'];
     const p: unknown[] = [this.tenantId];
@@ -145,6 +197,23 @@ export class ProductionService {
     if (params.keyword) {
       conds.push('(po.work_order_no LIKE ? OR ps.step_name LIKE ? OR u.real_name LIKE ?)');
       p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
+    }
+    // BE-06-02: 新增筛选参数
+    if (params.processId) {
+      conds.push('ps.id = ?');
+      p.push(params.processId);
+    }
+    if (params.dateFrom) {
+      conds.push('pt.task_date >= ?');
+      p.push(params.dateFrom);
+    }
+    if (params.dateTo) {
+      conds.push('pt.task_date <= ?');
+      p.push(params.dateTo);
+    }
+    if (params.priority) {
+      conds.push('po.priority = ?');
+      p.push(params.priority);
     }
 
     const where = conds.join(' AND ');

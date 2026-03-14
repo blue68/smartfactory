@@ -15,6 +15,7 @@ router.get('/',    asyncHandler(customerController.list.bind(customerController)
 router.post('/',   requireRoles('boss', 'supervisor', 'sales'), asyncHandler(customerController.create.bind(customerController)));
 router.get('/:id', asyncHandler(customerController.getOne.bind(customerController)));
 router.put('/:id', requireRoles('boss', 'supervisor', 'sales'), asyncHandler(customerController.update.bind(customerController)));
+router.patch('/:id/status', requireRoles('boss', 'supervisor', 'sales'), asyncHandler(customerController.updateStatus.bind(customerController)));
 
 // 联系人子资源
 router.get('/:id/contacts',                   asyncHandler(customerController.getContacts.bind(customerController)));

@@ -28,7 +28,22 @@ router.post(
   asyncHandler(skuCategoryController.create.bind(skuCategoryController)),
 );
 
-router.put(
+// BE-01-02: 审计日志查询（固定路由段，必须在 /:id 之前注册）
+router.get(
+  '/audit-logs',
+  requireRoles('admin', 'boss'),
+  asyncHandler(skuCategoryController.getAuditLogs.bind(skuCategoryController)),
+);
+
+// BE-01-03: 拖拽重排（固定路由段，必须在 /:id 之前注册）
+router.patch(
+  '/reorder',
+  requireRoles('admin', 'boss'),
+  asyncHandler(skuCategoryController.reorder.bind(skuCategoryController)),
+);
+
+// BE-01-01: PUT → PATCH
+router.patch(
   '/:id',
   requireRoles('admin', 'boss'),
   asyncHandler(skuCategoryController.update.bind(skuCategoryController)),

@@ -38,6 +38,23 @@ const UpdateCategorySchema = z.object({
   { message: '请求体不能为空' },
 );
 
+// BE-01-02: 审计日志查询 Schema
+const AuditLogsQuerySchema = z.object({
+  type: z.enum(['add', 'edit', 'delete']).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+// BE-01-03: 重排 Schema
+const ReorderSchema = z.object({
+  orders: z.array(
+    z.object({
+      id: z.number().int().positive(),
+      sortOrder: z.number().int().min(0).max(9999),
+    }),
+  ).min(1),
+});
+
 // ─── Controller ────────────────────────────────────────────────────────────
 
 export class SkuCategoryController {
@@ -115,6 +132,34 @@ export class SkuCategoryController {
     }
     await this.svc(req).delete(id);
     success(res, null, '类目已删除');
+  }
+
+  /**
+   * GET /api/sku-categories/audit-logs
+   * BE-01-02: 查询类目变更审计日志
+   * 通过 created_at / updated_at / is_active 推断操作类型：
+   *   add    - created_at = updated_at（新增后未修改）
+   *   edit   - updated_at > created_at AND is_active = 1
+   *   delete - is_active = 0
+   */
+  async getAuditLogs(req: Request, res: Response): Promise<void> {
+    const q = AuditLogsQuerySchema.parse(req.query);
+    const logs = await this.svc(req).getAuditLogs({
+      type: q.type,
+      from: q.from,
+      to: q.to,
+    });
+    success(res, logs);
+  }
+
+  /**
+   * PATCH /api/sku-categories/reorder
+   * BE-01-03: 批量更新类目排序（拖拽重排）
+   */
+  async reorder(req: Request, res: Response): Promise<void> {
+    const { orders } = ReorderSchema.parse(req.body);
+    await this.svc(req).reorder(orders);
+    success(res, null, '排序已更新');
   }
 }
 

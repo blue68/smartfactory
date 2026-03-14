@@ -20,10 +20,15 @@ const CreateSchema = z.object({
   phone: z.string().max(30).optional(),
   email: z.string().email().max(200).optional(),
   address: z.string().max(300).optional(),
+  region: z.string().max(100).optional(),
   creditLimit: z.string().regex(/^\d+(\.\d{1,2})?$/).optional().nullable(),
   paymentDays: z.number().int().min(0).max(365).optional().nullable(),
   status: z.enum(['active', 'inactive']).optional(),
   notes: z.string().max(2000).optional(),
+});
+
+const UpdateStatusSchema = z.object({
+  status: z.enum(['active', 'inactive']),
 });
 
 const ContactSchema = z.object({
@@ -80,6 +85,14 @@ export class CustomerController {
     const body = CreateSchema.partial().parse(req.body);
     const customer = await this.svc(req).update(id, body);
     success(res, customer, '客户已更新');
+  }
+
+  /** PATCH /customers/:id/status */
+  async updateStatus(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const { status } = UpdateStatusSchema.parse(req.body);
+    const result = await this.svc(req).updateStatus(id, status);
+    success(res, result, status === 'active' ? '客户已启用' : '客户已停用');
   }
 
   /** GET /customers/:id/contacts */

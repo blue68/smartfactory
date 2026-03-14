@@ -132,6 +132,46 @@ export async function withdrawSalesOrder(id: number): Promise<SalesOrder> {
   return request.post<SalesOrder>(`${BASE}/${id}/withdraw`);
 }
 
+/** PUT /api/sales-orders/:id — 编辑订单（仅 draft 状态） */
+export async function updateSalesOrder(id: number, payload: Partial<CreateSalesOrderPayload>): Promise<SalesOrder> {
+  return request.put<SalesOrder>(`${BASE}/${id}`, payload);
+}
+
+/** POST /api/sales-orders/:id/confirm — 常规订单确认 */
+export async function confirmSalesOrder(id: number): Promise<void> {
+  return request.post<void>(`${BASE}/${id}/confirm`);
+}
+
+/** POST /api/sales-orders/:id/ship — 标记发货 */
+export async function shipSalesOrder(id: number): Promise<void> {
+  return request.post<void>(`${BASE}/${id}/ship`);
+}
+
+/** POST /api/sales-orders/:id/complete — 标记完成 */
+export async function completeSalesOrder(id: number): Promise<void> {
+  return request.post<void>(`${BASE}/${id}/complete`);
+}
+
+/** POST /api/sales-orders/:id/close — 关闭订单 */
+export async function closeSalesOrder(id: number, reason: string): Promise<void> {
+  return request.post<void>(`${BASE}/${id}/close`, { reason });
+}
+
+/** POST /api/sales-orders/:id/production-orders — 触发建工单 */
+export async function createProductionOrders(id: number): Promise<{ productionOrderIds: number[] }> {
+  return request.post<{ productionOrderIds: number[] }>(`${BASE}/${id}/production-orders`);
+}
+
+/** GET /api/sales-orders/pending-approvals — 待审批列表 */
+export async function fetchPendingApprovals(): Promise<{ count: number; orders: SalesOrder[] }> {
+  return request.get<{ count: number; orders: SalesOrder[] }>(`${BASE}/pending-approvals`);
+}
+
+/** GET /api/inventory/check — 库存实时查询 */
+export async function checkInventory(skuId: number, qty?: number): Promise<{ available: number; sufficient: boolean; stockUnit: string }> {
+  return request.get<{ available: number; sufficient: boolean; stockUnit: string }>('/api/inventory/check', { skuId, qty });
+}
+
 // ─────────────────────────────────────────────
 // React Query Hooks
 // ─────────────────────────────────────────────
@@ -227,5 +267,69 @@ export function useWithdrawSalesOrder() {
       qc.invalidateQueries({ queryKey: ['sales-orders'] });
       qc.invalidateQueries({ queryKey: ['sales-order', id] });
     },
+  });
+}
+
+export function useConfirmSalesOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => confirmSalesOrder(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      qc.invalidateQueries({ queryKey: ['sales-order', id] });
+      qc.invalidateQueries({ queryKey: ['pending-approvals'] });
+    },
+  });
+}
+
+export function useShipSalesOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => shipSalesOrder(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      qc.invalidateQueries({ queryKey: ['sales-order', id] });
+    },
+  });
+}
+
+export function useCompleteSalesOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => completeSalesOrder(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      qc.invalidateQueries({ queryKey: ['sales-order', id] });
+    },
+  });
+}
+
+export function useCloseSalesOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) => closeSalesOrder(id, reason),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      qc.invalidateQueries({ queryKey: ['sales-order', id] });
+    },
+  });
+}
+
+export function useCreateProductionOrders() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => createProductionOrders(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      qc.invalidateQueries({ queryKey: ['sales-order', id] });
+    },
+  });
+}
+
+export function usePendingApprovals() {
+  return useQuery({
+    queryKey: ['pending-approvals'],
+    queryFn: fetchPendingApprovals,
+    refetchInterval: 30_000,
   });
 }

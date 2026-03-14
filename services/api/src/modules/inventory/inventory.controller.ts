@@ -96,6 +96,19 @@ export class InventoryController {
     success(res, result);
   }
 
+  // BE-08-08: 库存实时查询（供销售订单页面使用）
+  async checkAvailability(req: Request, res: Response): Promise<void> {
+    const skuId = z.coerce.number().int().positive().parse(req.query.skuId);
+    const qty = req.query.qty ? z.coerce.number().positive().parse(req.query.qty) : undefined;
+    const data = await this.svc(req).getAvailableStock(skuId);
+    const available = Number(data.qtyAvailable.toFixed(4));
+    success(res, {
+      available,
+      sufficient: qty !== undefined ? available >= qty : true,
+      stockUnit: data.stockUnit,
+    });
+  }
+
   // BE-P1: 物料损耗记录
   async recordWaste(req: Request, res: Response): Promise<void> {
     const schema = z.object({

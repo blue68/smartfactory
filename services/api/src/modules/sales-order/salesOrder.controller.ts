@@ -28,7 +28,7 @@ const CreateSchema = z.object({
   notes: z.string().max(2000).optional(),
   items: z.array(z.object({
     skuId: z.number().int().positive(),
-    quantity: z.number().int().positive(),
+    quantity: z.string().regex(/^\d+$/),
     unitPrice: z.string().regex(/^\d+(\.\d{1,2})?$/),
     notes: z.string().max(500).optional(),
   })).default([]),
@@ -48,6 +48,10 @@ const TransitionSchema = z.object({
 });
 
 const RejectSchema = z.object({
+  reason: z.string().min(1).max(500),
+});
+
+const CloseSchema = z.object({
   reason: z.string().min(1).max(500),
 });
 
@@ -138,6 +142,56 @@ export class SalesOrderController {
     const id = Number(req.params.id);
     await this.svc(req).withdraw(id);
     success(res, null, '审批已撤回');
+  }
+
+  /** PUT /sales-orders/:id — 编辑订单（仅 draft） */
+  async update(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const body = CreateSchema.partial().parse(req.body);
+    const data = await this.svc(req).updateOrder(id, body);
+    success(res, data, '订单已更新');
+  }
+
+  /** POST /sales-orders/:id/confirm */
+  async confirm(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    await this.svc(req).confirm(id);
+    success(res, null, '订单已确认');
+  }
+
+  /** POST /sales-orders/:id/ship */
+  async ship(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    await this.svc(req).ship(id);
+    success(res, null, '订单已发货');
+  }
+
+  /** POST /sales-orders/:id/complete */
+  async complete(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    await this.svc(req).complete(id);
+    success(res, null, '订单已完成');
+  }
+
+  /** POST /sales-orders/:id/close */
+  async close(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const { reason } = CloseSchema.parse(req.body);
+    await this.svc(req).close(id, reason);
+    success(res, null, '订单已关闭');
+  }
+
+  /** POST /sales-orders/:id/production-orders */
+  async createProductionOrders(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const result = await this.svc(req).createProductionOrders(id);
+    created(res, result, '生产工单已创建');
+  }
+
+  /** GET /sales-orders/pending-approvals */
+  async getPendingApprovals(req: Request, res: Response): Promise<void> {
+    const data = await this.svc(req).getPendingApprovals();
+    success(res, data);
   }
 }
 

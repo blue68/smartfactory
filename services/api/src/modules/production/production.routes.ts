@@ -51,6 +51,9 @@ router.get('/tasks', asyncHandler(productionController.listTasks.bind(production
 
 // 工人任务
 router.get('/tasks/worker/:workerId',  asyncHandler(productionController.getWorkerTasks.bind(productionController)));
+
+// BE-06-01: 任务详情
+router.get('/tasks/:taskId', asyncHandler(productionController.getTask.bind(productionController)));
 router.post('/tasks/:id/start',
   requireRoles('worker', 'supervisor'),
   asyncHandler(productionController.startTask.bind(productionController)),

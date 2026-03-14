@@ -8,11 +8,14 @@ import {
   useSalesOrderList,
   useSalesOrder,
   useCreateSalesOrder,
-  useTransitionSalesOrder,
   useSubmitSalesOrder,
   useApproveSalesOrder,
   useRejectSalesOrder,
   useWithdrawSalesOrder,
+  useShipSalesOrder,
+  useCompleteSalesOrder,
+  useCloseSalesOrder,
+  useCreateProductionOrders,
 } from '@/api/salesOrder';
 import type {
   SalesOrder,
@@ -439,9 +442,14 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
   const approveOrder = useApproveSalesOrder();
   const rejectOrderApi = useRejectSalesOrder();
   const withdrawOrder = useWithdrawSalesOrder();
-  const transitionOrder = useTransitionSalesOrder();
+  const shipOrder = useShipSalesOrder();
+  const completeOrder = useCompleteSalesOrder();
+  const closeOrder = useCloseSalesOrder();
+  const createProdOrders = useCreateProductionOrders();
 
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [closeModalOpen, setCloseModalOpen] = useState(false);
+  const [closeReason, setCloseReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
 
@@ -467,6 +475,13 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
     onRefresh();
   };
 
+  const handleClose = async () => {
+    if (!orderId || !closeReason.trim()) return;
+    await handleAction(() => closeOrder.mutateAsync({ id: orderId, reason: closeReason.trim() }));
+    setCloseModalOpen(false);
+    setCloseReason('');
+  };
+
   const renderActions = (o: SalesOrder) => {
     const id = o.id;
     switch (o.status) {
@@ -481,14 +496,16 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
             >
               提交审批
             </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={actionLoading}
-              onClick={() => handleAction(() => transitionOrder.mutateAsync({ id, targetStatus: 'closed' }))}
-            >
-              关闭订单
-            </Button>
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={actionLoading}
+                onClick={() => setCloseModalOpen(true)}
+              >
+                关闭订单
+              </Button>
+            )}
           </div>
         );
 
@@ -529,22 +546,34 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
       case 'confirmed':
         return (
           <div className={styles.actionGroup}>
-            <Button
-              size="sm"
-              variant="primary"
-              loading={actionLoading}
-              onClick={() => handleAction(() => transitionOrder.mutateAsync({ id, targetStatus: 'in_production' }))}
-            >
-              开始生产
-            </Button>
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="primary"
+                loading={actionLoading}
+                onClick={() => handleAction(() => createProdOrders.mutateAsync(id))}
+              >
+                触发建工单
+              </Button>
+            )}
             <Button
               size="sm"
               variant="secondary"
               loading={actionLoading}
-              onClick={() => handleAction(() => transitionOrder.mutateAsync({ id, targetStatus: 'closed' }))}
+              onClick={() => handleAction(() => shipOrder.mutateAsync(id))}
             >
-              关闭订单
+              标记发货
             </Button>
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={actionLoading}
+                onClick={() => setCloseModalOpen(true)}
+              >
+                关闭订单
+              </Button>
+            )}
           </div>
         );
 
@@ -555,18 +584,20 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
               size="sm"
               variant="primary"
               loading={actionLoading}
-              onClick={() => handleAction(() => transitionOrder.mutateAsync({ id, targetStatus: 'shipped' }))}
+              onClick={() => handleAction(() => shipOrder.mutateAsync(id))}
             >
-              发货
+              标记发货
             </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={actionLoading}
-              onClick={() => handleAction(() => transitionOrder.mutateAsync({ id, targetStatus: 'closed' }))}
-            >
-              关闭订单
-            </Button>
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={actionLoading}
+                onClick={() => setCloseModalOpen(true)}
+              >
+                关闭订单
+              </Button>
+            )}
           </div>
         );
 
@@ -577,10 +608,20 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
               size="sm"
               variant="primary"
               loading={actionLoading}
-              onClick={() => handleAction(() => transitionOrder.mutateAsync({ id, targetStatus: 'completed' }))}
+              onClick={() => handleAction(() => completeOrder.mutateAsync(id))}
             >
               确认完成
             </Button>
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={actionLoading}
+                onClick={() => setCloseModalOpen(true)}
+              >
+                关闭订单
+              </Button>
+            )}
           </div>
         );
 
@@ -696,6 +737,29 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
         onClose={() => setRejectModalOpen(false)}
         onConfirm={handleRejectConfirm}
       />
+
+      {/* 关闭订单原因 Modal */}
+      <Modal
+        open={closeModalOpen}
+        title="关闭订单"
+        onClose={() => { setCloseModalOpen(false); setCloseReason(''); }}
+        onConfirm={handleClose}
+        confirmLabel="确认关闭"
+        confirmLoading={actionLoading}
+        confirmVariant="danger"
+        size="sm"
+      >
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel}>关闭原因 *</label>
+          <textarea
+            className={styles.textarea}
+            rows={3}
+            value={closeReason}
+            onChange={(e) => setCloseReason(e.target.value)}
+            placeholder="请填写关闭订单的原因..."
+          />
+        </div>
+      </Modal>
     </>
   );
 }
