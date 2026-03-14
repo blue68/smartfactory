@@ -1,0 +1,418 @@
+/**
+ * StepCalculationCard 样式
+ * Sprint 4 / FE-S4-03
+ *
+ * 依赖 Sprint 4 Design Token：
+ *   --color-ai-calc-bg / --color-ai-calc-border / --color-ai-calc-text
+ */
+
+/* ── 整体容器 ─────────────────────────────── */
+.step_calc_card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--color-ai-calc-bg);
+  border: 1px solid var(--color-ai-calc-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+/* ── 顶部标识栏 ─────────────────────────── */
+.step_calc_card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-ai-calc-border);
+}
+
+.step_calc_card__header_text {
+  font-size: var(--text-body-m);
+  font-weight: 600;
+  color: var(--color-ai-calc-text);
+  flex: 1;
+}
+
+.step_calc_card__steps_count {
+  font-size: var(--text-body-s);
+  color: var(--color-ai-calc-text);
+  opacity: 0.7;
+}
+
+/* ── 步骤列表 ────────────────────────────── */
+.step_calc_card__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ══════════════════════════════════════════
+   单步卡片
+══════════════════════════════════════════ */
+.step_card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: box-shadow var(--transition-fast);
+}
+
+.step_card--expanded {
+  border-color: var(--color-ai-calc-border);
+  box-shadow: var(--shadow-xs);
+}
+
+/* ── 步骤头部（可点击） ──────────────────── */
+.step_card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast);
+}
+
+.step_card__header:hover {
+  background: var(--color-gray-50);
+}
+
+.step_card__header:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+/* ── 序号徽标 ────────────────────────────── */
+.step_card__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-calc-text);
+  color: #ffffff;
+  font-size: var(--text-body-s);
+  font-weight: 700;
+  font-family: var(--font-family-number);
+}
+
+/* ── 标题区 ──────────────────────────────── */
+.step_card__title_group {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step_card__title {
+  font-size: var(--text-body-m);
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.step_card__result_preview {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+}
+
+.step_card__result_preview_value {
+  font-family: var(--font-family-number);
+  font-weight: 600;
+  color: var(--color-ai-calc-text);
+}
+
+/* ── 展开箭头 ────────────────────────────── */
+.step_card__chevron {
+  font-size: 16px;
+  color: var(--text-secondary);
+  transition: transform var(--transition-base);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.step_card__chevron--up {
+  transform: rotate(180deg);
+}
+
+/* ══════════════════════════════════════════
+   步骤主体（展开内容）
+══════════════════════════════════════════ */
+.step_card__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--border-default);
+  animation: fade-in 0.2s ease;
+}
+
+.step_card__description {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ── section 标签 ────────────────────────── */
+.step_card__section_label {
+  display: block;
+  font-size: var(--text-label);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-2);
+}
+
+/* ── 输入参数列表 ─────────────────────────── */
+.step_card__inputs {
+  display: flex;
+  flex-direction: column;
+}
+
+.step_card__input_list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.step_card__input_item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-gray-50);
+  font-size: var(--text-body-s);
+}
+
+.step_card__input_label {
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── 公式 ────────────────────────────────── */
+.step_card__formula_wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.step_card__formula {
+  display: block;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-gray-900);
+  color: #a5f3fc;
+  border-radius: var(--radius-md);
+  font-family: var(--font-family-mono);
+  font-size: var(--text-body-s);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── 结果 ────────────────────────────────── */
+.step_card__result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in srgb, var(--color-ai-calc-bg) 60%, transparent);
+  border: 1px solid var(--color-ai-calc-border);
+  border-radius: var(--radius-md);
+}
+
+.step_card__result_label {
+  font-size: var(--text-body-s);
+  font-weight: 600;
+  color: var(--color-ai-calc-text);
+}
+
+/* ══════════════════════════════════════════
+   数字 Popover
+══════════════════════════════════════════ */
+.value_popover_wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.value_popover_trigger {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.value_popover_trigger:hover,
+.value_popover_trigger:focus-visible {
+  background: color-mix(in srgb, var(--color-ai-calc-text) 10%, transparent);
+  outline: none;
+}
+
+.value_number {
+  font-family: var(--font-family-number);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--color-ai-calc-text);
+  font-size: var(--text-body-m);
+}
+
+.value_unit {
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.value_popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 160px;
+  max-width: 240px;
+  background: var(--color-gray-800);
+  color: var(--color-gray-100);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  z-index: var(--z-tooltip);
+  box-shadow: var(--shadow-lg);
+  white-space: normal;
+  animation: fade-in 0.15s ease;
+  pointer-events: auto;
+}
+
+/* 小三角 */
+.value_popover::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--color-gray-800);
+}
+
+.value_popover__label {
+  font-size: var(--text-label);
+  font-weight: 600;
+  color: var(--color-gray-400);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.value_popover__content {
+  font-size: var(--text-body-s);
+  color: var(--color-gray-100);
+  line-height: 1.5;
+}
+
+/* ══════════════════════════════════════════
+   骨架屏
+══════════════════════════════════════════ */
+.skeleton_wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.skeleton_card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.skeleton_header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+.skeleton_badge {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-200) 25%,
+    var(--color-gray-300) 50%,
+    var(--color-gray-200) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.skeleton_title {
+  display: block;
+  flex: 1;
+  height: 0.875rem;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-100) 25%,
+    var(--color-gray-200) 50%,
+    var(--color-gray-100) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton_chevron {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-100) 25%,
+    var(--color-gray-200) 50%,
+    var(--color-gray-100) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton_body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--border-default);
+}
+
+.skeleton_line {
+  display: block;
+  height: 0.75rem;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-100) 25%,
+    var(--color-gray-200) 50%,
+    var(--color-gray-100) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}

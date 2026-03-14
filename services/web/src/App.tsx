@@ -30,6 +30,7 @@ import ShortageBoard from '@/pages/production/ShortageBoard';
 import PurchaseSuggestionPage from '@/pages/purchase/PurchaseSuggestionPage';
 import IncomingInspectionPage from '@/pages/purchase/IncomingInspectionPage';
 import ReturnOrderPage from '@/pages/purchase/ReturnOrderPage';
+import ScheduleSuggestionPage from '@/pages/schedule/ScheduleSuggestionPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 
 /** 认证守卫：未登录跳转 /login */
@@ -75,6 +76,7 @@ export default function App() {
             <Route path="/purchase/purchase-suggestions" element={<PurchaseSuggestionPage />} />
             <Route path="/purchase/incoming-inspection" element={<IncomingInspectionPage />} />
             <Route path="/purchase/returns" element={<ReturnOrderPage />} />
+            <Route path="/schedule-suggestions" element={<ScheduleSuggestionPage />} />
             <Route path="/ai-chat" element={<AiChatPage />} />
           </Route>
         </Route>

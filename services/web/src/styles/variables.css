@@ -264,6 +264,33 @@
   --z-modal:    400;
   --z-toast:    500;
   --z-tooltip:  600;
+
+  /* ═══════════════════════════════════════════
+     Sprint 4: AI 调度相关色彩
+  ═══════════════════════════════════════════ */
+  --color-ai-calc-bg:     #f0eeff;
+  --color-ai-calc-border: #c4b5fd;
+  --color-ai-calc-text:   #6d28d9;
+
+  /* 冷启动横幅 */
+  --color-coldstart-bg:     #fffbeb;
+  --color-coldstart-border: #fbbf24;
+  --color-coldstart-text:   #92400e;
+
+  /* 产能热力图四档色 */
+  --heatmap-low:      #dcfce7;
+  --heatmap-normal:   #bbf7d0;
+  --heatmap-high:     #fef08a;
+  --heatmap-overload: #fca5a5;
+
+  /* 优先级得分条颜色 */
+  --score-bar-deadline: #ef4444;
+  --score-bar-priority: #f97316;
+  --score-bar-material: #22c55e;
+
+  /* 资金占用预警 */
+  --color-capital-warning-bg:   #fef3c7;
+  --color-capital-warning-text: #92400e;
 }
 
 /* ── 暗色模式 ──────────────────────────────── */

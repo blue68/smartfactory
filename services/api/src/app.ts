@@ -31,6 +31,8 @@ import incomingInspectionRoutes from './modules/incoming-inspection/incomingInsp
 import returnOrderRoutes from './modules/return-order/returnOrder.routes';
 import mrpRoutes from './modules/mrp/mrp.routes';
 import purchaseSuggestionRoutes from './modules/purchase/purchaseSuggestion.routes';
+// Sprint 4 新增模块
+import scheduleSuggestionRoutes from './modules/schedule-suggestion/schedule-suggestion.routes';
 
 const app = express();
 
@@ -166,6 +168,8 @@ app.use('/api/incoming-inspections', incomingInspectionRoutes);
 app.use('/api/return-orders',        returnOrderRoutes);
 app.use('/api/mrp',                  mrpRoutes);
 app.use('/api/purchase-suggestions', purchaseSuggestionRoutes);
+// Sprint 4 路由
+app.use('/api/schedule-suggestions', scheduleSuggestionRoutes);
 
 // ── 404 处理 ────────────────────────────────────────────────
 app.use((_req, res) => {

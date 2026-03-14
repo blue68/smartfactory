@@ -90,6 +90,13 @@ const NAV_ITEMS: NavItem[] = [
     group: '销售',
   },
   {
+    path: '/schedule-suggestions',
+    label: '智能调度',
+    icon: '🧠',
+    roles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
+    group: '生产',
+  },
+  {
     path: '/production/schedule',
     label: '排产计划',
     icon: '🏭',

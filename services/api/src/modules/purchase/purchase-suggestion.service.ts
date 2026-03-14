@@ -22,6 +22,8 @@ interface SuggestionRow {
   reason: string;
   confidence: string;
   status: string;
+  /** 审批人 ID；NULL 表示尚未经过人工审批（BE-S4-16） */
+  approved_by: number | null;
 }
 
 export interface ListSuggestionsParams {
@@ -157,6 +159,19 @@ export class PurchaseSuggestionService {
        WHERE id IN (${placeholders}) AND tenant_id = ?`,
       [...suggestionIds, this.tenantId],
     );
+
+    // BE-S4-16: AI 调度建议强制审批校验
+    // source='ai_schedule' 的建议必须经过人工审批（approved_by 不为 NULL）才允许转单
+    // 防止 AI 建议绕过人工确认直接生成采购订单
+    const unapprovedAiSuggs = suggestions.filter(
+      (s) => s.source === 'ai_schedule' && !s.approved_by,
+    );
+    if (unapprovedAiSuggs.length > 0) {
+      const ids = unapprovedAiSuggs.map((s) => s.id).join(', ');
+      throw AppError.forbidden(
+        `以下 AI 调度建议尚未经过人工审批，禁止直接转单：${ids}。请先由主管或老板完成审批。`,
+      );
+    }
 
     // 验证：全部必须是 approved 状态
     const nonApproved = suggestions.filter((s) => s.status !== 'approved');

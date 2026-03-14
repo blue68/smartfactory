@@ -1,0 +1,240 @@
+/**
+ * ScheduleStatCard 样式
+ * Sprint 4 / FE-S4-04
+ *
+ * variant 通过 CSS 自定义属性 --stat-color / --stat-color-light 统一控制：
+ *   normal  → success 绿
+ *   info    → info 青
+ *   warning → warning 琥珀
+ *   danger  → error 红
+ */
+
+/* ══════════════════════════════════════════
+   卡片基础
+══════════════════════════════════════════ */
+.card {
+  /* 重置 button 默认样式（button 变体会用到） */
+  appearance: none;
+  border: 1px solid var(--border-default);
+  text-align: left;
+
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  width: 100%;
+  transition:
+    box-shadow var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+/* ── variant: normal（绿） ── */
+.card--normal {
+  --stat-color:       var(--color-success-600);
+  --stat-color-light: color-mix(in srgb, var(--color-success-500) 12%, transparent);
+}
+
+/* ── variant: info（青） ── */
+.card--info {
+  --stat-color:       var(--color-info-600);
+  --stat-color-light: color-mix(in srgb, var(--color-info-500) 12%, transparent);
+}
+
+/* ── variant: warning（琥珀） ── */
+.card--warning {
+  --stat-color:       var(--color-warning-600);
+  --stat-color-light: color-mix(in srgb, var(--color-warning-500) 12%, transparent);
+}
+
+/* ── variant: danger（红） ── */
+.card--danger {
+  --stat-color:       var(--color-error-600);
+  --stat-color-light: color-mix(in srgb, var(--color-error-500) 12%, transparent);
+}
+
+/* ── 可点击状态 ── */
+.card--clickable {
+  cursor: pointer;
+}
+
+.card--clickable:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.card--clickable:active {
+  box-shadow: var(--shadow-sm);
+  transform: translateY(0);
+}
+
+.card--clickable:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* ══════════════════════════════════════════
+   左侧色条
+══════════════════════════════════════════ */
+.card__bar {
+  display: block;
+  width: 4px;
+  flex-shrink: 0;
+  background: var(--stat-color, var(--color-primary-500));
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+}
+
+/* ══════════════════════════════════════════
+   卡片主体
+══════════════════════════════════════════ */
+.card__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  min-width: 0;
+}
+
+/* ── 顶部标题行 ── */
+.card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.card__label {
+  font-size: var(--text-body-m);
+  color: var(--text-secondary);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* ── 右上角图标（40×40，带色背景圆角框） ── */
+.card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  background: var(--stat-color-light, var(--color-gray-100));
+  border-radius: var(--radius-md);
+  color: var(--stat-color, var(--color-primary-500));
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* ── 数值区 ── */
+.card__value_row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  line-height: 1;
+}
+
+.card__value {
+  font-family: var(--font-family-number, var(--font-family-base));
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-number-xl);
+  font-weight: 700;
+  color: var(--stat-color, var(--text-primary));
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.card__unit {
+  font-size: var(--text-body-l);
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* ══════════════════════════════════════════
+   Shimmer 骨架屏
+══════════════════════════════════════════ */
+.skeleton {
+  display: flex;
+  flex-direction: row;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.skeleton__bar {
+  width: 4px;
+  flex-shrink: 0;
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-200) 25%,
+    var(--color-gray-300) 50%,
+    var(--color-gray-200) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+}
+
+.skeleton__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.skeleton__label {
+  display: block;
+  width: 60%;
+  height: 0.875rem;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-100) 25%,
+    var(--color-gray-200) 50%,
+    var(--color-gray-100) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton__icon {
+  display: block;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-100) 25%,
+    var(--color-gray-200) 50%,
+    var(--color-gray-100) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton__value {
+  display: block;
+  width: 40%;
+  height: 2.5rem;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    var(--color-gray-100) 25%,
+    var(--color-gray-200) 50%,
+    var(--color-gray-100) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}

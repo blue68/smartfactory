@@ -2,6 +2,12 @@ import 'reflect-metadata';
 import { initDatabase } from './config/database';
 import { getRedisClient } from './config/redis';
 import app from './app';
+// Sprint 4：BullMQ Worker（import 即在同进程内启动消费者）
+import { closeMrpWorker } from './workers/mrp.worker';
+import { closeNotificationWorker } from './workers/notification.worker';
+import { queueService } from './shared/queue-service';
+import { QUEUE_SUGGESTION_CALCULATE } from './shared/queue.config';
+import type { SuggestionCalculateJobData } from './shared/queue-service';
 
 const PORT = Number(process.env.PORT ?? 3000);
 
@@ -34,7 +40,36 @@ async function bootstrap(): Promise<void> {
     await redis.ping();
     console.log('[Redis] 连接就绪');
 
-    // 3. 启动 HTTP 服务
+    // 3. 注册每日 06:00 采购建议计算 cron job（BullMQ repeat job）
+    //    BullMQ 使用 cron 表达式，repeat job 在 Queue 层维护，不依赖进程常驻定时器。
+    //    第一次注册后 Redis 会持久化调度计划，进程重启后自动恢复。
+    try {
+      const jobData: SuggestionCalculateJobData = {
+        triggeredAt: new Date().toISOString(),
+      };
+      await queueService.addJob(
+        QUEUE_SUGGESTION_CALCULATE,
+        jobData,
+        {
+          repeat: {
+            // 每天 06:00（服务器本地时间）
+            pattern: '0 6 * * *',
+          },
+          jobId: 'daily-suggestion-calculate',
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 60_000,
+          },
+        },
+      );
+      console.log('[Bootstrap] 每日采购建议计算 cron job 已注册（每天 06:00）');
+    } catch (cronErr) {
+      // cron 注册失败不影响主服务启动，仅告警
+      console.warn('[Bootstrap] cron job 注册失败（Redis 不可用？）:', (cronErr as Error).message);
+    }
+
+    // 4. 启动 HTTP 服务
     app.listen(PORT, () => {
       console.log(`[API] 智造管家 API 服务已启动，监听端口 ${PORT}`);
       console.log(`[API] 环境：${process.env.NODE_ENV ?? 'development'}`);
@@ -46,14 +81,26 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-// 优雅退出
-process.on('SIGTERM', () => {
-  console.log('[API] 收到 SIGTERM，正在优雅退出...');
+// ─── 优雅退出 ────────────────────────────────────────────────────────────────
+// 收到终止信号时：先等待 BullMQ Worker 完成当前 Job，再关闭 Queue 连接，最后退出进程。
+// 最长等待时间由 BullMQ Worker.close() 的 force 参数控制（默认等待当前 Job 完成）。
+async function gracefulShutdown(signal: string): Promise<void> {
+  console.log(`[API] 收到 ${signal}，正在优雅退出...`);
+  try {
+    // 并行关闭所有 Worker（等待当前正在处理的 Job 完成）
+    await Promise.all([
+      closeMrpWorker(),
+      closeNotificationWorker(),
+    ]);
+    // 关闭 BullMQ Queue 连接
+    await queueService.close();
+  } catch (err) {
+    console.warn('[API] 优雅退出过程中出现错误:', (err as Error).message);
+  }
   process.exit(0);
-});
-process.on('SIGINT', () => {
-  console.log('[API] 收到 SIGINT，正在优雅退出...');
-  process.exit(0);
-});
+}
+
+process.on('SIGTERM', () => { void gracefulShutdown('SIGTERM'); });
+process.on('SIGINT',  () => { void gracefulShutdown('SIGINT'); });
 
 bootstrap();

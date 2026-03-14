@@ -1,0 +1,73 @@
+/**
+ * PulseWaveIndicator 样式
+ * Sprint 4 / FE-S4-02
+ *
+ * 三根竖条波浪动画，依赖 variables.css 中的 Sprint 4 AI 调度色彩 token。
+ */
+
+/* ── 波形动画 keyframes ────────────────────── */
+@keyframes pulse-bar {
+  0%, 100% {
+    transform: scaleY(0.35);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+/* ── 容器 ─────────────────────────────────── */
+.pulse_wave {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* ── 文字 ─────────────────────────────────── */
+.pulse_wave__text {
+  font-size: var(--text-body-s);
+  color: var(--color-ai-calc-text);
+  font-weight: 500;
+  margin-left: var(--space-2);
+  line-height: 1;
+}
+
+/* ── 单根竖条（基础） ─────────────────────── */
+.pulse_wave__bar {
+  display: block;
+  background: var(--color-ai-calc-text);
+  border-radius: var(--radius-full);
+  transform-origin: center bottom;
+  animation: pulse-bar 1s ease-in-out infinite;
+}
+
+/* 三根竖条错位延迟 */
+.pulse_wave__bar:nth-child(1) { animation-delay: 0s; }
+.pulse_wave__bar:nth-child(2) { animation-delay: 0.15s; }
+.pulse_wave__bar:nth-child(3) { animation-delay: 0.3s; }
+
+/* ── 尺寸变体 ─────────────────────────────── */
+.pulse_wave--sm .pulse_wave__bar {
+  width: 3px;
+  height: 12px;
+}
+.pulse_wave--sm .pulse_wave__text {
+  font-size: var(--text-caption);
+}
+
+.pulse_wave--md .pulse_wave__bar {
+  width: 4px;
+  height: 18px;
+}
+.pulse_wave--md .pulse_wave__text {
+  font-size: var(--text-body-s);
+}
+
+.pulse_wave--lg .pulse_wave__bar {
+  width: 5px;
+  height: 24px;
+}
+.pulse_wave--lg .pulse_wave__text {
+  font-size: var(--text-body-m);
+}

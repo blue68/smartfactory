@@ -1,0 +1,85 @@
+/**
+ * ColdStartBanner 样式
+ * Sprint 4 / FE-S4-09
+ */
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-warning-50, #fffbeb);
+  border: 1px solid var(--color-warning-300, #fcd34d);
+  border-radius: var(--radius-md);
+  animation: banner-slide-in 0.25s ease;
+}
+
+@keyframes banner-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── 左侧图标 ── */
+.banner__icon {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-warning-600, #d97706);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ── 文案区 ── */
+.banner__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.banner__title {
+  font-size: var(--text-body-m);
+  font-weight: 600;
+  color: var(--color-warning-800, #92400e);
+  line-height: 1.4;
+}
+
+.banner__desc {
+  font-size: var(--text-body-s);
+  color: var(--color-warning-700, #b45309);
+  line-height: 1.5;
+}
+
+/* ── 关闭按钮 ── */
+.banner__close {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--color-warning-600, #d97706);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.banner__close:hover {
+  background: var(--color-warning-100, #fef3c7);
+  color: var(--color-warning-800, #92400e);
+}
+
+.banner__close:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}

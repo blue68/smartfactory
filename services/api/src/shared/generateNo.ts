@@ -18,6 +18,8 @@ const PREFIX_MAP: Record<string, string> = {
   incoming_inspection: 'IQC',
   return_order: 'RTN',
   bom_snapshot: 'SNAP',
+  // Sprint 4 新增
+  schedule_batch: 'SCH',
 };
 
 /**

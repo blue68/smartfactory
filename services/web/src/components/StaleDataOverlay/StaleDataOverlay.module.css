@@ -1,0 +1,99 @@
+/**
+ * StaleDataOverlay 样式
+ * Sprint 4 / FE-S4-10
+ */
+
+/* 外层容器：相对定位，供遮罩层绝对定位 */
+.wrapper {
+  position: relative;
+}
+
+/* 旧数据内容区：降低不透明度 + 禁止交互 */
+.content__stale {
+  opacity: 0.35;
+  pointer-events: none;
+  user-select: none;
+  filter: grayscale(0.4);
+  transition: opacity var(--transition-slow), filter var(--transition-slow);
+}
+
+/* 遮罩层：绝对定位覆盖父容器 */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(2px);
+  border-radius: inherit;
+  z-index: 10;
+  animation: overlay-fade-in 0.2s ease;
+}
+
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* 居中错误卡片 */
+.overlay__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-8);
+  background: var(--bg-card);
+  border: 1px solid var(--color-error-200, #fecaca);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  text-align: center;
+  max-width: 320px;
+}
+
+/* 错误图标 */
+.overlay__icon {
+  font-size: 2rem;
+  color: var(--color-error-500, #ef4444);
+  line-height: 1;
+}
+
+/* 错误文案 */
+.overlay__message {
+  margin: 0;
+  font-size: var(--text-body-m);
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+/* 重试按钮 */
+.overlay__retry {
+  appearance: none;
+  border: 1px solid var(--color-error-400, #f87171);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--text-body-s);
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: var(--color-error-600, #dc2626);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.overlay__retry:hover {
+  background: var(--color-error-50, #fef2f2);
+  transform: translateY(-1px);
+}
+
+.overlay__retry:active {
+  transform: translateY(0);
+}
+
+.overlay__retry:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
