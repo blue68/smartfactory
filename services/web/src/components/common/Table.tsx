@@ -201,7 +201,11 @@ export default function Table<T extends Record<string, unknown>>({
       {pagination && totalPages > 1 && (
         <div className={styles.pagination}>
           <span className={styles.pagination__info}>
-            共 {pagination.total} 条，第 {pagination.page}/{totalPages} 页
+            {(() => {
+              const startRecord = (pagination.page - 1) * pagination.pageSize + 1;
+              const endRecord = Math.min(pagination.page * pagination.pageSize, pagination.total);
+              return `共 ${pagination.total} 条记录，当前第 ${startRecord}-${endRecord} 条`;
+            })()}
           </span>
           <div className={styles.pagination__btns}>
             <button

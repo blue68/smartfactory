@@ -1232,6 +1232,12 @@ export default function PricePage() {
   const [priceWarnNewPrice, setPriceWarnNewPrice] = useState('');
   const [priceWarnExceedPct, setPriceWarnExceedPct] = useState('');
 
+  // Batch import modal
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importErrorStrategy, setImportErrorStrategy] = useState<'skip' | 'cancel'>('skip');
+  const [importing, setImporting] = useState(false);
+
   // ── API Data ──
   const isActiveFilter = statusFilter === 'active' ? true : statusFilter === 'expired' ? false : undefined;
   const { data: priceData, isLoading: _priceLoading } = usePriceList({
@@ -1513,6 +1519,41 @@ export default function PricePage() {
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
+  // ── Import handlers ──
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setImportFile(file);
+  };
+
+  const handleImportConfirm = async () => {
+    if (!importFile) {
+      showToast({ type: 'warning', message: '请先选择要导入的文件' });
+      return;
+    }
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', importFile);
+      formData.append('errorStrategy', importErrorStrategy);
+      await uploadPriceFile(importFile);
+      showToast({ type: 'success', message: '导入成功，数据已更新' });
+      setImportModalOpen(false);
+      setImportFile(null);
+      setImportErrorStrategy('skip');
+    } catch (e) {
+      showToast({ type: 'error', message: (e as Error).message || '导入失败，请检查文件格式' });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleImportClose = () => {
+    if (importing) return;
+    setImportModalOpen(false);
+    setImportFile(null);
+    setImportErrorStrategy('skip');
+  };
+
   return (
     <div className={styles.page}>
 
@@ -1520,7 +1561,7 @@ export default function PricePage() {
       <div className="page-header">
         <h1 className="page-header__title">采购价格管理</h1>
         <div className="page-header__actions">
-          <Button variant="ghost" size="md" onClick={() => showToast({ type: 'info', message: '批量导入功能开发中' })}>
+          <Button variant="ghost" size="md" onClick={() => setImportModalOpen(true)}>
             &uarr; 批量导入
           </Button>
           <Button
@@ -1732,6 +1773,74 @@ export default function PricePage() {
           <div className={styles.price_warn_notice}>
             &#8505; 该价格协议保存后将处于「待审批」状态，需老板审批通过后方可生效。
           </div>
+        </div>
+      </Modal>
+
+      {/* ── 批量导入 Modal ── */}
+      <Modal
+        open={importModalOpen}
+        title="批量导入价格"
+        onClose={handleImportClose}
+        confirmLabel={importing ? '导入中...' : '确认导入'}
+        onConfirm={(!importFile || importing) ? undefined : handleImportConfirm}
+        confirmLoading={importing}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* 模板下载 */}
+          <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0' }}>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>下载导入模板</div>
+            <div style={{ fontSize: 12, color: '#64748B' }}>约 28 KB · 含示例数据</div>
+          </div>
+
+          {/* 文件上传 */}
+          <div>
+            <label style={{ fontWeight: 500, fontSize: 14 }}>选择文件</label>
+            <input
+              type="file"
+              accept=".xlsx,.csv"
+              onChange={handleImportFileChange}
+              style={{ display: 'block', marginTop: 6 }}
+            />
+          </div>
+
+          {/* 上传限制说明 */}
+          <div style={{ fontSize: 12, color: '#94A3B8', lineHeight: 1.8 }}>
+            支持 .xlsx / .csv 格式 · 单次最多 5000 行 · 文件大小不超过 5MB · 文件编码 UTF-8
+          </div>
+
+          {/* 错误处理策略 */}
+          {importFile && (
+            <div>
+              <div style={{ fontWeight: 500, fontSize: 14, marginBottom: 8 }}>错误处理方式</div>
+              <label style={{ display: 'block', marginBottom: 6, cursor: 'pointer', fontSize: 13 }}>
+                <input
+                  type="radio"
+                  name="errorStrategy"
+                  checked={importErrorStrategy === 'skip'}
+                  onChange={() => setImportErrorStrategy('skip')}
+                  style={{ marginRight: 6 }}
+                />
+                跳过错误行，仅导入正确行
+              </label>
+              <label style={{ display: 'block', cursor: 'pointer', fontSize: 13 }}>
+                <input
+                  type="radio"
+                  name="errorStrategy"
+                  checked={importErrorStrategy === 'cancel'}
+                  onChange={() => setImportErrorStrategy('cancel')}
+                  style={{ marginRight: 6 }}
+                />
+                取消导入，修正后重新上传
+              </label>
+            </div>
+          )}
+
+          {/* 预览提示 */}
+          {importFile && (
+            <div style={{ padding: 8, background: '#F0FDF4', borderRadius: 6, fontSize: 12, color: '#16A34A' }}>
+              已选择文件: {importFile.name} ({(importFile.size / 1024).toFixed(1)} KB)
+            </div>
+          )}
         </div>
       </Modal>
 
