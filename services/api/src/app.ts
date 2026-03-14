@@ -33,6 +33,8 @@ import mrpRoutes from './modules/mrp/mrp.routes';
 import purchaseSuggestionRoutes from './modules/purchase/purchaseSuggestion.routes';
 // Sprint 4 新增模块
 import scheduleSuggestionRoutes from './modules/schedule-suggestion/schedule-suggestion.routes';
+// P1 #18 站内通知模块
+import notificationRoutes from './modules/notification/notification.routes';
 
 const app = express();
 
