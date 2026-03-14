@@ -151,9 +151,9 @@ function CustomerModal({ open, initial, onClose }: CustomerModalProps) {
             className={styles.formInput}
             value={form.code}
             onChange={(e) => !isEdit && set('code', e.target.value)}
-            placeholder={isEdit ? form.code : '系统自动生成'}
-            disabled={!isEdit}
-            style={!isEdit ? { background: 'var(--color-neutral-50,#F9FAFB)', color: 'var(--color-neutral-400,#9CA3AF)', cursor: 'not-allowed' } : undefined}
+            placeholder="系统自动生成"
+            readOnly={isEdit}
+            style={isEdit ? { background: 'var(--color-neutral-50,#F9FAFB)', color: 'var(--color-neutral-500,#6B7280)', cursor: 'not-allowed' } : undefined}
           />
         </div>
         <div className={styles.formGroup}>

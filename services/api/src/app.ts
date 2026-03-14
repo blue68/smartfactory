@@ -158,8 +158,7 @@ app.use('/api/ai',         aiRoutes);
 app.use('/api/suppliers',  supplierRoutes);
 app.use('/api/prices',     priceRoutes);
 app.use('/api/process-configs', processConfigRoutes);
-// GAP-R07-G07：/api/customers 已挂载完整版 sales-customer 模块（含联系人/订单子资源）
-// modules/customer（简版）未被任何路由引用，可在后续清理 Sprint 中安全删除。
+// GAP-R07-G07：/api/customers 挂载完整版 sales-customer 模块（含联系人/订单子资源）
 app.use('/api/customers',  customerRoutes);
 // modules/sales-order → /api/sales-orders
 // 职责：销售订单完整 CRUD、状态机流转、审批工作流（提交/审批/驳回/撤回）

@@ -8,6 +8,7 @@ import {
   useSalesOrderList,
   useSalesOrder,
   useOrderStats,
+  usePendingApprovals,
   useCreateSalesOrder,
   useSubmitSalesOrder,
   useApproveSalesOrder,
@@ -60,6 +61,126 @@ function useIsAdmin() {
 }
 
 // ---------------------------------------------------------------------------
+// Status timeline — ordered progression steps (closed is a terminal branch,
+// not part of the linear flow, so it is handled separately)
+// ---------------------------------------------------------------------------
+
+const TIMELINE_STEPS: { key: SalesOrderStatus; label: string }[] = [
+  { key: 'draft',            label: '草稿' },
+  { key: 'pending_approval', label: '待审批' },
+  { key: 'confirmed',        label: '已确认' },
+  { key: 'in_production',    label: '生产中' },
+  { key: 'shipped',          label: '已发货' },
+  { key: 'completed',        label: '已完成' },
+];
+
+interface StatusTimelineProps {
+  currentStatus: SalesOrderStatus;
+}
+
+function StatusTimeline({ currentStatus }: StatusTimelineProps) {
+  // For 'closed', show all steps as completed (green) and add a callout below.
+  const isClosed = currentStatus === 'closed';
+  const effectiveStatus: SalesOrderStatus = isClosed ? 'completed' : currentStatus;
+  const currentIndex = TIMELINE_STEPS.findIndex((s) => s.key === effectiveStatus);
+
+  return (
+    <div>
+      <div className={styles.statusTimeline}>
+        {TIMELINE_STEPS.map((step, idx) => {
+          const isCompleted = idx < currentIndex;
+          const isActive    = idx === currentIndex && !isClosed;
+
+          // Dot appearance
+          let dotBg: string;
+          let dotBorder: string;
+          let dotContent: React.ReactNode;
+
+          if (isClosed || isCompleted) {
+            dotBg     = 'var(--color-success-600, #16a34a)';
+            dotBorder = 'var(--color-success-600, #16a34a)';
+            dotContent = (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                <path d="M2 5.5l2.2 2.2L8 3" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            );
+          } else if (isActive) {
+            dotBg     = 'var(--color-primary-600, #2563eb)';
+            dotBorder = 'var(--color-primary-600, #2563eb)';
+            dotContent = (
+              <span
+                style={{
+                  display: 'block',
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  background: '#fff',
+                }}
+              />
+            );
+          } else {
+            dotBg     = '#fff';
+            dotBorder = 'var(--color-gray-300, #d1d5db)';
+            dotContent = null;
+          }
+
+          // Line after this step is green only if both this step and the next
+          // are completed (i.e., the line is fully "passed").
+          const lineCompleted = isClosed || idx < currentIndex - 1 || (isCompleted && idx === currentIndex - 1);
+          const lineColor = lineCompleted
+            ? 'var(--color-success-600, #16a34a)'
+            : 'var(--color-gray-300, #d1d5db)';
+
+          return (
+            <div key={step.key} className={styles.timelineStepWrapper}>
+              {/* Step node */}
+              <div className={styles.timelineStep}>
+                <div
+                  className={styles.timelineDot}
+                  style={{
+                    background: dotBg,
+                    borderColor: dotBorder,
+                  }}
+                >
+                  {dotContent}
+                </div>
+                <span
+                  className={styles.timelineLabel}
+                  style={{
+                    color: (isClosed || isCompleted)
+                      ? 'var(--color-success-600, #16a34a)'
+                      : isActive
+                        ? 'var(--color-primary-600, #2563eb)'
+                        : 'var(--color-gray-400, #9ca3af)',
+                    fontWeight: isActive ? 600 : 400,
+                  }}
+                >
+                  {step.label}
+                </span>
+              </div>
+
+              {/* Connector line — only between steps */}
+              {idx < TIMELINE_STEPS.length - 1 && (
+                <div
+                  className={styles.timelineLine}
+                  style={{ background: lineColor }}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {isClosed && (
+        <div className={styles.timelineClosedNote}>
+          此订单已关闭
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
@@ -82,6 +203,28 @@ interface UrgentTagProps {
 function UrgentTag({ urgent }: UrgentTagProps) {
   if (!urgent) return <span className={styles.urgentTagEmpty}>—</span>;
   return <span className={styles.urgentTag}>紧急</span>;
+}
+
+// ---------------------------------------------------------------------------
+// Pending Approvals Banner (admin only)
+// ---------------------------------------------------------------------------
+
+interface PendingApprovalsBannerProps {
+  count: number;
+}
+
+function PendingApprovalsBanner({ count }: PendingApprovalsBannerProps) {
+  if (count <= 0) return null;
+  return (
+    <div className={styles.pendingBanner} role="status" aria-live="polite">
+      <span className={styles.pendingBannerIcon} aria-hidden="true">&#9888;</span>
+      <span className={styles.pendingBannerText}>
+        您有
+        <span className={styles.pendingBannerBadge}>{count}</span>
+        条待审批订单，请及时处理。
+      </span>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -692,6 +835,12 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
               </div>
             </div>
 
+            {/* Status Timeline */}
+            <div className={styles.drawerSection}>
+              <div className={styles.drawerSectionTitle}>订单进度</div>
+              <StatusTimeline currentStatus={order.status} />
+            </div>
+
             {/* Items */}
             <div className={styles.drawerSection}>
               <div className={styles.drawerSectionTitle}>产品明细</div>
@@ -880,8 +1029,12 @@ export default function SalesOrderListPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
 
+  const isAdmin = useIsAdmin();
+
   const { data, isLoading: loading, error, refetch: refresh } = useSalesOrderList(query);
   const { data: orderStatsData } = useOrderStats();
+  const { data: pendingData } = usePendingApprovals();
+  const pendingCount = isAdmin ? (pendingData?.count ?? 0) : 0;
 
   const orders: SalesOrder[] = data?.list ?? [];
   const total: number = data?.total ?? 0;
@@ -969,6 +1122,9 @@ export default function SalesOrderListPage() {
           + 新建订单
         </Button>
       </div>
+
+      {/* Pending approvals banner — admin only */}
+      <PendingApprovalsBanner count={pendingCount} />
 
       {/* Summary cards */}
       <SummaryCards

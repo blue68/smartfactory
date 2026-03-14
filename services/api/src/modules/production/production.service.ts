@@ -257,14 +257,15 @@ export class ProductionService {
 
   // R-06: 异常上报
   async reportException(taskId: number, params: {
-    type: string; description: string; severity: string;
+    type: string; description: string; severity: string; affectsProgress?: boolean;
   }) {
     await AppDataSource.transaction(async (manager) => {
-      // 更新任务状态为 exception
+      // 更新任务状态为 exception，同时写入 affects_progress 标记
       await manager.query(
-        `UPDATE production_tasks SET status = 'exception', updated_by = ?
+        `UPDATE production_tasks
+         SET status = 'exception', affects_progress = ?, updated_by = ?
          WHERE id = ? AND tenant_id = ?`,
-        [this.userId, taskId, this.tenantId],
+        [params.affectsProgress ? 1 : 0, this.userId, taskId, this.tenantId],
       );
       // 插入异常记录
       await manager.query(
@@ -335,9 +336,9 @@ export class ProductionService {
   // P2: 异常处理（恢复任务状态）
   async resolveException(taskId: number, resolution: string): Promise<void> {
     await AppDataSource.transaction(async (manager) => {
-      // 恢复任务状态为 pending
+      // 恢复任务状态为 in_progress（任务在异常发生前已处于执行中）
       await manager.query(
-        `UPDATE production_tasks SET status = 'pending', updated_by = ?
+        `UPDATE production_tasks SET status = 'in_progress', updated_by = ?
          WHERE id = ? AND tenant_id = ? AND status = 'exception'`,
         [this.userId, taskId, this.tenantId],
       );

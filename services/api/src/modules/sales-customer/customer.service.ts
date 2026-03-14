@@ -4,6 +4,14 @@ import { CustomerContactEntity } from './customerContact.entity';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 
+// ─── 导出筛选参数 ────────────────────────────────────────────────────────────
+
+export interface CustomerExportFilter {
+  keyword?: string;
+  grade?: CustomerGrade;
+  status?: CustomerStatus;
+}
+
 // ─── 参数接口定义 ────────────────────────────────────────────────────────────
 
 export interface CustomerListFilter {
@@ -315,6 +323,32 @@ export class CustomerService {
       );
     }
     await repo.remove(contact);
+  }
+
+  // ── 导出客户列表（上限 5000 条）─────────────────────────────────────────────
+
+  async exportCustomers(filter: CustomerExportFilter): Promise<CustomerEntity[]> {
+    const conds: string[] = ['c.tenant_id = ?'];
+    const params: unknown[] = [this.tenantId];
+
+    if (filter.keyword) {
+      conds.push('(c.name LIKE ? OR c.code LIKE ?)');
+      params.push(`%${filter.keyword}%`, `%${filter.keyword}%`);
+    }
+    if (filter.grade) {
+      conds.push('c.grade = ?');
+      params.push(filter.grade);
+    }
+    if (filter.status) {
+      conds.push('c.status = ?');
+      params.push(filter.status);
+    }
+
+    const where = conds.join(' AND ');
+    return AppDataSource.query<CustomerEntity[]>(
+      `SELECT * FROM customers c WHERE ${where} ORDER BY c.created_at DESC LIMIT 5000`,
+      params,
+    );
   }
 
   // ── 客户关联销售订单（分页）──────────────────────────────────────────────────

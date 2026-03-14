@@ -112,6 +112,7 @@ export class ProductionController {
       type: z.enum(['设备故障', '物料缺失', '质量异常', '其他']),
       description: z.string().min(1).max(1000),
       severity: z.enum(['low', 'medium', 'high']),
+      affectsProgress: z.boolean().optional(),
     }).parse(req.body);
     await this.svc(req).reportException(id, body);
     success(res, null, '异常已上报');

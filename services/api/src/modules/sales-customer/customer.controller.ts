@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import * as XLSX from 'xlsx';
 import { CustomerService } from './customer.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
@@ -7,6 +8,13 @@ import { PaginationSchema } from '../../middleware/validator';
 // ─── 校验 Schema ──────────────────────────────────────────────────────────────
 
 const ListQuerySchema = PaginationSchema.extend({
+  keyword: z.string().max(100).optional(),
+  grade: z.enum(['VIP', 'A', 'B', 'C']).optional(),
+  status: z.enum(['active', 'inactive']).optional(),
+});
+
+/** 导出查询参数（无分页） */
+const ExportQuerySchema = z.object({
   keyword: z.string().max(100).optional(),
   grade: z.enum(['VIP', 'A', 'B', 'C']).optional(),
   status: z.enum(['active', 'inactive']).optional(),
@@ -132,6 +140,62 @@ export class CustomerController {
     const q = PaginationSchema.parse(req.query);
     const [list, total] = await this.svc(req).getCustomerOrders(customerId, q.page, q.pageSize);
     success(res, buildPaginated(list, total, q.page, q.pageSize));
+  }
+
+  /**
+   * GET /customers/export
+   * 将符合筛选条件的客户（上限 5000）导出为 xlsx 文件并流式返回。
+   */
+  async exportExcel(req: Request, res: Response): Promise<void> {
+    const q = ExportQuerySchema.parse(req.query);
+    const list = await this.svc(req).exportCustomers({
+      keyword: q.keyword,
+      grade: q.grade,
+      status: q.status,
+    });
+
+    // ── 构建工作表数据 ────────────────────────────────────────────────────────
+    const header = [
+      '客户编码', '客户名称', '等级', '状态',
+      '主要联系人', '联系电话', '联系邮箱',
+      '地址', '区域', '信用额度(元)', '账期(天)', '备注', '创建时间',
+    ];
+    const rows = list.map((c) => [
+      c.code,
+      c.name,
+      c.grade,
+      c.status === 'active' ? '活跃' : '停用',
+      c.contact ?? '',
+      c.phone ?? '',
+      c.email ?? '',
+      c.address ?? '',
+      c.region ?? '',
+      c.creditLimit != null ? Number(c.creditLimit) : '',
+      c.paymentDays ?? '',
+      c.notes ?? '',
+      c.createdAt instanceof Date
+        ? c.createdAt.toISOString().slice(0, 19).replace('T', ' ')
+        : String(c.createdAt ?? ''),
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    ws['!cols'] = [
+      { wch: 14 }, { wch: 28 }, { wch: 6  }, { wch: 6  },
+      { wch: 12 }, { wch: 14 }, { wch: 26 },
+      { wch: 30 }, { wch: 12 }, { wch: 14 }, { wch: 10 },
+      { wch: 20 }, { wch: 20 },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '客户列表');
+
+    const xlsxBuf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+
+    const filename = encodeURIComponent(`客户列表_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${filename}`);
+    res.setHeader('Content-Length', String(xlsxBuf.length));
+    res.end(xlsxBuf);
   }
 }
 

@@ -133,9 +133,85 @@ function WageBarChart({ list }: WageBarChartProps) {
   );
 }
 
+// ─── 月度汇总组件 ──────────────────────────────────────────
+
+interface MonthlySummaryRow {
+  userId: number;
+  userName: string;
+  totalCount: number;
+  totalWage: number;
+  hasUnconfigured: boolean;
+}
+
+interface MonthlySummaryProps {
+  list: WageReportRow[];
+  isAdmin: boolean;
+}
+
+function MonthlySummaryTable({ list, isAdmin }: MonthlySummaryProps) {
+  const rows = useMemo<MonthlySummaryRow[]>(() => {
+    const map = new Map<number, MonthlySummaryRow>();
+    for (const row of list) {
+      const existing = map.get(row.userId);
+      const subtotal = row.subtotal ? parseFloat(row.subtotal) : 0;
+      const hasUnconfigured = row.subtotal === null;
+      if (existing) {
+        existing.totalCount += row.completedCount;
+        existing.totalWage += subtotal;
+        if (hasUnconfigured) existing.hasUnconfigured = true;
+      } else {
+        map.set(row.userId, {
+          userId: row.userId,
+          userName: row.userName,
+          totalCount: row.completedCount,
+          totalWage: subtotal,
+          hasUnconfigured,
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.totalWage - a.totalWage);
+  }, [list]);
+
+  if (rows.length === 0) {
+    return (
+      <p style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>暂无数据</p>
+    );
+  }
+
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+      <thead>
+        <tr style={{ background: 'var(--bg-subtle, #f9fafb)', borderBottom: '1px solid var(--border-default)' }}>
+          <th style={thStyle}>工人姓名</th>
+          <th style={thStyle}>总工时</th>
+          <th style={thStyle}>总件数</th>
+          {isAdmin && <th style={thStyle}>总工资</th>}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.userId} style={{ borderBottom: '1px solid var(--border-default)' }}>
+            <td style={tdStyle}>{row.userName}</td>
+            <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>—</td>
+            <td style={{ ...tdStyle, fontFamily: 'var(--font-family-number)' }}>{row.totalCount}</td>
+            {isAdmin && (
+              <td style={{ ...tdStyle, fontWeight: 600, fontFamily: 'var(--font-family-number)' }}>
+                {row.hasUnconfigured
+                  ? <span title="部分工序未配置单价，工资不完整" style={{ color: 'var(--color-warning)' }}>¥{row.totalWage.toFixed(2)}*</span>
+                  : `¥${row.totalWage.toFixed(2)}`}
+              </td>
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 // ─── 主页面 ───────────────────────────────────────────────
 
 type ViewMode = 'table' | 'chart';
+type ReportTab = 'daily' | 'monthly';
 
 const defaultRange = getCurrentMonthRange();
 
@@ -155,8 +231,8 @@ export default function WageReportPage() {
   // FE-05-01: 视图切换（表格 / 图表）
   const [viewMode, setViewMode] = useState<ViewMode>('table');
 
-  // 当前 Tab（为将来扩展预留，当前只有"工资核算"）
-  const [activeTab] = useState<'wage'>('wage');
+  // P1-#15: Tab 切换 — 日工资明细 / 月度汇总
+  const [activeTab, setActiveTab] = useState<ReportTab>('daily');
 
   useEffect(() => { setPageTitle('工资报表'); }, [setPageTitle]);
 
@@ -200,26 +276,38 @@ export default function WageReportPage() {
   return (
     <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      {/* FE-05-01: Tab 栏 */}
+      {/* P1-#15: Tab 栏 — 日工资明细 / 月度汇总 */}
       <div style={{ display: 'flex', borderBottom: '2px solid var(--border-default, #E2E8F0)', gap: 0 }}>
-        <button
-          aria-selected={activeTab === 'wage'}
-          style={{
-            padding: '8px 20px',
-            fontSize: 14,
-            fontWeight: 600,
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            borderBottom: activeTab === 'wage' ? '2px solid var(--color-primary-500, #3B82F6)' : '2px solid transparent',
-            color: activeTab === 'wage' ? 'var(--color-primary-600, #2563EB)' : 'var(--text-secondary)',
-            marginBottom: -2,
-            transition: 'color 150ms ease',
-          }}
-        >
-          工资核算
-        </button>
+        {(
+          [
+            { key: 'daily',   label: '日工资明细' },
+            { key: 'monthly', label: '月度汇总' },
+          ] as { key: ReportTab; label: string }[]
+        ).map(({ key, label }) => (
+          <button
+            key={key}
+            aria-selected={activeTab === key}
+            onClick={() => setActiveTab(key)}
+            style={{
+              padding: '8px 20px',
+              fontSize: 14,
+              fontWeight: 600,
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              borderBottom: activeTab === key ? '2px solid var(--color-primary-500, #3B82F6)' : '2px solid transparent',
+              color: activeTab === key ? 'var(--color-primary-600, #2563EB)' : 'var(--text-secondary)',
+              marginBottom: -2,
+              transition: 'color 150ms ease',
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
+
+      {/* ── 日工资明细 Tab 内容 ────────────────────────────── */}
+      {activeTab === 'daily' && <>
 
       {/* 筛选栏 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -409,6 +497,13 @@ export default function WageReportPage() {
           <Button variant="ghost" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>下一页</Button>
         </div>
       )}
+      </>}
+
+      {/* ── 月度汇总 Tab 内容 ────────────────────────────── */}
+      {activeTab === 'monthly' && (
+        <MonthlySummaryTable list={list} isAdmin={isAdmin} />
+      )}
+
     </div>
   );
 }

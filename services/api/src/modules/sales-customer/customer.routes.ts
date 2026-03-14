@@ -10,6 +10,7 @@ router.use(authMiddleware);
 
 // 固定路径路由必须在参数路由 /:id 之前注册
 router.get('/options', asyncHandler(customerController.getOptions.bind(customerController)));
+router.get('/export', asyncHandler(customerController.exportExcel.bind(customerController)));
 
 router.get('/',    asyncHandler(customerController.list.bind(customerController)));
 router.post('/',   requireRoles('boss', 'supervisor', 'sales'), asyncHandler(customerController.create.bind(customerController)));

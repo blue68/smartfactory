@@ -155,6 +155,24 @@ export async function checkCustomerActiveOrders(id: number): Promise<{ count: nu
   return request.get<{ count: number }>(`${BASE}/${id}/orders/active-count`);
 }
 
+/**
+ * GET /api/customers/export — 导出客户列表为 Excel。
+ * 使用浏览器原生 fetch + Blob URL 触发文件下载，不经过 request 工具（request 只处理 JSON）。
+ */
+export async function exportCustomers(): Promise<void> {
+  const response = await fetch('/api/customers/export');
+  if (!response.ok) throw new Error('导出失败');
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `客户列表_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+}
+
 // ─────────────────────────────────────────────
 // React Query Hooks
 // ─────────────────────────────────────────────
