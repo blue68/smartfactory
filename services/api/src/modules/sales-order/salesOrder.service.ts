@@ -716,13 +716,12 @@ export class SalesOrderService {
       const amount = new Decimal(item.quantity).mul(item.unitPrice).toFixed(2);
       await manager.query(
         `INSERT INTO sales_order_items
-           (tenant_id, order_id, sku_id, quantity, unit_price, amount, notes, sort_order)
+           (tenant_id, order_id, sku_id, qty_ordered, unit_price, amount, created_by, updated_by)
          VALUES (?,?,?,?,?,?,?,?)`,
         [
           this.tenantId, orderId, item.skuId,
           item.quantity, item.unitPrice, amount,
-          item.notes ?? null,
-          item.sortOrder ?? i,
+          this.userId, this.userId,
         ],
       );
     }
