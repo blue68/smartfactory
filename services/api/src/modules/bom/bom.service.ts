@@ -111,7 +111,7 @@ export class BomService {
     const headers = await AppDataSource.query<Array<{
       id: number; sku_id: number; sku_name: string; sku_code: string; version: string; status: string; item_count: number;
     }>>(
-      `SELECT b.id, b.sku_id, s.name AS sku_name, s.code AS sku_code, b.version, b.status,
+      `SELECT b.id, b.sku_id, s.name AS sku_name, s.sku_code, b.version, b.status,
               (SELECT COUNT(*) FROM bom_items WHERE bom_header_id = b.id AND tenant_id = b.tenant_id) AS item_count
        FROM bom_headers b
        INNER JOIN skus s ON s.id = b.sku_id
@@ -982,7 +982,7 @@ export class BomService {
     const [header] = await AppDataSource.query<Array<{
       id: number; sku_id: number; sku_name: string; sku_code: string; version: string; status: string; description: string | null;
     }>>(
-      `SELECT b.id, b.sku_id, s.name AS sku_name, s.code AS sku_code, b.version, b.status, b.description
+      `SELECT b.id, b.sku_id, s.name AS sku_name, s.sku_code, b.version, b.status, b.description
        FROM bom_headers b INNER JOIN skus s ON s.id = b.sku_id
        WHERE b.id = ? AND b.tenant_id = ? LIMIT 1`,
       [bomId, this.tenantId],

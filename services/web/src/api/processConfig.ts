@@ -162,16 +162,16 @@ export const processConfigApi = {
   // FE-05-07: 使用 PATCH 替代 PUT（语义更准确，仅更新指定字段）
   setMaxHours: (stepId: number, maxHours: number) =>
     request.patch<{ stepId: number; maxHours: number }>(
-      `/api/process-config/steps/${stepId}/max-hours`,
+      `/api/process-configs/steps/${stepId}/max-hours`,
       { maxHours } satisfies SetMaxHoursPayload,
     ),
 
   getWages: (stepId: number) =>
-    request.get<StepWageItem[]>(`/api/process-config/steps/${stepId}/wages`),
+    request.get<StepWageItem[]>(`/api/process-configs/steps/${stepId}/wages`),
 
   setWages: (stepId: number, payload: SetWagesPayload) =>
     request.patch<StepWageItem>(
-      `/api/process-config/steps/${stepId}/wages`,
+      `/api/process-configs/steps/${stepId}/wages`,
       payload,
     ),
 };

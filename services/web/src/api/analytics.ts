@@ -95,28 +95,28 @@ export const analyticsKeys = {
 
 export const analyticsApi = {
   getDashboardKpi: () =>
-    request.get<DashboardKpi>('/analytics/dashboard-kpi'),
+    request.get<DashboardKpi>('/api/analytics/dashboard-kpi'),
 
   getInventoryAnalysis: () =>
-    request.get<InventoryAnalysis>('/analytics/inventory-analysis'),
+    request.get<InventoryAnalysis>('/api/analytics/inventory-analysis'),
 
   getProductionEfficiency: () =>
-    request.get<ProductionEfficiency>('/analytics/production-efficiency'),
+    request.get<ProductionEfficiency>('/api/analytics/production-efficiency'),
 
   getPurchaseCostAnalysis: () =>
-    request.get<PurchaseCostAnalysis>('/analytics/purchase-cost'),
+    request.get<PurchaseCostAnalysis>('/api/analytics/purchase-cost'),
 
   getMaterialCategoryRatio: (periodDays?: number) => {
     const params = periodDays !== undefined ? `?period_days=${periodDays}` : '';
     return request.get<MaterialCategoryRatio>(
-      `/analytics/material-category-ratio${params}`,
+      `/api/analytics/material-category-ratio${params}`,
     );
   },
 
   getPurchaseCategoryDistribution: (periodDays?: number) => {
     const params = periodDays !== undefined ? `?periodDays=${periodDays}` : '';
     return request.get<PurchaseCategoryDistribution>(
-      `/analytics/purchase-category${params}`,
+      `/api/analytics/purchase-category${params}`,
     );
   },
 };
