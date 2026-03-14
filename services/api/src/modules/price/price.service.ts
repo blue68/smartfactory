@@ -5,6 +5,17 @@ import { PriceEntity } from './price.entity';
 import { ImportTaskEntity, ImportErrorDetail } from './import-task.entity';
 import { AppError } from '../../shared/AppError';
 
+// ── In-memory progress store for active import tasks (MVP; process-scoped) ──
+export interface ImportProgress {
+  status: 'processing' | 'completed' | 'failed';
+  total: number;
+  processed: number;
+  errors: string[];
+}
+
+/** Keyed by numeric taskId. Entries are never deleted so polling always works. */
+export const importProgressStore = new Map<number, ImportProgress>();
+
 /** 价格导入单行结构（对应模板列） */
 export interface ImportPriceRow {
   supplierCode: string;
@@ -254,6 +265,14 @@ export class PriceService {
     });
     await taskRepo.save(task);
 
+    // Register initial progress entry so polling can start immediately
+    importProgressStore.set(task.id, {
+      status: 'processing',
+      total: 0,
+      processed: 0,
+      errors: [],
+    });
+
     try {
       // ── 2. 解析 Excel ──────────────────────────────────────────────────────
       const buf = fileBuffer;
@@ -272,6 +291,10 @@ export class PriceService {
         const firstVal = Object.values(r)[0] ?? '';
         return !String(firstVal).startsWith('说明:');
       });
+
+      // Update total in progress store as soon as row count is known
+      const progress = importProgressStore.get(task.id)!;
+      progress.total = dataRows.length;
 
       const IMPORT_LIMIT = 5000;
       if (dataRows.length === 0) {
@@ -443,6 +466,11 @@ export class PriceService {
         });
       }
 
+      // Propagate validation errors to progress store
+      for (const e of errors) {
+        progress.errors.push(`第${e.row}行 [${e.column ?? ''}]: ${e.message}`);
+      }
+
       // ── 6. 事务写入合法行 ─────────────────────────────────────────────────
       let successCount = 0;
       if (validRows.length > 0) {
@@ -472,6 +500,8 @@ export class PriceService {
             });
             await priceRepo.save(entity);
             successCount++;
+            // Increment in-memory progress after each successful row write
+            progress.processed = successCount;
           }
         });
       }
@@ -488,6 +518,11 @@ export class PriceService {
         warningDetails: warnings.length > 0 ? warnings : null,
       });
 
+      // Mark in-memory progress as completed
+      progress.status = 'completed';
+      progress.total = parsedRows.length;
+      progress.processed = successCount;
+
       return {
         taskId: task.id,
         totalRows: parsedRows.length,
@@ -501,6 +536,12 @@ export class PriceService {
     } catch (err) {
       // 标记任务失败
       await taskRepo.update(task.id, { status: 'failed' });
+      // Update in-memory progress to failed
+      const failedProgress = importProgressStore.get(task.id);
+      if (failedProgress) {
+        failedProgress.status = 'failed';
+        failedProgress.errors.push(err instanceof Error ? err.message : String(err));
+      }
       throw err;
     }
   }
@@ -515,6 +556,30 @@ export class PriceService {
     const task = await repo.findOne({ where: { id: taskId, tenantId: this.tenantId } });
     if (!task) throw AppError.notFound('导入任务不存在');
     return task;
+  }
+
+  // ─── #14: 实时进度轮询（in-memory Map） ─────────────────────────────────────
+
+  /**
+   * Return live import progress from in-memory store.
+   * Falls back to DB entity when the store has no entry (e.g. after server restart).
+   */
+  async getImportProgress(taskId: number): Promise<ImportProgress> {
+    const cached = importProgressStore.get(taskId);
+    if (cached) return cached;
+
+    // Fallback: reconstruct from DB (covers restart scenario)
+    const task = await this.getImportTaskStatus(taskId);
+    return {
+      status: task.status === 'completed' || task.status === 'failed'
+        ? task.status
+        : 'processing',
+      total: task.totalRows ?? 0,
+      processed: task.successCount ?? 0,
+      errors: (task.errorDetails ?? []).map(
+        (e) => `第${e.row}行 [${e.column ?? ''}]: ${e.message}`,
+      ),
+    };
   }
 
   // BE-P1-014: 采购价格历史

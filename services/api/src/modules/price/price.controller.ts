@@ -55,11 +55,19 @@ export class PriceController {
     success(res, result, `导入完成：成功 ${result.successCount} 条，失败 ${result.failCount} 条`);
   }
 
-  // ── R-03: 导入任务进度查询 ──────────────────────────────────────────────
+  // ── R-03: 导入任务进度查询（DB entity，保留兼容） ────────────────────────
   async getImportStatus(req: Request, res: Response): Promise<void> {
     const taskId = Number(req.params.taskId);
     const task = await this.svc(req).getImportTaskStatus(taskId);
     success(res, task);
+  }
+
+  // ── #14: 实时进度轮询端点 GET /import/:taskId/status ────────────────────
+  // Returns { status, total, processed, errors[] } from in-memory store
+  async getImportProgress(req: Request, res: Response): Promise<void> {
+    const taskId = Number(req.params.taskId);
+    const progressData = await this.svc(req).getImportProgress(taskId);
+    success(res, progressData);
   }
 
   async list(req: Request, res: Response): Promise<void> {

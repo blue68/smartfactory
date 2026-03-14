@@ -28,6 +28,7 @@ import type {
 } from '@/api/salesOrder';
 import { useCustomerOptions } from '@/api/customer';
 import { useAuthStore } from '@/stores/authStore';
+import { UserRole } from '@/types/enums';
 import styles from './SalesOrderListPage.module.css';
 
 // ---------------------------------------------------------------------------
@@ -55,9 +56,32 @@ const STATUS_OPTIONS: { value: SalesOrderStatus | ''; label: string }[] = [
   { value: 'closed', label: '已关闭' },
 ];
 
-// Admin role check via auth store — used for approve/reject visibility
+// ---------------------------------------------------------------------------
+// BD-003 permission hooks
+// ---------------------------------------------------------------------------
+
+/** 创建订单 / 提交审批: boss, supervisor, sales */
+function useCanCreateOrder() {
+  return useAuthStore((s) =>
+    s.hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR, UserRole.SALES]),
+  );
+}
+
+/** 审批通过 / 驳回 / 确认订单 / 关闭: boss only */
+function useCanApprove() {
+  return useAuthStore((s) => s.hasRole(UserRole.BOSS));
+}
+
+/** 发货 / 完成: boss, supervisor */
+function useCanShip() {
+  return useAuthStore((s) =>
+    s.hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]),
+  );
+}
+
+// Keep a convenience alias used for the pending-approvals banner (boss sees it)
 function useIsAdmin() {
-  return useAuthStore((s) => s.hasAnyRole(['admin' as any, 'boss' as any]));
+  return useCanApprove();
 }
 
 // ---------------------------------------------------------------------------
@@ -580,7 +604,9 @@ interface OrderDetailDrawerProps {
 }
 
 function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerProps) {
-  const isAdmin = useIsAdmin();
+  const canCreateOrder = useCanCreateOrder();
+  const canApprove     = useCanApprove();
+  const canShip        = useCanShip();
   const { data: order, isLoading: loading, error, refetch } = useSalesOrder(orderId);
   const submitOrder = useSubmitSalesOrder();
   const approveOrder = useApproveSalesOrder();
@@ -632,15 +658,19 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
       case 'draft':
         return (
           <div className={styles.actionGroup}>
-            <Button
-              size="sm"
-              variant="primary"
-              loading={actionLoading}
-              onClick={() => handleAction(() => submitOrder.mutateAsync(id))}
-            >
-              提交审批
-            </Button>
-            {isAdmin && (
+            {/* 提交审批: boss, supervisor, sales */}
+            {canCreateOrder && (
+              <Button
+                size="sm"
+                variant="primary"
+                loading={actionLoading}
+                onClick={() => handleAction(() => submitOrder.mutateAsync(id))}
+              >
+                提交审批
+              </Button>
+            )}
+            {/* 关闭: boss only */}
+            {canApprove && (
               <Button
                 size="sm"
                 variant="secondary"
@@ -656,15 +686,19 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
       case 'pending_approval':
         return (
           <div className={styles.actionGroup}>
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={actionLoading}
-              onClick={() => handleAction(() => withdrawOrder.mutateAsync(id))}
-            >
-              撤回
-            </Button>
-            {isAdmin && (
+            {/* 撤回: boss, supervisor, sales (order submitter) — guard same as create */}
+            {canCreateOrder && (
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={actionLoading}
+                onClick={() => handleAction(() => withdrawOrder.mutateAsync(id))}
+              >
+                撤回
+              </Button>
+            )}
+            {/* 审批通过 / 拒绝: boss only */}
+            {canApprove && (
               <>
                 <Button
                   size="sm"
@@ -690,7 +724,8 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
       case 'confirmed':
         return (
           <div className={styles.actionGroup}>
-            {isAdmin && (
+            {/* 确认订单 / 触发建工单: boss only */}
+            {canApprove && (
               <Button
                 size="sm"
                 variant="primary"
@@ -700,15 +735,19 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
                 触发建工单
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={actionLoading}
-              onClick={() => handleAction(() => shipOrder.mutateAsync(id))}
-            >
-              标记发货
-            </Button>
-            {isAdmin && (
+            {/* 发货: boss, supervisor */}
+            {canShip && (
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={actionLoading}
+                onClick={() => handleAction(() => shipOrder.mutateAsync(id))}
+              >
+                标记发货
+              </Button>
+            )}
+            {/* 关闭: boss only */}
+            {canApprove && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -724,15 +763,19 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
       case 'in_production':
         return (
           <div className={styles.actionGroup}>
-            <Button
-              size="sm"
-              variant="primary"
-              loading={actionLoading}
-              onClick={() => handleAction(() => shipOrder.mutateAsync(id))}
-            >
-              标记发货
-            </Button>
-            {isAdmin && (
+            {/* 发货: boss, supervisor */}
+            {canShip && (
+              <Button
+                size="sm"
+                variant="primary"
+                loading={actionLoading}
+                onClick={() => handleAction(() => shipOrder.mutateAsync(id))}
+              >
+                标记发货
+              </Button>
+            )}
+            {/* 关闭: boss only */}
+            {canApprove && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -748,15 +791,19 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
       case 'shipped':
         return (
           <div className={styles.actionGroup}>
-            <Button
-              size="sm"
-              variant="primary"
-              loading={actionLoading}
-              onClick={() => handleAction(() => completeOrder.mutateAsync(id))}
-            >
-              确认完成
-            </Button>
-            {isAdmin && (
+            {/* 完成: boss, supervisor */}
+            {canShip && (
+              <Button
+                size="sm"
+                variant="primary"
+                loading={actionLoading}
+                onClick={() => handleAction(() => completeOrder.mutateAsync(id))}
+              >
+                确认完成
+              </Button>
+            )}
+            {/* 关闭: boss only */}
+            {canApprove && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -1029,7 +1076,8 @@ export default function SalesOrderListPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
 
-  const isAdmin = useIsAdmin();
+  const isAdmin        = useIsAdmin();
+  const canCreateOrder = useCanCreateOrder();
 
   const { data, isLoading: loading, error, refetch: refresh } = useSalesOrderList(query);
   const { data: orderStatsData } = useOrderStats();
@@ -1118,9 +1166,11 @@ export default function SalesOrderListPage() {
       {/* Header */}
       <div className={styles.pageHeader}>
         <h1 className={styles.pageTitle}>销售订单管理</h1>
-        <Button variant="primary" onClick={() => setCreateModalOpen(true)}>
-          + 新建订单
-        </Button>
+        {canCreateOrder && (
+          <Button variant="primary" onClick={() => setCreateModalOpen(true)}>
+            + 新建订单
+          </Button>
+        )}
       </div>
 
       {/* Pending approvals banner — admin only */}

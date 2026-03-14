@@ -34,6 +34,8 @@ router.post(
   upload.single('file'),
   asyncHandler(priceController.importPrices.bind(priceController)),
 );
+// #14: lightweight progress polling — must be declared before /import/:taskId
+router.get('/import/:taskId/status', asyncHandler(priceController.getImportProgress.bind(priceController)));
 router.get('/import/:taskId', asyncHandler(priceController.getImportStatus.bind(priceController)));
 
 // ── 原有路由 ────────────────────────────────────────────────────────────
