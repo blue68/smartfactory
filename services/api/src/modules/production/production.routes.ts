@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { productionController } from './production.controller';
+import { productionOrderController } from './production-order.controller';
 import { authMiddleware, requireRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
@@ -30,10 +31,29 @@ router.put('/schedule/:date/adjust',
 
 // 生产工单
 router.get('/orders',              asyncHandler(productionController.listOrders.bind(productionController)));
+
+// Sprint 3: 销售订单触发工单创建（固定路由，必须在 /orders/:id 之前）
+router.post('/orders/from-sales-order/:salesOrderId',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(productionOrderController.createFromSalesOrder.bind(productionOrderController)),
+);
+
 router.get('/orders/:id',          asyncHandler(productionController.getOrder.bind(productionController)));
 router.post('/orders',
   requireRoles('supervisor', 'boss'),
   asyncHandler(productionController.createOrder.bind(productionController)),
+);
+
+// Sprint 3: 工单物料需求和缺料检测
+router.get('/orders/:id/materials',
+  asyncHandler(productionOrderController.getMaterialRequirements.bind(productionOrderController)),
+);
+router.get('/orders/:id/material-check',
+  asyncHandler(productionOrderController.checkMaterialStatus.bind(productionOrderController)),
+);
+router.put('/orders/:id/cancel',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(productionOrderController.cancelOrder.bind(productionOrderController)),
 );
 
 // 排产计划

@@ -15,6 +15,27 @@ import type { PaginatedData } from '@/types/api';
 import type { ProductionOrderStatus } from '@/types/enums';
 import { config } from '@/config';
 
+// ── Sprint 3 Types ────────────────────────────
+export interface MaterialRequirement {
+  id: number;
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  qtyRequired: string;
+  qtyReserved: string;
+  qtyShortage: string;
+  status: 'shortage' | 'partial' | 'fulfilled';
+  currentStock: string;
+  inTransit: string;
+  [key: string]: unknown;
+}
+
+export interface MaterialCheckResult {
+  materialStatus: 'unchecked' | 'shortage' | 'partial' | 'ready';
+  items: MaterialRequirement[];
+  totalShortage: number;
+}
+
 // ── Query Keys ───────────────────────────────
 export const productionKeys = {
   all: ['production'] as const,
@@ -25,6 +46,9 @@ export const productionKeys = {
   schedule: (date: string) => [...productionKeys.all, 'schedule', date] as const,
   workerTasks: (workerId: number, date: string) =>
     [...productionKeys.all, 'workerTasks', workerId, date] as const,
+  // Sprint 3 追加
+  materials: (id: number) => [...productionKeys.orders(), id, 'materials'] as const,
+  materialCheck: (id: number) => [...productionKeys.orders(), id, 'material-check'] as const,
 };
 
 // ── 原始请求函数 ─────────────────────────────
@@ -67,6 +91,21 @@ export const productionApi = {
 
   completeTask: (taskId: number, payload: CompleteTaskPayload) =>
     request.post<null>(`/api/production/tasks/${taskId}/complete`, payload),
+
+  // Sprint 3 追加
+  createFromSalesOrder: (salesOrderId: number) =>
+    request.post<{ orders: Array<{ id: number; workOrderNo: string }> }>(
+      `/api/production/orders/from-sales-order/${salesOrderId}`
+    ),
+
+  getMaterialRequirements: (orderId: number) =>
+    request.get<MaterialRequirement[]>(`/api/production/orders/${orderId}/materials`),
+
+  checkMaterialStatus: (orderId: number) =>
+    request.get<MaterialCheckResult>(`/api/production/orders/${orderId}/material-check`),
+
+  cancelOrder: (orderId: number) =>
+    request.put<null>(`/api/production/orders/${orderId}/cancel`),
 };
 
 // ── React Query Hooks ────────────────────────
@@ -153,6 +192,48 @@ export function useCompleteTask() {
       productionApi.completeTask(taskId, payload),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: productionKeys.all });
+    },
+  });
+}
+
+// ── Sprint 3 Hooks ────────────────────────────
+
+/** 从销售订单创建生产工单 */
+export function useCreateFromSalesOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (salesOrderId: number) => productionApi.createFromSalesOrder(salesOrderId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: productionKeys.orders() });
+    },
+  });
+}
+
+/** 物料需求列表 */
+export function useMaterialRequirements(orderId: number | null) {
+  return useQuery({
+    queryKey: productionKeys.materials(orderId!),
+    queryFn: () => productionApi.getMaterialRequirements(orderId!),
+    enabled: orderId !== null && orderId > 0,
+  });
+}
+
+/** 备料状态检测 */
+export function useMaterialCheck(orderId: number | null) {
+  return useQuery({
+    queryKey: productionKeys.materialCheck(orderId!),
+    queryFn: () => productionApi.checkMaterialStatus(orderId!),
+    enabled: orderId !== null && orderId > 0,
+  });
+}
+
+/** 取消工单 */
+export function useCancelOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: number) => productionApi.cancelOrder(orderId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: productionKeys.orders() });
     },
   });
 }

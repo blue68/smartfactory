@@ -1,0 +1,377 @@
+/* ================================================================
+   IncomingInspectionPage — 来料质检单列表页
+================================================================ */
+
+/* ---- Page layout -------------------------------------------- */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.page_header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.page_title {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* ================================================================
+   Stats Grid — 4 KPI Cards
+================================================================ */
+.stats_grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
+
+.stat_card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  box-shadow: var(--shadow-xs);
+}
+
+.stat_card__label {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.stat_card__value {
+  font-size: 1.875rem;
+  font-weight: 800;
+  line-height: 1.1;
+  font-family: var(--font-family-number, "DIN Alternate", "Roboto Mono", sans-serif);
+}
+
+.stat_card__value--all     { color: var(--text-primary); }
+.stat_card__value--pending { color: var(--color-warning-600); }
+.stat_card__value--passed  { color: var(--color-success-600); }
+.stat_card__value--failed  { color: var(--color-error-600); }
+
+/* ================================================================
+   Filter Bar
+================================================================ */
+.filter_bar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-xs);
+}
+
+.filter_group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.filter_group_grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+.filter_label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.filter_select,
+.filter_input {
+  height: 2.25rem;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.filter_select:focus,
+.filter_input:focus {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+/* ================================================================
+   Table Card
+================================================================ */
+.table_card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+
+/* ================================================================
+   Status & Result Badges
+================================================================ */
+.status_badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.status_gray   { background: var(--color-gray-100);    color: var(--color-gray-600); }
+.status_blue   { background: var(--color-primary-50);  color: var(--color-primary-700); }
+.status_green  { background: var(--color-success-50);  color: var(--color-success-700); }
+.status_yellow { background: var(--color-warning-50);  color: var(--color-warning-700); }
+.status_red    { background: var(--color-error-50);    color: var(--color-error-700); }
+
+.result_badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.result_pass        { background: var(--color-success-50); color: var(--color-success-700); }
+.result_fail        { background: var(--color-error-50);   color: var(--color-error-700); }
+.result_conditional { background: var(--color-warning-50); color: var(--color-warning-700); }
+
+/* ================================================================
+   Typography helpers
+================================================================ */
+.mono_code {
+  font-family: var(--font-family-mono, "Menlo", "Courier New", monospace);
+  font-size: 0.8125rem;
+  color: var(--color-primary-700);
+}
+
+.text_muted  { color: var(--text-disabled); }
+.text_success { color: var(--color-success-600); font-weight: 500; }
+.text_danger  { color: var(--color-error-600);   font-weight: 600; }
+
+/* ================================================================
+   Drawer content
+================================================================ */
+.drawer_loading {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.drawer_content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.drawer_footer_actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+/* ---- Detail sections ----------------------------------------- */
+.detail_section {}
+
+.detail_section_title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.detail_grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3) var(--space-5);
+}
+
+.detail_kv {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.detail_kv_full {
+  grid-column: 1 / -1;
+}
+
+.detail_key {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.detail_val {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+/* ---- Items table inside drawer ------------------------------ */
+.items_table_wrap {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+/* ================================================================
+   BD-004 Rule Notice
+================================================================ */
+.rule_notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-error-50);
+  border: 1px solid var(--color-error-200);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: var(--color-error-800);
+  line-height: 1.5;
+}
+
+.rule_notice__icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background: var(--color-error-500);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+/* ================================================================
+   Form inside Modal
+================================================================ */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.form_field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.form_label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.required {
+  color: var(--color-error-500);
+}
+
+.form_input,
+.form_textarea {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form_input:focus,
+.form_textarea:focus {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.form_textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* ================================================================
+   Submit result options (radio card row)
+================================================================ */
+.result_options {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.result_option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3);
+  border: 2px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  text-align: center;
+}
+
+.result_option:hover {
+  border-color: var(--border-strong);
+}
+
+.option_pass        { color: var(--color-success-700); }
+.option_conditional { color: var(--color-warning-700); }
+.option_fail        { color: var(--color-error-700); }
+
+.result_option_selected.option_pass {
+  border-color: var(--color-success-500);
+  background: var(--color-success-50);
+}
+
+.result_option_selected.option_conditional {
+  border-color: var(--color-warning-500);
+  background: var(--color-warning-50);
+}
+
+.result_option_selected.option_fail {
+  border-color: var(--color-error-500);
+  background: var(--color-error-50);
+}
+
+/* Screen-reader only */
+.sr_only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

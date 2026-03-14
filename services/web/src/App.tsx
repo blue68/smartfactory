@@ -25,6 +25,11 @@ import CategoryConfigPage from '@/pages/master-data/CategoryConfigPage';
 import WageReportPage from '@/pages/report/WageReportPage';
 import MyWagePage from '@/pages/report/MyWagePage';
 import LoginPage from '@/pages/auth/LoginPage';
+import ProductionOrderPage from '@/pages/production/ProductionOrderPage';
+import ShortageBoard from '@/pages/production/ShortageBoard';
+import PurchaseSuggestionPage from '@/pages/purchase/PurchaseSuggestionPage';
+import IncomingInspectionPage from '@/pages/purchase/IncomingInspectionPage';
+import ReturnOrderPage from '@/pages/purchase/ReturnOrderPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 
 /** 认证守卫：未登录跳转 /login */
@@ -65,6 +70,11 @@ export default function App() {
             <Route path="/master-data/sku-category" element={<CategoryConfigPage />} />
             <Route path="/report/wages" element={<WageReportPage />} />
             <Route path="/report/my-wages" element={<MyWagePage />} />
+            <Route path="/production/orders" element={<ProductionOrderPage />} />
+            <Route path="/production/shortage" element={<ShortageBoard />} />
+            <Route path="/purchase/purchase-suggestions" element={<PurchaseSuggestionPage />} />
+            <Route path="/purchase/incoming-inspection" element={<IncomingInspectionPage />} />
+            <Route path="/purchase/returns" element={<ReturnOrderPage />} />
             <Route path="/ai-chat" element={<AiChatPage />} />
           </Route>
         </Route>

@@ -14,6 +14,10 @@ const PREFIX_MAP: Record<string, string> = {
   delivery_note: 'DN',
   receipt: 'RC',
   transaction: 'TX',
+  // Sprint 3 新增
+  incoming_inspection: 'IQC',
+  return_order: 'RTN',
+  bom_snapshot: 'SNAP',
 };
 
 /**

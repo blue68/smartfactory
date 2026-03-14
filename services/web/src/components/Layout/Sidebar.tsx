@@ -48,6 +48,27 @@ const NAV_ITEMS: NavItem[] = [
     group: '采购',
   },
   {
+    path: '/purchase/purchase-suggestions',
+    label: '采购建议管理',
+    icon: '📋',
+    roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR],
+    group: '采购',
+  },
+  {
+    path: '/purchase/incoming-inspection',
+    label: '来料质检',
+    icon: '🔬',
+    roles: [UserRole.BOSS, UserRole.QC, UserRole.PURCHASER, UserRole.SUPERVISOR],
+    group: '采购',
+  },
+  {
+    path: '/purchase/returns',
+    label: '退货管理',
+    icon: '↩️',
+    roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR],
+    group: '采购',
+  },
+  {
     path: '/sales/orders',
     label: '新建订单',
     icon: '📝',
@@ -80,6 +101,20 @@ const NAV_ITEMS: NavItem[] = [
     label: '生产任务',
     icon: '🔨',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
+    group: '生产',
+  },
+  {
+    path: '/production/orders',
+    label: '生产工单',
+    icon: '📑',
+    roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    group: '生产',
+  },
+  {
+    path: '/production/shortage',
+    label: '缺料看板',
+    icon: '⚠️',
+    roles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
     group: '生产',
   },
   {

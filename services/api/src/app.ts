@@ -26,6 +26,11 @@ import skuCategoryRoutes from './modules/sku-category/skuCategory.routes';
 import wageRoutes      from './modules/report/wage.routes';
 import analyticsRoutes from './modules/analytics/analytics.routes';
 import uploadRoutes    from './modules/upload/upload.routes';
+// Sprint 3 新增模块
+import incomingInspectionRoutes from './modules/incoming-inspection/incomingInspection.routes';
+import returnOrderRoutes from './modules/return-order/returnOrder.routes';
+import mrpRoutes from './modules/mrp/mrp.routes';
+import purchaseSuggestionRoutes from './modules/purchase/purchaseSuggestion.routes';
 
 const app = express();
 
@@ -156,6 +161,11 @@ app.use('/api/sku-categories', skuCategoryRoutes);
 app.use('/api/reports/wages', wageRoutes);
 app.use('/api/analytics',  analyticsRoutes);
 app.use('/api/upload',     uploadRoutes);
+// Sprint 3 新增路由
+app.use('/api/incoming-inspections', incomingInspectionRoutes);
+app.use('/api/return-orders',        returnOrderRoutes);
+app.use('/api/mrp',                  mrpRoutes);
+app.use('/api/purchase-suggestions', purchaseSuggestionRoutes);
 
 // ── 404 处理 ────────────────────────────────────────────────
 app.use((_req, res) => {

@@ -1,0 +1,19 @@
+.container { padding: 1.5rem; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+.header h2 { font-size: 1.25rem; font-weight: 700; color: #111827; margin: 0; }
+.statsRow { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.statCard { flex: 1; min-width: 140px; background: #fff; border-radius: 8px; padding: 1rem 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.statCard h4 { font-size: 0.8rem; color: #6b7280; margin: 0 0 0.5rem; }
+.statCard .value { font-size: 1.75rem; font-weight: 700; }
+.green { color: #059669; }
+.yellow { color: #d97706; }
+.red { color: #dc2626; }
+.rowGreen { background: #f0fdf4; }
+.rowYellow { background: #fffbeb; }
+.rowRed { background: #fef2f2; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+.badgeGreen { background: #d1fae5; color: #059669; }
+.badgeYellow { background: #fef3c7; color: #d97706; }
+.badgeRed { background: #fee2e2; color: #dc2626; }
+.suggestionYes { color: #059669; font-weight: 600; }
+.suggestionNo { color: #dc2626; font-weight: 600; }

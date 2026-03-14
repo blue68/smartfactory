@@ -1,0 +1,31 @@
+.container { padding: 1.5rem; }
+.statsRow { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.statCard { flex: 1; min-width: 140px; background: #fff; border-radius: 8px; padding: 1rem 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.statCard h4 { font-size: 0.8rem; color: #6b7280; margin: 0 0 0.5rem; font-weight: 500; }
+.statCard .value { font-size: 1.75rem; font-weight: 700; color: #111827; }
+.filterRow { display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center; }
+.filterRow select, .filterRow input { height: 36px; border: 1px solid #d1d5db; border-radius: 6px; padding: 0 0.75rem; font-size: 0.875rem; }
+.filterRow input { width: 200px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+.badgePending { background: #f3f4f6; color: #6b7280; }
+.badgeScheduled { background: #dbeafe; color: #2563eb; }
+.badgeInProgress { background: #fef3c7; color: #d97706; }
+.badgeCompleted { background: #d1fae5; color: #059669; }
+.badgeCancelled { background: #fee2e2; color: #dc2626; }
+.materialReady { background: #d1fae5; color: #059669; }
+.materialPartial { background: #fef3c7; color: #d97706; }
+.materialShortage { background: #fee2e2; color: #dc2626; }
+.materialUnchecked { background: #f3f4f6; color: #6b7280; }
+.urgentTag { background: #fee2e2; color: #dc2626; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
+.normalTag { background: #f3f4f6; color: #9ca3af; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; }
+.bomVersion { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.875rem; color: #1d4ed8; }
+.tabRow { display: flex; gap: 0; border-bottom: 1px solid #e5e7eb; margin-bottom: 1rem; }
+.tab { padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem; color: #6b7280; border-bottom: 2px solid transparent; }
+.tabActive { color: #2563eb; border-bottom-color: #2563eb; font-weight: 600; }
+.shortageRow { background: #fef2f2 !important; }
+.actions { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+.drawerSection { margin-bottom: 1.25rem; }
+.drawerSection h4 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; color: #374151; }
+.infoGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem 1rem; font-size: 0.85rem; }
+.infoGrid dt { color: #6b7280; }
+.infoGrid dd { color: #111827; font-weight: 500; margin: 0; }
