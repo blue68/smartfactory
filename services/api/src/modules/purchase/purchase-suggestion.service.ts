@@ -151,6 +151,10 @@ export class PurchaseSuggestionService {
     if (suggestionIds.length === 0) {
       throw AppError.badRequest('至少选择一条采购建议', ResponseCode.INVALID_PARAMS);
     }
+    // FIND-S4-007 fix: Service 层双保险，防止绕过 Controller 直接调用
+    if (suggestionIds.length > 100) {
+      throw AppError.badRequest('单次最多处理 100 条采购建议', ResponseCode.INVALID_PARAMS);
+    }
 
     // 查询所有选中的建议
     const placeholders = suggestionIds.map(() => '?').join(',');

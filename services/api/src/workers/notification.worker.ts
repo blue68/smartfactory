@@ -33,7 +33,8 @@ const notificationWorker = new Worker<NotificationJobData>(
       `[NotificationWorker] 发送通知 Job #${job.id}：` +
       `tenantId=${tenantId} userId=${userId} type=${type} targetId=${targetId}`,
     );
-    console.log(`[NotificationWorker] 通知内容: ${message}`);
+    // FIND-S4-003 fix: 不输出完整 message 到日志，避免敏感数据泄露
+    console.log(`[NotificationWorker] 通知内容长度: ${message?.length ?? 0} 字符`);
 
     // TODO（下一迭代）：对接钉钉 Webhook / 邮件 / 站内消息表
   },
