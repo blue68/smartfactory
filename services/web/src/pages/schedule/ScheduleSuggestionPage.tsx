@@ -11,8 +11,10 @@
  * 数据来源：真实 API hooks（不再使用静态 mock）
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import ScheduleStatCard from '@/components/ScheduleStatCard/ScheduleStatCard';
+import { useAuthStore } from '@/stores/authStore';
+import { UserRole } from '@/types/enums';
 import {
   useLatestSuggestion,
   useTriggerCalculation,
@@ -602,6 +604,21 @@ export default function ScheduleSuggestionPage() {
     void batchRefetch();
   };
 
+  // ── 角色隔离（BD-003 权限矩阵）──
+  const { hasAnyRole } = useAuthStore();
+  const canViewPurchase = useMemo(
+    () => hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER]),
+    [hasAnyRole],
+  );
+  const canViewProduction = useMemo(
+    () => hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]),
+    [hasAnyRole],
+  );
+  const canTriggerCalc = useMemo(
+    () => hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]),
+    [hasAnyRole],
+  );
+
   // ── 统计数据 ──
   const purchaseItems = batch?.purchaseItems ?? [];
   const productionItems = batch?.productionItems ?? [];
@@ -629,15 +646,17 @@ export default function ScheduleSuggestionPage() {
           <h2 className={styles.page__title}>
             <span aria-hidden="true">⚡</span> 智能调度建议
           </h2>
-          <button
-            type="button"
-            className={styles.btn_approve}
-            disabled={triggering || pollingJobId !== null}
-            onClick={handleTrigger}
-            aria-label="触发 AI 重新计算调度建议"
-          >
-            {triggering || pollingJobId !== null ? '计算中…' : '触发计算'}
-          </button>
+          {canTriggerCalc && (
+            <button
+              type="button"
+              className={styles.btn_approve}
+              disabled={triggering || pollingJobId !== null}
+              onClick={handleTrigger}
+              aria-label="触发 AI 重新计算调度建议"
+            >
+              {triggering || pollingJobId !== null ? '计算中…' : '触发计算'}
+            </button>
+          )}
         </div>
         <p className={styles.page__subtitle}>
           基于当前库存、销售订单与产能数据，AI 自动生成采购与排产建议
@@ -685,31 +704,35 @@ export default function ScheduleSuggestionPage() {
         />
       </div>
 
-      {/* 中间内容区：左右分栏 */}
+      {/* 中间内容区：按角色显示对应面板 */}
       <div className={styles.content_row}>
-        {/* 左60%：采购建议 */}
-        <div className={styles.content_left}>
-          <PurchaseSuggestionPanel
-            items={purchaseItems}
-            loading={batchLoading}
-            error={batchError}
-            onRefetch={() => void batchRefetch()}
-            onTrigger={handleTrigger}
-            triggering={triggering}
-          />
-        </div>
+        {/* 采购建议：boss/admin/supervisor/purchaser 可见 */}
+        {canViewPurchase && (
+          <div className={canViewProduction ? styles.content_left : styles.content_row}>
+            <PurchaseSuggestionPanel
+              items={purchaseItems}
+              loading={batchLoading}
+              error={batchError}
+              onRefetch={() => void batchRefetch()}
+              onTrigger={handleTrigger}
+              triggering={triggering}
+            />
+          </div>
+        )}
 
-        {/* 右40%：排产建议 */}
-        <div className={styles.content_right}>
-          <ProductionSuggestionPanel
-            items={productionItems}
-            loading={batchLoading}
-            error={batchError}
-            onRefetch={() => void batchRefetch()}
-            onTrigger={handleTrigger}
-            triggering={triggering}
-          />
-        </div>
+        {/* 排产建议：boss/admin/supervisor 可见 */}
+        {canViewProduction && (
+          <div className={canViewPurchase ? styles.content_right : styles.content_row}>
+            <ProductionSuggestionPanel
+              items={productionItems}
+              loading={batchLoading}
+              error={batchError}
+              onRefetch={() => void batchRefetch()}
+              onTrigger={handleTrigger}
+              triggering={triggering}
+            />
+          </div>
+        )}
       </div>
 
       {/* 底部历史记录 */}
