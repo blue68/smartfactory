@@ -251,8 +251,8 @@ interface ScheduleSuggestionWidgetProps {
 }
 
 function ScheduleSuggestionWidget({ batch, isLoading, onNavigate }: ScheduleSuggestionWidgetProps) {
-  const pendingPurchase = batch?.purchaseItems.filter((i) => i.status === 'pending').length ?? 0;
-  const pendingProduction = batch?.productionItems.filter((i) => i.status === 'pending').length ?? 0;
+  const pendingPurchase = (batch?.purchaseItems ?? []).filter((i) => i.status === 'pending').length;
+  const pendingProduction = (batch?.productionItems ?? []).filter((i) => i.status === 'pending').length;
   const totalPending = pendingPurchase + pendingProduction;
 
   // Derive a simple status label
