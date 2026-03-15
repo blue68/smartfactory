@@ -40,7 +40,7 @@ WORKDIR /app
 
 # 仅安装 production 依赖
 COPY package.json package-lock.json* ./
-RUN apk add --no-cache python3 make g++ && \
+RUN apk add --no-cache python3 make g++ dumb-init && \
     npm install --omit=dev --ignore-scripts && \
     npm rebuild bcrypt --build-from-source && \
     apk del python3 make g++ && \
@@ -61,7 +61,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
 
 EXPOSE 3000
 
-# 使用 dumb-init 处理 PID 1 信号转发
+# 使用 dumb-init 处理 PID 1 信号转发，确保容器优雅关闭
 ENV NODE_ENV=production
 
-CMD ["node", "dist/index.js"]
+CMD ["dumb-init", "node", "dist/index.js"]

@@ -83,7 +83,7 @@ services:
     networks:
       - sf_net
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$REDIS_PASSWORD redis-cli ping"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -108,7 +108,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      NODE_ENV:       development
+      NODE_ENV:       ${NODE_ENV:-production}
       PORT:           3000
       # 数据库
       DB_HOST:        mysql
@@ -123,7 +123,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       # 认证
       JWT_SECRET:         ${JWT_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_EXPIRES_IN:     ${JWT_EXPIRES_IN:-7d}
       # 应用
       APP_NAME:       ${APP_NAME:-智造管家}

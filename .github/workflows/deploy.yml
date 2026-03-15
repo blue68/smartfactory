@@ -121,7 +121,7 @@ jobs:
 
             # Health check (wait up to 60s)
             for i in $(seq 1 12); do
-              if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
+              if curl -sf http://localhost:80/health > /dev/null 2>&1; then
                 echo "API healthy after ${i}x5s"
                 break
               fi
