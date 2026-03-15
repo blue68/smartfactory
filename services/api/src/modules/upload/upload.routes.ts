@@ -48,7 +48,10 @@ router.post('/', upload.single('file'), asyncHandler(async (req, res) => {
     code: 0,
     data: {
       url: fileUrl,
-      originalName: req.file.originalname,
+      originalName: path.basename(req.file.originalname)
+        .replace(/[\r\n\t]/g, '')
+        .replace(/[<>"'&]/g, '')
+        .slice(0, 255),
       size: req.file.size,
     },
     message: 'ok',
