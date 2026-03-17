@@ -62,14 +62,13 @@ const corsOptions: CorsOptions = {
     requestOrigin: string | undefined,
     callback: (err: Error | null, allow?: boolean) => void,
   ) => {
-    // 无 Origin 头（服务器间调用、curl 等）——仅在非生产环境放行；
-    // 生产环境由 Nginx 层强制校验 Origin，此处拒绝以防内网 SSRF 利用
+    // 无 Origin 头的请求：
+    //   - 同源请求（浏览器不发 Origin）
+    //   - 服务器间调用、curl、健康检查等
+    // 生产环境中 API 在 Nginx 反代后面，同源 XHR 不带 Origin 是正常行为，
+    // 安全由 Nginx 层 + authMiddleware 保障，此处统一放行。
     if (!requestOrigin) {
-      if (process.env.NODE_ENV !== 'production') {
-        callback(null, true);
-      } else {
-        callback(new Error('CORS policy: Origin header is required'));
-      }
+      callback(null, true);
       return;
     }
     if (allowedOrigins.includes(requestOrigin)) {
