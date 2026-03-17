@@ -2,11 +2,11 @@
  * [artifact:接口联调代码] — 销售结算模块 API
  *
  * 后端接口：
- *   GET  /api/settlement             — 结算单列表
- *   POST /api/settlement             — 从销售订单创建结算单
- *   PUT  /api/settlement/:id/confirm — 确认结算
- *   PUT  /api/settlement/:id/pay     — 标记已付款
- *   PUT  /api/settlement/:id/cancel  — 取消结算
+ *   GET  /api/settlements             — 结算单列表
+ *   POST /api/settlements             — 从销售订单创建结算单
+ *   PUT  /api/settlements/:id/confirm — 确认结算
+ *   PUT  /api/settlements/:id/pay     — 标记已付款
+ *   PUT  /api/settlements/:id/cancel  — 取消结算
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -77,20 +77,20 @@ export const settlementApi = {
     };
     if (query.status) params.status = query.status;
     if (query.keyword) params.keyword = query.keyword;
-    return request.get<SettlementListResult>('/api/settlement', params);
+    return request.get<SettlementListResult>('/api/settlements', params);
   },
 
   create: (payload: CreateSettlementPayload) =>
-    request.post<Settlement>('/api/settlement', payload),
+    request.post<Settlement>('/api/settlements', payload),
 
   confirm: (id: number) =>
-    request.put<void>(`/api/settlement/${id}/confirm`),
+    request.put<void>(`/api/settlements/${id}/confirm`),
 
   pay: (id: number) =>
-    request.put<void>(`/api/settlement/${id}/pay`),
+    request.put<void>(`/api/settlements/${id}/pay`),
 
   cancel: (id: number) =>
-    request.put<void>(`/api/settlement/${id}/cancel`),
+    request.put<void>(`/api/settlements/${id}/cancel`),
 };
 
 // ── React Query Hooks ───────────────────────────────────────

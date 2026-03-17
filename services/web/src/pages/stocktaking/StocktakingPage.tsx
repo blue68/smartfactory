@@ -10,7 +10,7 @@
  *   - 分页、骨架屏、空态、错误态
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import Button from '@/components/common/Button';
 import {
@@ -308,9 +308,8 @@ export default function StocktakingPage() {
               </tr>
             ) : (
               filteredList.map((task) => (
-                <>
+                <Fragment key={task.id}>
                   <TaskRow
-                    key={task.id}
                     task={task}
                     expanded={expandedId === task.id}
                     onToggle={handleToggle}
@@ -319,12 +318,11 @@ export default function StocktakingPage() {
                   />
                   {expandedId === task.id && (
                     <DetailRow
-                      key={`detail-${task.id}`}
                       taskId={task.id}
                       colSpan={COL_SPAN}
                     />
                   )}
-                </>
+                </Fragment>
               ))
             )}
           </tbody>
