@@ -108,7 +108,7 @@ export class StocktakingService {
 
     // 事务：插入主任务 + 批量插入明细快照
     const result = await AppDataSource.transaction(async (manager) => {
-      const [insertResult] = await manager.query(
+      const insertResult = await manager.query(
         `INSERT INTO stocktaking_tasks
            (tenant_id, task_no, scope, scope_value, status, total_items, diff_items, created_by)
          VALUES (?, ?, ?, ?, 'draft', ?, 0, ?)`,

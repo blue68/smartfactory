@@ -191,11 +191,11 @@ export class AnalyticsService {
 
     // 已完工工单平均生产周期（天）
     const [cycle] = await AppDataSource.query(
-      `SELECT AVG(DATEDIFF(actual_end_date, actual_start_date)) AS val
+      `SELECT AVG(DATEDIFF(actual_end, actual_start)) AS val
        FROM production_orders
        WHERE tenant_id = ?
          AND status = 'completed'
-         AND actual_end_date IS NOT NULL`,
+         AND actual_end IS NOT NULL`,
       [this.tenantId],
     );
 
@@ -250,17 +250,17 @@ export class AnalyticsService {
   }> {
     const rows = await AppDataSource.query(
       `SELECT sc.name                                          AS category_name,
-              COUNT(DISTINCT bi.sku_id)                       AS sku_count,
-              COALESCE(SUM(bi.qty_required * sp.price), 0)    AS total_cost
+              COUNT(DISTINCT bi.component_sku_id)             AS sku_count,
+              COALESCE(SUM(bi.quantity * COALESCE(sp.price, 0)), 0) AS total_cost
        FROM bom_items bi
        INNER JOIN skus s
-         ON s.id = bi.sku_id
+         ON s.id = bi.component_sku_id
         AND s.tenant_id = bi.tenant_id
        INNER JOIN sku_categories sc
          ON sc.id = s.category1_id
         AND sc.level = 1
        LEFT JOIN supplier_prices sp
-         ON sp.sku_id = bi.sku_id
+         ON sp.sku_id = bi.component_sku_id
         AND sp.tenant_id = bi.tenant_id
         AND sp.is_current = 1
        WHERE bi.tenant_id = ?
