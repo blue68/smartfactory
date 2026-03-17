@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智造管家 — 经营分析看板</title>
+  <style>
+    /* ===== Design Tokens ===== */
+    :root {
+      --color-primary-50: #EFF6FF; --color-primary-100: #DBEAFE;
+      --color-primary-500: #3B82F6; --color-primary-600: #2563EB; --color-primary-700: #1D4ED8;
+      --color-accent-50: #FFF7ED; --color-accent-500: #F97316; --color-accent-600: #EA580C;
+      --color-success-50: #F0FDF4; --color-success-100: #DCFCE7;
+      --color-success-500: #22C55E; --color-success-600: #16A34A; --color-success-700: #15803D;
+      --color-warning-50: #FFFBEB; --color-warning-100: #FEF3C7;
+      --color-warning-500: #F59E0B; --color-warning-600: #D97706; --color-warning-700: #B45309;
+      --color-error-50: #FEF2F2; --color-error-100: #FEE2E2;
+      --color-error-500: #EF4444; --color-error-600: #DC2626; --color-error-700: #B91C1C;
+      --color-info-50: #F0F9FF; --color-info-100: #E0F2FE;
+      --color-info-500: #0EA5E9; --color-info-600: #0284C7;
+      --color-stagnant-100: #EDE9FE; --color-stagnant-500: #8B5CF6; --color-stagnant-600: #7C3AED;
+      --color-gray-0: #FFFFFF; --color-gray-50: #F8FAFC; --color-gray-100: #F1F5F9;
+      --color-gray-200: #E2E8F0; --color-gray-300: #CBD5E1; --color-gray-400: #94A3B8;
+      --color-gray-500: #64748B; --color-gray-600: #475569; --color-gray-700: #334155;
+      --color-gray-800: #1E293B; --color-gray-900: #0F172A;
+      --bg-page: #F8FAFC; --bg-card: #FFFFFF; --bg-sidebar: #1E293B;
+      --text-sidebar: #CBD5E1; --bg-sidebar-active: #2563EB;
+      --text-primary: #1E293B; --text-secondary: #64748B; --text-disabled: #94A3B8;
+      --border-default: #E2E8F0; --border-strong: #CBD5E1;
+      --font-family-base: "PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --font-family-number: "DIN Alternate","Roboto Mono",var(--font-family-base);
+      --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;
+      --space-5:1.25rem;--space-6:1.5rem;--space-8:2rem;
+      --layout-sidebar-width:240px;--layout-header-height:64px;
+      --layout-page-padding:24px;--layout-card-gap:16px;
+      --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:16px;--radius-full:9999px;
+      --shadow-xs:0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --transition-fast:150ms ease;--transition-base:200ms ease;--transition-slow:300ms ease;
+      --z-sticky:200;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{font-size:16px;}
+    body{font-family:var(--font-family-base);background:var(--bg-page);color:var(--text-primary);min-height:100vh;display:flex;}
+
+    /* ===== Sidebar ===== */
+    .sidebar{width:var(--layout-sidebar-width);background:var(--bg-sidebar);min-height:100vh;position:fixed;top:0;left:0;display:flex;flex-direction:column;z-index:var(--z-sticky);}
+    .sidebar__logo{height:var(--layout-header-height);display:flex;align-items:center;padding:0 var(--space-6);border-bottom:1px solid rgba(255,255,255,.08);}
+    .sidebar__logo-mark{width:32px;height:32px;background:var(--color-primary-500);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:1rem;color:#fff;font-weight:800;margin-right:var(--space-3);flex-shrink:0;}
+    .sidebar__logo-text{font-size:1rem;font-weight:700;color:#fff;}
+    .sidebar__logo-sub{font-size:.6875rem;color:rgba(255,255,255,.45);}
+    .sidebar__nav{padding:var(--space-4) 0;flex:1;overflow-y:auto;}
+    .sidebar__section-label{font-size:.625rem;font-weight:600;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.1em;padding:var(--space-3) var(--space-6) var(--space-2);}
+    .sidebar__item{display:flex;align-items:center;gap:var(--space-3);padding:.65rem var(--space-6);color:var(--text-sidebar);font-size:.9375rem;cursor:pointer;transition:background var(--transition-fast),color var(--transition-fast);text-decoration:none;border-left:3px solid transparent;}
+    .sidebar__item:hover{background:rgba(255,255,255,.06);color:#fff;}
+    .sidebar__item--active{background:rgba(37,99,235,.25);color:#fff;border-left-color:var(--color-primary-500);}
+    .sidebar__item-icon{font-size:1rem;width:20px;text-align:center;flex-shrink:0;}
+
+    /* ===== Main ===== */
+    .main-wrapper{margin-left:var(--layout-sidebar-width);flex:1;display:flex;flex-direction:column;min-height:100vh;}
+    .top-header{height:var(--layout-header-height);background:var(--bg-card);border-bottom:1px solid var(--border-default);display:flex;align-items:center;padding:0 var(--layout-page-padding);gap:var(--space-4);position:sticky;top:0;z-index:var(--z-sticky);}
+    .breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:.875rem;color:var(--text-secondary);}
+    .breadcrumb__sep{color:var(--color-gray-300);}
+    .breadcrumb__current{color:var(--text-primary);font-weight:600;}
+    .header-actions{margin-left:auto;display:flex;gap:var(--space-3);align-items:center;}
+    .page-content{padding:var(--layout-page-padding);flex:1;}
+
+    /* ===== Buttons ===== */
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:36px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:.875rem;font-weight:600;font-family:var(--font-family-base);cursor:pointer;border:none;transition:background var(--transition-fast);white-space:nowrap;}
+    .btn--primary{background:var(--color-primary-500);color:#fff;}
+    .btn--primary:hover{background:var(--color-primary-600);}
+    .btn--ghost{background:transparent;color:var(--text-secondary);border:1.5px solid var(--border-default);}
+    .btn--ghost:hover{border-color:var(--border-strong);color:var(--text-primary);}
+    .btn--sm{height:28px;padding:0 var(--space-3);font-size:.8125rem;}
+
+    /* ===== Page Header ===== */
+    .page-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:var(--space-6);}
+    .page-header__title{font-size:1.5rem;font-weight:700;color:var(--text-primary);}
+    .page-header__subtitle{font-size:.875rem;color:var(--text-secondary);margin-top:2px;}
+    .page-header__actions{display:flex;gap:var(--space-3);align-items:center;}
+
+    /* ===== Date Range Picker ===== */
+    .date-range{display:flex;align-items:center;gap:var(--space-2);}
+    .date-range__preset{display:flex;gap:0;background:var(--color-gray-100);border-radius:var(--radius-md);padding:2px;}
+    .date-range__preset-btn{height:28px;padding:0 var(--space-3);border-radius:var(--radius-sm);font-size:.8125rem;font-weight:500;cursor:pointer;border:none;background:transparent;color:var(--text-secondary);transition:background var(--transition-fast),color var(--transition-fast);}
+    .date-range__preset-btn--active{background:var(--bg-card);color:var(--color-primary-600);font-weight:600;box-shadow:var(--shadow-xs);}
+    .date-range__custom{display:flex;align-items:center;gap:var(--space-2);}
+    .date-range__input{height:32px;padding:0 var(--space-3);border:1.5px solid var(--border-default);border-radius:var(--radius-md);font-size:.8125rem;font-family:var(--font-family-base);color:var(--text-primary);background:var(--bg-card);}
+
+    /* ===== Analytics Tab Nav ===== */
+    .analytics-tabs{display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:var(--space-6);}
+    .analytics-tabs__tab{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3) var(--space-5);font-size:.9375rem;font-weight:500;color:var(--text-secondary);cursor:pointer;border:none;background:transparent;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color var(--transition-fast),border-color var(--transition-fast);}
+    .analytics-tabs__tab:hover{color:var(--text-primary);}
+    .analytics-tabs__tab--active{color:var(--color-primary-600);font-weight:600;border-bottom-color:var(--color-primary-500);}
+
+    /* ===== KPI Row ===== */
+    .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--layout-card-gap);margin-bottom:var(--layout-card-gap);}
+    .kpi-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);box-shadow:var(--shadow-xs);transition:box-shadow var(--transition-base),transform var(--transition-base);}
+    .kpi-card:hover{box-shadow:var(--shadow-md);transform:translateY(-2px);}
+    .kpi-card__label{font-size:.8125rem;color:var(--text-secondary);margin-bottom:var(--space-2);}
+    .kpi-card__value{font-size:2rem;font-weight:800;font-family:var(--font-family-number);color:var(--text-primary);line-height:1;margin-bottom:var(--space-1);}
+    .kpi-card__unit{font-size:.875rem;font-weight:400;color:var(--text-secondary);margin-left:2px;}
+    .kpi-card__delta{display:flex;align-items:center;gap:var(--space-1);font-size:.75rem;margin-top:var(--space-2);}
+    .kpi-card__delta--up{color:var(--color-success-600);}
+    .kpi-card__delta--down{color:var(--color-error-600);}
+    .kpi-card__delta--neutral{color:var(--text-disabled);}
+
+    /* ===== Chart Cards ===== */
+    .chart-row{display:grid;grid-template-columns:1fr 1fr;gap:var(--layout-card-gap);margin-bottom:var(--layout-card-gap);}
+    .chart-row--3col{grid-template-columns:2fr 1fr;}
+    .chart-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-6);box-shadow:var(--shadow-xs);}
+    .chart-card__header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-5);}
+    .chart-card__title{font-size:1rem;font-weight:600;color:var(--text-primary);}
+    .chart-card__subtitle{font-size:.75rem;color:var(--text-secondary);margin-top:2px;}
+    .chart-card__actions{display:flex;gap:var(--space-2);}
+
+    /* ===== Chart Placeholder (SVG mock charts) ===== */
+    .chart-area{width:100%;position:relative;}
+
+    /* Pie Chart Mock */
+    .pie-chart-wrap{display:flex;align-items:center;gap:var(--space-8);}
+    .pie-mock{width:160px;height:160px;flex-shrink:0;}
+    .pie-legend{flex:1;display:flex;flex-direction:column;gap:var(--space-3);}
+    .pie-legend__item{display:flex;align-items:center;gap:var(--space-3);}
+    .pie-legend__dot{width:12px;height:12px;border-radius:3px;flex-shrink:0;}
+    .pie-legend__label{font-size:.875rem;color:var(--text-secondary);flex:1;}
+    .pie-legend__value{font-size:.875rem;font-weight:700;font-family:var(--font-family-number);color:var(--text-primary);}
+    .pie-legend__pct{font-size:.75rem;color:var(--text-disabled);margin-left:var(--space-2);}
+
+    /* Line Chart Mock */
+    .line-chart-area{position:relative;height:200px;}
+    .line-chart-area svg{width:100%;height:100%;}
+
+    /* Bar Chart Mock */
+    .bar-chart-area{display:flex;flex-direction:column;gap:var(--space-3);}
+    .bar-item{display:flex;align-items:center;gap:var(--space-3);}
+    .bar-item__label{font-size:.8125rem;color:var(--text-secondary);width:80px;flex-shrink:0;text-align:right;}
+    .bar-item__track{flex:1;height:24px;background:var(--color-gray-100);border-radius:var(--radius-sm);overflow:hidden;position:relative;}
+    .bar-item__fill{height:100%;border-radius:var(--radius-sm);transition:width .5s cubic-bezier(.4,0,.2,1);}
+    .bar-item__fill-text{position:absolute;right:var(--space-2);top:50%;transform:translateY(-50%);font-size:.75rem;font-weight:600;font-family:var(--font-family-number);color:var(--text-primary);}
+    .bar-item__value{font-size:.875rem;font-weight:700;font-family:var(--font-family-number);color:var(--text-primary);width:70px;flex-shrink:0;}
+
+    /* Rank Table */
+    .rank-table{width:100%;border-collapse:collapse;}
+    .rank-table th{text-align:left;font-size:.75rem;font-weight:600;color:var(--text-secondary);padding:var(--space-2) var(--space-3);border-bottom:2px solid var(--border-default);}
+    .rank-table td{padding:var(--space-3);font-size:.875rem;color:var(--text-primary);border-bottom:1px solid var(--color-gray-50);}
+    .rank-table tr:last-child td{border-bottom:none;}
+    .rank-table tr:hover td{background:var(--color-primary-50);}
+    .rank-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:var(--radius-full);font-size:.75rem;font-weight:700;}
+    .rank-num--1{background:var(--color-warning-500);color:#fff;}
+    .rank-num--2{background:var(--color-gray-400);color:#fff;}
+    .rank-num--3{background:var(--color-accent-400,#fb923c);color:#fff;}
+    .rank-num--n{background:var(--color-gray-100);color:var(--text-secondary);}
+
+    /* Warning Flag */
+    .price-flag{display:inline-flex;align-items:center;gap:4px;background:var(--color-error-100);color:var(--color-error-700);border-radius:var(--radius-sm);padding:2px 7px;font-size:.6875rem;font-weight:600;}
+    .price-flag--up{background:var(--color-error-100);color:var(--color-error-700);}
+    .price-flag--down{background:var(--color-success-100);color:var(--color-success-700);}
+
+    /* Trend mini-sparkline */
+    .sparkline{display:inline-flex;align-items:flex-end;gap:2px;height:24px;}
+    .sparkline__bar{width:4px;border-radius:2px 2px 0 0;background:var(--color-primary-300);}
+    .sparkline__bar--high{background:var(--color-error-400);}
+
+    /* ===== Tags ===== */
+    .tag{display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;}
+    .tag--warning{background:var(--color-warning-100);color:var(--color-warning-700);}
+    .tag--error{background:var(--color-error-100);color:var(--color-error-700);}
+    .tag--success{background:var(--color-success-100);color:var(--color-success-700);}
+
+    /* ===== Detail Table ===== */
+    .data-table{width:100%;border-collapse:collapse;font-size:.875rem;}
+    .data-table th{text-align:left;font-size:.75rem;font-weight:600;color:var(--text-secondary);padding:var(--space-2) var(--space-4);background:var(--color-gray-50);border-bottom:1px solid var(--border-default);}
+    .data-table td{padding:.75rem var(--space-4);border-bottom:1px solid var(--color-gray-50);}
+    .data-table tr:last-child td{border-bottom:none;}
+    .data-table tr:hover td{background:var(--color-primary-50);}
+    .num{font-family:var(--font-family-number);font-weight:600;}
+
+    /* ===== Responsive ===== */
+    @media(max-width:1200px){.kpi-row{grid-template-columns:repeat(2,1fr);}.chart-row{grid-template-columns:1fr;}.chart-row--3col{grid-template-columns:1fr;}}
+    @media(max-width:768px){.sidebar{display:none;}.main-wrapper{margin-left:0;}.kpi-row{grid-template-columns:1fr 1fr;}.analytics-tabs{overflow-x:auto;}.analytics-tabs__tab{white-space:nowrap;}}
+  </style>
+</head>
+<body>
+
+<!-- ===== Sidebar ===== -->
+<nav class="sidebar" aria-label="主导航">
+  <div class="sidebar__logo">
+    <div class="sidebar__logo-mark">智</div>
+    <div>
+      <div class="sidebar__logo-text">智造管家</div>
+      <div class="sidebar__logo-sub">SmartFactory Agent</div>
+    </div>
+  </div>
+  <div class="sidebar__nav">
+    <div class="sidebar__section-label">核心功能</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🏠</span>老板驾驶舱</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">📦</span>库存管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🏭</span>生产管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🛒</span>采购管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">💼</span>销售管理</a>
+    <a class="sidebar__item sidebar__item--active" href="#"><span class="sidebar__item-icon">📊</span>经营分析</a>
+    <div class="sidebar__section-label">系统</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🔔</span>通知中心</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">⚙️</span>系统设置</a>
+  </div>
+</nav>
+
+<!-- ===== Main ===== -->
+<div class="main-wrapper">
+  <header class="top-header">
+    <nav class="breadcrumb" aria-label="面包屑">
+      <span>分析</span>
+      <span class="breadcrumb__sep">›</span>
+      <span class="breadcrumb__current">经营分析看板</span>
+    </nav>
+    <div class="header-actions">
+      <!-- Date Range -->
+      <div class="date-range">
+        <div class="date-range__preset" role="group" aria-label="时间范围快捷选择">
+          <button class="date-range__preset-btn">本周</button>
+          <button class="date-range__preset-btn date-range__preset-btn--active">本月</button>
+          <button class="date-range__preset-btn">本季度</button>
+          <button class="date-range__preset-btn">本年</button>
+        </div>
+        <div class="date-range__custom">
+          <input type="date" class="date-range__input" value="2026-03-01" aria-label="开始日期">
+          <span style="color:var(--text-disabled);">—</span>
+          <input type="date" class="date-range__input" value="2026-03-17" aria-label="结束日期">
+        </div>
+      </div>
+      <button class="btn btn--ghost btn--sm">📥 导出报告</button>
+    </div>
+  </header>
+
+  <main class="page-content">
+
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1 class="page-header__title">经营分析看板</h1>
+        <p class="page-header__subtitle">2026年3月 · 数据更新时间：今天 10:00</p>
+      </div>
+    </div>
+
+    <!-- Analytics Tabs -->
+    <div class="analytics-tabs" role="tablist" aria-label="分析维度">
+      <button class="analytics-tabs__tab analytics-tabs__tab--active" role="tab" aria-selected="true" id="tab-inventory">📦 库存结构分析</button>
+      <button class="analytics-tabs__tab" role="tab" aria-selected="false" id="tab-production">🏭 生产效率分析</button>
+      <button class="analytics-tabs__tab" role="tab" aria-selected="false" id="tab-purchase">🛒 采购成本分析</button>
+      <button class="analytics-tabs__tab" role="tab" aria-selected="false" id="tab-bom">📋 物料品类占比</button>
+    </div>
+
+    <!-- ===== F-402: 库存结构分析 (Active Tab) ===== -->
+    <div role="tabpanel" aria-labelledby="tab-inventory">
+
+      <!-- KPI Row -->
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-card__label">库存总金额</div>
+          <div class="kpi-card__value">285<span class="kpi-card__unit">万元</span></div>
+          <div class="kpi-card__delta kpi-card__delta--up">▲ 环比 +8.3%</div>
+        </div>
+        <div class="kpi-card" style="border-left:4px solid var(--color-primary-500);">
+          <div class="kpi-card__label">原材料库存</div>
+          <div class="kpi-card__value" style="color:var(--color-primary-600);">142<span class="kpi-card__unit">万元</span></div>
+          <div class="kpi-card__delta kpi-card__delta--neutral">占比 49.8%</div>
+        </div>
+        <div class="kpi-card" style="border-left:4px solid var(--color-accent-500);">
+          <div class="kpi-card__label">半成品库存</div>
+          <div class="kpi-card__value" style="color:var(--color-accent-600);">68<span class="kpi-card__unit">万元</span></div>
+          <div class="kpi-card__delta kpi-card__delta--neutral">占比 23.9%</div>
+        </div>
+        <div class="kpi-card" style="border-left:4px solid var(--color-success-500);">
+          <div class="kpi-card__label">成品库存</div>
+          <div class="kpi-card__value" style="color:var(--color-success-600);">75<span class="kpi-card__unit">万元</span></div>
+          <div class="kpi-card__delta kpi-card__delta--down">▼ 环比 -5.2%</div>
+        </div>
+      </div>
+
+      <!-- Charts Row 1: Pie + Trend Line -->
+      <div class="chart-row chart-row--3col">
+        <!-- Pie Chart -->
+        <div class="chart-card">
+          <div class="chart-card__header">
+            <div>
+              <div class="chart-card__title">库存结构占比</div>
+              <div class="chart-card__subtitle">原材料 / 半成品 / 成品</div>
+            </div>
+            <button class="btn btn--ghost btn--sm">明细</button>
+          </div>
+          <div class="pie-chart-wrap">
+            <!-- SVG Pie Chart Mock -->
+            <svg class="pie-mock" viewBox="0 0 160 160" aria-label="库存结构饼图：原材料49.8%，半成品23.9%，成品26.3%">
+              <!-- 原材料 49.8% → 约179度 -->
+              <circle cx="80" cy="80" r="60" fill="none" stroke="#E2E8F0" stroke-width="36"/>
+              <!-- 成品 26.3% → 约95度 -->
+              <circle cx="80" cy="80" r="60" fill="none" stroke="#22C55E" stroke-width="36"
+                stroke-dasharray="94.6 283.4" stroke-dashoffset="0" transform="rotate(-90 80 80)"/>
+              <!-- 半成品 23.9% → 约86度 -->
+              <circle cx="80" cy="80" r="60" fill="none" stroke="#F97316" stroke-width="36"
+                stroke-dasharray="86 283.4" stroke-dashoffset="-94.6" transform="rotate(-90 80 80)"/>
+              <!-- 原材料 49.8% -->
+              <circle cx="80" cy="80" r="60" fill="none" stroke="#3B82F6" stroke-width="36"
+                stroke-dasharray="178.8 283.4" stroke-dashoffset="-180.6" transform="rotate(-90 80 80)"/>
+              <!-- Center -->
+              <circle cx="80" cy="80" r="40" fill="white"/>
+              <text x="80" y="76" text-anchor="middle" font-size="13" font-weight="800" fill="#1E293B" font-family="DIN Alternate,sans-serif">285万</text>
+              <text x="80" y="91" text-anchor="middle" font-size="10" fill="#64748B">库存总额</text>
+            </svg>
+            <div class="pie-legend">
+              <div class="pie-legend__item">
+                <div class="pie-legend__dot" style="background:var(--color-primary-500);"></div>
+                <span class="pie-legend__label">原材料</span>
+                <span class="pie-legend__value">142万</span>
+                <span class="pie-legend__pct">49.8%</span>
+              </div>
+              <div class="pie-legend__item">
+                <div class="pie-legend__dot" style="background:var(--color-accent-500);"></div>
+                <span class="pie-legend__label">半成品</span>
+                <span class="pie-legend__value">68万</span>
+                <span class="pie-legend__pct">23.9%</span>
+              </div>
+              <div class="pie-legend__item">
+                <div class="pie-legend__dot" style="background:var(--color-success-500);"></div>
+                <span class="pie-legend__label">成品</span>
+                <span class="pie-legend__value">75万</span>
+                <span class="pie-legend__pct">26.3%</span>
+              </div>
+              <div style="margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border-default);">
+                <div style="font-size:.75rem;color:var(--text-secondary);">呆滞风险库存</div>
+                <div style="font-size:1.125rem;font-weight:800;font-family:var(--font-family-number);color:var(--color-stagnant-600);">18.5万 <span style="font-size:.75rem;font-weight:400;">6.5%</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trend Line -->
+        <div class="chart-card">
+          <div class="chart-card__header">
+            <div>
+              <div class="chart-card__title">库存金额趋势</div>
+              <div class="chart-card__subtitle">近6个月走势</div>
+            </div>
+          </div>
+          <!-- SVG Line Chart Mock -->
+          <div class="line-chart-area">
+            <svg viewBox="0 0 300 180" preserveAspectRatio="none" aria-label="近6个月库存金额趋势折线图">
+              <!-- Grid lines -->
+              <line x1="0" y1="40" x2="300" y2="40" stroke="#E2E8F0" stroke-width="1"/>
+              <line x1="0" y1="80" x2="300" y2="80" stroke="#E2E8F0" stroke-width="1"/>
+              <line x1="0" y1="120" x2="300" y2="120" stroke="#E2E8F0" stroke-width="1"/>
+              <line x1="0" y1="160" x2="300" y2="160" stroke="#E2E8F0" stroke-width="1"/>
+              <!-- Y Labels -->
+              <text x="4" y="38" font-size="9" fill="#94A3B8">350</text>
+              <text x="4" y="78" font-size="9" fill="#94A3B8">300</text>
+              <text x="4" y="118" font-size="9" fill="#94A3B8">250</text>
+              <text x="4" y="158" font-size="9" fill="#94A3B8">200</text>
+              <!-- Area fill -->
+              <path d="M30,125 L80,110 L130,130 L180,95 L230,78 L280,68 L280,160 L30,160 Z"
+                fill="url(#grad1)" opacity="0.3"/>
+              <defs>
+                <linearGradient id="grad1" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#3B82F6"/>
+                  <stop offset="100%" stop-color="#3B82F6" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <!-- Line: Total -->
+              <polyline points="30,125 80,110 130,130 180,95 230,78 280,68"
+                fill="none" stroke="#3B82F6" stroke-width="2.5" stroke-linejoin="round"/>
+              <!-- Dots -->
+              <circle cx="30" cy="125" r="4" fill="#3B82F6" stroke="white" stroke-width="2"/>
+              <circle cx="80" cy="110" r="4" fill="#3B82F6" stroke="white" stroke-width="2"/>
+              <circle cx="130" cy="130" r="4" fill="#3B82F6" stroke="white" stroke-width="2"/>
+              <circle cx="180" cy="95" r="4" fill="#3B82F6" stroke="white" stroke-width="2"/>
+              <circle cx="230" cy="78" r="4" fill="#3B82F6" stroke="white" stroke-width="2"/>
+              <circle cx="280" cy="68" r="4" fill="#EF4444" stroke="white" stroke-width="2"/>
+              <!-- X Labels -->
+              <text x="25" y="175" font-size="9" fill="#94A3B8" text-anchor="middle">10月</text>
+              <text x="75" y="175" font-size="9" fill="#94A3B8" text-anchor="middle">11月</text>
+              <text x="125" y="175" font-size="9" fill="#94A3B8" text-anchor="middle">12月</text>
+              <text x="175" y="175" font-size="9" fill="#94A3B8" text-anchor="middle">1月</text>
+              <text x="225" y="175" font-size="9" fill="#94A3B8" text-anchor="middle">2月</text>
+              <text x="275" y="175" font-size="9" fill="#1E293B" font-weight="700" text-anchor="middle">3月</text>
+              <!-- Tooltip marker -->
+              <line x1="280" y1="40" x2="280" y2="160" stroke="#EF4444" stroke-width="1" stroke-dasharray="3,3"/>
+              <rect x="238" y="48" width="60" height="20" rx="4" fill="#1E293B"/>
+              <text x="268" y="62" font-size="9" fill="white" text-anchor="middle">285万 ▲8.3%</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts Row 2: 生产效率（柱状图+排名）预览 -->
+      <div style="background:var(--color-primary-50);border:1px dashed var(--color-primary-200);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);display:flex;align-items:center;gap:var(--space-4);margin-bottom:var(--layout-card-gap);">
+        <span style="font-size:1.5rem;">📊</span>
+        <div>
+          <div style="font-size:.9375rem;font-weight:600;color:var(--color-primary-700);">切换至「生产效率分析」标签查看各工序产能利用率柱状图 + 工人效率排名</div>
+          <div style="font-size:.8125rem;color:var(--color-primary-500);margin-top:4px;">点击上方 Tab 标签切换分析维度</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ===== F-403: 生产效率分析 (Second Tab - Shown as secondary demo) ===== -->
+    <div>
+      <div style="font-size:.75rem;font-weight:700;color:var(--text-disabled);text-transform:uppercase;letter-spacing:.1em;margin-bottom:var(--space-3);">参考展示 — 生产效率分析 Tab 内容（F-403）</div>
+      <div class="chart-row">
+        <!-- 各工序产能利用率柱状图 -->
+        <div class="chart-card">
+          <div class="chart-card__header">
+            <div>
+              <div class="chart-card__title">各工序产能利用率</div>
+              <div class="chart-card__subtitle">本月日均产能利用情况</div>
+            </div>
+            <span class="tag tag--warning">3个工序超载</span>
+          </div>
+          <div class="bar-chart-area">
+            <div class="bar-item">
+              <div class="bar-item__label">裁料</div>
+              <div class="bar-item__track">
+                <div class="bar-item__fill" style="width:92%;background:var(--color-error-400);"></div>
+                <div class="bar-item__fill-text" style="color:#fff;">92%</div>
+              </div>
+              <div class="bar-item__value" style="color:var(--color-error-600);">92%</div>
+            </div>
+            <div class="bar-item">
+              <div class="bar-item__label">框架组装</div>
+              <div class="bar-item__track">
+                <div class="bar-item__fill" style="width:78%;background:var(--color-primary-400);"></div>
+                <div class="bar-item__fill-text">78%</div>
+              </div>
+              <div class="bar-item__value">78%</div>
+            </div>
+            <div class="bar-item">
+              <div class="bar-item__label">海绵填充</div>
+              <div class="bar-item__track">
+                <div class="bar-item__fill" style="width:65%;background:var(--color-primary-400);"></div>
+                <div class="bar-item__fill-text">65%</div>
+              </div>
+              <div class="bar-item__value">65%</div>
+            </div>
+            <div class="bar-item">
+              <div class="bar-item__label">面套裁缝</div>
+              <div class="bar-item__track">
+                <div class="bar-item__fill" style="width:97%;background:var(--color-error-500);"></div>
+                <div class="bar-item__fill-text" style="color:#fff;">97%</div>
+              </div>
+              <div class="bar-item__value" style="color:var(--color-error-600);">97%</div>
+            </div>
+            <div class="bar-item">
+              <div class="bar-item__label">包装入库</div>
+              <div class="bar-item__track">
+                <div class="bar-item__fill" style="width:55%;background:var(--color-success-500);"></div>
+                <div class="bar-item__fill-text">55%</div>
+              </div>
+              <div class="bar-item__value" style="color:var(--color-success-600);">55%</div>
+            </div>
+            <div class="bar-item">
+              <div class="bar-item__label">质量检验</div>
+              <div class="bar-item__track">
+                <div class="bar-item__fill" style="width:82%;background:var(--color-primary-400);"></div>
+                <div class="bar-item__fill-text">82%</div>
+              </div>
+              <div class="bar-item__value">82%</div>
+            </div>
+          </div>
+          <div style="margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--border-default);display:flex;gap:var(--space-4);">
+            <div style="display:flex;align-items:center;gap:var(--space-2);font-size:.75rem;color:var(--text-secondary);">
+              <div style="width:10px;height:10px;border-radius:2px;background:var(--color-error-500);"></div>超载（>90%）
+            </div>
+            <div style="display:flex;align-items:center;gap:var(--space-2);font-size:.75rem;color:var(--text-secondary);">
+              <div style="width:10px;height:10px;border-radius:2px;background:var(--color-primary-400);"></div>正常（60-90%）
+            </div>
+            <div style="display:flex;align-items:center;gap:var(--space-2);font-size:.75rem;color:var(--text-secondary);">
+              <div style="width:10px;height:10px;border-radius:2px;background:var(--color-success-500);"></div>空闲（<60%）
+            </div>
+          </div>
+        </div>
+
+        <!-- 工人效率排名 -->
+        <div class="chart-card">
+          <div class="chart-card__header">
+            <div>
+              <div class="chart-card__title">工人效率排名 TOP 10</div>
+              <div class="chart-card__subtitle">本月完工工序数（标准工时折算）</div>
+            </div>
+          </div>
+          <table class="rank-table" aria-label="工人效率排名">
+            <thead>
+              <tr>
+                <th>名次</th>
+                <th>工人</th>
+                <th>工序数</th>
+                <th>合格率</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="rank-num rank-num--1">1</span></td>
+                <td>李师傅</td>
+                <td class="num">148</td>
+                <td><span class="tag tag--success">99.3%</span></td>
+              </tr>
+              <tr>
+                <td><span class="rank-num rank-num--2">2</span></td>
+                <td>张工</td>
+                <td class="num">132</td>
+                <td><span class="tag tag--success">98.5%</span></td>
+              </tr>
+              <tr>
+                <td><span class="rank-num rank-num--3">3</span></td>
+                <td>陈大姐</td>
+                <td class="num">125</td>
+                <td><span class="tag tag--success">97.8%</span></td>
+              </tr>
+              <tr>
+                <td><span class="rank-num rank-num--n">4</span></td>
+                <td>王小明</td>
+                <td class="num">118</td>
+                <td><span class="tag tag--success">96.2%</span></td>
+              </tr>
+              <tr>
+                <td><span class="rank-num rank-num--n">5</span></td>
+                <td>刘师傅</td>
+                <td class="num">112</td>
+                <td style="color:var(--color-warning-600);">93.8%</td>
+              </tr>
+              <tr>
+                <td><span class="rank-num rank-num--n">6</span></td>
+                <td>赵兰</td>
+                <td class="num">108</td>
+                <td><span class="tag tag--success">97.1%</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ===== F-404: 采购成本分析 Preview ===== -->
+      <div style="font-size:.75rem;font-weight:700;color:var(--text-disabled);text-transform:uppercase;letter-spacing:.1em;margin:var(--space-6) 0 var(--space-3);">参考展示 — 采购成本分析 Tab 内容（F-404）</div>
+      <div class="chart-card">
+        <div class="chart-card__header">
+          <div>
+            <div class="chart-card__title">主要物料采购价格趋势</div>
+            <div class="chart-card__subtitle">本月价格波动 · 红色标记为异常波动（>5%）</div>
+          </div>
+          <button class="btn btn--ghost btn--sm">查看全部</button>
+        </div>
+        <table class="data-table" aria-label="采购成本分析">
+          <thead>
+            <tr>
+              <th>物料名称</th>
+              <th>最新采购价</th>
+              <th>上月均价</th>
+              <th>价格变动</th>
+              <th>近6月趋势</th>
+              <th>预警状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>进口牛皮 1.2mm 棕色</td>
+              <td class="num">¥310/平方米</td>
+              <td class="num">¥280</td>
+              <td><span class="price-flag price-flag--up">▲ +10.7%</span></td>
+              <td>
+                <div class="sparkline" aria-label="价格趋势上升">
+                  <div class="sparkline__bar" style="height:8px;"></div>
+                  <div class="sparkline__bar" style="height:10px;"></div>
+                  <div class="sparkline__bar" style="height:9px;"></div>
+                  <div class="sparkline__bar" style="height:12px;"></div>
+                  <div class="sparkline__bar" style="height:14px;"></div>
+                  <div class="sparkline__bar sparkline__bar--high" style="height:20px;"></div>
+                </div>
+              </td>
+              <td><span class="tag tag--error">异常波动</span></td>
+            </tr>
+            <tr>
+              <td>实木多层板 18mm</td>
+              <td class="num">¥185/张</td>
+              <td class="num">¥188</td>
+              <td><span class="price-flag price-flag--down">▼ -1.6%</span></td>
+              <td>
+                <div class="sparkline" aria-label="价格趋势平稳">
+                  <div class="sparkline__bar" style="height:14px;"></div>
+                  <div class="sparkline__bar" style="height:13px;"></div>
+                  <div class="sparkline__bar" style="height:15px;"></div>
+                  <div class="sparkline__bar" style="height:14px;"></div>
+                  <div class="sparkline__bar" style="height:14px;"></div>
+                  <div class="sparkline__bar" style="height:12px;"></div>
+                </div>
+              </td>
+              <td><span class="tag tag--success">正常</span></td>
+            </tr>
+            <tr>
+              <td>优质海绵 T35</td>
+              <td class="num">¥22/KG</td>
+              <td class="num">¥20</td>
+              <td><span class="price-flag price-flag--up">▲ +10.0%</span></td>
+              <td>
+                <div class="sparkline" aria-label="价格趋势上升">
+                  <div class="sparkline__bar" style="height:8px;"></div>
+                  <div class="sparkline__bar" style="height:9px;"></div>
+                  <div class="sparkline__bar" style="height:10px;"></div>
+                  <div class="sparkline__bar" style="height:11px;"></div>
+                  <div class="sparkline__bar" style="height:13px;"></div>
+                  <div class="sparkline__bar sparkline__bar--high" style="height:18px;"></div>
+                </div>
+              </td>
+              <td><span class="tag tag--error">异常波动</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

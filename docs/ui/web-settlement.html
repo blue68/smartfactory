@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智造管家 — 销售结算</title>
+  <style>
+    :root {
+      --color-primary-50:#EFF6FF;--color-primary-100:#DBEAFE;
+      --color-primary-500:#3B82F6;--color-primary-600:#2563EB;--color-primary-700:#1D4ED8;
+      --color-accent-50:#FFF7ED;--color-accent-500:#F97316;--color-accent-600:#EA580C;
+      --color-success-50:#F0FDF4;--color-success-100:#DCFCE7;
+      --color-success-500:#22C55E;--color-success-600:#16A34A;--color-success-700:#15803D;
+      --color-warning-50:#FFFBEB;--color-warning-100:#FEF3C7;
+      --color-warning-500:#F59E0B;--color-warning-600:#D97706;--color-warning-700:#B45309;
+      --color-error-50:#FEF2F2;--color-error-100:#FEE2E2;
+      --color-error-500:#EF4444;--color-error-600:#DC2626;--color-error-700:#B91C1C;
+      --color-info-50:#F0F9FF;--color-info-100:#E0F2FE;
+      --color-info-500:#0EA5E9;--color-info-600:#0284C7;
+      --color-stagnant-100:#EDE9FE;--color-stagnant-500:#8B5CF6;--color-stagnant-600:#7C3AED;
+      --color-gray-0:#FFFFFF;--color-gray-50:#F8FAFC;--color-gray-100:#F1F5F9;
+      --color-gray-200:#E2E8F0;--color-gray-300:#CBD5E1;--color-gray-400:#94A3B8;
+      --color-gray-500:#64748B;--color-gray-600:#475569;--color-gray-700:#334155;
+      --color-gray-800:#1E293B;--color-gray-900:#0F172A;
+      --bg-page:#F8FAFC;--bg-card:#FFFFFF;--bg-sidebar:#1E293B;
+      --text-sidebar:#CBD5E1;--bg-sidebar-active:#2563EB;
+      --text-primary:#1E293B;--text-secondary:#64748B;--text-disabled:#94A3B8;
+      --border-default:#E2E8F0;--border-strong:#CBD5E1;
+      --font-family-base:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --font-family-number:"DIN Alternate","Roboto Mono",var(--font-family-base);
+      --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;
+      --space-5:1.25rem;--space-6:1.5rem;--space-8:2rem;
+      --layout-sidebar-width:240px;--layout-header-height:64px;
+      --layout-page-padding:24px;--layout-card-gap:16px;
+      --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:16px;--radius-full:9999px;
+      --shadow-xs:0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --transition-fast:150ms ease;--transition-base:200ms ease;--transition-slow:300ms ease;
+      --z-sticky:200;--z-modal:400;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{font-size:16px;}
+    body{font-family:var(--font-family-base);background:var(--bg-page);color:var(--text-primary);min-height:100vh;display:flex;}
+
+    .sidebar{width:var(--layout-sidebar-width);background:var(--bg-sidebar);min-height:100vh;position:fixed;top:0;left:0;display:flex;flex-direction:column;z-index:var(--z-sticky);}
+    .sidebar__logo{height:var(--layout-header-height);display:flex;align-items:center;padding:0 var(--space-6);border-bottom:1px solid rgba(255,255,255,.08);}
+    .sidebar__logo-mark{width:32px;height:32px;background:var(--color-primary-500);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:1rem;color:#fff;font-weight:800;margin-right:var(--space-3);flex-shrink:0;}
+    .sidebar__logo-text{font-size:1rem;font-weight:700;color:#fff;}
+    .sidebar__logo-sub{font-size:.6875rem;color:rgba(255,255,255,.45);}
+    .sidebar__nav{padding:var(--space-4) 0;flex:1;overflow-y:auto;}
+    .sidebar__section-label{font-size:.625rem;font-weight:600;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.1em;padding:var(--space-3) var(--space-6) var(--space-2);}
+    .sidebar__item{display:flex;align-items:center;gap:var(--space-3);padding:.65rem var(--space-6);color:var(--text-sidebar);font-size:.9375rem;cursor:pointer;transition:background var(--transition-fast),color var(--transition-fast);text-decoration:none;border-left:3px solid transparent;}
+    .sidebar__item:hover{background:rgba(255,255,255,.06);color:#fff;}
+    .sidebar__item--active{background:rgba(37,99,235,.25);color:#fff;border-left-color:var(--color-primary-500);}
+    .sidebar__item-icon{font-size:1rem;width:20px;text-align:center;flex-shrink:0;}
+
+    .main-wrapper{margin-left:var(--layout-sidebar-width);flex:1;display:flex;flex-direction:column;min-height:100vh;}
+    .top-header{height:var(--layout-header-height);background:var(--bg-card);border-bottom:1px solid var(--border-default);display:flex;align-items:center;padding:0 var(--layout-page-padding);gap:var(--space-4);position:sticky;top:0;z-index:var(--z-sticky);}
+    .breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:.875rem;color:var(--text-secondary);}
+    .breadcrumb__sep{color:var(--color-gray-300);}
+    .breadcrumb__current{color:var(--text-primary);font-weight:600;}
+    .header-actions{margin-left:auto;display:flex;gap:var(--space-3);align-items:center;}
+    .page-content{padding:var(--layout-page-padding);flex:1;}
+
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:36px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:.875rem;font-weight:600;font-family:var(--font-family-base);cursor:pointer;border:none;transition:background var(--transition-fast),transform var(--transition-fast);white-space:nowrap;}
+    .btn:active{transform:scale(.97);}
+    .btn--primary{background:var(--color-primary-500);color:#fff;}
+    .btn--primary:hover{background:var(--color-primary-600);}
+    .btn--ghost{background:transparent;color:var(--text-secondary);border:1.5px solid var(--border-default);}
+    .btn--ghost:hover{border-color:var(--border-strong);color:var(--text-primary);}
+    .btn--success{background:var(--color-success-600);color:#fff;}
+    .btn--success:hover{background:var(--color-success-700);}
+    .btn--sm{height:28px;padding:0 var(--space-3);font-size:.8125rem;}
+
+    /* Sub-nav tabs */
+    .sub-nav{display:flex;gap:0;background:var(--bg-card);border-bottom:2px solid var(--border-default);margin-bottom:var(--space-6);}
+    .sub-nav__tab{padding:var(--space-3) var(--space-5);font-size:.9375rem;font-weight:500;color:var(--text-secondary);cursor:pointer;border:none;background:transparent;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color var(--transition-fast),border-color var(--transition-fast);}
+    .sub-nav__tab:hover{color:var(--text-primary);}
+    .sub-nav__tab--active{color:var(--color-primary-600);font-weight:600;border-bottom-color:var(--color-primary-500);}
+
+    /* Summary Strip */
+    .summary-strip{display:flex;align-items:center;gap:var(--space-6);background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-4) var(--space-6);margin-bottom:var(--space-5);box-shadow:var(--shadow-xs);}
+    .summary-item{display:flex;flex-direction:column;gap:2px;}
+    .summary-item__label{font-size:.75rem;color:var(--text-secondary);}
+    .summary-item__value{font-size:1.5rem;font-weight:800;font-family:var(--font-family-number);}
+    .summary-divider{width:1px;height:36px;background:var(--border-default);}
+
+    /* Toolbar */
+    .toolbar{display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);flex-wrap:wrap;}
+    .search-box{position:relative;flex:0 0 240px;}
+    .search-box__input{width:100%;height:36px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3) 0 2.25rem;font-size:.875rem;font-family:var(--font-family-base);background:var(--bg-card);}
+    .search-box__input:focus{outline:none;border-color:var(--color-primary-500);}
+    .search-box__icon{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);color:var(--text-disabled);}
+    .filter-select{height:36px;padding:0 2rem 0 var(--space-3);border:1.5px solid var(--border-default);border-radius:var(--radius-md);background:var(--bg-card);font-size:.875rem;font-family:var(--font-family-base);-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;}
+    .toolbar__spacer{flex:1;}
+
+    /* Table */
+    .data-table{width:100%;border-collapse:collapse;font-size:.875rem;}
+    .data-table th{text-align:left;font-size:.75rem;font-weight:600;color:var(--text-secondary);padding:var(--space-2) var(--space-4);background:var(--color-gray-50);border-bottom:1px solid var(--border-default);}
+    .data-table th input[type="checkbox"]{cursor:pointer;}
+    .data-table td{padding:.75rem var(--space-4);border-bottom:1px solid var(--color-gray-50);}
+    .data-table tr:last-child td{border-bottom:none;}
+    .data-table tr:hover td{background:var(--color-primary-50);}
+    .num{font-family:var(--font-family-number);font-weight:600;}
+
+    /* Tags */
+    .tag{display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;}
+    .tag--success{background:var(--color-success-100);color:var(--color-success-700);}
+    .tag--warning{background:var(--color-warning-100);color:var(--color-warning-700);}
+    .tag--error{background:var(--color-error-100);color:var(--color-error-700);}
+    .tag--info{background:var(--color-info-100);color:var(--color-info-600);}
+    .tag--neutral{background:var(--color-gray-100);color:var(--color-gray-700);}
+
+    /* Card */
+    .card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-xs);}
+    .card--padded{padding:var(--space-6);}
+
+    /* Receivable section */
+    .receivable-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--layout-card-gap);margin-bottom:var(--layout-card-gap);}
+    .receivable-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);box-shadow:var(--shadow-xs);}
+    .receivable-card__header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-4);}
+    .receivable-card__title{font-size:1rem;font-weight:600;color:var(--text-primary);}
+
+    /* Reconcile diff */
+    .reconcile-row{display:flex;align-items:center;gap:var(--space-4);padding:var(--space-3) var(--space-4);border-radius:var(--radius-md);}
+    .reconcile-row--match{background:var(--color-success-50);}
+    .reconcile-row--diff{background:var(--color-error-50);border:1px solid var(--color-error-100);}
+    .reconcile-label{font-size:.875rem;color:var(--text-secondary);min-width:80px;}
+    .reconcile-val{font-size:1rem;font-weight:700;font-family:var(--font-family-number);color:var(--text-primary);}
+    .reconcile-gap{font-size:.875rem;font-weight:600;}
+    .reconcile-gap--zero{color:var(--color-success-600);}
+    .reconcile-gap--neg{color:var(--color-error-600);}
+
+    /* Demo section */
+    .demo-section{margin-bottom:var(--space-8);}
+    .demo-section__label{font-size:.75rem;font-weight:700;color:var(--text-disabled);text-transform:uppercase;letter-spacing:.1em;margin-bottom:var(--space-3);}
+
+    /* Checkbox */
+    .checkbox{width:16px;height:16px;cursor:pointer;accent-color:var(--color-primary-500);}
+
+    /* Modal backdrop */
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:300;display:flex;align-items:center;justify-content:center;}
+    .modal{background:var(--bg-card);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:560px;max-height:80vh;display:flex;flex-direction:column;}
+    .modal__header{padding:var(--space-5) var(--space-6);border-bottom:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between;}
+    .modal__title{font-size:1.125rem;font-weight:700;}
+    .modal__close{width:32px;height:32px;border:none;background:var(--color-gray-100);border-radius:var(--radius-md);cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;}
+    .modal__body{padding:var(--space-6);overflow-y:auto;flex:1;}
+    .modal__footer{padding:var(--space-5) var(--space-6);border-top:1px solid var(--border-default);display:flex;justify-content:flex-end;gap:var(--space-3);}
+
+    /* Bar chart for receivable */
+    .bar-h{display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);}
+    .bar-h__label{font-size:.8125rem;color:var(--text-secondary);width:100px;flex-shrink:0;}
+    .bar-h__track{flex:1;height:20px;background:var(--color-gray-100);border-radius:var(--radius-sm);overflow:hidden;position:relative;}
+    .bar-h__fill{height:100%;border-radius:var(--radius-sm);}
+    .bar-h__val{position:absolute;right:var(--space-2);top:50%;transform:translateY(-50%);font-size:.75rem;font-weight:700;font-family:var(--font-family-number);}
+    .bar-h__total{font-size:.875rem;font-weight:700;font-family:var(--font-family-number);min-width:70px;text-align:right;}
+
+    /* Responsive */
+    @media(max-width:1024px){.receivable-grid{grid-template-columns:1fr;}}
+    @media(max-width:768px){.sidebar{display:none;}.main-wrapper{margin-left:0;}.summary-strip{flex-wrap:wrap;}.modal{width:calc(100% - 2rem);}}
+  </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<nav class="sidebar" aria-label="主导航">
+  <div class="sidebar__logo">
+    <div class="sidebar__logo-mark">智</div>
+    <div>
+      <div class="sidebar__logo-text">智造管家</div>
+      <div class="sidebar__logo-sub">SmartFactory Agent</div>
+    </div>
+  </div>
+  <div class="sidebar__nav">
+    <div class="sidebar__section-label">核心功能</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🏠</span>老板驾驶舱</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">📦</span>库存管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🏭</span>生产管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🛒</span>采购管理</a>
+    <a class="sidebar__item sidebar__item--active" href="#"><span class="sidebar__item-icon">💼</span>销售管理</a>
+    <a class="sidebar__item" href="#" style="padding-left:2.5rem;font-size:.875rem;">销售订单</a>
+    <a class="sidebar__item sidebar__item--active" href="#" style="padding-left:2.5rem;font-size:.875rem;">财务结算</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">📊</span>经营分析</a>
+  </div>
+</nav>
+
+<div class="main-wrapper">
+  <header class="top-header">
+    <nav class="breadcrumb" aria-label="面包屑">
+      <span>销售管理</span>
+      <span class="breadcrumb__sep">›</span>
+      <span class="breadcrumb__current">财务结算</span>
+    </nav>
+    <div class="header-actions">
+      <button class="btn btn--ghost btn--sm">📥 导出对账单</button>
+      <button class="btn btn--primary">+ 新建结算单</button>
+    </div>
+  </header>
+
+  <main class="page-content">
+
+    <!-- Sub Nav -->
+    <div class="sub-nav" role="tablist" aria-label="结算功能导航">
+      <button class="sub-nav__tab sub-nav__tab--active" role="tab" aria-selected="true">已交付订单</button>
+      <button class="sub-nav__tab" role="tab" aria-selected="false">结算单管理</button>
+      <button class="sub-nav__tab" role="tab" aria-selected="false">对账管理</button>
+      <button class="sub-nav__tab" role="tab" aria-selected="false">应收账款</button>
+    </div>
+
+    <!-- ===== Section 1: 已交付订单列表 ===== -->
+    <div class="demo-section">
+      <div class="demo-section__label">Tab 1 — 已交付订单（可选择生成结算单）</div>
+
+      <!-- Summary Strip -->
+      <div class="summary-strip">
+        <div class="summary-item">
+          <span class="summary-item__label">已交付待结算</span>
+          <span class="summary-item__value" style="color:var(--color-warning-600);">8笔</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item__label">待结算金额</span>
+          <span class="summary-item__value" style="color:var(--color-primary-600);">¥ 648,200</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item__label">本月已结算</span>
+          <span class="summary-item__value" style="color:var(--color-success-600);">¥ 1,284,600</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item__label">应收账款余额</span>
+          <span class="summary-item__value" style="color:var(--color-error-600);">¥ 328,000</span>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="search-box">
+          <span class="search-box__icon">🔍</span>
+          <input class="search-box__input" type="text" placeholder="搜索订单号或客户名称" aria-label="搜索已交付订单">
+        </div>
+        <select class="filter-select" aria-label="筛选客户">
+          <option>全部客户</option>
+          <option>上海XX家具</option>
+          <option>北京YY贸易</option>
+        </select>
+        <select class="filter-select" aria-label="筛选结算状态">
+          <option>全部状态</option>
+          <option>待结算</option>
+          <option>已结算</option>
+          <option>结算中</option>
+        </select>
+        <div class="toolbar__spacer"></div>
+        <button class="btn btn--ghost btn--sm" id="batch-settle-btn" aria-label="批量生成结算单">批量生成结算单</button>
+      </div>
+
+      <div class="card" style="overflow:hidden;">
+        <div style="overflow-x:auto;">
+          <table class="data-table" aria-label="已交付订单列表">
+            <thead>
+              <tr>
+                <th><input type="checkbox" class="checkbox" aria-label="全选" id="select-all"></th>
+                <th>订单号</th>
+                <th>客户名称</th>
+                <th>交货日期</th>
+                <th>订单金额</th>
+                <th>已收款</th>
+                <th>待收款</th>
+                <th>结算状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><input type="checkbox" class="checkbox" aria-label="选择订单 SO-2026-0301" checked></td>
+                <td style="font-family:var(--font-family-number);color:var(--color-primary-600);cursor:pointer;font-weight:600;">SO-2026-0301</td>
+                <td>上海XX家具</td>
+                <td style="color:var(--text-secondary);">2026-03-10</td>
+                <td class="num">¥ 128,000</td>
+                <td class="num" style="color:var(--color-success-600);">¥ 0</td>
+                <td class="num" style="color:var(--color-error-600);">¥ 128,000</td>
+                <td><span class="tag tag--warning">待结算</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--primary btn--sm">生成结算单</button>
+                    <button class="btn btn--ghost btn--sm">查看</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox" aria-label="选择订单 SO-2026-0298" checked></td>
+                <td style="font-family:var(--font-family-number);color:var(--color-primary-600);cursor:pointer;font-weight:600;">SO-2026-0298</td>
+                <td>北京YY贸易</td>
+                <td style="color:var(--text-secondary);">2026-03-08</td>
+                <td class="num">¥ 86,400</td>
+                <td class="num" style="color:var(--color-success-600);">¥ 30,000</td>
+                <td class="num" style="color:var(--color-error-600);">¥ 56,400</td>
+                <td><span class="tag tag--warning">待结算</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--primary btn--sm">生成结算单</button>
+                    <button class="btn btn--ghost btn--sm">查看</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox" aria-label="选择订单 SO-2026-0285"></td>
+                <td style="font-family:var(--font-family-number);color:var(--color-primary-600);cursor:pointer;font-weight:600;">SO-2026-0285</td>
+                <td>广州ZZ实业</td>
+                <td style="color:var(--text-secondary);">2026-03-05</td>
+                <td class="num">¥ 225,000</td>
+                <td class="num" style="color:var(--color-success-600);">¥ 225,000</td>
+                <td class="num" style="color:var(--text-disabled);">¥ 0</td>
+                <td><span class="tag tag--success">已结算</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--ghost btn--sm">查看结算单</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox" aria-label="选择订单 SO-2026-0279"></td>
+                <td style="font-family:var(--font-family-number);color:var(--color-primary-600);cursor:pointer;font-weight:600;">SO-2026-0279</td>
+                <td>深圳WW家具</td>
+                <td style="color:var(--text-secondary);">2026-03-02</td>
+                <td class="num">¥ 168,800</td>
+                <td class="num" style="color:var(--color-success-600);">¥ 80,000</td>
+                <td class="num" style="color:var(--color-error-600);">¥ 88,800</td>
+                <td><span class="tag tag--info">结算中</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--ghost btn--sm">查看进度</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Section 2: 结算单管理 ===== -->
+    <div class="demo-section">
+      <div class="demo-section__label">Tab 2 — 结算单管理（创建/编辑/确认）</div>
+      <div class="card" style="overflow:hidden;">
+        <div style="padding:var(--space-5) var(--space-6);border-bottom:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between;">
+          <div style="font-size:1rem;font-weight:600;">结算单列表</div>
+          <button class="btn btn--primary btn--sm">+ 新建结算单</button>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="data-table" aria-label="结算单列表">
+            <thead>
+              <tr>
+                <th>结算单号</th>
+                <th>客户</th>
+                <th>关联订单</th>
+                <th>结算金额</th>
+                <th>优惠/扣款</th>
+                <th>实收金额</th>
+                <th>创建时间</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="font-family:var(--font-family-number);color:var(--color-primary-600);font-weight:600;">SET-2026-0048</td>
+                <td>广州ZZ实业</td>
+                <td style="font-size:.8125rem;color:var(--text-secondary);">SO-2026-0285</td>
+                <td class="num">¥ 225,000</td>
+                <td class="num" style="color:var(--color-error-600);">-¥ 0</td>
+                <td class="num" style="color:var(--color-success-600);">¥ 225,000</td>
+                <td style="font-size:.8125rem;color:var(--text-secondary);">2026-03-06</td>
+                <td><span class="tag tag--success">已确认</span></td>
+                <td><button class="btn btn--ghost btn--sm">查看</button></td>
+              </tr>
+              <tr>
+                <td style="font-family:var(--font-family-number);color:var(--color-primary-600);font-weight:600;">SET-2026-0052</td>
+                <td>深圳WW家具</td>
+                <td style="font-size:.8125rem;color:var(--text-secondary);">SO-2026-0279</td>
+                <td class="num">¥ 168,800</td>
+                <td class="num" style="color:var(--color-success-600);">-¥ 3,376（2%折扣）</td>
+                <td class="num">¥ 165,424</td>
+                <td style="font-size:.8125rem;color:var(--text-secondary);">2026-03-03</td>
+                <td><span class="tag tag--warning">待确认</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--success btn--sm">确认</button>
+                    <button class="btn btn--ghost btn--sm">编辑</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td style="font-family:var(--font-family-number);color:var(--color-primary-600);font-weight:600;">SET-2026-0055</td>
+                <td>上海XX家具</td>
+                <td style="font-size:.8125rem;color:var(--text-secondary);">SO-2026-0301</td>
+                <td class="num">¥ 128,000</td>
+                <td class="num">—</td>
+                <td class="num" style="color:var(--text-disabled);">草稿</td>
+                <td style="font-size:.8125rem;color:var(--text-secondary);">2026-03-17</td>
+                <td><span class="tag tag--neutral">草稿</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--primary btn--sm">编辑</button>
+                    <button class="btn btn--ghost btn--sm" style="color:var(--color-error-600);">删除</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Section 3: 对账管理 ===== -->
+    <div class="demo-section">
+      <div class="demo-section__label">Tab 3 — 对账管理（订单金额 vs 结算金额）</div>
+      <div style="display:flex;gap:var(--layout-card-gap);">
+        <!-- Reconcile detail card -->
+        <div class="card card--padded" style="flex:1;">
+          <div style="font-size:1rem;font-weight:600;margin-bottom:var(--space-5);">对账单 SET-2026-0052 明细</div>
+          <div style="display:flex;flex-direction:column;gap:var(--space-3);margin-bottom:var(--space-5);">
+            <div class="reconcile-row">
+              <div class="reconcile-label">订单金额</div>
+              <div class="reconcile-val">¥ 168,800</div>
+              <div style="margin-left:auto;font-size:.8125rem;color:var(--text-secondary);">SO-2026-0279 合同价</div>
+            </div>
+            <div class="reconcile-row">
+              <div class="reconcile-label">折扣扣款</div>
+              <div class="reconcile-val" style="color:var(--color-error-600);">- ¥ 3,376</div>
+              <div style="margin-left:auto;font-size:.8125rem;color:var(--text-secondary);">合同约定 2% 早付折扣</div>
+            </div>
+            <div class="reconcile-row reconcile-row--match">
+              <div class="reconcile-label" style="color:var(--color-success-700);font-weight:600;">结算金额</div>
+              <div class="reconcile-val" style="color:var(--color-success-700);">¥ 165,424</div>
+              <div style="margin-left:auto;">
+                <span class="reconcile-gap reconcile-gap--zero">✓ 对账一致</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:var(--space-3);">
+            <button class="btn btn--ghost btn--sm">打印对账单</button>
+            <button class="btn btn--ghost btn--sm">📤 发送给客户</button>
+          </div>
+        </div>
+
+        <!-- Reconcile with diff -->
+        <div class="card card--padded" style="flex:1;">
+          <div style="font-size:1rem;font-weight:600;margin-bottom:var(--space-5);">对账单 SET-2026-0055 明细</div>
+          <div style="display:flex;flex-direction:column;gap:var(--space-3);margin-bottom:var(--space-5);">
+            <div class="reconcile-row">
+              <div class="reconcile-label">订单金额</div>
+              <div class="reconcile-val">¥ 128,000</div>
+              <div style="margin-left:auto;font-size:.8125rem;color:var(--text-secondary);">SO-2026-0301 合同价</div>
+            </div>
+            <div class="reconcile-row">
+              <div class="reconcile-label">客户申报</div>
+              <div class="reconcile-val" style="color:var(--color-warning-600);">¥ 124,800</div>
+              <div style="margin-left:auto;font-size:.8125rem;color:var(--color-warning-600);">客户称部分货物有破损</div>
+            </div>
+            <div class="reconcile-row reconcile-row--diff">
+              <div class="reconcile-label" style="color:var(--color-error-700);font-weight:600;">差异金额</div>
+              <div class="reconcile-val" style="color:var(--color-error-600);">¥ 3,200</div>
+              <div style="margin-left:auto;">
+                <span class="reconcile-gap reconcile-gap--neg">⚠️ 有争议，待确认</span>
+              </div>
+            </div>
+          </div>
+          <div style="background:var(--color-warning-50);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:.8125rem;color:var(--color-warning-700);margin-bottom:var(--space-4);">
+            ⚠️ 客户对货物质量提出异议，差异 ¥3,200 需与客户协商后确认
+          </div>
+          <div style="display:flex;gap:var(--space-3);">
+            <button class="btn btn--primary btn--sm">协商记录</button>
+            <button class="btn btn--ghost btn--sm">维持原价</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Section 4: 应收账款 ===== -->
+    <div class="demo-section">
+      <div class="demo-section__label">Tab 4 — 应收账款汇总</div>
+      <div class="receivable-grid">
+        <!-- By Customer -->
+        <div class="receivable-card">
+          <div class="receivable-card__header">
+            <div class="receivable-card__title">按客户汇总</div>
+            <span style="font-size:.75rem;color:var(--text-secondary);">共 4 个客户</span>
+          </div>
+          <div style="margin-bottom:var(--space-5);">
+            <div class="bar-h">
+              <div class="bar-h__label">上海XX家具</div>
+              <div class="bar-h__track">
+                <div class="bar-h__fill" style="width:72%;background:var(--color-error-400);"></div>
+                <div class="bar-h__val" style="color:#fff;">¥128k</div>
+              </div>
+              <div class="bar-h__total" style="color:var(--color-error-600);">¥ 128,000</div>
+            </div>
+            <div class="bar-h">
+              <div class="bar-h__label">北京YY贸易</div>
+              <div class="bar-h__track">
+                <div class="bar-h__fill" style="width:32%;background:var(--color-warning-400);"></div>
+                <div class="bar-h__val">¥56k</div>
+              </div>
+              <div class="bar-h__total" style="color:var(--color-warning-600);">¥ 56,400</div>
+            </div>
+            <div class="bar-h">
+              <div class="bar-h__label">深圳WW家具</div>
+              <div class="bar-h__track">
+                <div class="bar-h__fill" style="width:50%;background:var(--color-primary-300);"></div>
+                <div class="bar-h__val">¥88k</div>
+              </div>
+              <div class="bar-h__total">¥ 88,800</div>
+            </div>
+            <div class="bar-h">
+              <div class="bar-h__label">广州ZZ实业</div>
+              <div class="bar-h__track">
+                <div class="bar-h__fill" style="width:5%;background:var(--color-success-300);"></div>
+              </div>
+              <div class="bar-h__total" style="color:var(--color-success-600);">¥ 0</div>
+            </div>
+          </div>
+          <div style="padding-top:var(--space-4);border-top:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:.875rem;color:var(--text-secondary);">应收合计</span>
+            <span style="font-size:1.25rem;font-weight:800;font-family:var(--font-family-number);color:var(--color-error-600);">¥ 273,200</span>
+          </div>
+        </div>
+
+        <!-- By Month -->
+        <div class="receivable-card">
+          <div class="receivable-card__header">
+            <div class="receivable-card__title">按月份汇总（近6月）</div>
+            <button class="btn btn--ghost btn--sm">明细</button>
+          </div>
+          <table class="data-table" style="font-size:.8125rem;" aria-label="按月份应收账款汇总">
+            <thead>
+              <tr>
+                <th>月份</th>
+                <th>应收金额</th>
+                <th>已收款</th>
+                <th>剩余应收</th>
+                <th>账龄</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>2026年3月</td>
+                <td class="num">¥ 273,200</td>
+                <td class="num" style="color:var(--color-success-600);">¥ 110,000</td>
+                <td class="num" style="color:var(--color-warning-600);">¥ 163,200</td>
+                <td><span class="tag tag--success">&lt;30天</span></td>
+              </tr>
+              <tr>
+                <td>2026年2月</td>
+                <td class="num">¥ 184,600</td>
+                <td class="num" style="color:var(--color-success-600);">¥ 160,000</td>
+                <td class="num" style="color:var(--color-warning-600);">¥ 24,600</td>
+                <td><span class="tag tag--warning">30-60天</span></td>
+              </tr>
+              <tr>
+                <td>2026年1月</td>
+                <td class="num">¥ 312,000</td>
+                <td class="num" style="color:var(--color-success-600);">¥ 298,000</td>
+                <td class="num" style="color:var(--color-error-600);">¥ 14,000</td>
+                <td><span class="tag tag--warning">60-90天</span></td>
+              </tr>
+              <tr>
+                <td>2025年12月</td>
+                <td class="num">¥ 428,000</td>
+                <td class="num" style="color:var(--color-success-600);">¥ 400,400</td>
+                <td class="num" style="color:var(--color-error-600);">¥ 27,600</td>
+                <td><span class="tag tag--error">&gt;90天</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="margin-top:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-error-50);border-radius:var(--radius-md);font-size:.8125rem;color:var(--color-error-700);">
+            ⚠️ 2025年12月有 ¥27,600 账龄超90天，建议催款
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

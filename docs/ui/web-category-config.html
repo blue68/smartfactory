@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智造管家 — 物料分类配置（左右双面板）</title>
+  <style>
+    :root {
+      --color-primary-50:#EFF6FF;--color-primary-100:#DBEAFE;
+      --color-primary-500:#3B82F6;--color-primary-600:#2563EB;--color-primary-700:#1D4ED8;
+      --color-accent-50:#FFF7ED;--color-accent-500:#F97316;--color-accent-600:#EA580C;
+      --color-success-50:#F0FDF4;--color-success-100:#DCFCE7;
+      --color-success-500:#22C55E;--color-success-600:#16A34A;--color-success-700:#15803D;
+      --color-warning-50:#FFFBEB;--color-warning-100:#FEF3C7;
+      --color-warning-500:#F59E0B;--color-warning-600:#D97706;--color-warning-700:#B45309;
+      --color-error-50:#FEF2F2;--color-error-100:#FEE2E2;
+      --color-error-500:#EF4444;--color-error-600:#DC2626;--color-error-700:#B91C1C;
+      --color-info-50:#F0F9FF;--color-info-100:#E0F2FE;
+      --color-info-500:#0EA5E9;--color-info-600:#0284C7;
+      --color-stagnant-100:#EDE9FE;--color-stagnant-500:#8B5CF6;--color-stagnant-600:#7C3AED;
+      --color-gray-0:#FFFFFF;--color-gray-50:#F8FAFC;--color-gray-100:#F1F5F9;
+      --color-gray-200:#E2E8F0;--color-gray-300:#CBD5E1;--color-gray-400:#94A3B8;
+      --color-gray-500:#64748B;--color-gray-600:#475569;--color-gray-700:#334155;
+      --color-gray-800:#1E293B;--color-gray-900:#0F172A;
+      --bg-page:#F8FAFC;--bg-card:#FFFFFF;--bg-sidebar:#1E293B;
+      --text-sidebar:#CBD5E1;--bg-sidebar-active:#2563EB;
+      --text-primary:#1E293B;--text-secondary:#64748B;--text-disabled:#94A3B8;
+      --border-default:#E2E8F0;--border-strong:#CBD5E1;
+      --font-family-base:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --font-family-number:"DIN Alternate","Roboto Mono",var(--font-family-base);
+      --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;
+      --space-5:1.25rem;--space-6:1.5rem;--space-8:2rem;
+      --layout-sidebar-width:240px;--layout-header-height:64px;
+      --layout-page-padding:24px;--layout-card-gap:16px;
+      --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:16px;--radius-full:9999px;
+      --shadow-xs:0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --transition-fast:150ms ease;--transition-base:200ms ease;
+      --z-sticky:200;--z-modal:400;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{font-size:16px;}
+    body{font-family:var(--font-family-base);background:var(--bg-page);color:var(--text-primary);min-height:100vh;display:flex;}
+
+    /* Sidebar */
+    .sidebar{width:var(--layout-sidebar-width);background:var(--bg-sidebar);min-height:100vh;position:fixed;top:0;left:0;display:flex;flex-direction:column;z-index:var(--z-sticky);}
+    .sidebar__logo{height:var(--layout-header-height);display:flex;align-items:center;padding:0 var(--space-6);border-bottom:1px solid rgba(255,255,255,.08);}
+    .sidebar__logo-mark{width:32px;height:32px;background:var(--color-primary-500);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:1rem;color:#fff;font-weight:800;margin-right:var(--space-3);flex-shrink:0;}
+    .sidebar__logo-text{font-size:1rem;font-weight:700;color:#fff;}
+    .sidebar__logo-sub{font-size:.6875rem;color:rgba(255,255,255,.45);}
+    .sidebar__nav{padding:var(--space-4) 0;flex:1;overflow-y:auto;}
+    .sidebar__section-label{font-size:.625rem;font-weight:600;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.1em;padding:var(--space-3) var(--space-6) var(--space-2);}
+    .sidebar__item{display:flex;align-items:center;gap:var(--space-3);padding:.65rem var(--space-6);color:var(--text-sidebar);font-size:.9375rem;cursor:pointer;transition:background var(--transition-fast),color var(--transition-fast);text-decoration:none;border-left:3px solid transparent;}
+    .sidebar__item:hover{background:rgba(255,255,255,.06);color:#fff;}
+    .sidebar__item--active{background:rgba(37,99,235,.25);color:#fff;border-left-color:var(--color-primary-500);}
+    .sidebar__item-icon{font-size:1rem;width:20px;text-align:center;flex-shrink:0;}
+
+    /* Main */
+    .main-wrapper{margin-left:var(--layout-sidebar-width);flex:1;display:flex;flex-direction:column;min-height:100vh;}
+    .top-header{height:var(--layout-header-height);background:var(--bg-card);border-bottom:1px solid var(--border-default);display:flex;align-items:center;padding:0 var(--layout-page-padding);gap:var(--space-4);position:sticky;top:0;z-index:var(--z-sticky);}
+    .breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:.875rem;color:var(--text-secondary);}
+    .breadcrumb__sep{color:var(--color-gray-300);}
+    .breadcrumb__current{color:var(--text-primary);font-weight:600;}
+    .header-actions{margin-left:auto;display:flex;gap:var(--space-3);align-items:center;}
+    .page-content{padding:var(--layout-page-padding);flex:1;display:flex;flex-direction:column;}
+
+    /* Buttons */
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:36px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:.875rem;font-weight:600;font-family:var(--font-family-base);cursor:pointer;border:none;transition:background var(--transition-fast),transform var(--transition-fast);white-space:nowrap;}
+    .btn:active{transform:scale(.97);}
+    .btn--primary{background:var(--color-primary-500);color:#fff;}
+    .btn--primary:hover{background:var(--color-primary-600);}
+    .btn--ghost{background:transparent;color:var(--text-secondary);border:1.5px solid var(--border-default);}
+    .btn--ghost:hover{border-color:var(--border-strong);color:var(--text-primary);}
+    .btn--danger{background:var(--color-error-500);color:#fff;}
+    .btn--danger:hover{background:var(--color-error-600);}
+    .btn--sm{height:28px;padding:0 var(--space-3);font-size:.8125rem;}
+    .btn--icon{width:28px;height:28px;padding:0;border-radius:var(--radius-md);}
+
+    /* Page Header */
+    .page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-6);}
+    .page-header__title{font-size:1.5rem;font-weight:700;}
+    .page-header__subtitle{font-size:.875rem;color:var(--text-secondary);margin-top:2px;}
+
+    /* ===== Dual Panel Layout ===== */
+    .dual-panel{display:flex;gap:var(--layout-card-gap);flex:1;min-height:0;height:calc(100vh - 180px);}
+
+    /* Left Panel: First-level category tree */
+    .panel-left{width:280px;flex-shrink:0;display:flex;flex-direction:column;background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-xs);overflow:hidden;}
+    .panel-left__header{padding:var(--space-4) var(--space-4);border-bottom:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+    .panel-left__title{font-size:.9375rem;font-weight:600;color:var(--text-primary);}
+    .panel-left__search{padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border-default);flex-shrink:0;}
+    .panel-left__search-input{width:100%;height:32px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3) 0 2rem;font-size:.8125rem;font-family:var(--font-family-base);background:var(--bg-page);}
+    .panel-left__search-input:focus{outline:none;border-color:var(--color-primary-500);}
+    .panel-left__search-wrap{position:relative;}
+    .panel-left__search-icon{position:absolute;left:.625rem;top:50%;transform:translateY(-50%);font-size:.875rem;color:var(--text-disabled);pointer-events:none;}
+    .panel-left__list{flex:1;overflow-y:auto;padding:var(--space-2) 0;}
+
+    /* Category Tree Item */
+    .tree-item{display:flex;align-items:center;gap:var(--space-3);padding:.6rem var(--space-4);cursor:pointer;transition:background var(--transition-fast);position:relative;border-left:3px solid transparent;}
+    .tree-item:hover{background:var(--color-primary-50);}
+    .tree-item--active{background:var(--color-primary-50);border-left-color:var(--color-primary-500);}
+    .tree-item__icon{font-size:1.125rem;width:32px;height:32px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .tree-item__icon--rm{background:#FFF7ED;} /* raw material */
+    .tree-item__icon--wip{background:#FFF0F9;}
+    .tree-item__icon--fg{background:#F0FDF4;}
+    .tree-item__name{font-size:.9375rem;font-weight:500;color:var(--text-primary);flex:1;}
+    .tree-item--active .tree-item__name{color:var(--color-primary-700);font-weight:600;}
+    .tree-item__count{font-size:.75rem;font-family:var(--font-family-number);color:var(--text-disabled);background:var(--color-gray-100);padding:2px 7px;border-radius:var(--radius-full);}
+    .tree-item--active .tree-item__count{background:var(--color-primary-100);color:var(--color-primary-700);}
+    .tree-item__actions{display:none;gap:var(--space-1);}
+    .tree-item:hover .tree-item__actions{display:flex;}
+
+    /* Add item row */
+    .tree-add{display:flex;align-items:center;gap:var(--space-3);padding:.6rem var(--space-4);cursor:pointer;color:var(--color-primary-500);font-size:.875rem;border-top:1px dashed var(--border-default);margin-top:var(--space-2);}
+    .tree-add:hover{background:var(--color-primary-50);}
+
+    /* Right Panel: Sub-category table */
+    .panel-right{flex:1;display:flex;flex-direction:column;background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-xs);overflow:hidden;}
+    .panel-right__header{padding:var(--space-4) var(--space-6);border-bottom:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-4);flex-shrink:0;}
+    .panel-right__breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:.875rem;}
+    .panel-right__parent{color:var(--text-secondary);}
+    .panel-right__sep{color:var(--color-gray-300);}
+    .panel-right__current{font-size:1rem;font-weight:700;color:var(--text-primary);}
+    .panel-right__actions{margin-left:auto;display:flex;gap:var(--space-3);}
+    .panel-right__toolbar{padding:var(--space-3) var(--space-6);border-bottom:1px solid var(--border-default);display:flex;align-items:center;gap:var(--space-3);flex-shrink:0;}
+    .panel-right__body{flex:1;overflow-y:auto;}
+
+    /* Data Table */
+    .data-table{width:100%;border-collapse:collapse;font-size:.875rem;}
+    .data-table th{text-align:left;font-size:.75rem;font-weight:600;color:var(--text-secondary);padding:var(--space-2) var(--space-4);background:var(--color-gray-50);border-bottom:1px solid var(--border-default);position:sticky;top:0;z-index:1;}
+    .data-table td{padding:.75rem var(--space-4);border-bottom:1px solid var(--color-gray-50);}
+    .data-table tr:last-child td{border-bottom:none;}
+    .data-table tr:hover td{background:var(--color-primary-50);}
+
+    /* Inline edit row */
+    .table-row--editing td{background:var(--color-primary-50) !important;}
+    .inline-input{height:32px;border:1.5px solid var(--color-primary-500);border-radius:var(--radius-sm);padding:0 var(--space-2);font-size:.875rem;font-family:var(--font-family-base);background:#fff;box-shadow:0 0 0 3px rgba(59,130,246,.12);}
+
+    /* Tags */
+    .tag{display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;}
+    .tag--success{background:var(--color-success-100);color:var(--color-success-700);}
+    .tag--warning{background:var(--color-warning-100);color:var(--color-warning-700);}
+    .tag--error{background:var(--color-error-100);color:var(--color-error-700);}
+    .tag--neutral{background:var(--color-gray-100);color:var(--color-gray-700);}
+
+    /* Color dot for category visual indicator */
+    .color-dot{width:12px;height:12px;border-radius:3px;display:inline-block;flex-shrink:0;}
+
+    /* Empty state for right panel */
+    .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:5rem 2rem;text-align:center;}
+    .empty-state__icon{font-size:3rem;opacity:.3;margin-bottom:var(--space-4);}
+    .empty-state__title{font-size:1rem;font-weight:600;color:var(--text-secondary);margin-bottom:var(--space-2);}
+    .empty-state__desc{font-size:.875rem;color:var(--text-disabled);}
+
+    /* Panel status bar */
+    .panel-status{padding:var(--space-3) var(--space-6);border-top:1px solid var(--border-default);background:var(--color-gray-50);display:flex;align-items:center;gap:var(--space-4);flex-shrink:0;}
+    .panel-status__info{font-size:.75rem;color:var(--text-secondary);}
+
+    /* Drag handle */
+    .drag-handle{color:var(--text-disabled);cursor:grab;font-size:.875rem;padding:0 var(--space-1);}
+    .drag-handle:active{cursor:grabbing;}
+
+    /* Form input */
+    .form-input-sm{height:32px;border:1.5px solid var(--border-default);border-radius:var(--radius-sm);padding:0 var(--space-2);font-size:.875rem;font-family:var(--font-family-base);}
+    .form-input-sm:focus{outline:none;border-color:var(--color-primary-500);}
+
+    /* Modal for add/edit category */
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:var(--z-modal);display:flex;align-items:center;justify-content:center;}
+    .modal{background:var(--bg-card);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:480px;}
+    .modal__header{padding:var(--space-5) var(--space-6);border-bottom:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between;}
+    .modal__title{font-size:1.125rem;font-weight:700;}
+    .modal__close{width:32px;height:32px;border:none;background:var(--color-gray-100);border-radius:var(--radius-md);cursor:pointer;font-size:1rem;}
+    .modal__body{padding:var(--space-6);}
+    .modal__footer{padding:var(--space-5) var(--space-6);border-top:1px solid var(--border-default);display:flex;justify-content:flex-end;gap:var(--space-3);}
+    .form-field{display:flex;flex-direction:column;gap:var(--space-2);margin-bottom:var(--space-5);}
+    .form-label{font-size:.8125rem;font-weight:600;color:var(--text-secondary);}
+    .required{color:var(--color-error-500);margin-left:2px;}
+    .form-input{height:40px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3);font-size:.875rem;font-family:var(--font-family-base);}
+    .form-input:focus{outline:none;border-color:var(--color-primary-500);box-shadow:0 0 0 3px rgba(59,130,246,.12);}
+    .form-hint{font-size:.75rem;color:var(--text-disabled);}
+
+    /* Comparison note */
+    .comparison-note{background:var(--color-info-50);border-left:4px solid var(--color-info-500);padding:var(--space-4) var(--space-5);border-radius:0 var(--radius-md) var(--radius-md) 0;margin-bottom:var(--space-6);}
+    .comparison-note__title{font-size:.875rem;font-weight:600;color:var(--color-info-700);margin-bottom:var(--space-2);}
+    .comparison-note__desc{font-size:.8125rem;color:var(--text-secondary);line-height:1.6;}
+
+    /* Responsive */
+    @media(max-width:1100px){.panel-left{width:240px;}}
+    @media(max-width:900px){.dual-panel{flex-direction:column;height:auto;}.panel-left{width:100%;height:260px;}.panel-right{min-height:400px;}}
+    @media(max-width:768px){.sidebar{display:none;}.main-wrapper{margin-left:0;}}
+  </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<nav class="sidebar" aria-label="主导航">
+  <div class="sidebar__logo">
+    <div class="sidebar__logo-mark">智</div>
+    <div>
+      <div class="sidebar__logo-text">智造管家</div>
+      <div class="sidebar__logo-sub">SmartFactory Agent</div>
+    </div>
+  </div>
+  <div class="sidebar__nav">
+    <div class="sidebar__section-label">基础数据</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">📦</span>物料主数据</a>
+    <a class="sidebar__item sidebar__item--active" href="#"><span class="sidebar__item-icon">📂</span>物料分类配置</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🏷️</span>BOM管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🏭</span>工序配置</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">💲</span>价格管理</a>
+    <div class="sidebar__section-label">核心功能</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🏠</span>老板驾驶舱</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">📦</span>库存管理</a>
+  </div>
+</nav>
+
+<div class="main-wrapper">
+  <header class="top-header">
+    <nav class="breadcrumb" aria-label="面包屑">
+      <span>基础数据</span>
+      <span class="breadcrumb__sep">›</span>
+      <span class="breadcrumb__current">物料分类配置</span>
+    </nav>
+    <div class="header-actions">
+      <div style="display:flex;align-items:center;gap:var(--space-2);">
+        <div style="width:32px;height:32px;border-radius:var(--radius-full);background:var(--color-primary-500);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.875rem;">张</div>
+        <span style="font-size:.875rem;font-weight:600;">张厂长</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-content">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1 class="page-header__title">物料分类配置</h1>
+        <p class="page-header__subtitle">管理一级分类（原材料/半成品/成品）及对应的二级品类，左侧选择一级分类，右侧管理其二级品类</p>
+      </div>
+      <button class="btn btn--primary">+ 新增一级分类</button>
+    </div>
+
+    <!-- Design improvement note -->
+    <div class="comparison-note" role="note">
+      <div class="comparison-note__title">布局修正说明（R-01）</div>
+      <div class="comparison-note__desc">
+        原设计为单表格扁平树形结构，存在一级/二级分类混排、操作目标不明确的问题。<br>
+        修正后采用<strong>左右双面板布局</strong>：左侧展示一级分类树（点击高亮选中），右侧实时显示该一级分类的所有二级品类，操作层级清晰，与 SKU 页分类筛选交互一致。
+      </div>
+    </div>
+
+    <!-- ===== Dual Panel ===== -->
+    <div class="dual-panel">
+
+      <!-- Left Panel: Level-1 Category Tree -->
+      <aside class="panel-left" aria-label="一级分类列表">
+        <div class="panel-left__header">
+          <span class="panel-left__title">一级分类</span>
+          <span style="font-size:.75rem;color:var(--text-secondary);">共 3 类</span>
+        </div>
+        <div class="panel-left__search">
+          <div class="panel-left__search-wrap">
+            <span class="panel-left__search-icon" aria-hidden="true">🔍</span>
+            <input class="panel-left__search-input" type="text" placeholder="搜索一级分类" aria-label="搜索一级分类">
+          </div>
+        </div>
+        <div class="panel-left__list" role="tree" aria-label="一级物料分类树">
+
+          <!-- Raw Material - Active -->
+          <div class="tree-item tree-item--active" role="treeitem" aria-selected="true" tabindex="0" aria-label="原材料，包含8个二级分类">
+            <div class="tree-item__icon tree-item__icon--rm" aria-hidden="true">🧱</div>
+            <div style="flex:1;min-width:0;">
+              <div class="tree-item__name">原材料</div>
+              <div style="font-size:.75rem;color:var(--color-primary-500);margin-top:1px;">包含 8 个二级品类</div>
+            </div>
+            <span class="tree-item__count">8</span>
+            <div class="tree-item__actions">
+              <button class="btn btn--ghost btn--sm btn--icon" aria-label="编辑原材料分类" title="编辑">✏️</button>
+            </div>
+          </div>
+
+          <!-- WIP -->
+          <div class="tree-item" role="treeitem" aria-selected="false" tabindex="0" aria-label="半成品，包含3个二级分类">
+            <div class="tree-item__icon tree-item__icon--wip" aria-hidden="true">⚙️</div>
+            <div style="flex:1;min-width:0;">
+              <div class="tree-item__name">半成品</div>
+              <div style="font-size:.75rem;color:var(--text-disabled);margin-top:1px;">包含 3 个二级品类</div>
+            </div>
+            <span class="tree-item__count">3</span>
+            <div class="tree-item__actions">
+              <button class="btn btn--ghost btn--sm btn--icon" aria-label="编辑半成品分类" title="编辑">✏️</button>
+            </div>
+          </div>
+
+          <!-- Finished Goods -->
+          <div class="tree-item" role="treeitem" aria-selected="false" tabindex="0" aria-label="成品，包含5个二级分类">
+            <div class="tree-item__icon tree-item__icon--fg" aria-hidden="true">🛋️</div>
+            <div style="flex:1;min-width:0;">
+              <div class="tree-item__name">成品</div>
+              <div style="font-size:.75rem;color:var(--text-disabled);margin-top:1px;">包含 5 个二级品类</div>
+            </div>
+            <span class="tree-item__count">5</span>
+            <div class="tree-item__actions">
+              <button class="btn btn--ghost btn--sm btn--icon" aria-label="编辑成品分类" title="编辑">✏️</button>
+            </div>
+          </div>
+
+          <!-- Add new -->
+          <div class="tree-add" role="button" tabindex="0" aria-label="新增一级分类">
+            <span>+</span>
+            <span>新增一级分类</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Right Panel: Level-2 Sub-category Table -->
+      <section class="panel-right" aria-label="二级分类管理">
+        <div class="panel-right__header">
+          <div class="panel-right__breadcrumb">
+            <span class="panel-right__parent">一级分类</span>
+            <span class="panel-right__sep">›</span>
+            <span class="panel-right__current">🧱 原材料 — 二级品类</span>
+          </div>
+          <div class="panel-right__actions">
+            <button class="btn btn--ghost btn--sm">排序</button>
+            <button class="btn btn--primary btn--sm">+ 新增二级品类</button>
+          </div>
+        </div>
+
+        <div class="panel-right__toolbar">
+          <div style="position:relative;">
+            <span style="position:absolute;left:.625rem;top:50%;transform:translateY(-50%);font-size:.8125rem;color:var(--text-disabled);">🔍</span>
+            <input type="text" placeholder="搜索二级品类名称" style="height:32px;width:200px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3) 0 2rem;font-size:.8125rem;font-family:var(--font-family-base);" aria-label="搜索二级品类">
+          </div>
+          <span style="font-size:.75rem;color:var(--text-secondary);margin-left:auto;">共 8 个二级品类 · 关联 SKU 3,127 个</span>
+        </div>
+
+        <div class="panel-right__body">
+          <table class="data-table" aria-label="原材料二级品类列表">
+            <thead>
+              <tr>
+                <th style="width:28px;"></th>
+                <th style="width:36px;">排序</th>
+                <th>品类代码</th>
+                <th>品类名称</th>
+                <th>视觉标识</th>
+                <th>关联 SKU 数</th>
+                <th>特殊属性</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+
+              <!-- Board -->
+              <tr>
+                <td><span class="drag-handle" aria-label="拖拽排序" title="拖拽排序">⠿</span></td>
+                <td style="font-family:var(--font-family-number);color:var(--text-secondary);">01</td>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">RM-BOARD</td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:var(--space-2);">
+                    <span class="color-dot" style="background:#C2774A;"></span>
+                    <strong>板材类</strong>
+                  </div>
+                </td>
+                <td>
+                  <span style="display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;background:#FDF3E7;color:#9A3412;">板材类</span>
+                </td>
+                <td style="font-family:var(--font-family-number);">486 <span style="font-size:.75rem;color:var(--text-disabled);">SKU</span></td>
+                <td><span class="tag tag--neutral">无</span></td>
+                <td><span class="tag tag--success">启用</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--ghost btn--sm">编辑</button>
+                    <button class="btn btn--ghost btn--sm" style="color:var(--color-error-600);" aria-label="删除板材类">删除</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Hardware -->
+              <tr>
+                <td><span class="drag-handle" aria-label="拖拽排序">⠿</span></td>
+                <td style="font-family:var(--font-family-number);color:var(--text-secondary);">02</td>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">RM-HW</td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:var(--space-2);">
+                    <span class="color-dot" style="background:#94A3B8;"></span>
+                    <strong>五金类</strong>
+                  </div>
+                </td>
+                <td>
+                  <span style="display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;background:#F3F4F6;color:#4B5563;">五金类</span>
+                </td>
+                <td style="font-family:var(--font-family-number);">312 <span style="font-size:.75rem;color:var(--text-disabled);">SKU</span></td>
+                <td><span class="tag tag--neutral">无</span></td>
+                <td><span class="tag tag--success">启用</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--ghost btn--sm">编辑</button>
+                    <button class="btn btn--ghost btn--sm" style="color:var(--color-error-600);">删除</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Fabric - with special attribute (dye lot) -->
+              <tr>
+                <td><span class="drag-handle" aria-label="拖拽排序">⠿</span></td>
+                <td style="font-family:var(--font-family-number);color:var(--text-secondary);">03</td>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">RM-FAB</td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:var(--space-2);">
+                    <span class="color-dot" style="background:#7C3AED;"></span>
+                    <strong>面料类</strong>
+                  </div>
+                </td>
+                <td>
+                  <span style="display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;background:#F3E8FF;color:#7C3AED;">面料类</span>
+                </td>
+                <td style="font-family:var(--font-family-number);">628 <span style="font-size:.75rem;color:var(--text-disabled);">SKU</span></td>
+                <td>
+                  <span style="display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;background:var(--color-accent-50);color:var(--color-accent-600);border:1px dashed var(--color-accent-300);">🎨 缸号必填</span>
+                </td>
+                <td><span class="tag tag--success">启用</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--ghost btn--sm">编辑</button>
+                    <button class="btn btn--ghost btn--sm" style="color:var(--color-error-600);">删除</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Foam -->
+              <tr>
+                <td><span class="drag-handle" aria-label="拖拽排序">⠿</span></td>
+                <td style="font-family:var(--font-family-number);color:var(--text-secondary);">04</td>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">RM-FOAM</td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:var(--space-2);">
+                    <span class="color-dot" style="background:#059669;"></span>
+                    <strong>海绵类</strong>
+                  </div>
+                </td>
+                <td>
+                  <span style="display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;background:#ECFDF5;color:#059669;">海绵类</span>
+                </td>
+                <td style="font-family:var(--font-family-number);">84 <span style="font-size:.75rem;color:var(--text-disabled);">SKU</span></td>
+                <td><span class="tag tag--neutral">无</span></td>
+                <td><span class="tag tag--success">启用</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--ghost btn--sm">编辑</button>
+                    <button class="btn btn--ghost btn--sm" style="color:var(--color-error-600);">删除</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Inline editing row (Paint - being edited) -->
+              <tr class="table-row--editing">
+                <td><span class="drag-handle" style="opacity:.4;">⠿</span></td>
+                <td style="font-family:var(--font-family-number);color:var(--text-secondary);">05</td>
+                <td><input class="inline-input" type="text" value="RM-PAINT" style="width:100px;" aria-label="品类代码（编辑中）"></td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:var(--space-2);">
+                    <input type="color" value="#D97706" style="width:24px;height:24px;border:none;padding:0;border-radius:3px;cursor:pointer;" aria-label="品类颜色">
+                    <input class="inline-input" type="text" value="油漆涂料类" style="width:110px;" aria-label="品类名称（编辑中）">
+                  </div>
+                </td>
+                <td>
+                  <span style="display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;background:#FEF9C3;color:#A16207;">油漆涂料类</span>
+                </td>
+                <td style="font-family:var(--font-family-number);">156 <span style="font-size:.75rem;color:var(--text-disabled);">SKU</span></td>
+                <td><span class="tag tag--neutral">无</span></td>
+                <td><span class="tag tag--success">启用</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--primary btn--sm">保存</button>
+                    <button class="btn btn--ghost btn--sm">取消</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Adhesive -->
+              <tr>
+                <td><span class="drag-handle" aria-label="拖拽排序">⠿</span></td>
+                <td style="font-family:var(--font-family-number);color:var(--text-secondary);">06</td>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">RM-ADH</td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:var(--space-2);">
+                    <span class="color-dot" style="background:#E11D48;"></span>
+                    <strong>胶粘剂类</strong>
+                  </div>
+                </td>
+                <td>
+                  <span style="display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;background:#FFF1F2;color:#E11D48;">胶粘剂类</span>
+                </td>
+                <td style="font-family:var(--font-family-number);">92 <span style="font-size:.75rem;color:var(--text-disabled);">SKU</span></td>
+                <td><span class="tag tag--neutral">无</span></td>
+                <td><span class="tag tag--warning">暂停使用</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--ghost btn--sm">编辑</button>
+                    <button class="btn btn--ghost btn--sm">启用</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Pack -->
+              <tr>
+                <td><span class="drag-handle" aria-label="拖拽排序">⠿</span></td>
+                <td style="font-family:var(--font-family-number);color:var(--text-secondary);">07</td>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">RM-PACK</td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:var(--space-2);">
+                    <span class="color-dot" style="background:#0369A1;"></span>
+                    <strong>包装材料类</strong>
+                  </div>
+                </td>
+                <td>
+                  <span style="display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;background:#F0F9FF;color:#0369A1;">包装材料类</span>
+                </td>
+                <td style="font-family:var(--font-family-number);">215 <span style="font-size:.75rem;color:var(--text-disabled);">SKU</span></td>
+                <td><span class="tag tag--neutral">无</span></td>
+                <td><span class="tag tag--success">启用</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--ghost btn--sm">编辑</button>
+                    <button class="btn btn--ghost btn--sm" style="color:var(--color-error-600);">删除</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Other - unclassified warning -->
+              <tr>
+                <td><span class="drag-handle" aria-label="拖拽排序">⠿</span></td>
+                <td style="font-family:var(--font-family-number);color:var(--text-secondary);">08</td>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">RM-OTHER</td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:var(--space-2);">
+                    <span class="color-dot" style="background:#CBD5E1;"></span>
+                    <strong>其他辅料</strong>
+                  </div>
+                </td>
+                <td>
+                  <span style="display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;background:#F5F5F5;color:#737373;">其他辅料</span>
+                </td>
+                <td style="font-family:var(--font-family-number);">154 <span style="font-size:.75rem;color:var(--text-disabled);">SKU</span></td>
+                <td><span class="tag tag--neutral">无</span></td>
+                <td><span class="tag tag--success">启用</span></td>
+                <td>
+                  <div style="display:flex;gap:var(--space-2);">
+                    <button class="btn btn--ghost btn--sm">编辑</button>
+                    <button class="btn btn--ghost btn--sm" style="color:var(--color-error-600);">删除</button>
+                  </div>
+                </td>
+              </tr>
+
+            </tbody>
+          </table>
+        </div>
+
+        <div class="panel-status">
+          <span class="panel-status__info">原材料 · 8 个二级品类 · 关联 SKU 3,127 个</span>
+          <span style="margin-left:auto;font-size:.75rem;color:var(--text-disabled);">拖拽行可调整显示顺序 · 双击名称可快速编辑</span>
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+</div>
+
+<!-- Modal: 新增/编辑二级品类 -->
+<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title" style="display:none;">
+  <div class="modal">
+    <div class="modal__header">
+      <span class="modal__title" id="modal-title">新增二级品类</span>
+      <button class="modal__close" aria-label="关闭">×</button>
+    </div>
+    <div class="modal__body">
+      <div style="font-size:.8125rem;color:var(--text-secondary);background:var(--color-gray-50);padding:var(--space-3) var(--space-4);border-radius:var(--radius-md);margin-bottom:var(--space-5);">
+        所属一级分类：<strong>🧱 原材料</strong>
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="sub-code">品类代码 <span class="required">*</span></label>
+        <input id="sub-code" class="form-input" type="text" placeholder="例：RM-LEATHER">
+        <div class="form-hint">英文大写字母和连字符，如 RM-BOARD</div>
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="sub-name">品类名称 <span class="required">*</span></label>
+        <input id="sub-name" class="form-input" type="text" placeholder="例：皮料类">
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="sub-color">标识颜色</label>
+        <div style="display:flex;align-items:center;gap:var(--space-3);">
+          <input id="sub-color" type="color" value="#7C3AED" style="width:40px;height:40px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:2px;cursor:pointer;" aria-label="选择品类颜色">
+          <input type="text" class="form-input" value="#7C3AED" style="flex:1;" placeholder="#RRGGBB" aria-label="颜色十六进制值">
+        </div>
+        <div class="form-hint">将自动生成对应的浅色背景标签样式</div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">特殊属性</label>
+        <div style="display:flex;gap:var(--space-3);">
+          <label style="display:flex;align-items:center;gap:var(--space-2);font-size:.875rem;cursor:pointer;">
+            <input type="checkbox" style="accent-color:var(--color-primary-500);">
+            <span>缸号必填</span>
+            <span style="font-size:.75rem;color:var(--text-disabled);">（面料/皮料类启用）</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost">取消</button>
+      <button class="btn btn--primary">确认添加</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

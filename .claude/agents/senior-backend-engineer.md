@@ -2,7 +2,7 @@
 name: senior-backend-engineer
 description: 世界级资深后端工程师，负责根据技术任务拆解实现后端系统
 tools: Read, Write, Edit, MultiEdit, Glob, Grep, Bash
-model: sonnet
+model: opus
 permissionMode: default
 maxTurns: 10
 ---

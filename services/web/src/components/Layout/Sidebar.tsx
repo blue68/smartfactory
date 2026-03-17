@@ -90,6 +90,13 @@ const NAV_ITEMS: NavItem[] = [
     group: '销售',
   },
   {
+    path: '/settlement',
+    label: '销售结算',
+    icon: '💳',
+    roles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
+    group: '销售',
+  },
+  {
     path: '/schedule-suggestions',
     label: '智能调度',
     icon: '🧠',
@@ -129,6 +136,13 @@ const NAV_ITEMS: NavItem[] = [
     label: '库存总览',
     icon: '📦',
     roles: [UserRole.BOSS, UserRole.WAREHOUSE, UserRole.PURCHASER, UserRole.SUPERVISOR],
+    group: '仓库',
+  },
+  {
+    path: '/stocktaking',
+    label: '库存盘点',
+    icon: '📝',
+    roles: [UserRole.BOSS, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
     group: '仓库',
   },
   {
@@ -174,6 +188,13 @@ const NAV_ITEMS: NavItem[] = [
     group: '主数据',
   },
   {
+    path: '/analytics',
+    label: '经营分析',
+    icon: '📊',
+    roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    group: '报表',
+  },
+  {
     path: '/report/wages',
     label: '工资报表',
     icon: '📈',
@@ -186,6 +207,13 @@ const NAV_ITEMS: NavItem[] = [
     icon: '💵',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
     group: '报表',
+  },
+  {
+    path: '/notifications',
+    label: '通知中心',
+    icon: '🔔',
+    roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.SALES, UserRole.WAREHOUSE, UserRole.WORKER, UserRole.QC],
+    group: '系统',
   },
   {
     path: '/ai-chat',

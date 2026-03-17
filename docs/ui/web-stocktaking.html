@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智造管家 — 库存盘点</title>
+  <style>
+    :root {
+      --color-primary-50:#EFF6FF;--color-primary-100:#DBEAFE;
+      --color-primary-500:#3B82F6;--color-primary-600:#2563EB;--color-primary-700:#1D4ED8;
+      --color-accent-50:#FFF7ED;--color-accent-500:#F97316;--color-accent-600:#EA580C;
+      --color-success-50:#F0FDF4;--color-success-100:#DCFCE7;
+      --color-success-500:#22C55E;--color-success-600:#16A34A;--color-success-700:#15803D;
+      --color-warning-50:#FFFBEB;--color-warning-100:#FEF3C7;
+      --color-warning-500:#F59E0B;--color-warning-600:#D97706;--color-warning-700:#B45309;
+      --color-error-50:#FEF2F2;--color-error-100:#FEE2E2;
+      --color-error-500:#EF4444;--color-error-600:#DC2626;--color-error-700:#B91C1C;
+      --color-info-50:#F0F9FF;--color-info-100:#E0F2FE;
+      --color-info-500:#0EA5E9;--color-info-600:#0284C7;
+      --color-stagnant-100:#EDE9FE;--color-stagnant-500:#8B5CF6;--color-stagnant-600:#7C3AED;
+      --color-gray-0:#FFFFFF;--color-gray-50:#F8FAFC;--color-gray-100:#F1F5F9;
+      --color-gray-200:#E2E8F0;--color-gray-300:#CBD5E1;--color-gray-400:#94A3B8;
+      --color-gray-500:#64748B;--color-gray-600:#475569;--color-gray-700:#334155;
+      --color-gray-800:#1E293B;--color-gray-900:#0F172A;
+      --bg-page:#F8FAFC;--bg-card:#FFFFFF;--bg-sidebar:#1E293B;
+      --text-sidebar:#CBD5E1;--bg-sidebar-active:#2563EB;
+      --text-primary:#1E293B;--text-secondary:#64748B;--text-disabled:#94A3B8;
+      --border-default:#E2E8F0;--border-strong:#CBD5E1;
+      --font-family-base:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",-apple-system,sans-serif;
+      --font-family-number:"DIN Alternate","Roboto Mono",var(--font-family-base);
+      --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;
+      --space-5:1.25rem;--space-6:1.5rem;--space-8:2rem;--space-10:2.5rem;
+      --layout-sidebar-width:240px;--layout-header-height:64px;
+      --layout-page-padding:24px;--layout-card-gap:16px;
+      --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:16px;--radius-full:9999px;
+      --shadow-xs:0 1px 2px rgba(0,0,0,.05);
+      --shadow-sm:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+      --shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+      --transition-fast:150ms ease;--transition-base:200ms ease;--transition-slow:300ms ease;
+      --z-sticky:200;--z-overlay:300;--z-modal:400;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{font-size:16px;}
+    body{font-family:var(--font-family-base);background:var(--bg-page);color:var(--text-primary);min-height:100vh;display:flex;}
+
+    /* Sidebar */
+    .sidebar{width:var(--layout-sidebar-width);background:var(--bg-sidebar);min-height:100vh;position:fixed;top:0;left:0;display:flex;flex-direction:column;z-index:var(--z-sticky);}
+    .sidebar__logo{height:var(--layout-header-height);display:flex;align-items:center;padding:0 var(--space-6);border-bottom:1px solid rgba(255,255,255,.08);}
+    .sidebar__logo-mark{width:32px;height:32px;background:var(--color-primary-500);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:1rem;color:#fff;font-weight:800;margin-right:var(--space-3);flex-shrink:0;}
+    .sidebar__logo-text{font-size:1rem;font-weight:700;color:#fff;}
+    .sidebar__logo-sub{font-size:.6875rem;color:rgba(255,255,255,.45);}
+    .sidebar__nav{padding:var(--space-4) 0;flex:1;overflow-y:auto;}
+    .sidebar__section-label{font-size:.625rem;font-weight:600;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.1em;padding:var(--space-3) var(--space-6) var(--space-2);}
+    .sidebar__item{display:flex;align-items:center;gap:var(--space-3);padding:.65rem var(--space-6);color:var(--text-sidebar);font-size:.9375rem;cursor:pointer;transition:background var(--transition-fast),color var(--transition-fast);text-decoration:none;border-left:3px solid transparent;}
+    .sidebar__item:hover{background:rgba(255,255,255,.06);color:#fff;}
+    .sidebar__item--active{background:rgba(37,99,235,.25);color:#fff;border-left-color:var(--color-primary-500);}
+    .sidebar__item-icon{font-size:1rem;width:20px;text-align:center;flex-shrink:0;}
+
+    /* Main */
+    .main-wrapper{margin-left:var(--layout-sidebar-width);flex:1;display:flex;flex-direction:column;min-height:100vh;}
+    .top-header{height:var(--layout-header-height);background:var(--bg-card);border-bottom:1px solid var(--border-default);display:flex;align-items:center;padding:0 var(--layout-page-padding);gap:var(--space-4);position:sticky;top:0;z-index:var(--z-sticky);}
+    .breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:.875rem;color:var(--text-secondary);}
+    .breadcrumb__sep{color:var(--color-gray-300);}
+    .breadcrumb__current{color:var(--text-primary);font-weight:600;}
+    .header-actions{margin-left:auto;display:flex;gap:var(--space-3);align-items:center;}
+    .page-content{padding:var(--layout-page-padding);flex:1;}
+
+    /* Buttons */
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:36px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:.875rem;font-weight:600;font-family:var(--font-family-base);cursor:pointer;border:none;transition:background var(--transition-fast),transform var(--transition-fast);white-space:nowrap;}
+    .btn:active{transform:scale(.97);}
+    .btn--primary{background:var(--color-primary-500);color:#fff;}
+    .btn--primary:hover{background:var(--color-primary-600);}
+    .btn--ghost{background:transparent;color:var(--text-secondary);border:1.5px solid var(--border-default);}
+    .btn--ghost:hover{border-color:var(--border-strong);color:var(--text-primary);}
+    .btn--success{background:var(--color-success-600);color:#fff;}
+    .btn--success:hover{background:var(--color-success-700);}
+    .btn--sm{height:28px;padding:0 var(--space-3);font-size:.8125rem;}
+    .btn--lg{height:44px;padding:0 var(--space-6);font-size:.9375rem;}
+
+    /* Page Header */
+    .page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-6);}
+    .page-header__title{font-size:1.5rem;font-weight:700;color:var(--text-primary);}
+    .page-header__subtitle{font-size:.875rem;color:var(--text-secondary);margin-top:2px;}
+
+    /* Stepper */
+    .stepper{display:flex;align-items:center;margin-bottom:var(--space-8);}
+    .stepper__step{display:flex;align-items:center;gap:var(--space-3);}
+    .stepper__step-num{width:32px;height:32px;border-radius:var(--radius-full);display:flex;align-items:center;justify-content:center;font-size:.875rem;font-weight:700;flex-shrink:0;}
+    .stepper__step-num--active{background:var(--color-primary-500);color:#fff;}
+    .stepper__step-num--done{background:var(--color-success-500);color:#fff;}
+    .stepper__step-num--pending{background:var(--color-gray-200);color:var(--text-disabled);}
+    .stepper__step-label{font-size:.875rem;font-weight:600;}
+    .stepper__step-label--active{color:var(--color-primary-600);}
+    .stepper__step-label--done{color:var(--color-success-700);}
+    .stepper__step-label--pending{color:var(--text-disabled);}
+    .stepper__line{flex:1;height:2px;background:var(--border-default);margin:0 var(--space-3);}
+    .stepper__line--done{background:var(--color-success-500);}
+
+    /* Cards */
+    .card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-6);box-shadow:var(--shadow-xs);}
+    .card__title{font-size:1.125rem;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-5);}
+
+    /* Form */
+    .form-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-5);margin-bottom:var(--space-5);}
+    .form-field{display:flex;flex-direction:column;gap:var(--space-2);}
+    .form-label{font-size:.8125rem;font-weight:600;color:var(--text-secondary);}
+    .form-label .required{color:var(--color-error-500);margin-left:2px;}
+    .form-input{height:40px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3);font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);background:var(--bg-card);transition:border-color var(--transition-fast);}
+    .form-input:focus{outline:none;border-color:var(--color-primary-500);box-shadow:0 0 0 3px rgba(59,130,246,.12);}
+    .form-select{height:40px;padding:0 2rem 0 var(--space-3);border:1.5px solid var(--border-default);border-radius:var(--radius-md);background:var(--bg-card);font-size:.875rem;font-family:var(--font-family-base);color:var(--text-primary);-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .75rem center;}
+    .form-hint{font-size:.75rem;color:var(--text-disabled);margin-top:2px;}
+
+    /* Scope Selector */
+    .scope-options{display:flex;gap:var(--space-3);flex-wrap:wrap;}
+    .scope-option{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-4) var(--space-5);border:2px solid var(--border-default);border-radius:var(--radius-lg);cursor:pointer;transition:border-color var(--transition-fast),background var(--transition-fast);flex:1;min-width:160px;}
+    .scope-option:hover{border-color:var(--color-primary-300);background:var(--color-primary-50);}
+    .scope-option--selected{border-color:var(--color-primary-500);background:var(--color-primary-50);}
+    .scope-option__icon{font-size:1.5rem;}
+    .scope-option__title{font-size:.9375rem;font-weight:600;color:var(--text-primary);}
+    .scope-option__desc{font-size:.75rem;color:var(--text-secondary);margin-top:2px;}
+    .scope-option__radio{margin-left:auto;width:18px;height:18px;border-radius:var(--radius-full);border:2px solid var(--border-strong);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .scope-option--selected .scope-option__radio{border-color:var(--color-primary-500);background:var(--color-primary-500);}
+    .scope-option--selected .scope-option__radio::after{content:'';width:6px;height:6px;border-radius:50%;background:#fff;}
+
+    /* Table */
+    .data-table{width:100%;border-collapse:collapse;font-size:.875rem;}
+    .data-table th{text-align:left;font-size:.75rem;font-weight:600;color:var(--text-secondary);padding:var(--space-2) var(--space-4);background:var(--color-gray-50);border-bottom:1px solid var(--border-default);}
+    .data-table td{padding:.75rem var(--space-4);border-bottom:1px solid var(--color-gray-50);}
+    .data-table tr:last-child td{border-bottom:none;}
+    .data-table tr:hover td{background:var(--color-primary-50);}
+    .num{font-family:var(--font-family-number);font-weight:600;}
+    .diff-pos{color:var(--color-success-600);}
+    .diff-neg{color:var(--color-error-600);font-weight:700;}
+    .diff-zero{color:var(--text-disabled);}
+
+    /* Tags */
+    .tag{display:inline-flex;align-items:center;height:20px;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:.6875rem;font-weight:600;}
+    .tag--success{background:var(--color-success-100);color:var(--color-success-700);}
+    .tag--warning{background:var(--color-warning-100);color:var(--color-warning-700);}
+    .tag--error{background:var(--color-error-100);color:var(--color-error-700);}
+    .tag--info{background:var(--color-info-100);color:var(--color-info-600);}
+    .tag--neutral{background:var(--color-gray-100);color:var(--color-gray-700);}
+
+    /* Alert */
+    .alert{padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);display:flex;gap:var(--space-3);align-items:flex-start;margin-bottom:var(--space-5);}
+    .alert--warning{background:var(--color-warning-50);border-left:4px solid var(--color-warning-500);}
+    .alert--info{background:var(--color-info-50);border-left:4px solid var(--color-info-500);}
+    .alert__icon{font-size:1.125rem;flex-shrink:0;margin-top:1px;}
+    .alert__title{font-size:.9375rem;font-weight:600;margin-bottom:2px;}
+    .alert__desc{font-size:.8125rem;color:var(--text-secondary);line-height:1.5;}
+
+    /* Diff Summary Cards */
+    .diff-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--layout-card-gap);margin-bottom:var(--layout-card-gap);}
+    .diff-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-5);box-shadow:var(--shadow-xs);}
+    .diff-card__label{font-size:.75rem;color:var(--text-secondary);margin-bottom:var(--space-1);}
+    .diff-card__value{font-size:1.5rem;font-weight:800;font-family:var(--font-family-number);}
+
+    /* Editable cell */
+    .cell-input{width:90px;height:30px;border:1.5px solid var(--border-default);border-radius:var(--radius-sm);padding:0 var(--space-2);font-size:.875rem;font-family:var(--font-family-number);text-align:right;transition:border-color var(--transition-fast);}
+    .cell-input:focus{outline:none;border-color:var(--color-primary-500);box-shadow:0 0 0 2px rgba(59,130,246,.12);}
+    .cell-input--diff{border-color:var(--color-error-400);background:var(--color-error-50);}
+
+    /* Progress bar */
+    .progress-wrap{display:flex;align-items:center;gap:var(--space-3);}
+    .progress-track{flex:1;height:8px;background:var(--color-gray-100);border-radius:var(--radius-full);overflow:hidden;}
+    .progress-fill{height:100%;border-radius:var(--radius-full);background:var(--color-primary-500);}
+    .progress-label{font-size:.75rem;font-weight:700;font-family:var(--font-family-number);color:var(--text-secondary);white-space:nowrap;}
+
+    /* Demo section */
+    .demo-section{margin-bottom:var(--space-8);}
+    .demo-section__label{font-size:.75rem;font-weight:700;color:var(--text-disabled);text-transform:uppercase;letter-spacing:.1em;margin-bottom:var(--space-3);}
+
+    /* Responsive */
+    @media(max-width:768px){
+      .sidebar{display:none;}.main-wrapper{margin-left:0;}
+      .form-row{grid-template-columns:1fr;}
+      .diff-summary{grid-template-columns:1fr 1fr;}
+      .scope-options{flex-direction:column;}
+    }
+  </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<nav class="sidebar" aria-label="主导航">
+  <div class="sidebar__logo">
+    <div class="sidebar__logo-mark">智</div>
+    <div>
+      <div class="sidebar__logo-text">智造管家</div>
+      <div class="sidebar__logo-sub">SmartFactory Agent</div>
+    </div>
+  </div>
+  <div class="sidebar__nav">
+    <div class="sidebar__section-label">核心功能</div>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🏠</span>老板驾驶舱</a>
+    <a class="sidebar__item sidebar__item--active" href="#"><span class="sidebar__item-icon">📦</span>库存管理</a>
+    <a class="sidebar__item" href="#" style="padding-left:2.5rem;font-size:.875rem;">出入库记录</a>
+    <a class="sidebar__item sidebar__item--active" href="#" style="padding-left:2.5rem;font-size:.875rem;">库存盘点</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🏭</span>生产管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">🛒</span>采购管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">💼</span>销售管理</a>
+    <a class="sidebar__item" href="#"><span class="sidebar__item-icon">📊</span>经营分析</a>
+  </div>
+</nav>
+
+<div class="main-wrapper">
+  <header class="top-header">
+    <nav class="breadcrumb" aria-label="面包屑">
+      <span>库存管理</span>
+      <span class="breadcrumb__sep">›</span>
+      <span class="breadcrumb__current">库存盘点</span>
+    </nav>
+    <div class="header-actions">
+      <button class="btn btn--ghost btn--sm">📥 导出盘点表</button>
+      <button class="btn btn--primary">+ 新建盘点任务</button>
+    </div>
+  </header>
+
+  <main class="page-content">
+
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1 class="page-header__title">库存盘点</h1>
+        <p class="page-header__subtitle">创建盘点任务 → 录入实盘数量 → 差异分析 → 确认调整库存</p>
+      </div>
+    </div>
+
+    <!-- ===== Demo Section 1: 创建盘点任务 ===== -->
+    <div class="demo-section">
+      <div class="demo-section__label">步骤一 — 创建盘点任务</div>
+
+      <!-- Stepper -->
+      <div class="stepper" aria-label="盘点流程步骤">
+        <div class="stepper__step">
+          <div class="stepper__step-num stepper__step-num--active" aria-label="当前步骤：创建盘点任务">1</div>
+          <div class="stepper__step-label stepper__step-label--active">创建盘点任务</div>
+        </div>
+        <div class="stepper__line" aria-hidden="true"></div>
+        <div class="stepper__step">
+          <div class="stepper__step-num stepper__step-num--pending" aria-label="待处理：导出盘点表">2</div>
+          <div class="stepper__step-label stepper__step-label--pending">导出盘点表</div>
+        </div>
+        <div class="stepper__line" aria-hidden="true"></div>
+        <div class="stepper__step">
+          <div class="stepper__step-num stepper__step-num--pending" aria-label="待处理：录入实盘数据">3</div>
+          <div class="stepper__step-label stepper__step-label--pending">录入实盘数据</div>
+        </div>
+        <div class="stepper__line" aria-hidden="true"></div>
+        <div class="stepper__step">
+          <div class="stepper__step-num stepper__step-num--pending" aria-label="待处理：差异分析报告">4</div>
+          <div class="stepper__step-label stepper__step-label--pending">差异分析报告</div>
+        </div>
+        <div class="stepper__line" aria-hidden="true"></div>
+        <div class="stepper__step">
+          <div class="stepper__step-num stepper__step-num--pending" aria-label="待处理：确认调整库存">5</div>
+          <div class="stepper__step-label stepper__step-label--pending">确认调整库存</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__title">新建盘点任务</div>
+        <div class="form-row">
+          <div class="form-field">
+            <label class="form-label" for="task-name">盘点任务名称 <span class="required">*</span></label>
+            <input id="task-name" class="form-input" type="text" placeholder="例：2026年3月月度全面盘点" value="2026年3月月度全面盘点">
+          </div>
+          <div class="form-field">
+            <label class="form-label" for="task-date">计划盘点日期 <span class="required">*</span></label>
+            <input id="task-date" class="form-input" type="date" value="2026-03-20">
+          </div>
+          <div class="form-field">
+            <label class="form-label" for="task-owner">负责人 <span class="required">*</span></label>
+            <select id="task-owner" class="form-select">
+              <option>王仓管</option>
+              <option>李主任</option>
+              <option selected>张厂长</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Scope Selection -->
+        <div class="form-field" style="margin-bottom:var(--space-6);">
+          <div class="form-label">盘点范围 <span class="required">*</span></div>
+          <div class="scope-options" role="radiogroup" aria-label="选择盘点范围">
+            <div class="scope-option scope-option--selected" role="radio" aria-checked="true" tabindex="0">
+              <div class="scope-option__icon" aria-hidden="true">🏢</div>
+              <div>
+                <div class="scope-option__title">全仓盘点</div>
+                <div class="scope-option__desc">盘点所有物料，约 3,200 SKU</div>
+              </div>
+              <div class="scope-option__radio" aria-hidden="true"></div>
+            </div>
+            <div class="scope-option" role="radio" aria-checked="false" tabindex="0">
+              <div class="scope-option__icon" aria-hidden="true">📂</div>
+              <div>
+                <div class="scope-option__title">按分类盘点</div>
+                <div class="scope-option__desc">选择指定物料分类</div>
+              </div>
+              <div class="scope-option__radio" aria-hidden="true"></div>
+            </div>
+            <div class="scope-option" role="radio" aria-checked="false" tabindex="0">
+              <div class="scope-option__icon" aria-hidden="true">📍</div>
+              <div>
+                <div class="scope-option__title">按库位盘点</div>
+                <div class="scope-option__desc">选择指定库区/库位</div>
+              </div>
+              <div class="scope-option__radio" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-3);">
+          <button class="btn btn--ghost">取消</button>
+          <button class="btn btn--ghost">📥 预览盘点表</button>
+          <button class="btn btn--primary btn--lg">创建任务并导出盘点表</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Demo Section 2: 录入实盘数量（进行中） ===== -->
+    <div class="demo-section">
+      <div class="demo-section__label">步骤三 — 录入实盘数量（进行中状态）</div>
+
+      <!-- Stepper: Step 3 active -->
+      <div class="stepper" aria-label="盘点流程步骤">
+        <div class="stepper__step">
+          <div class="stepper__step-num stepper__step-num--done">✓</div>
+          <div class="stepper__step-label stepper__step-label--done">创建盘点任务</div>
+        </div>
+        <div class="stepper__line stepper__line--done" aria-hidden="true"></div>
+        <div class="stepper__step">
+          <div class="stepper__step-num stepper__step-num--done">✓</div>
+          <div class="stepper__step-label stepper__step-label--done">导出盘点表</div>
+        </div>
+        <div class="stepper__line stepper__line--done" aria-hidden="true"></div>
+        <div class="stepper__step">
+          <div class="stepper__step-num stepper__step-num--active">3</div>
+          <div class="stepper__step-label stepper__step-label--active">录入实盘数据</div>
+        </div>
+        <div class="stepper__line" aria-hidden="true"></div>
+        <div class="stepper__step">
+          <div class="stepper__step-num stepper__step-num--pending">4</div>
+          <div class="stepper__step-label stepper__step-label--pending">差异分析报告</div>
+        </div>
+        <div class="stepper__line" aria-hidden="true"></div>
+        <div class="stepper__step">
+          <div class="stepper__step-num stepper__step-num--pending">5</div>
+          <div class="stepper__step-label stepper__step-label--pending">确认调整库存</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-5);">
+          <div>
+            <div class="card__title" style="margin-bottom:4px;">录入实盘数量</div>
+            <div style="font-size:.875rem;color:var(--text-secondary);">任务：2026年3月月度全面盘点 · 盘点日期：2026-03-20</div>
+          </div>
+          <div style="display:flex;gap:var(--space-3);align-items:center;">
+            <div class="progress-wrap" style="min-width:200px;">
+              <div class="progress-track">
+                <div class="progress-fill" style="width:43%;"></div>
+              </div>
+              <span class="progress-label">43% 已录入</span>
+            </div>
+            <button class="btn btn--ghost btn--sm">📥 批量导入</button>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-4);flex-wrap:wrap;">
+          <div style="position:relative;flex:0 0 240px;">
+            <span style="position:absolute;left:.75rem;top:50%;transform:translateY(-50%);color:var(--text-disabled);">🔍</span>
+            <input type="text" placeholder="搜索物料名称或编码" style="width:100%;height:36px;border:1.5px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3) 0 2.25rem;font-size:.875rem;font-family:var(--font-family-base);">
+          </div>
+          <select style="height:36px;padding:0 2rem 0 var(--space-3);border:1.5px solid var(--border-default);border-radius:var(--radius-md);background:var(--bg-card);font-size:.875rem;font-family:var(--font-family-base);" aria-label="筛选录入状态">
+            <option>全部状态</option>
+            <option>未录入</option>
+            <option>已录入</option>
+            <option>有差异</option>
+          </select>
+          <div style="margin-left:auto;display:flex;gap:var(--space-2);">
+            <span style="font-size:.75rem;color:var(--text-secondary);align-self:center;">已录入 1,380 / 3,200 条</span>
+          </div>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table class="data-table" aria-label="盘点录入表">
+            <thead>
+              <tr>
+                <th>物料编码</th>
+                <th>物料名称</th>
+                <th>规格</th>
+                <th>单位</th>
+                <th>系统库存</th>
+                <th>实盘数量 <span style="color:var(--color-error-500);">*</span></th>
+                <th>差异</th>
+                <th>备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">MAT-001</td>
+                <td>进口牛皮</td>
+                <td style="color:var(--text-secondary);">1.2mm 棕色</td>
+                <td>平方米</td>
+                <td class="num">18</td>
+                <td><input type="number" class="cell-input cell-input--diff" value="16" aria-label="进口牛皮实盘数量" min="0"></td>
+                <td><span class="diff-neg">-2</span></td>
+                <td><input type="text" style="width:100%;height:30px;border:1.5px solid var(--border-default);border-radius:var(--radius-sm);padding:0 var(--space-2);font-size:.8125rem;font-family:var(--font-family-base);" placeholder="备注" value="疑有损耗"></td>
+              </tr>
+              <tr>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">MAT-008</td>
+                <td>实木多层板</td>
+                <td style="color:var(--text-secondary);">18mm</td>
+                <td>张</td>
+                <td class="num">42</td>
+                <td><input type="number" class="cell-input" value="42" aria-label="实木多层板实盘数量" min="0"></td>
+                <td><span class="diff-zero">0</span></td>
+                <td><input type="text" style="width:100%;height:30px;border:1.5px solid var(--border-default);border-radius:var(--radius-sm);padding:0 var(--space-2);font-size:.8125rem;font-family:var(--font-family-base);" placeholder="备注"></td>
+              </tr>
+              <tr>
+                <td style="font-family:var(--font-family-number);font-size:.8125rem;color:var(--text-secondary);">MAT-015</td>
+                <td>优质海绵 T35</td>
+                <td style="color:var(--text-secondary);">标准块</td>
+                <td>KG</td>
+                <td class="num">320</td>
+                <td><input type="number" class="cell-input" value="325" aria-label="优质海绵实盘数量" min="0"></td>
+                <td><span class="diff-pos">+5</span></td>
+                <td><input type="text" style="width:100%;height:30px;border:1.5px solid var(--border-default);border-radius:var(--radius-sm);padding:0 var(--space-2);font-size:.8125rem;font-family:var(--font-family-base);" placeholder="备注" value="上期调拨未记录"></td>
+              </tr>
+              <tr style="background:var(--color-gray-50);">
+                <td colspan="5" style="font-size:.8125rem;color:var(--text-disabled);font-style:italic;">... 未录入条目（1820条）</td>
+                <td><input type="number" class="cell-input" placeholder="—" style="opacity:.4;" disabled></td>
+                <td>—</td>
+                <td>—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;margin-top:var(--space-5);align-items:center;">
+          <span style="font-size:.875rem;color:var(--text-secondary);">有差异条目：<strong style="color:var(--color-error-600);">3条</strong></span>
+          <div style="display:flex;gap:var(--space-3);">
+            <button class="btn btn--ghost">保存草稿</button>
+            <button class="btn btn--primary">完成录入 · 生成差异报告</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Demo Section 3: 差异分析报告 ===== -->
+    <div class="demo-section">
+      <div class="demo-section__label">步骤四 — 差异分析报告</div>
+
+      <div class="alert alert--warning" role="alert">
+        <span class="alert__icon">⚠️</span>
+        <div>
+          <div class="alert__title">发现 5 条库存差异，请审核后确认</div>
+          <div class="alert__desc">差异总金额：<strong>¥-3,840</strong>（盘亏）。确认后将自动调整系统库存，此操作不可撤销。</div>
+        </div>
+      </div>
+
+      <!-- Diff Summary Cards -->
+      <div class="diff-summary">
+        <div class="diff-card" style="border-top:4px solid var(--color-error-500);">
+          <div class="diff-card__label">盘亏金额</div>
+          <div class="diff-card__value" style="color:var(--color-error-600);">¥-5,200</div>
+        </div>
+        <div class="diff-card" style="border-top:4px solid var(--color-success-500);">
+          <div class="diff-card__label">盘盈金额</div>
+          <div class="diff-card__value" style="color:var(--color-success-600);">+¥1,360</div>
+        </div>
+        <div class="diff-card" style="border-top:4px solid var(--color-warning-500);">
+          <div class="diff-card__label">净差异金额</div>
+          <div class="diff-card__value" style="color:var(--color-error-600);">¥-3,840</div>
+        </div>
+        <div class="diff-card">
+          <div class="diff-card__label">差异率</div>
+          <div class="diff-card__value" style="color:var(--color-warning-600);">1.35%</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-5);">
+          <div class="card__title" style="margin-bottom:0;">差异明细</div>
+          <button class="btn btn--ghost btn--sm">📥 导出差异报告</button>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table class="data-table" aria-label="盘点差异明细">
+            <thead>
+              <tr>
+                <th>物料名称</th>
+                <th>规格</th>
+                <th>单位</th>
+                <th>系统数量</th>
+                <th>实盘数量</th>
+                <th>差异数量</th>
+                <th>差异率</th>
+                <th>差异金额</th>
+                <th>差异原因</th>
+                <th>处理状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>进口牛皮</td>
+                <td style="color:var(--text-secondary);">1.2mm棕色</td>
+                <td>平方米</td>
+                <td class="num">18</td>
+                <td class="num">16</td>
+                <td class="num diff-neg">-2</td>
+                <td style="color:var(--color-error-600);">-11.1%</td>
+                <td class="num diff-neg">¥-620</td>
+                <td><span class="tag tag--warning">待确认</span></td>
+                <td><span class="tag tag--neutral">待处理</span></td>
+              </tr>
+              <tr>
+                <td>优质海绵 T35</td>
+                <td style="color:var(--text-secondary);">标准块</td>
+                <td>KG</td>
+                <td class="num">320</td>
+                <td class="num">325</td>
+                <td class="num diff-pos">+5</td>
+                <td style="color:var(--color-success-600);">+1.6%</td>
+                <td class="num diff-pos">+¥110</td>
+                <td><span class="tag tag--info">上期调拨未记录</span></td>
+                <td><span class="tag tag--neutral">待处理</span></td>
+              </tr>
+              <tr>
+                <td>硬质合金刀片</td>
+                <td style="color:var(--text-secondary);">50mm</td>
+                <td>片</td>
+                <td class="num">80</td>
+                <td class="num">60</td>
+                <td class="num diff-neg">-20</td>
+                <td style="color:var(--color-error-600);">-25.0%</td>
+                <td class="num diff-neg">¥-4,580</td>
+                <td><span class="tag tag--error">差异较大</span></td>
+                <td><span class="tag tag--neutral">待处理</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:var(--space-6);padding:var(--space-5);background:var(--color-warning-50);border-radius:var(--radius-lg);border:1px solid var(--color-warning-200);">
+          <div style="font-size:.9375rem;font-weight:600;color:var(--color-warning-700);margin-bottom:var(--space-3);">⚠️ 确认前请注意</div>
+          <ul style="font-size:.875rem;color:var(--text-secondary);list-style:disc;padding-left:var(--space-5);line-height:2;">
+            <li>确认后系统库存将按实盘数量自动调整，差异金额将计入当期损益</li>
+            <li>硬质合金刀片差异率高达 25%，建议复盘后再确认</li>
+            <li>所有操作将记录操作日志，不可撤销</li>
+          </ul>
+          <div style="display:flex;justify-content:flex-end;gap:var(--space-3);margin-top:var(--space-4);">
+            <button class="btn btn--ghost">返回修改</button>
+            <button class="btn btn--success btn--lg">确认差异 · 调整库存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

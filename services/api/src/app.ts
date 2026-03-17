@@ -35,6 +35,10 @@ import purchaseSuggestionRoutes from './modules/purchase/purchaseSuggestion.rout
 import scheduleSuggestionRoutes from './modules/schedule-suggestion/schedule-suggestion.routes';
 // P1 #18 站内通知模块
 import notificationRoutes from './modules/notification/notification.routes';
+// F-105 库存盘点模块
+import stocktakingRoutes from './modules/stocktaking/stocktaking.routes';
+// F-707 销售财务结算模块
+import settlementRoutes from './modules/settlement/settlement.routes';
 
 const app = express();
 
@@ -79,6 +83,11 @@ const corsOptions: CorsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization'],
   maxAge: 86400,                                                  // 预检缓存 24 小时，减少 OPTIONS 请求
 };
+
+// ── 健康检查（CORS 之前，Docker/LB 探活不带 Origin）───────────
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
 
 app.use(cors(corsOptions));
 
@@ -136,11 +145,6 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth/login', authLimiter as RequestHandler);
 
-// ── 健康检查（不需认证） ────────────────────────────────────
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
-});
-
 // ── APM 指标端点（BE-P2-012，需认证 + boss 角色）──────────
 app.get('/api/health/metrics', authMiddleware, requireRoles('boss'), metricsHandler);
 
@@ -184,6 +188,10 @@ app.use('/api/purchase-suggestions', purchaseSuggestionRoutes);
 // Sprint 4 路由
 app.use('/api/schedule-suggestions', scheduleSuggestionRoutes);
 app.use('/api/notifications',        notificationRoutes);
+// F-105 库存盘点路由
+app.use('/api/stocktaking',          stocktakingRoutes);
+// F-707 销售财务结算路由
+app.use('/api/settlements',          settlementRoutes);
 
 // ── 404 处理 ────────────────────────────────────────────────
 app.use((_req, res) => {

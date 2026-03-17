@@ -1,0 +1,401 @@
+/**
+ * [artifact:前端代码] — 通知中心页样式
+ * BEM 命名，与 InventoryPage 风格保持一致
+ */
+
+/* ── 页面容器 ─────────────────────────────────── */
+.page {
+  padding: var(--layout-page-padding, 24px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ── 页面头部 ─────────────────────────────────── */
+.page_header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.page_title_wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.page_title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.unread_badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  background: var(--color-error-500);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* ── Tab 筛选栏 ───────────────────────────────── */
+.tab_bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.tab_item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.625rem var(--space-5);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-family: var(--font-family-base);
+  transition: color 150ms ease, border-color 150ms ease;
+  margin-bottom: -1px;
+}
+
+.tab_item:hover {
+  color: var(--text-primary);
+}
+
+.tab_item--active {
+  color: var(--color-primary-600);
+  border-bottom-color: var(--color-primary-500);
+}
+
+.tab_count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--color-gray-100);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.tab_item--active .tab_count {
+  background: var(--color-primary-100);
+  color: var(--color-primary-700);
+}
+
+/* ── 列表容器 ─────────────────────────────────── */
+.list_container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+/* ── 通知条目 ─────────────────────────────────── */
+.notification_item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-gray-100);
+  cursor: pointer;
+  transition: background 150ms ease;
+  position: relative;
+}
+
+.notification_item:last-child {
+  border-bottom: none;
+}
+
+.notification_item:hover {
+  background: var(--color-primary-50);
+}
+
+.notification_item--unread {
+  background: rgba(59, 130, 246, 0.03);
+}
+
+.notification_item--unread::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--color-primary-500);
+  border-radius: 0 2px 2px 0;
+}
+
+/* ── 类型图标 ─────────────────────────────────── */
+.icon_wrap {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.125rem;
+}
+
+.icon_wrap--approval_request {
+  background: rgba(249, 115, 22, 0.1);
+}
+
+.icon_wrap--approval_result {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.icon_wrap--order_update {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.icon_wrap--system {
+  background: rgba(107, 114, 128, 0.1);
+}
+
+/* ── 通知内容 ─────────────────────────────────── */
+.notification_body {
+  flex: 1;
+  min-width: 0;
+}
+
+.notification_title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.notification_title--read {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.unread_dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary-500);
+  flex-shrink: 0;
+}
+
+.notification_content {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.notification_meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: 6px;
+}
+
+.notification_time {
+  font-size: 0.75rem;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.notification_type_tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.type_tag--approval_request {
+  background: rgba(249, 115, 22, 0.1);
+  color: var(--color-accent-700, #c2410c);
+}
+
+.type_tag--approval_result {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--color-success-700);
+}
+
+.type_tag--order_update {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--color-primary-700);
+}
+
+.type_tag--system {
+  background: var(--color-gray-100);
+  color: var(--text-secondary);
+}
+
+/* 已读状态标记 */
+.read_status {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ── 空态 ─────────────────────────────────────── */
+.empty_state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-16, 64px) var(--space-8);
+  gap: var(--space-3);
+  color: var(--text-secondary);
+}
+
+.empty_icon {
+  font-size: 2.5rem;
+  opacity: 0.4;
+}
+
+.empty_text {
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+/* ── 骨架屏 ───────────────────────────────────── */
+.skeleton_item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-gray-100);
+}
+
+.skeleton_icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--color-gray-100);
+  flex-shrink: 0;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton_body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton_line {
+  height: 14px;
+  border-radius: 4px;
+  background: var(--color-gray-100);
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+/* ── 错误状态 ─────────────────────────────────── */
+.error_wrap {
+  padding: var(--space-6);
+}
+
+/* ── 分页 ─────────────────────────────────────── */
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.pagination__info {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.pagination__btns {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.pagination__btn_ghost {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.pagination__btn_ghost:hover:not(:disabled) {
+  background: var(--color-gray-100);
+}
+
+.pagination__btn_ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination__btn_primary {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 0.75rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-500);
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.pagination__btn_primary:hover {
+  background: var(--color-primary-600);
+}
+
+/* ── 响应式 ───────────────────────────────────── */
+@media (max-width: 1199px) {
+  .page { padding: 16px; }
+}
+
+@media (max-width: 767px) {
+  .page_header { flex-direction: column; align-items: stretch; }
+  .notification_content { white-space: normal; }
+  .pagination { flex-direction: column; align-items: flex-start; }
+}

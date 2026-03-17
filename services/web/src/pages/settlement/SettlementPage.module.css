@@ -1,0 +1,286 @@
+/**
+ * [artifact:前端代码] — 销售结算页样式
+ * BEM 命名，与 StocktakingPage 风格一致
+ */
+
+/* ── 页面容器 ─────────────────────────────────── */
+.page {
+  padding: var(--layout-page-padding, 24px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ── 页面头部 ─────────────────────────────────── */
+.page_header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.page_title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* ── Tab 筛选栏 ───────────────────────────────── */
+.tab_bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.tab_item {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.625rem var(--space-5);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-family: var(--font-family-base);
+  transition: color 150ms ease, border-color 150ms ease;
+  margin-bottom: -1px;
+}
+
+.tab_item:hover { color: var(--text-primary); }
+
+.tab_item--active {
+  color: var(--color-primary-600);
+  border-bottom-color: var(--color-primary-500);
+}
+
+/* ── 表格容器 ─────────────────────────────────── */
+.table_wrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.table thead th {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--color-gray-50, #f9fafb);
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+
+.table tbody tr {
+  border-bottom: 1px solid var(--color-gray-100);
+  transition: background 150ms ease;
+}
+
+.table tbody tr:last-child { border-bottom: none; }
+.table tbody tr:hover { background: var(--color-primary-50); }
+
+.table tbody td {
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+.cell_mono {
+  font-family: var(--font-family-mono, monospace);
+  font-size: 0.8125rem;
+  color: var(--color-primary-700);
+  font-weight: 600;
+}
+
+.cell_amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--color-warning-700, #b45309);
+}
+
+.cell_secondary {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+/* ── 状态徽章 ─────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge--draft {
+  background: var(--color-gray-100);
+  color: var(--text-secondary);
+}
+
+.badge--confirmed {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--color-primary-700);
+}
+
+.badge--paid {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--color-success-700);
+}
+
+.badge--cancelled {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-error-600, #dc2626);
+}
+
+/* ── 操作按钮 ─────────────────────────────────── */
+.action_cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.action_btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.action_btn:hover:not(:disabled) {
+  background: var(--color-gray-100);
+  color: var(--text-primary);
+}
+
+.action_btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action_btn--confirm {
+  border-color: var(--color-primary-300);
+  color: var(--color-primary-600);
+}
+
+.action_btn--pay {
+  border-color: var(--color-success-300, #86efac);
+  color: var(--color-success-700);
+}
+
+.action_btn--cancel {
+  border-color: var(--color-error-300, #fca5a5);
+  color: var(--color-error-600, #dc2626);
+}
+
+/* ── 空态 / 骨架屏 / 错误 / 分页 ────────────── */
+.empty_state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-16, 64px) var(--space-8);
+  gap: var(--space-3);
+  color: var(--text-secondary);
+}
+
+.empty_icon { font-size: 2.5rem; opacity: 0.4; }
+.empty_text { font-size: 0.875rem; margin: 0; }
+
+.skeleton_row td { padding: var(--space-3) var(--space-4); }
+
+.skeleton_cell {
+  height: 14px;
+  border-radius: 4px;
+  background: var(--color-gray-100);
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+.error_wrap { padding: var(--space-6); }
+
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.pagination__info {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.pagination__btns {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.pagination__btn_ghost,
+.pagination__btn_primary {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.pagination__btn_ghost {
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.pagination__btn_ghost:hover:not(:disabled) { background: var(--color-gray-100); }
+.pagination__btn_ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.pagination__btn_primary {
+  border: none;
+  background: var(--color-primary-500);
+  color: #fff;
+}
+
+.pagination__btn_primary:hover { background: var(--color-primary-600); }
+
+/* ── 响应式 ───────────────────────────────────── */
+@media (max-width: 1199px) {
+  .page { padding: 16px; }
+}
+
+@media (max-width: 767px) {
+  .page_header { flex-direction: column; align-items: stretch; }
+  .table thead th:nth-child(5),
+  .table tbody td:nth-child(5) { display: none; }
+  .pagination { flex-direction: column; align-items: flex-start; }
+}

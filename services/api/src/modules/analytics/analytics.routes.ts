@@ -47,4 +47,10 @@ router.get(
   asyncHandler(analyticsController.getPurchaseCategoryDistribution.bind(analyticsController)),
 );
 
+// 前端兼容别名：/material-ratio → getMaterialCategoryRatio（默认 period_days=90）
+router.get(
+  '/material-ratio',
+  asyncHandler(analyticsController.getMaterialCategoryRatio.bind(analyticsController)),
+);
+
 export default router;

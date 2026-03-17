@@ -2,7 +2,7 @@
 name: engineering-manager
 description: 研发工程经理，负责工程流程治理、SDD设计审查、AI系统设计审批和编码阶段门禁控制
 tools: Read, Write, Edit, MultiEdit, Glob, Grep
-model: sonnet
+model: opus
 permissionMode: plan
 maxTurns: 10
 ---

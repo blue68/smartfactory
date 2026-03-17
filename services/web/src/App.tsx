@@ -31,6 +31,10 @@ import PurchaseSuggestionPage from '@/pages/purchase/PurchaseSuggestionPage';
 import IncomingInspectionPage from '@/pages/purchase/IncomingInspectionPage';
 import ReturnOrderPage from '@/pages/purchase/ReturnOrderPage';
 import ScheduleSuggestionPage from '@/pages/schedule/ScheduleSuggestionPage';
+import NotificationPage from '@/pages/notification/NotificationPage';
+import StocktakingPage from '@/pages/stocktaking/StocktakingPage';
+import SettlementPage from '@/pages/settlement/SettlementPage';
+import AnalyticsPage from '@/pages/analytics/AnalyticsPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 
 /** 认证守卫：未登录跳转 /login */
@@ -78,6 +82,10 @@ export default function App() {
             <Route path="/purchase/returns" element={<ReturnOrderPage />} />
             <Route path="/schedule-suggestions" element={<ScheduleSuggestionPage />} />
             <Route path="/ai-chat" element={<AiChatPage />} />
+            <Route path="/notifications" element={<NotificationPage />} />
+            <Route path="/stocktaking" element={<StocktakingPage />} />
+            <Route path="/settlement" element={<SettlementPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
           </Route>
         </Route>
 

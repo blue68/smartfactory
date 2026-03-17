@@ -2,7 +2,7 @@
 name: senior-qa-engineer
 description: 负责测试用例、自动化测试、缺陷定位与上线风险评估的资深测试开发工程师
 tools: Read, Write, Edit, MultiEdit, Glob, Grep, Bash
-model: sonnet
+model: opus
 permissionMode: default
 maxTurns: 10
 ---

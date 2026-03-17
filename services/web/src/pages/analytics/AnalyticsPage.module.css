@@ -1,0 +1,192 @@
+/**
+ * [artifact:前端代码] — 经营分析页样式
+ */
+
+.page {
+  padding: var(--layout-page-padding, 24px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.page_title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* ── Tab 栏 ───────────────────────────────────── */
+.tab_bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.tab_item {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.625rem var(--space-5);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-family: var(--font-family-base);
+  transition: color 150ms ease, border-color 150ms ease;
+  margin-bottom: -1px;
+}
+
+.tab_item:hover { color: var(--text-primary); }
+
+.tab_item--active {
+  color: var(--color-primary-600);
+  border-bottom-color: var(--color-primary-500);
+}
+
+/* ── 内容区 ───────────────────────────────────── */
+.content {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-6);
+}
+
+/* ── 统计卡片网格 ──────────────────────────────── */
+.stat_grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.stat_card {
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-gray-50, #f9fafb);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.stat_label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-2);
+}
+
+.stat_value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat_unit {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin-left: var(--space-1);
+}
+
+/* ── 进度条列表 ───────────────────────────────── */
+.bar_list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.bar_item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.bar_header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.8125rem;
+}
+
+.bar_name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.bar_value {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.bar_track {
+  height: 8px;
+  background: var(--color-gray-100);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar_fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 400ms ease;
+}
+
+.bar_fill--blue { background: var(--color-primary-500); }
+.bar_fill--green { background: var(--color-success-500, #22c55e); }
+.bar_fill--amber { background: var(--color-warning-500, #f59e0b); }
+.bar_fill--red { background: var(--color-error-500, #ef4444); }
+
+/* ── 表格 ─────────────────────────────────────── */
+.simple_table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  margin-top: var(--space-4);
+}
+
+.simple_table thead th {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.simple_table tbody td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-gray-100);
+  color: var(--text-primary);
+}
+
+/* ── 加载 / 空态 ──────────────────────────────── */
+.loading_state,
+.empty_state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-16, 64px) var(--space-8);
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.section_title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-4);
+}
+
+/* ── 响应式 ───────────────────────────────────── */
+@media (max-width: 767px) {
+  .page { padding: 16px; }
+  .content { padding: var(--space-4); }
+  .stat_grid { grid-template-columns: 1fr 1fr; }
+}

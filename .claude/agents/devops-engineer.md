@@ -2,7 +2,7 @@
 name: devops-engineer
 description: DevOps工程师，负责CI/CD、部署、环境管理和系统监控
 tools: Read, Write, Edit, MultiEdit, Glob, Grep, Bash
-model: sonnet
+model: opus
 permissionMode: default
 maxTurns: 8
 ---

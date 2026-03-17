@@ -2,7 +2,7 @@
 name: system-designer
 description: 系统设计评审专家，负责评估系统设计、组件架构和模块边界
 tools: Read, Write, Edit, MultiEdit, Glob, Grep
-model: sonnet
+model: opus
 permissionMode: plan
 maxTurns: 8
 ---

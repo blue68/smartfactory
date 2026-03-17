@@ -2,7 +2,7 @@
 name: tech-lead-architect
 description: 技术架构负责人，负责系统架构设计、技术选型、模块划分，并输出工程唯一任务来源 [artifact:技术任务拆解]
 tools: Read, Write, Edit, MultiEdit, Glob, Grep
-model: sonnet
+model: opus
 permissionMode: plan
 maxTurns: 15
 ---

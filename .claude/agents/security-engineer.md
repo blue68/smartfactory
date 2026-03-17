@@ -2,7 +2,7 @@
 name: security-engineer
 description: 安全工程师，负责安全审计、漏洞检测、权限设计和数据安全
 tools: Read, Write, Edit, MultiEdit, Glob, Grep
-model: sonnet
+model: opus
 permissionMode: plan
 maxTurns: 8
 ---

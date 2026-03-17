@@ -2,7 +2,7 @@
 name: code-reviewer
 description: 代码评审专家，负责审查代码质量、架构合理性和安全性
 tools: Read, Write, Edit, MultiEdit, Glob, Grep
-model: sonnet
+model: opus
 permissionMode: plan
 maxTurns: 8
 ---

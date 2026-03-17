@@ -2,7 +2,7 @@
 name: senior-ai-agent-pm
 description: 负责需求分析、PRD、User Story、Prototype 与跨角色任务分发的资深 AI Agent 产品经理
 tools: Read, Write, Edit, MultiEdit, Glob, Grep
-model: sonnet
+model: opus
 permissionMode: plan
 maxTurns: 8
 ---
