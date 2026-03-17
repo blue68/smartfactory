@@ -31,10 +31,9 @@ DB_NAME="${DB_NAME:-smart_factory}"
 DB_USER="${DB_USER:-sf_app}"
 DB_PASS="${DB_PASS:-}"
 
+# 使用 MYSQL_PWD 环境变量传递密码，避免命令行暴露（ENV-01）
+export MYSQL_PWD="$DB_PASS"
 MYSQL_CMD="mysql -h $DB_HOST -P $DB_PORT -u $DB_USER"
-if [ -n "$DB_PASS" ]; then
-  MYSQL_CMD="$MYSQL_CMD -p$DB_PASS"
-fi
 
 echo "=== Database Migration ==="
 echo "Host: $DB_HOST:$DB_PORT  DB: $DB_NAME"
