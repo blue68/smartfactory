@@ -10,20 +10,23 @@
  * - 问题类型分布柱状图：来自 QualityStats.issueTypeBreakdown（实时数据）
  * - 高频问题 TOP3：来自 QualityStats.top5Issues 前3条（实时数据）
  * - 新建验货单：useCreateInspection（已接入，保持不变）
+ * - 录入质量问题：useCreateIssue + uploadQualityImage
  */
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, type ChangeEvent } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import Modal from '@/components/common/Modal';
 import Tag from '@/components/common/Tag';
 import Button from '@/components/common/Button';
 import {
   useCreateInspection,
+  useCreateIssue,
   useQualityStats,
   useTraceability,
   useIssueList,
+  uploadQualityImage,
 } from '@/api/quality';
-import { IssueType, IssueTypeLabel, IssueSeverity, IssueSeverityLabel } from '@/types/enums';
+import { IssueSeverity, IssueType, IssueTypeLabel } from '@/types/enums';
 import styles from './TracePage.module.css';
 
 // ─── 新建验货单表单类型 ────────────────────────
@@ -33,6 +36,23 @@ type CreateInspectionForm = {
   qtyInspected: string;
 };
 
+type UploadedIssueImage = {
+  url: string;
+  name: string;
+  size: number;
+};
+
+type CreateIssueSeverity = 'minor' | 'normal' | 'severe';
+
+type CreateIssueForm = {
+  inspectionId: string;
+  componentName: string;
+  issueTypes: IssueType[];
+  severity: CreateIssueSeverity;
+  description: string;
+  images: UploadedIssueImage[];
+};
+
 // ─── periodDays 映射 ──────────────────────────
 const DATE_RANGE_OPTIONS: Array<{ label: string; value: 7 | 30 | 90 }> = [
   { label: '近30天', value: 30 },
@@ -40,22 +60,65 @@ const DATE_RANGE_OPTIONS: Array<{ label: string; value: 7 | 30 | 90 }> = [
   { label: '近90天', value: 90 },
 ];
 
-// ─── 严重程度 → Tag variant 映射 ──────────────
-function severityToTagVariant(
-  severity: IssueSeverity,
-): 'error' | 'warning' | 'success' | 'neutral' {
-  switch (severity) {
-    case IssueSeverity.CRITICAL: return 'error';
-    case IssueSeverity.MAJOR:    return 'error';
-    case IssueSeverity.MINOR:    return 'warning';
-    case IssueSeverity.COSMETIC: return 'success';
-    default:                     return 'neutral';
-  }
-}
-
 // ─── 问题类型 → 中文标签 ──────────────────────
 function issueTypeToLabel(type: IssueType | string): string {
   return IssueTypeLabel[type as IssueType] ?? type;
+}
+
+// ─── 当前质量问题严重程度兼容映射 ─────────────
+function severityToTagVariant(
+  severity: string,
+): 'error' | 'warning' | 'success' | 'neutral' {
+  switch (severity) {
+    case 'critical':
+    case 'severe':
+      return 'error';
+    case 'major':
+    case 'normal':
+    case 'minor':
+      return 'warning';
+    case 'cosmetic':
+      return 'success';
+    default:
+      return 'neutral';
+  }
+}
+
+function severityToLabel(severity: string): string {
+  const labelMap: Record<string, string> = {
+    critical: '严重',
+    severe: '严重',
+    major: '主要',
+    normal: '主要',
+    minor: '次要',
+    cosmetic: '外观',
+  };
+  return labelMap[severity] ?? severity;
+}
+
+const ISSUE_TYPE_OPTIONS: Array<{ value: IssueType; label: string }> = [
+  { value: IssueType.APPEARANCE, label: IssueTypeLabel[IssueType.APPEARANCE] },
+  { value: IssueType.DIMENSION, label: IssueTypeLabel[IssueType.DIMENSION] },
+  { value: IssueType.FUNCTION, label: IssueTypeLabel[IssueType.FUNCTION] },
+  { value: IssueType.MATERIAL, label: IssueTypeLabel[IssueType.MATERIAL] },
+];
+
+const ISSUE_SEVERITY_OPTIONS: Array<{ value: CreateIssueSeverity; label: string }> = [
+  { value: 'minor', label: '次要' },
+  { value: 'normal', label: '主要' },
+  { value: 'severe', label: '严重' },
+];
+
+function toIssueSeverity(value: CreateIssueSeverity): IssueSeverity {
+  switch (value) {
+    case 'severe':
+      return IssueSeverity.CRITICAL;
+    case 'minor':
+      return IssueSeverity.MINOR;
+    case 'normal':
+    default:
+      return IssueSeverity.MAJOR;
+  }
 }
 
 // ─── 时间格式化（API 返回 ISO 字符串，展示为 M/D HH:mm）─
@@ -193,10 +256,20 @@ export default function TracePage() {
 
   const [dateRange, setDateRange] = useState<string>('近30天');
   const [createModal, setCreateModal] = useState(false);
+  const [issueModal, setIssueModal] = useState(false);
+  const [issueUploading, setIssueUploading] = useState(false);
   const [form, setForm] = useState<CreateInspectionForm>({
     productionOrderId: '',
     inspectionDate: '',
     qtyInspected: '',
+  });
+  const [issueForm, setIssueForm] = useState<CreateIssueForm>({
+    inspectionId: '',
+    componentName: '',
+    issueTypes: [],
+    severity: 'normal',
+    description: '',
+    images: [],
   });
   // 当前溯源的生产工单 ID（点击质量问题"溯源"按钮时设置）
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
@@ -213,8 +286,20 @@ export default function TracePage() {
   const traceQuery     = useTraceability(selectedOrderId);
 
   const createMutation = useCreateInspection();
+  const createIssueMutation = useCreateIssue();
 
   useEffect(() => { setPageTitle('质量溯源中心'); }, [setPageTitle]);
+
+  const resetIssueForm = () => {
+    setIssueForm({
+      inspectionId: '',
+      componentName: '',
+      issueTypes: [],
+      severity: 'normal',
+      description: '',
+      images: [],
+    });
+  };
 
   // ── 派生统计卡片数据（来自 QualityStats API）────
   const stats = useMemo(() => {
@@ -234,10 +319,6 @@ export default function TracePage() {
     const severeCount = d.top5Issues
       .slice(0, 5)
       .reduce((acc, item) => acc + item.count, 0);
-
-    // 已完成溯源比例（无直接字段，无法从当前 QualityStats 接口获取；保留 mock 但加注释）
-    // TODO: 后端需新增 traceCompletionRate 字段后替换此值
-    const traceCompletionPct = '—';
 
     return [
       {
@@ -267,11 +348,10 @@ export default function TracePage() {
       },
       {
         label: '已完成溯源',
-        // TODO: 后端需返回 traceCompletionRate 字段，当前暂无该统计
-        value: traceCompletionPct,
+        value: d.traceCompletionRate,
         unit: undefined,
-        sub: '后端暂未提供溯源完成率',
-        color: 'var(--color-stagnant-600)',
+        sub: `${d.tracedIssueCount} / ${d.totalIssueCount} 个问题已具备溯源链`,
+        color: 'var(--color-primary-600)',
         subColor: undefined as string | undefined,
       },
     ];
@@ -333,16 +413,116 @@ export default function TracePage() {
       return;
     }
     try {
-      await createMutation.mutateAsync({
+      const result = await createMutation.mutateAsync({
         productionOrderId: Number(form.productionOrderId),
         inspectionDate: form.inspectionDate,
         qtyInspected: form.qtyInspected,
       });
       showToast({ type: 'success', message: '验货单已创建' });
+      setIssueForm((prev) => ({ ...prev, inspectionId: String(result.id) }));
       setCreateModal(false);
+      setIssueModal(true);
       setForm({ productionOrderId: '', inspectionDate: '', qtyInspected: '' });
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
+    }
+  };
+
+  const handleIssueTypeToggle = (issueType: IssueType) => {
+    setIssueForm((prev) => ({
+      ...prev,
+      issueTypes: prev.issueTypes.includes(issueType)
+        ? prev.issueTypes.filter((value) => value !== issueType)
+        : [...prev.issueTypes, issueType],
+    }));
+  };
+
+  const handleIssueImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    if (files.length === 0) return;
+
+    const remainingSlots = 3 - issueForm.images.length;
+    if (remainingSlots <= 0) {
+      showToast({ type: 'warning', message: '最多上传 3 张问题图片' });
+      return;
+    }
+
+    const uploadQueue = files.slice(0, remainingSlots);
+    const oversized = uploadQueue.find((file) => file.size > 10 * 1024 * 1024);
+    if (oversized) {
+      showToast({ type: 'warning', message: `图片「${oversized.name}」超过 10MB，未上传` });
+      return;
+    }
+
+    const invalidFile = uploadQueue.find((file) => !file.type.startsWith('image/'));
+    if (invalidFile) {
+      showToast({ type: 'warning', message: `文件「${invalidFile.name}」不是图片格式` });
+      return;
+    }
+
+    if (files.length > remainingSlots) {
+      showToast({ type: 'warning', message: `最多还能上传 ${remainingSlots} 张图片，其余文件已忽略` });
+    }
+
+    setIssueUploading(true);
+    try {
+      const uploadedImages: UploadedIssueImage[] = [];
+      for (const file of uploadQueue) {
+        const result = await uploadQualityImage(file);
+        uploadedImages.push({
+          url: result.url,
+          name: result.originalName,
+          size: result.size,
+        });
+      }
+      setIssueForm((prev) => ({
+        ...prev,
+        images: [...prev.images, ...uploadedImages],
+      }));
+      showToast({ type: 'success', message: `已上传 ${uploadedImages.length} 张图片` });
+    } catch (error) {
+      showToast({ type: 'error', message: (error as Error).message ?? '图片上传失败，请稍后重试' });
+    } finally {
+      setIssueUploading(false);
+    }
+  };
+
+  const handleRemoveIssueImage = (targetUrl: string) => {
+    setIssueForm((prev) => ({
+      ...prev,
+      images: prev.images.filter((image) => image.url !== targetUrl),
+    }));
+  };
+
+  const handleCreateIssue = async () => {
+    if (!issueForm.inspectionId || !Number.isInteger(Number(issueForm.inspectionId)) || Number(issueForm.inspectionId) <= 0) {
+      showToast({ type: 'warning', message: '请输入有效的验货单 ID' });
+      return;
+    }
+    if (!issueForm.componentName.trim()) {
+      showToast({ type: 'warning', message: '请填写问题部件名称' });
+      return;
+    }
+    if (issueForm.issueTypes.length === 0) {
+      showToast({ type: 'warning', message: '请至少选择一种问题类型' });
+      return;
+    }
+
+    try {
+      await createIssueMutation.mutateAsync({
+        inspectionId: Number(issueForm.inspectionId),
+        componentName: issueForm.componentName.trim(),
+        issueTypes: issueForm.issueTypes,
+        severity: toIssueSeverity(issueForm.severity),
+        description: issueForm.description.trim(),
+        images: issueForm.images.map((image) => image.url),
+      });
+      showToast({ type: 'success', message: '质量问题已记录' });
+      setIssueModal(false);
+      resetIssueForm();
+    } catch (error) {
+      showToast({ type: 'error', message: (error as Error).message ?? '质量问题录入失败，请稍后重试' });
     }
   };
 
@@ -371,6 +551,9 @@ export default function TracePage() {
               <option key={o.value}>{o.label}</option>
             ))}
           </select>
+          <Button variant="ghost" size="md" onClick={() => setIssueModal(true)}>
+            + 录入问题
+          </Button>
           <Button variant="primary" size="md" onClick={() => setCreateModal(true)}>
             + 新建验货单
           </Button>
@@ -488,28 +671,31 @@ export default function TracePage() {
           </div>
         )}
 
-        {/* AI 根因分析（当有溯源数据时展示，内容保持 mock 占位待 AI 模块接入）*/}
-        {/* TODO: AI 根因分析文本需接入 AI 模块，当前为静态占位 */}
         {traceQuery.data && (
           <div className={styles.aiAnalysis}>
             <div className={styles.aiAnalysisTitle}>🔍 AI 根因分析</div>
             <div className={styles.aiAnalysisBody}>
-              <strong>溯源摘要：</strong>
-              共追溯 {traceQuery.data.summary.totalComponents} 个组件，
-              其中 {traceQuery.data.summary.withScanRecord} 个有完整扫码记录。
-              {traceQuery.data.summary.dyeLots.length > 1 && (
+              {traceQuery.data.aiAnalysis ? (
                 <>
-                  {' '}检测到多个缸号（{traceQuery.data.summary.dyeLots.join('、')}），
-                  存在跨缸号使用风险，请核查领料记录。
+                  <strong>溯源摘要：</strong>
+                  {traceQuery.data.aiAnalysis.summary}
+                  <br /><br />
+                  <strong>可能根因：</strong>
+                  <ul>
+                    {traceQuery.data.aiAnalysis.rootCauses.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                  <strong>建议动作：</strong>
+                  <ul>
+                    {traceQuery.data.aiAnalysis.recommendations.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
                 </>
+              ) : (
+                <>暂无根因分析</>
               )}
-              {traceQuery.data.summary.dyeLots.length === 1 && (
-                <> 缸号统一（{traceQuery.data.summary.dyeLots[0]}），无跨缸号问题。</>
-              )}
-              <br /><br />
-              <strong>建议：</strong>
-              对工序数据缺失的组件，督促工人在完成工序后及时扫码上报；
-              如存在跨缸号使用，请联系客户沟通处理方案，并排查同批次其余成品。
             </div>
           </div>
         )}
@@ -547,13 +733,11 @@ export default function TracePage() {
             ) : (
               <div className={styles.issueList} role="list">
                 {(issueListQuery.data?.list ?? []).map((issue) => {
-                  const severityEnum = issue.severity as IssueSeverity;
-                  const tagVariant   = severityToTagVariant(severityEnum);
-                  const severityLabel = IssueSeverityLabel[severityEnum] ?? issue.severity;
+                  const tagVariant   = severityToTagVariant(issue.severity);
+                  const severityLabel = severityToLabel(issue.severity);
                   const primaryType  = issue.issueTypes?.[0];
                   const categoryLabel = primaryType ? issueTypeToLabel(primaryType) : '—';
-                  // 是否展示为选中态（当前已选中溯源的工单关联的问题）
-                  const isActive = false; // 具体订单关联关系需通过 inspectionId → productionOrderId 二次查询，此处暂设为 false
+                  const isActive = selectedOrderId !== null && selectedOrderId === issue.productionOrderId;
 
                   return (
                     <div
@@ -581,14 +765,7 @@ export default function TracePage() {
                         size="sm"
                         aria-label="查看溯源链"
                         onClick={() => {
-                          // TODO: 当前后端 listIssues 未返回 productionOrderId 字段，
-                          // 待后端补充该字段后将下行注释打开并删除 showToast 调用：
-                          // setSelectedOrderId((issue as { productionOrderId?: number }).productionOrderId ?? null);
-                          setSelectedOrderId(null);
-                          showToast({
-                            type: 'warning',
-                            message: '溯源功能需后端在质量问题列表中返回 productionOrderId 字段，请联系后端工程师补充',
-                          });
+                          setSelectedOrderId(issue.productionOrderId);
                         }}
                       >
                         溯源
@@ -699,6 +876,142 @@ export default function TracePage() {
               onChange={(e) => setForm((f) => ({ ...f, qtyInspected: e.target.value }))}
               placeholder="0.00"
             />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={issueModal}
+        title="录入质量问题"
+        onClose={() => {
+          setIssueModal(false);
+          if (!createIssueMutation.isPending && !issueUploading) {
+            resetIssueForm();
+          }
+        }}
+        onConfirm={() => void handleCreateIssue()}
+        confirmLabel="提交问题"
+        confirmLoading={createIssueMutation.isPending}
+        size="lg"
+      >
+        <div className={styles.createForm}>
+          <div className={styles.issueFormGrid}>
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>
+                验货单 ID <span className={styles.required}>*</span>
+              </label>
+              <input
+                className={styles.formInput}
+                type="number"
+                min="1"
+                value={issueForm.inspectionId}
+                onChange={(e) => setIssueForm((prev) => ({ ...prev, inspectionId: e.target.value }))}
+                placeholder="请输入验货单 ID"
+              />
+            </div>
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>
+                问题部件 <span className={styles.required}>*</span>
+              </label>
+              <input
+                className={styles.formInput}
+                value={issueForm.componentName}
+                onChange={(e) => setIssueForm((prev) => ({ ...prev, componentName: e.target.value }))}
+                placeholder="如：左侧门板、抽屉滑轨"
+              />
+            </div>
+          </div>
+
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>
+              问题类型 <span className={styles.required}>*</span>
+            </label>
+            <div className={styles.issueTypeGroup}>
+              {ISSUE_TYPE_OPTIONS.map((option) => {
+                const active = issueForm.issueTypes.includes(option.value);
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`${styles.issueTypeChip} ${active ? styles.issueTypeChipActive : ''}`}
+                    onClick={() => handleIssueTypeToggle(option.value)}
+                    aria-pressed={active}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>严重程度</label>
+            <div className={styles.issueSeverityGroup}>
+              {ISSUE_SEVERITY_OPTIONS.map((option) => (
+                <label key={option.value} className={styles.issueSeverityOption}>
+                  <input
+                    type="radio"
+                    name="issue-severity"
+                    value={option.value}
+                    checked={issueForm.severity === option.value}
+                    onChange={() => setIssueForm((prev) => ({ ...prev, severity: option.value }))}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>问题说明</label>
+            <textarea
+              className={styles.issueTextarea}
+              rows={4}
+              value={issueForm.description}
+              onChange={(e) => setIssueForm((prev) => ({ ...prev, description: e.target.value }))}
+              placeholder="补充描述问题现象、影响范围或现场备注"
+            />
+          </div>
+
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>问题图片</label>
+            <div className={styles.issueUploadPanel}>
+              <label className={styles.issueUploadButton}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className={styles.issueUploadInput}
+                  onChange={handleIssueImageUpload}
+                  disabled={issueUploading || issueForm.images.length >= 3}
+                />
+                {issueUploading ? '上传中...' : `上传图片（${issueForm.images.length}/3）`}
+              </label>
+              <div className={styles.issueUploadHint}>
+                支持 jpg/png/webp，单张不超过 10MB。
+              </div>
+              {issueForm.images.length > 0 && (
+                <div className={styles.issueImageList}>
+                  {issueForm.images.map((image) => (
+                    <div key={image.url} className={styles.issueImageItem}>
+                      <div className={styles.issueImageMeta}>
+                        <span className={styles.issueImageName}>{image.name}</span>
+                        <span className={styles.issueImageSize}>
+                          {(image.size / 1024 / 1024).toFixed(2)} MB
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className={styles.issueImageRemove}
+                        onClick={() => handleRemoveIssueImage(image.url)}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </Modal>

@@ -5,6 +5,8 @@ import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import Decimal from 'decimal.js';
 import { generateNo } from '../../shared/generateNo';
+import { recalculatePurchaseOrderStatus } from '../purchase/purchase-order-status.util';
+import { getRedisClient, RedisKeys } from '../../config/redis';
 
 // ─── 参数类型定义 ─────────────────────────────────────────────────
 
@@ -16,6 +18,7 @@ export interface ListReturnOrderFilter {
   supplierId?: number;
   dateFrom?: string;
   dateTo?: string;
+  keyword?: string;
 }
 
 export interface CreateReturnOrderParams {
@@ -46,10 +49,125 @@ export interface CreateFromInspectionItem {
 export class ReturnOrderService {
   private readonly tenantId: number;
   private readonly userId: number;
+  private static returnOrderItemUpdatedBySupported: boolean | null = null;
 
   constructor(ctx: TenantContext) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+  }
+
+  private buildMergedNotes(current: unknown, additions: Array<string | null | undefined>): string | null {
+    const parts = [String(current ?? '').trim(), ...additions.map((item) => String(item ?? '').trim())]
+      .filter(Boolean);
+    if (!parts.length) return null;
+    return parts.join('\n');
+  }
+
+  private async hasReturnOrderItemUpdatedByColumn(manager?: EntityManager): Promise<boolean> {
+    if (ReturnOrderService.returnOrderItemUpdatedBySupported !== null) {
+      return ReturnOrderService.returnOrderItemUpdatedBySupported;
+    }
+
+    const runner = manager ?? AppDataSource;
+    const rows = await runner.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(*) AS cnt
+       FROM information_schema.columns
+       WHERE table_schema = DATABASE()
+         AND table_name = 'return_order_items'
+         AND column_name = 'updated_by'`,
+    );
+
+    ReturnOrderService.returnOrderItemUpdatedBySupported = Number(rows[0]?.cnt ?? 0) > 0;
+    return ReturnOrderService.returnOrderItemUpdatedBySupported;
+  }
+
+  private async syncDailySnapshot(
+    manager: { query: typeof AppDataSource.query },
+    skuId: number,
+  ): Promise<void> {
+    await manager.query(
+      `INSERT INTO inventory_daily_snapshots
+         (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
+       SELECT
+         tenant_id,
+         CURDATE(),
+         sku_id,
+         qty_on_hand,
+         qty_reserved,
+         qty_on_hand - qty_reserved
+       FROM inventory
+       WHERE tenant_id = ? AND sku_id = ?
+       ON DUPLICATE KEY UPDATE
+         qty_on_hand = VALUES(qty_on_hand),
+         qty_reserved = VALUES(qty_reserved),
+         qty_available = VALUES(qty_available)`,
+      [this.tenantId, skuId],
+    );
+  }
+
+  private async collectShipInventoryDeltas(
+    manager: EntityManager,
+    returnId: number,
+  ): Promise<Array<{ skuId: number; qtyStock: Decimal; stockUnit: string }>> {
+    const rows = await manager.query<Array<{
+      skuId: number;
+      qtyReturn: string;
+      purchaseUnit: string;
+      stockUnit: string;
+      conversionRate: string | null;
+    }>>(
+      `SELECT
+         roi.sku_id AS skuId,
+         roi.qty_return AS qtyReturn,
+         roi.purchase_unit AS purchaseUnit,
+         s.stock_unit AS stockUnit,
+         uc.conversion_rate AS conversionRate
+       FROM return_order_items roi
+       INNER JOIN skus s
+         ON s.id = roi.sku_id
+        AND s.tenant_id = roi.tenant_id
+       LEFT JOIN sku_unit_conversions uc
+         ON uc.tenant_id = roi.tenant_id
+        AND uc.sku_id = roi.sku_id
+        AND uc.from_unit = roi.purchase_unit
+        AND uc.to_unit = s.stock_unit
+       WHERE roi.return_id = ? AND roi.tenant_id = ?`,
+      [returnId, this.tenantId],
+    );
+
+    const deltas = new Map<number, { qtyStock: Decimal; stockUnit: string }>();
+
+    for (const row of rows) {
+      if (row.purchaseUnit !== row.stockUnit && !row.conversionRate) {
+        throw AppError.badRequest(
+          `SKU#${row.skuId} 缺少 ${row.purchaseUnit} -> ${row.stockUnit} 的单位换算，无法执行退货出库`,
+        );
+      }
+
+      const qtyStock = new Decimal(row.qtyReturn).mul(new Decimal(row.conversionRate ?? '1'));
+      const current = deltas.get(Number(row.skuId));
+      if (current) {
+        current.qtyStock = current.qtyStock.plus(qtyStock);
+        continue;
+      }
+      deltas.set(Number(row.skuId), {
+        qtyStock,
+        stockUnit: row.stockUnit,
+      });
+    }
+
+    return Array.from(deltas.entries()).map(([skuId, item]) => ({
+      skuId,
+      qtyStock: item.qtyStock,
+      stockUnit: item.stockUnit,
+    }));
+  }
+
+  private shouldDeductInventoryOnShip(record: {
+    return_type: string;
+    source_inspection_id: number | null;
+  }): boolean {
+    return record.return_type === 'purchase_return' && !record.source_inspection_id;
   }
 
   // ── 分页列表 ─────────────────────────────────────────────────
@@ -77,27 +195,60 @@ export class ReturnOrderService {
       conds.push('DATE(ro.created_at) <= ?');
       params.push(filter.dateTo);
     }
+    if (filter.keyword) {
+      conds.push('(ro.return_no LIKE ? OR sup.name LIKE ? OR po.po_no LIKE ? OR ir.inspection_no LIKE ?)');
+      const keyword = `%${filter.keyword}%`;
+      params.push(keyword, keyword, keyword, keyword);
+    }
 
     const where = conds.join(' AND ');
     const offset = (filter.page - 1) * filter.pageSize;
 
     const [list, countRows] = await Promise.all([
       AppDataSource.query(
-        `SELECT ro.*,
+        `SELECT
+                ro.id,
+                ro.return_no AS returnNo,
+                ro.return_type AS returnType,
+                ro.source_po_id AS sourcePoId,
+                ro.source_inspection_id AS sourceInspectionId,
+                ro.supplier_id AS supplierId,
+                ro.status,
+                ro.return_reason AS returnReason,
+                ro.total_qty AS totalQty,
+                ro.notes,
+                ro.confirmed_at AS confirmedAt,
+                ro.shipped_at AS shippedAt,
+                ro.completed_at AS completedAt,
+                ro.created_at AS createdAt,
+                ro.updated_at AS updatedAt,
                 sup.name AS supplierName,
-                po.po_no AS sourcePoNo,
-                ir.inspection_no AS sourceInspectionNo
+                po.po_no AS poNo,
+                ir.inspection_no AS inspectionNo,
+                COALESCE(SUM(CAST(roi.qty_return AS DECIMAL(16,4)) * CAST(roi.unit_price AS DECIMAL(14,4))), 0) AS totalAmount,
+                COUNT(roi.id) AS itemCount
          FROM return_orders ro
          LEFT JOIN suppliers sup ON sup.id = ro.supplier_id
          LEFT JOIN purchase_orders po ON po.id = ro.source_po_id
          LEFT JOIN incoming_inspection_records ir ON ir.id = ro.source_inspection_id
+         LEFT JOIN return_order_items roi ON roi.return_id = ro.id AND roi.tenant_id = ro.tenant_id
          WHERE ${where}
+         GROUP BY
+           ro.id, ro.return_no, ro.return_type, ro.source_po_id, ro.source_inspection_id,
+           ro.supplier_id, ro.status, ro.return_reason, ro.total_qty, ro.notes,
+           ro.confirmed_at, ro.shipped_at, ro.completed_at, ro.created_at, ro.updated_at,
+           sup.name, po.po_no, ir.inspection_no
          ORDER BY ro.id DESC
          LIMIT ? OFFSET ?`,
         [...params, filter.pageSize, offset],
       ),
       AppDataSource.query<Array<{ total: number }>>(
-        `SELECT COUNT(*) AS total FROM return_orders ro WHERE ${where}`,
+        `SELECT COUNT(*) AS total
+         FROM return_orders ro
+         LEFT JOIN suppliers sup ON sup.id = ro.supplier_id
+         LEFT JOIN purchase_orders po ON po.id = ro.source_po_id
+         LEFT JOIN incoming_inspection_records ir ON ir.id = ro.source_inspection_id
+         WHERE ${where}`,
         params,
       ),
     ]);
@@ -108,15 +259,38 @@ export class ReturnOrderService {
   // ── 详情（含 items）──────────────────────────────────────────
   async getById(id: number) {
     const [record] = await AppDataSource.query(
-      `SELECT ro.*,
+      `SELECT
+              ro.id,
+              ro.return_no AS returnNo,
+              ro.return_type AS returnType,
+              ro.source_po_id AS sourcePoId,
+              ro.source_inspection_id AS sourceInspectionId,
+              ro.supplier_id AS supplierId,
+              ro.status,
+              ro.return_reason AS returnReason,
+              ro.total_qty AS totalQty,
+              ro.notes,
+              ro.confirmed_at AS confirmedAt,
+              ro.shipped_at AS shippedAt,
+              ro.completed_at AS completedAt,
+              ro.created_at AS createdAt,
+              ro.updated_at AS updatedAt,
               sup.name AS supplierName,
-              po.po_no AS sourcePoNo,
-              ir.inspection_no AS sourceInspectionNo
+              po.po_no AS poNo,
+              ir.inspection_no AS inspectionNo,
+              COALESCE(SUM(CAST(roi.qty_return AS DECIMAL(16,4)) * CAST(roi.unit_price AS DECIMAL(14,4))), 0) AS totalAmount,
+              COUNT(roi.id) AS itemCount
        FROM return_orders ro
        LEFT JOIN suppliers sup ON sup.id = ro.supplier_id
        LEFT JOIN purchase_orders po ON po.id = ro.source_po_id
        LEFT JOIN incoming_inspection_records ir ON ir.id = ro.source_inspection_id
+       LEFT JOIN return_order_items roi ON roi.return_id = ro.id AND roi.tenant_id = ro.tenant_id
        WHERE ro.id = ? AND ro.tenant_id = ?
+       GROUP BY
+         ro.id, ro.return_no, ro.return_type, ro.source_po_id, ro.source_inspection_id,
+         ro.supplier_id, ro.status, ro.return_reason, ro.total_qty, ro.notes,
+         ro.confirmed_at, ro.shipped_at, ro.completed_at, ro.created_at, ro.updated_at,
+         sup.name, po.po_no, ir.inspection_no
        LIMIT 1`,
       [id, this.tenantId],
     );
@@ -126,9 +300,19 @@ export class ReturnOrderService {
     }
 
     const items = await AppDataSource.query(
-      `SELECT roi.*,
+      `SELECT
+              roi.id,
+              roi.return_id AS returnId,
+              roi.sku_id AS skuId,
+              roi.qty_return AS qtyReturn,
+              roi.purchase_unit AS purchaseUnit,
+              roi.unit_price AS unitPrice,
+              roi.defect_reason AS defectReason,
+              CAST(roi.qty_return AS DECIMAL(16,4)) * CAST(roi.unit_price AS DECIMAL(14,4)) AS amount,
+              roi.created_at AS createdAt,
+              roi.updated_at AS updatedAt,
               s.sku_code AS skuCode,
-              s.sku_name AS skuName
+              s.name AS skuName
        FROM return_order_items roi
        LEFT JOIN skus s ON s.id = roi.sku_id
        WHERE roi.return_id = ? AND roi.tenant_id = ?
@@ -147,6 +331,7 @@ export class ReturnOrderService {
 
     return AppDataSource.transaction(async (manager) => {
       const returnNo = await generateNo('return_order', this.tenantId);
+      const supportsItemUpdatedBy = await this.hasReturnOrderItemUpdatedByColumn(manager);
 
       const totalQty = params.items.reduce((sum: Decimal, item) => {
         return sum.plus(new Decimal(item.qtyReturn));
@@ -176,21 +361,37 @@ export class ReturnOrderService {
         const qty = new Decimal(item.qtyReturn);
         const price = new Decimal(item.unitPrice);
         await manager.query(
-          `INSERT INTO return_order_items
-             (tenant_id, return_id, sku_id, qty_return, purchase_unit,
-              unit_price, defect_reason, created_by, updated_by)
-           VALUES (?,?,?,?,?,?,?,?,?)`,
-          [
-            this.tenantId,
-            returnId,
-            item.skuId,
-            qty.toString(),
-            item.purchaseUnit,
-            price.toString(),
-            item.defectReason ?? null,
-            this.userId,
-            this.userId,
-          ],
+          supportsItemUpdatedBy
+            ? `INSERT INTO return_order_items
+                 (tenant_id, return_id, sku_id, qty_return, purchase_unit,
+                  unit_price, defect_reason, created_by, updated_by)
+               VALUES (?,?,?,?,?,?,?,?,?)`
+            : `INSERT INTO return_order_items
+                 (tenant_id, return_id, sku_id, qty_return, purchase_unit,
+                  unit_price, defect_reason, created_by)
+               VALUES (?,?,?,?,?,?,?,?)`,
+          supportsItemUpdatedBy
+            ? [
+                this.tenantId,
+                returnId,
+                item.skuId,
+                qty.toString(),
+                item.purchaseUnit,
+                price.toString(),
+                item.defectReason ?? null,
+                this.userId,
+                this.userId,
+              ]
+            : [
+                this.tenantId,
+                returnId,
+                item.skuId,
+                qty.toString(),
+                item.purchaseUnit,
+                price.toString(),
+                item.defectReason ?? null,
+                this.userId,
+              ],
         );
       }
 
@@ -252,27 +453,44 @@ export class ReturnOrderService {
       ],
     );
     const returnId = Number(result.insertId);
+    const supportsItemUpdatedBy = await this.hasReturnOrderItemUpdatedByColumn(manager);
 
     for (const item of failedItems) {
       const qty = new Decimal(item.qty_failed || '0');
       const price = new Decimal(item.unit_price || '0');
 
       await manager.query(
-        `INSERT INTO return_order_items
-           (tenant_id, return_id, sku_id, qty_return, purchase_unit,
-            unit_price, defect_reason, created_by, updated_by)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
-        [
-          this.tenantId,
-          returnId,
-          item.sku_id,
-          qty.toString(),
-          item.purchase_unit ?? 'pcs',
-          price.toString(),
-          '质检不合格',
-          this.userId,
-          this.userId,
-        ],
+        supportsItemUpdatedBy
+          ? `INSERT INTO return_order_items
+               (tenant_id, return_id, sku_id, qty_return, purchase_unit,
+                unit_price, defect_reason, created_by, updated_by)
+             VALUES (?,?,?,?,?,?,?,?,?)`
+          : `INSERT INTO return_order_items
+               (tenant_id, return_id, sku_id, qty_return, purchase_unit,
+                unit_price, defect_reason, created_by)
+             VALUES (?,?,?,?,?,?,?,?)`,
+        supportsItemUpdatedBy
+          ? [
+              this.tenantId,
+              returnId,
+              item.sku_id,
+              qty.toString(),
+              item.purchase_unit ?? 'pcs',
+              price.toString(),
+              '质检不合格',
+              this.userId,
+              this.userId,
+            ]
+          : [
+              this.tenantId,
+              returnId,
+              item.sku_id,
+              qty.toString(),
+              item.purchase_unit ?? 'pcs',
+              price.toString(),
+              '质检不合格',
+              this.userId,
+            ],
       );
 
       // 更新 purchase_order_items.qty_rejected
@@ -313,24 +531,143 @@ export class ReturnOrderService {
   }
 
   // ── 标记已发出（ship）────────────────────────────────────────
-  async ship(id: number): Promise<void> {
-    const record = await this.findAndValidate(id, 'confirmed');
+  async ship(id: number, params?: { trackingNo?: string; notes?: string }): Promise<void> {
+    const affectedSkuIds: number[] = [];
 
-    await AppDataSource.query(
-      `UPDATE return_orders
-       SET status = 'shipped',
-           shipped_at = NOW(),
-           updated_by = ?
-       WHERE id = ? AND tenant_id = ?`,
-      [this.userId, record.id, this.tenantId],
+    await AppDataSource.transaction(async (manager) => {
+      const [record] = await manager.query<Array<{
+        id: number;
+        status: string;
+        notes: string | null;
+        return_type: string;
+        source_inspection_id: number | null;
+        return_no: string;
+      }>>(
+        `SELECT id, status, notes, return_type, source_inspection_id, return_no
+         FROM return_orders
+         WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
+        [id, this.tenantId],
+      );
+
+      if (!record) {
+        throw AppError.notFound('退货单不存在', ResponseCode.NOT_FOUND);
+      }
+
+      if (record.status !== 'confirmed') {
+        throw AppError.conflict(
+          `退货单当前状态为 ${record.status}，不允许此操作（须为 confirmed）`,
+        );
+      }
+
+      const mergedNotes = this.buildMergedNotes(record.notes, [
+        params?.trackingNo ? `物流单号：${params.trackingNo}` : null,
+        params?.notes ? `发出备注：${params.notes}` : null,
+      ]);
+
+      const shouldDeductInventory = this.shouldDeductInventoryOnShip(record);
+      const inventoryDeltas = shouldDeductInventory
+        ? await this.collectShipInventoryDeltas(manager, record.id)
+        : [];
+
+      if (inventoryDeltas.length > 0) {
+        const inventoryRows = await manager.query<Array<{
+          sku_id: number;
+          qty_on_hand: string;
+          qty_reserved: string;
+        }>>(
+          `SELECT sku_id, qty_on_hand, qty_reserved
+           FROM inventory
+           WHERE tenant_id = ?
+             AND sku_id IN (${inventoryDeltas.map(() => '?').join(', ')})
+           FOR UPDATE`,
+          [this.tenantId, ...inventoryDeltas.map((item) => item.skuId)],
+        );
+
+        const inventoryMap = new Map(
+          inventoryRows.map((row) => [
+            Number(row.sku_id),
+            {
+              qtyOnHand: new Decimal(row.qty_on_hand),
+              qtyReserved: new Decimal(row.qty_reserved),
+            },
+          ]),
+        );
+
+        for (const item of inventoryDeltas) {
+          const inventoryRow = inventoryMap.get(item.skuId);
+          const availableQty = inventoryRow
+            ? inventoryRow.qtyOnHand.minus(inventoryRow.qtyReserved)
+            : new Decimal(0);
+          if (availableQty.lt(item.qtyStock)) {
+            throw AppError.conflict(
+              `SKU#${item.skuId} 库存不足，当前可用 ${availableQty.toFixed(4)} ${item.stockUnit}，无法发出退货`,
+            );
+          }
+        }
+      }
+
+      await manager.query(
+        `UPDATE return_orders
+         SET status = 'shipped',
+             shipped_at = NOW(),
+             notes = ?,
+             updated_by = ?
+         WHERE id = ? AND tenant_id = ?`,
+        [mergedNotes, this.userId, record.id, this.tenantId],
+      );
+
+      for (const item of inventoryDeltas) {
+        const txNo = await generateNo('transaction', this.tenantId);
+        await manager.query(
+          `INSERT INTO inventory_transactions
+             (tenant_id, transaction_no, sku_id, transaction_type, direction,
+              qty_input, input_unit, qty_stock_unit, stock_unit,
+              reference_type, reference_id, reference_no, notes, created_by)
+           VALUES (?, ?, ?, 'PURCHASE_RETURN_OUT', 'OUT', ?, ?, ?, ?, 'return_order', ?, ?, ?, ?)`,
+          [
+            this.tenantId,
+            txNo,
+            item.skuId,
+            item.qtyStock.toFixed(4),
+            item.stockUnit,
+            item.qtyStock.toFixed(4),
+            item.stockUnit,
+            record.id,
+            record.return_no,
+            `采购退货 ${record.return_no} 发货出库`,
+            this.userId,
+          ],
+        );
+
+        await manager.query(
+          `UPDATE inventory
+           SET qty_on_hand = qty_on_hand - ?,
+               last_out_at = NOW()
+           WHERE tenant_id = ? AND sku_id = ?`,
+          [item.qtyStock.toFixed(4), this.tenantId, item.skuId],
+        );
+
+        await this.syncDailySnapshot(manager, item.skuId);
+        affectedSkuIds.push(item.skuId);
+      }
+    });
+
+    if (!affectedSkuIds.length) {
+      return;
+    }
+
+    await Promise.all(
+      affectedSkuIds.map((skuId) =>
+        getRedisClient().del(RedisKeys.inventorySnapshot(this.tenantId, skuId)).catch(() => {}),
+      ),
     );
   }
 
   // ── 标记完成（complete）──────────────────────────────────────
-  async complete(id: number): Promise<void> {
+  async complete(id: number, params?: { notes?: string }): Promise<void> {
     // Fetch full record so we have source_po_id available after validation.
     const [record] = await AppDataSource.query(
-      `SELECT id, status, source_po_id FROM return_orders
+      `SELECT id, status, source_po_id, notes FROM return_orders
        WHERE id = ? AND tenant_id = ? LIMIT 1`,
       [id, this.tenantId],
     );
@@ -346,83 +683,39 @@ export class ReturnOrderService {
     }
 
     await AppDataSource.transaction(async (manager) => {
+      const mergedNotes = this.buildMergedNotes(record.notes, [
+        params?.notes ? `完成备注：${params.notes}` : null,
+      ]);
       await manager.query(
         `UPDATE return_orders
          SET status = 'completed',
              completed_at = NOW(),
+             notes = ?,
              updated_by = ?
          WHERE id = ? AND tenant_id = ?`,
-        [this.userId, record.id, this.tenantId],
+        [mergedNotes, this.userId, record.id, this.tenantId],
       );
 
       if (record.source_po_id) {
-        await this.recalculatePOStatus(manager, record.source_po_id);
+        await recalculatePurchaseOrderStatus({
+          manager,
+          tenantId: this.tenantId,
+          userId: this.userId,
+          poId: record.source_po_id,
+        });
       }
     });
-  }
-
-  /**
-   * 退货完成后重新计算源 PO 头的状态。
-   * 仅当 PO 当前为 'received' 时才做修正，避免干扰 ordered / cancelled 等状态。
-   *
-   * 规则：
-   *   total_received >= total_ordered  → 保持 'received'（无需写库）
-   *   0 < total_received < total_ordered → 'partial_received'
-   *   total_received = 0               → 'ordered'（回退至待收货）
-   */
-  private async recalculatePOStatus(manager: EntityManager, poId: number): Promise<void> {
-    const [po] = await manager.query(
-      `SELECT id, status FROM purchase_orders
-       WHERE id = ? AND tenant_id = ? LIMIT 1`,
-      [poId, this.tenantId],
-    );
-
-    // Only correct POs that are in 'received' state; leave all others untouched.
-    if (!po || po.status !== 'received') {
-      return;
-    }
-
-    const [agg] = await manager.query(
-      `SELECT
-         SUM(qty_ordered)               AS total_ordered,
-         SUM(COALESCE(qty_received, 0)) AS total_received,
-         SUM(COALESCE(qty_rejected, 0)) AS total_rejected
-       FROM purchase_order_items
-       WHERE purchase_order_id = ? AND tenant_id = ?`,
-      [poId, this.tenantId],
-    );
-
-    const totalOrdered = new Decimal(agg?.total_ordered ?? '0');
-    const totalReceived = new Decimal(agg?.total_received ?? '0');
-
-    // Net quantity actually in stock after accounting for rejections.
-    const netReceived = totalReceived.minus(new Decimal(agg?.total_rejected ?? '0'));
-
-    let newStatus: string;
-    if (netReceived.gte(totalOrdered)) {
-      // Still fully received — nothing to change.
-      return;
-    } else if (netReceived.gt(new Decimal(0))) {
-      newStatus = 'partial_received';
-    } else {
-      newStatus = 'ordered';
-    }
-
-    await manager.query(
-      `UPDATE purchase_orders
-       SET status = ?, updated_by = ?
-       WHERE id = ? AND tenant_id = ?`,
-      [newStatus, this.userId, poId, this.tenantId],
-    );
   }
 
   // ── 内部工具：查询并校验状态 ─────────────────────────────────
   private async findAndValidate(
     id: number,
     requiredStatus: string,
-  ): Promise<{ id: number; status: string }> {
+    includeNotes = false,
+  ): Promise<{ id: number; status: string; notes?: string | null }> {
     const [record] = await AppDataSource.query(
-      `SELECT id, status FROM return_orders
+      `SELECT id, status${includeNotes ? ', notes' : ''}
+       FROM return_orders
        WHERE id = ? AND tenant_id = ? LIMIT 1`,
       [id, this.tenantId],
     );

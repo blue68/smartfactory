@@ -9,18 +9,27 @@
  *   - BD-004：不合格品只有"退货"处置选项
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import {
   useInspectionList,
   useInspectionDetail,
+  useInspectionPreviewReceipt,
   useCreateInspection,
+  useUpdateInspectionItems,
   useSubmitInspection,
   type IncomingInspection,
   type IncomingInspectionItem,
   type CreateInspectionPayload,
+  type UpdateInspectionItemsPayload,
   type SubmitInspectionPayload,
 } from '@/api/incomingInspection';
+import {
+  purchaseApi,
+  usePurchaseDeliveryDetail,
+  usePurchaseOrderDetail,
+} from '@/api/purchase';
 import Table from '@/components/common/Table';
 import type { Column } from '@/components/common/Table';
 import Modal from '@/components/common/Modal';
@@ -34,6 +43,7 @@ import styles from './IncomingInspectionPage.module.css';
 type InspectionRow = IncomingInspection & Record<string, unknown>;
 
 type StatusFilter = '' | 'draft' | 'in_progress' | 'passed' | 'partially_passed' | 'failed';
+const EMPTY_INSPECTION_ITEMS: IncomingInspectionItem[] = [];
 
 // ── Status helpers ─────────────────────────────────────────────────────────────
 
@@ -77,6 +87,15 @@ function getResultClass(result: string | null): string {
     conditional_pass: styles.result_conditional,
   };
   return map[result] ?? '';
+}
+
+function normalizeBusinessNo(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function parseQty(value?: string | number | null): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 // ── Mock data for dev ──────────────────────────────────────────────────────────
@@ -210,9 +229,313 @@ interface SubmitForm {
   notes: string;
 }
 
+interface EditableInspectionDyeLotSegment {
+  segmentKey: string;
+  sourceItemIds: number[];
+  sourceDeliveredQtys: string[];
+  dyeLotNo: string;
+  qtyDelivered: string;
+  qtySampled: string;
+  qtyPassed: string;
+  qtyFailed: string;
+  result: 'pass' | 'fail' | 'conditional_pass' | '';
+  disposition: 'accept' | 'return' | 'rework' | 'scrap';
+  notes: string;
+}
+
+interface EditableInspectionItem {
+  id: number;
+  sourceItemIds: number[];
+  sourceDeliveredQtys: string[];
+  skuCode?: string;
+  skuName?: string;
+  dyeLotNo?: string | null;
+  hasDyeLot?: boolean;
+  qtyDelivered: string;
+  qtySampled: string;
+  qtyPassed: string;
+  qtyFailed: string;
+  result: 'pass' | 'fail' | 'conditional_pass' | '';
+  disposition: 'accept' | 'return' | 'rework' | 'scrap';
+  notes: string;
+  dyeLotSegments?: EditableInspectionDyeLotSegment[];
+}
+
+interface AggregatedInspectionItem extends IncomingInspectionItem {
+  sourceItemIds: number[];
+  sourceDeliveredQtys: string[];
+}
+
+interface ReceiptDispositionInsight {
+  hasAcceptedSampleReceipt: boolean;
+  acceptedReceiptQty: number;
+  pendingReturnQty: number;
+  affectedItemCount: number;
+}
+
+function formatQtyInput(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0.0000';
+  return value.toFixed(4);
+}
+
+function createDyeLotSegmentKey(): string {
+  return `segment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function aggregateInspectionItems(items: IncomingInspectionItem[]): AggregatedInspectionItem[] {
+  const grouped = new Map<string, AggregatedInspectionItem>();
+
+  for (const item of items) {
+    const key = `${item.skuId ?? ''}::${item.skuCode ?? ''}::${item.skuName ?? ''}::${item.dyeLotNo ?? ''}`;
+    const existing = grouped.get(key);
+    const qtyDelivered = parseQty(item.qtyDelivered);
+    const qtySampled = parseQty(item.qtySampled);
+    const qtyPassed = parseQty(item.qtyPassed);
+    const qtyFailed = parseQty(item.qtyFailed);
+
+    if (!existing) {
+      grouped.set(key, {
+        ...item,
+        id: Number(item.id),
+        dyeLotNo: item.dyeLotNo ?? null,
+        hasDyeLot: Boolean(item.hasDyeLot),
+        qtyDelivered: formatQtyInput(qtyDelivered),
+        qtySampled: formatQtyInput(qtySampled),
+        qtyPassed: formatQtyInput(qtyPassed),
+        qtyFailed: formatQtyInput(qtyFailed),
+        sourceItemIds: [Number(item.id)],
+        sourceDeliveredQtys: [String(item.qtyDelivered ?? '0')],
+      });
+      continue;
+    }
+
+    existing.qtyDelivered = formatQtyInput(parseQty(existing.qtyDelivered) + qtyDelivered);
+    existing.qtySampled = formatQtyInput(parseQty(existing.qtySampled) + qtySampled);
+    existing.qtyPassed = formatQtyInput(parseQty(existing.qtyPassed) + qtyPassed);
+    existing.qtyFailed = formatQtyInput(parseQty(existing.qtyFailed) + qtyFailed);
+    existing.sourceItemIds.push(Number(item.id));
+    existing.sourceDeliveredQtys.push(String(item.qtyDelivered ?? '0'));
+
+    if (existing.result !== item.result) {
+      existing.result = null;
+    }
+    if (existing.disposition !== item.disposition) {
+      existing.disposition = null;
+    }
+    if (String(existing.notes ?? '') !== String(item.notes ?? '')) {
+      existing.notes = existing.notes || item.notes || null;
+    }
+  }
+
+  return Array.from(grouped.values());
+}
+
+function distributeAcrossSourceRows(
+  total: number,
+  capacities: number[],
+): string[] {
+  const allocations = capacities.map(() => 0);
+  let remaining = total;
+
+  for (let index = 0; index < capacities.length; index += 1) {
+    if (remaining <= 0) break;
+    const allocation = Math.min(capacities[index], remaining);
+    allocations[index] = allocation;
+    remaining -= allocation;
+  }
+
+  return allocations.map((value) => formatQtyInput(value));
+}
+
+function distributePassedFailedAcrossSourceRows(
+  totalPassed: number,
+  totalFailed: number,
+  capacities: number[],
+): Array<{ qtyPassed: string; qtyFailed: string }> {
+  const remainingCapacity = [...capacities];
+  const passed = capacities.map(() => 0);
+  const failed = capacities.map(() => 0);
+  let remainingPassed = totalPassed;
+  let remainingFailed = totalFailed;
+
+  for (let index = 0; index < remainingCapacity.length; index += 1) {
+    if (remainingPassed <= 0) break;
+    const allocation = Math.min(remainingCapacity[index], remainingPassed);
+    passed[index] = allocation;
+    remainingCapacity[index] -= allocation;
+    remainingPassed -= allocation;
+  }
+
+  for (let index = 0; index < remainingCapacity.length; index += 1) {
+    if (remainingFailed <= 0) break;
+    const allocation = Math.min(remainingCapacity[index], remainingFailed);
+    failed[index] = allocation;
+    remainingCapacity[index] -= allocation;
+    remainingFailed -= allocation;
+  }
+
+  return capacities.map((_, index) => ({
+    qtyPassed: formatQtyInput(passed[index]),
+    qtyFailed: formatQtyInput(failed[index]),
+  }));
+}
+
+function getReceiptDispositionInsight(
+  items: Array<Pick<EditableInspectionItem, 'qtyDelivered' | 'qtySampled' | 'qtyPassed' | 'disposition' | 'dyeLotSegments'>>,
+): ReceiptDispositionInsight {
+  const inspectionUnits = items.flatMap((item) => (
+    item.dyeLotSegments && item.dyeLotSegments.length > 0
+      ? item.dyeLotSegments.map((segment) => ({
+          qtyDelivered: segment.qtyDelivered,
+          qtySampled: segment.qtySampled,
+          qtyPassed: segment.qtyPassed,
+          disposition: segment.disposition,
+        }))
+      : [{
+          qtyDelivered: item.qtyDelivered,
+          qtySampled: item.qtySampled,
+          qtyPassed: item.qtyPassed,
+          disposition: item.disposition,
+        }]
+  ));
+
+  return inspectionUnits.reduce<ReceiptDispositionInsight>((summary, item) => {
+    const deliveredQty = parseQty(item.qtyDelivered);
+    const sampledQty = parseQty(item.qtySampled);
+    const passedQty = parseQty(item.qtyPassed);
+    const isSampleInspection = sampledQty > 0 && sampledQty < deliveredQty;
+    const qualifiesForAcceptedReceipt = isSampleInspection && item.disposition === 'accept' && passedQty > 0;
+
+    if (!qualifiesForAcceptedReceipt) {
+      return summary;
+    }
+
+    return {
+      hasAcceptedSampleReceipt: true,
+      acceptedReceiptQty: summary.acceptedReceiptQty + passedQty,
+      pendingReturnQty: summary.pendingReturnQty + Math.max(deliveredQty - passedQty, 0),
+      affectedItemCount: summary.affectedItemCount + 1,
+    };
+  }, {
+    hasAcceptedSampleReceipt: false,
+    acceptedReceiptQty: 0,
+    pendingReturnQty: 0,
+    affectedItemCount: 0,
+  });
+}
+
+function buildEditableInspectionItems(items: IncomingInspectionItem[]): EditableInspectionItem[] {
+  const normalItems = items.filter((item) => !item.hasDyeLot);
+  const dyeItems = items.filter((item) => Boolean(item.hasDyeLot));
+  const editableItems: EditableInspectionItem[] = aggregateInspectionItems(normalItems).map((item) => ({
+    id: item.id,
+    sourceItemIds: item.sourceItemIds,
+    sourceDeliveredQtys: item.sourceDeliveredQtys,
+    skuCode: item.skuCode,
+    skuName: item.skuName,
+    dyeLotNo: item.dyeLotNo ?? null,
+    hasDyeLot: Boolean(item.hasDyeLot),
+    qtyDelivered: String(item.qtyDelivered ?? '0'),
+    qtySampled: String(item.qtySampled ?? '0'),
+    qtyPassed: String(item.qtyPassed ?? '0'),
+    qtyFailed: String(item.qtyFailed ?? '0'),
+    result: (item.result ?? '') as EditableInspectionItem['result'],
+    disposition: (item.disposition ?? 'accept') as EditableInspectionItem['disposition'],
+    notes: String(item.notes ?? ''),
+  }));
+
+  const dyeGrouped = new Map<string, EditableInspectionItem>();
+  for (const item of dyeItems) {
+    const groupKey = `${item.skuId ?? ''}::${item.skuCode ?? ''}::${item.skuName ?? ''}`;
+    const existing = dyeGrouped.get(groupKey);
+    const sourceId = Number(item.id);
+    const deliveredQty = formatQtyInput(parseQty(item.qtyDelivered));
+
+    if (!existing) {
+      const segment: EditableInspectionDyeLotSegment = {
+        segmentKey: createDyeLotSegmentKey(),
+        sourceItemIds: [sourceId],
+        sourceDeliveredQtys: [String(item.qtyDelivered ?? '0')],
+        dyeLotNo: String(item.dyeLotNo ?? ''),
+        qtyDelivered: deliveredQty,
+        qtySampled: formatQtyInput(parseQty(item.qtySampled)),
+        qtyPassed: formatQtyInput(parseQty(item.qtyPassed)),
+        qtyFailed: formatQtyInput(parseQty(item.qtyFailed)),
+        result: (item.result ?? '') as EditableInspectionDyeLotSegment['result'],
+        disposition: (item.disposition ?? 'accept') as EditableInspectionDyeLotSegment['disposition'],
+        notes: String(item.notes ?? ''),
+      };
+      dyeGrouped.set(groupKey, {
+        id: sourceId,
+        sourceItemIds: [sourceId],
+        sourceDeliveredQtys: [String(item.qtyDelivered ?? '0')],
+        skuCode: item.skuCode,
+        skuName: item.skuName,
+        dyeLotNo: null,
+        hasDyeLot: true,
+        qtyDelivered: deliveredQty,
+        qtySampled: segment.qtySampled,
+        qtyPassed: segment.qtyPassed,
+        qtyFailed: segment.qtyFailed,
+        result: '',
+        disposition: 'accept',
+        notes: '',
+        dyeLotSegments: [segment],
+      });
+      continue;
+    }
+
+    existing.sourceItemIds.push(sourceId);
+    existing.sourceDeliveredQtys.push(String(item.qtyDelivered ?? '0'));
+    existing.qtyDelivered = formatQtyInput(parseQty(existing.qtyDelivered) + parseQty(item.qtyDelivered));
+    existing.qtySampled = formatQtyInput(parseQty(existing.qtySampled) + parseQty(item.qtySampled));
+    existing.qtyPassed = formatQtyInput(parseQty(existing.qtyPassed) + parseQty(item.qtyPassed));
+    existing.qtyFailed = formatQtyInput(parseQty(existing.qtyFailed) + parseQty(item.qtyFailed));
+
+    const normalizedDyeLot = String(item.dyeLotNo ?? '').trim();
+    const existingSegment = existing.dyeLotSegments?.find((segment) => segment.dyeLotNo.trim() === normalizedDyeLot);
+    if (existingSegment) {
+      existingSegment.sourceItemIds.push(sourceId);
+      existingSegment.sourceDeliveredQtys.push(String(item.qtyDelivered ?? '0'));
+      existingSegment.qtyDelivered = formatQtyInput(parseQty(existingSegment.qtyDelivered) + parseQty(item.qtyDelivered));
+      existingSegment.qtySampled = formatQtyInput(parseQty(existingSegment.qtySampled) + parseQty(item.qtySampled));
+      existingSegment.qtyPassed = formatQtyInput(parseQty(existingSegment.qtyPassed) + parseQty(item.qtyPassed));
+      existingSegment.qtyFailed = formatQtyInput(parseQty(existingSegment.qtyFailed) + parseQty(item.qtyFailed));
+      if (existingSegment.result !== (item.result ?? '')) {
+        existingSegment.result = '';
+      }
+      if (existingSegment.disposition !== (item.disposition ?? 'accept')) {
+        existingSegment.disposition = 'accept';
+      }
+      if (existingSegment.notes !== String(item.notes ?? '')) {
+        existingSegment.notes = existingSegment.notes || String(item.notes ?? '');
+      }
+      continue;
+    }
+
+    existing.dyeLotSegments?.push({
+      segmentKey: createDyeLotSegmentKey(),
+      sourceItemIds: [sourceId],
+      sourceDeliveredQtys: [String(item.qtyDelivered ?? '0')],
+      dyeLotNo: normalizedDyeLot,
+      qtyDelivered: deliveredQty,
+      qtySampled: formatQtyInput(parseQty(item.qtySampled)),
+      qtyPassed: formatQtyInput(parseQty(item.qtyPassed)),
+      qtyFailed: formatQtyInput(parseQty(item.qtyFailed)),
+      result: (item.result ?? '') as EditableInspectionDyeLotSegment['result'],
+      disposition: (item.disposition ?? 'accept') as EditableInspectionDyeLotSegment['disposition'],
+      notes: String(item.notes ?? ''),
+    });
+  }
+
+  return [...editableItems, ...Array.from(dyeGrouped.values())];
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export default function IncomingInspectionPage() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { setPageTitle, showToast } = useAppStore();
 
   // Filter state
@@ -237,9 +560,31 @@ export default function IncomingInspectionPage() {
     notes: '',
   });
 
+  const clearCreateQuery = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('create');
+    next.delete('poId');
+    next.delete('deliveryNoteId');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   useEffect(() => {
     setPageTitle('来料质检');
   }, [setPageTitle]);
+
+  useEffect(() => {
+    const create = searchParams.get('create');
+    const poId = searchParams.get('poId');
+    const deliveryNoteId = searchParams.get('deliveryNoteId');
+    if (create === '1') {
+      setCreateForm((prev) => ({
+        ...prev,
+        poId: poId ?? prev.poId,
+        deliveryNoteId: deliveryNoteId ?? prev.deliveryNoteId,
+      }));
+      setCreateOpen(true);
+    }
+  }, [searchParams]);
 
   // API hooks
   const listParams = {
@@ -252,13 +597,26 @@ export default function IncomingInspectionPage() {
 
   const { data, isLoading, error } = useInspectionList(listParams);
   const { data: detailData, isLoading: detailLoading } = useInspectionDetail(selectedId);
+  const createFromDelivery = searchParams.get('create') === '1';
+  const createPoId = createFromDelivery ? Number(createForm.poId) || null : null;
+  const createDeliveryNoteId = createFromDelivery ? Number(createForm.deliveryNoteId) || null : null;
+  const { data: createOrder } = usePurchaseOrderDetail(createOpen ? createPoId : null);
+  const { data: createDelivery } = usePurchaseDeliveryDetail(createOpen ? createDeliveryNoteId : null);
   const createMutation = useCreateInspection();
+  const updateItemsMutation = useUpdateInspectionItems();
   const submitMutation = useSubmitInspection();
+  const [editableItems, setEditableItems] = useState<EditableInspectionItem[]>([]);
 
   // Use mock data as fallback
   const allRows: InspectionRow[] = (data?.list && data.list.length > 0)
     ? (data.list as InspectionRow[])
     : MOCK_INSPECTIONS;
+
+  const currentRecord = detailData ?? allRows.find((r) => r.id === selectedId);
+  const { data: previewReceiptData } = useInspectionPreviewReceipt(
+    selectedId,
+    Boolean(selectedId && currentRecord?.receiptTriggered),
+  );
 
   const filteredRows = keyword.trim()
     ? allRows.filter((r) => {
@@ -278,7 +636,38 @@ export default function IncomingInspectionPage() {
   const statsFailed = allRows.filter((r) => r.status === 'failed' || r.status === 'partially_passed').length;
 
   // Detail items
-  const detailItems: IncomingInspectionItem[] = detailData?.items ?? (selectedId === 1 ? MOCK_ITEMS : []);
+  const detailItems: IncomingInspectionItem[] =
+    detailData?.items ?? (selectedId === 1 ? MOCK_ITEMS : EMPTY_INSPECTION_ITEMS);
+  const aggregatedDetailItems = useMemo(
+    () => aggregateInspectionItems(detailItems),
+    [detailItems],
+  );
+  const editableReceiptInsight = useMemo(
+    () => getReceiptDispositionInsight(editableItems),
+    [editableItems],
+  );
+  const detailReceiptInsight = useMemo(
+    () => getReceiptDispositionInsight(
+      aggregatedDetailItems.map((item) => ({
+        qtyDelivered: String(item.qtyDelivered ?? '0'),
+        qtySampled: String(item.qtySampled ?? '0'),
+        qtyPassed: String(item.qtyPassed ?? '0'),
+        disposition: (item.disposition ?? 'accept') as EditableInspectionItem['disposition'],
+      })),
+    ),
+    [aggregatedDetailItems],
+  );
+  const showFailedReceiptNotice = Boolean(
+    currentRecord
+    && currentRecord.status === 'failed'
+    && detailReceiptInsight.hasAcceptedSampleReceipt,
+  );
+  const showSubmitFailedReceiptNotice = submitForm.overallResult === 'fail'
+    && editableReceiptInsight.hasAcceptedSampleReceipt;
+
+  useEffect(() => {
+    setEditableItems(buildEditableInspectionItems(detailItems));
+  }, [detailItems, selectedId, drawerOpen]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -298,9 +687,59 @@ export default function IncomingInspectionPage() {
       return;
     }
     try {
+      let resolvedPoId: number | null = null;
+      const poInput = createForm.poId.trim();
+      if (createFromDelivery) {
+        resolvedPoId = Number(poInput) || null;
+      } else {
+        const fallbackPoId = Number(poInput);
+        if (Number.isInteger(fallbackPoId) && !poInput.includes('-')) {
+          resolvedPoId = fallbackPoId;
+        } else {
+          const orders = await purchaseApi.getOrders({ page: 1, pageSize: 200 });
+          const matchedOrder = orders.list.find(
+            (order) => normalizeBusinessNo(order.poNo) === normalizeBusinessNo(poInput),
+          );
+          resolvedPoId = matchedOrder ? Number(matchedOrder.id) || null : null;
+        }
+      }
+
+      if (!resolvedPoId) {
+        showToast({ type: 'warning', message: '未找到对应的采购订单号' });
+        return;
+      }
+
+      let resolvedDeliveryNoteId: number | undefined;
+      const deliveryInput = createForm.deliveryNoteId.trim();
+      if (deliveryInput) {
+        if (createFromDelivery) {
+          resolvedDeliveryNoteId = Number(deliveryInput) || undefined;
+        } else {
+          const fallbackDeliveryId = Number(deliveryInput);
+          if (Number.isInteger(fallbackDeliveryId) && !deliveryInput.includes('-')) {
+            resolvedDeliveryNoteId = fallbackDeliveryId;
+          } else {
+            const deliveries = await purchaseApi.getDeliveries({
+              poId: resolvedPoId,
+              page: 1,
+              pageSize: 200,
+            });
+            const matchedDelivery = deliveries.list.find(
+              (delivery) =>
+                normalizeBusinessNo(delivery.deliveryNo) === normalizeBusinessNo(deliveryInput),
+            );
+            if (!matchedDelivery) {
+              showToast({ type: 'warning', message: '未找到对应的送货单号' });
+              return;
+            }
+            resolvedDeliveryNoteId = Number(matchedDelivery.id) || undefined;
+          }
+        }
+      }
+
       const payload: CreateInspectionPayload = {
-        poId: Number(createForm.poId),
-        deliveryNoteId: createForm.deliveryNoteId ? Number(createForm.deliveryNoteId) : undefined,
+        poId: resolvedPoId,
+        deliveryNoteId: resolvedDeliveryNoteId,
         inspectorId: Number(createForm.inspectorId),
         inspectionDate: createForm.inspectionDate,
         notes: createForm.notes || undefined,
@@ -309,6 +748,7 @@ export default function IncomingInspectionPage() {
       showToast({ type: 'success', message: '质检单创建成功' });
       setCreateOpen(false);
       setCreateForm(DEFAULT_CREATE_FORM);
+      clearCreateQuery();
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
     }
@@ -328,6 +768,185 @@ export default function IncomingInspectionPage() {
       showToast({ type: 'success', message: '质检结论已提交' });
       setSubmitOpen(false);
       setSubmitForm({ overallResult: '', notes: '' });
+    } catch (e) {
+      showToast({ type: 'error', message: (e as Error).message });
+    }
+  };
+
+  const setEditableField = useCallback((
+    id: number,
+    field: keyof EditableInspectionItem,
+    value: string,
+  ) => {
+    setEditableItems((prev) => prev.map((item) => (
+      item.id === id ? { ...item, [field]: value } : item
+    )));
+  }, []);
+
+  const setDyeLotSegmentField = useCallback((
+    itemId: number,
+    segmentKey: string,
+    field: keyof EditableInspectionDyeLotSegment,
+    value: string,
+  ) => {
+    setEditableItems((prev) => prev.map((item) => {
+      if (item.id !== itemId || !item.dyeLotSegments) {
+        return item;
+      }
+      return {
+        ...item,
+        dyeLotSegments: item.dyeLotSegments.map((segment) => (
+          segment.segmentKey === segmentKey ? { ...segment, [field]: value } : segment
+        )),
+      };
+    }));
+  }, []);
+
+  const addDyeLotSegment = useCallback((itemId: number) => {
+    setEditableItems((prev) => prev.map((item) => {
+      if (item.id !== itemId || !item.hasDyeLot) return item;
+      const nextSegments = [...(item.dyeLotSegments ?? [])];
+      nextSegments.push({
+        segmentKey: createDyeLotSegmentKey(),
+        sourceItemIds: [...item.sourceItemIds],
+        sourceDeliveredQtys: [...item.sourceDeliveredQtys],
+        dyeLotNo: '',
+        qtyDelivered: '0.0000',
+        qtySampled: '0.0000',
+        qtyPassed: '0.0000',
+        qtyFailed: '0.0000',
+        result: '',
+        disposition: 'accept',
+        notes: '',
+      });
+      return {
+        ...item,
+        dyeLotSegments: nextSegments,
+      };
+    }));
+  }, []);
+
+  const removeDyeLotSegment = useCallback((itemId: number, segmentKey: string) => {
+    setEditableItems((prev) => prev.map((item) => {
+      if (item.id !== itemId || !item.dyeLotSegments || item.dyeLotSegments.length <= 1) {
+        return item;
+      }
+      return {
+        ...item,
+        dyeLotSegments: item.dyeLotSegments.filter((segment) => segment.segmentKey !== segmentKey),
+      };
+    }));
+  }, []);
+
+  const handleSaveItems = async () => {
+    if (!selectedId) return;
+    if (!editableItems.length) {
+      showToast({ type: 'warning', message: '暂无可保存的质检明细' });
+      return;
+    }
+
+    const incompleteItem = editableItems.find((item) => (
+      item.hasDyeLot
+        ? item.dyeLotSegments?.some((segment) => !segment.result || !segment.disposition)
+        : !item.result || !item.disposition
+    ));
+    if (incompleteItem) {
+      showToast({ type: 'warning', message: '请先为每条质检明细选择结果和处置方式' });
+      return;
+    }
+
+    const missingDyeLotItem = editableItems.find((item) => (
+      item.hasDyeLot
+        ? item.dyeLotSegments?.some((segment) => !String(segment.dyeLotNo ?? '').trim())
+        : item.hasDyeLot && !String(item.dyeLotNo ?? '').trim()
+    ));
+    if (missingDyeLotItem) {
+      showToast({
+        type: 'warning',
+        message: `请先登记 ${missingDyeLotItem.skuCode ?? missingDyeLotItem.skuName ?? '该物料'} 的缸号`,
+      });
+      return;
+    }
+
+    const invalidDyeLotSplitItem = editableItems.find(
+      (item) => item.hasDyeLot && item.dyeLotSegments && (
+        item.dyeLotSegments.some((segment) => parseQty(segment.qtyDelivered) <= 0)
+        || Math.abs(
+          item.dyeLotSegments.reduce((sum, segment) => sum + parseQty(segment.qtyDelivered), 0)
+          - parseQty(item.qtyDelivered),
+        ) > 0.0001
+      ),
+    );
+    if (invalidDyeLotSplitItem) {
+      showToast({
+        type: 'warning',
+        message: `${invalidDyeLotSplitItem.skuCode ?? invalidDyeLotSplitItem.skuName ?? '该物料'} 的缸号分段到货数量必须大于 0，且合计等于该 SKU 的总到货数量`,
+      });
+      return;
+    }
+
+    try {
+      const payloadItems: UpdateInspectionItemsPayload['items'] = editableItems.flatMap<UpdateInspectionItemsPayload['items'][number]>((item) => {
+        if (item.hasDyeLot && item.dyeLotSegments?.length) {
+          return item.dyeLotSegments.map((segment) => ({
+            sourceItemIds: item.sourceItemIds,
+            qtyDelivered: segment.qtyDelivered || '0',
+            qtysampled: segment.qtySampled || '0',
+            qtyPassed: segment.qtyPassed || '0',
+            qtyFailed: segment.qtyFailed || '0',
+            dyeLotNo: segment.dyeLotNo.trim() || undefined,
+            result: segment.result as 'pass' | 'fail' | 'conditional_pass',
+            disposition: segment.disposition,
+            notes: segment.notes.trim() || undefined,
+          }));
+        }
+
+        const sourceCapacities = item.sourceDeliveredQtys.map((qty) => parseQty(qty));
+        const normalizedDyeLotNo = String(item.dyeLotNo ?? '').trim();
+
+        if (item.sourceItemIds.length <= 1) {
+          return [{
+            id: item.id,
+            sourceItemIds: item.sourceItemIds,
+            qtyDelivered: item.qtyDelivered || '0',
+            qtysampled: item.qtySampled || '0',
+            qtyPassed: item.qtyPassed || '0',
+            qtyFailed: item.qtyFailed || '0',
+            dyeLotNo: normalizedDyeLotNo || undefined,
+            result: item.result as 'pass' | 'fail' | 'conditional_pass',
+            disposition: item.disposition,
+            notes: item.notes.trim() || undefined,
+          }];
+        }
+
+        const sampledAllocations = distributeAcrossSourceRows(parseQty(item.qtySampled), sourceCapacities);
+        const passFailAllocations = distributePassedFailedAcrossSourceRows(
+          parseQty(item.qtyPassed),
+          parseQty(item.qtyFailed),
+          sourceCapacities,
+        );
+
+        return item.sourceItemIds.map((sourceId, index) => ({
+          id: sourceId,
+          sourceItemIds: [sourceId],
+          qtyDelivered: String(item.sourceDeliveredQtys[index] ?? '0'),
+          qtysampled: sampledAllocations[index],
+          qtyPassed: passFailAllocations[index].qtyPassed,
+          qtyFailed: passFailAllocations[index].qtyFailed,
+          dyeLotNo: normalizedDyeLotNo || undefined,
+          result: item.result as 'pass' | 'fail' | 'conditional_pass',
+          disposition: item.disposition,
+          notes: item.notes.trim() || undefined,
+        }));
+      });
+
+      await updateItemsMutation.mutateAsync({
+        id: selectedId,
+        data: {
+          items: payloadItems,
+        },
+      });
+      showToast({ type: 'success', message: '质检明细已保存' });
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
     }
@@ -411,7 +1030,7 @@ export default function IncomingInspectionPage() {
     {
       key: 'skuCode',
       title: 'SKU编码',
-      width: 130,
+      width: 140,
       render: (_, r) => (
         <span className={styles.mono_code}>{(r.skuCode as string) ?? '—'}</span>
       ),
@@ -419,26 +1038,36 @@ export default function IncomingInspectionPage() {
     {
       key: 'skuName',
       title: '物料名称',
+      width: 180,
       render: (_, r) => <span>{(r.skuName as string) ?? '—'}</span>,
+    },
+    {
+      key: 'dyeLotNo',
+      title: '缸号',
+      width: 140,
+      render: (_, r) => {
+        const value = r.dyeLotNo as string | null | undefined;
+        return value ? <span className={styles.mono_code}>{value}</span> : <span className={styles.text_muted}>—</span>;
+      },
     },
     {
       key: 'qtyDelivered',
       title: '到货数量',
-      width: 90,
+      width: 96,
       align: 'right',
       render: (_, r) => String(r.qtyDelivered),
     },
     {
       key: 'qtySampled',
       title: '抽检数量',
-      width: 90,
+      width: 96,
       align: 'right',
       render: (_, r) => String(r.qtySampled),
     },
     {
       key: 'qtyPassed',
       title: '合格数量',
-      width: 90,
+      width: 96,
       align: 'right',
       render: (_, r) => (
         <span className={styles.text_success}>{String(r.qtyPassed)}</span>
@@ -447,7 +1076,7 @@ export default function IncomingInspectionPage() {
     {
       key: 'qtyFailed',
       title: '不合格数量',
-      width: 90,
+      width: 104,
       align: 'right',
       render: (_, r) => (
         <span className={r.qtyFailed !== '0' ? styles.text_danger : ''}>
@@ -458,7 +1087,7 @@ export default function IncomingInspectionPage() {
     {
       key: 'result',
       title: '单项结果',
-      width: 110,
+      width: 128,
       render: (_, r) => {
         const result = r.result as string | null;
         if (!result) return <span className={styles.text_muted}>—</span>;
@@ -472,7 +1101,7 @@ export default function IncomingInspectionPage() {
     {
       key: 'disposition',
       title: '处置方式',
-      width: 90,
+      width: 104,
       render: (_, r) => {
         const disposition = r.disposition as string | null;
         if (!disposition) return <span className={styles.text_muted}>—</span>;
@@ -480,9 +1109,6 @@ export default function IncomingInspectionPage() {
       },
     },
   ];
-
-  // Current detail record
-  const currentRecord = detailData ?? allRows.find((r) => r.id === selectedId);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -525,6 +1151,28 @@ export default function IncomingInspectionPage() {
             </div>
           </div>
         </div>
+
+        <section className={styles.workbench_notice} aria-label="质检处理规则">
+          <div className={styles.workbench_notice__main}>
+            <span className={styles.workbench_notice__eyebrow}>QUALITY DECISION</span>
+            <h2 className={styles.workbench_notice__title}>抽检与退货处理规则</h2>
+            <p className={styles.workbench_notice__text}>
+              来料质检支持全检和抽检。全检通过并选择“接受”时，系统按来料数量入库；抽检时，“合格数量”代表本次确认入库数量。
+            </p>
+          </div>
+          <div className={styles.rule_cards}>
+            <article className={styles.rule_card}>
+              <span className={styles.rule_card__tag}>全检通过</span>
+              <strong className={styles.rule_card__title}>整批按来料数量入库</strong>
+              <p className={styles.rule_card__text}>单项结果为“通过”且处置方式为“接受”时，系统按整批来料数量生成入库。</p>
+            </article>
+            <article className={`${styles.rule_card} ${styles.rule_card__warning}`}>
+              <span className={styles.rule_card__tag}>抽检不通过</span>
+              <strong className={styles.rule_card__title}>仅合格数量入库，其余执行退货</strong>
+              <p className={styles.rule_card__text}>若抽检后仍有部分合格并选择“接受”，系统只会入库合格数量，其余未入库数据需继续走退货处理。</p>
+            </article>
+          </div>
+        </section>
 
         {/* ── Filter Bar ────────────────────────────────────────── */}
         <div className={styles.filter_bar} role="toolbar" aria-label="筛选工具栏">
@@ -621,12 +1269,38 @@ export default function IncomingInspectionPage() {
         open={drawerOpen}
         title={`质检单详情 — ${currentRecord?.inspectionNo ?? '...'}`}
         onClose={closeDrawer}
-        width={720}
+        width={860}
         footer={
           currentRecord?.status === 'in_progress' || currentRecord?.status === 'draft' ? (
             <div className={styles.drawer_footer_actions}>
               <Button variant="ghost" size="md" onClick={closeDrawer}>
                 关闭
+              </Button>
+              {currentRecord?.deliveryNoteId ? (
+                <Button
+                  variant="text"
+                  size="md"
+                  onClick={() => navigate(`/purchase/deliveries?deliveryId=${currentRecord.deliveryNoteId}&poId=${currentRecord.poId}`)}
+                >
+                  查看送货单
+                </Button>
+              ) : null}
+              {previewReceiptData?.receiptId ? (
+                <Button
+                  variant="text"
+                  size="md"
+                  onClick={() => navigate(`/purchase/receipts?receiptId=${previewReceiptData.receiptId}&poId=${currentRecord?.poId ?? ''}`)}
+                >
+                  查看入库单
+                </Button>
+              ) : null}
+              <Button
+                variant="primary"
+                size="md"
+                loading={updateItemsMutation.isPending}
+                onClick={() => void handleSaveItems()}
+              >
+                保存质检明细
               </Button>
               <Button
                 variant="primary"
@@ -638,6 +1312,33 @@ export default function IncomingInspectionPage() {
             </div>
           ) : (
             <div className={styles.drawer_footer_actions}>
+              {currentRecord?.deliveryNoteId ? (
+                <Button
+                  variant="text"
+                  size="md"
+                  onClick={() => navigate(`/purchase/deliveries?deliveryId=${currentRecord.deliveryNoteId}&poId=${currentRecord.poId}`)}
+                >
+                  查看送货单
+                </Button>
+              ) : null}
+              {previewReceiptData?.receiptId ? (
+                <Button
+                  variant="text"
+                  size="md"
+                  onClick={() => navigate(`/purchase/receipts?receiptId=${previewReceiptData.receiptId}&poId=${currentRecord?.poId ?? ''}`)}
+                >
+                  查看入库单
+                </Button>
+              ) : null}
+              {previewReceiptData?.receiptId && currentRecord?.poId ? (
+                <Button
+                  variant="text"
+                  size="md"
+                  onClick={() => navigate(`/purchase/match?poId=${currentRecord.poId}&receiptId=${previewReceiptData.receiptId}`)}
+                >
+                  查看三单匹配
+                </Button>
+              ) : null}
               <Button variant="ghost" size="md" onClick={closeDrawer}>
                 关闭
               </Button>
@@ -705,6 +1406,14 @@ export default function IncomingInspectionPage() {
                     {currentRecord.receiptTriggered ? '是' : '否'}
                   </span>
                 </div>
+                {previewReceiptData?.receiptNo ? (
+                  <div className={styles.detail_kv}>
+                    <span className={styles.detail_key}>关联入库单</span>
+                    <span className={`${styles.detail_val} ${styles.mono_code}`}>
+                      {previewReceiptData.receiptNo}
+                    </span>
+                  </div>
+                ) : null}
                 {currentRecord.notes && (
                   <div className={`${styles.detail_kv} ${styles.detail_kv_full}`}>
                     <span className={styles.detail_key}>备注</span>
@@ -724,19 +1433,314 @@ export default function IncomingInspectionPage() {
                 </div>
               </div>
             )}
+            {showFailedReceiptNotice ? (
+              <div className={`${styles.rule_notice} ${styles.rule_notice__warning}`}>
+                <span className={styles.rule_notice__icon} aria-hidden="true">!</span>
+                <div>
+                  <strong>部分可入库提示：</strong>
+                  当前质检单总体结论为“不通过”，但抽检项中仍有
+                  {' '}
+                  {formatQtyInput(detailReceiptInsight.acceptedReceiptQty)}
+                  {' '}
+                  可按“接受”入库。系统仅会入库这部分合格数量，其余未入库数据请继续执行退货处理。
+                </div>
+              </div>
+            ) : null}
 
             {/* Items table section */}
             <section className={styles.detail_section}>
               <h3 className={styles.detail_section_title}>质检明细</h3>
-              {detailItems.length === 0 ? (
+              {aggregatedDetailItems.length === 0 ? (
                 <p className={styles.text_muted}>暂无质检明细</p>
+              ) : currentRecord.status === 'draft' || currentRecord.status === 'in_progress' ? (
+                <div className={styles.editableItemList}>
+                  {editableItems.map((item) => (
+                    <article key={item.id} className={styles.editableItemCard}>
+                      {(() => {
+                        const deliveredQty = parseQty(item.qtyDelivered);
+                        const sampledQty = parseQty(item.qtySampled);
+                        const isFullInspection = deliveredQty > 0 && sampledQty === deliveredQty;
+                        const isAcceptDisposition = item.disposition === 'accept';
+                        const hasAcceptedSampleReceipt = sampledQty > 0
+                          && sampledQty < deliveredQty
+                          && isAcceptDisposition
+                          && parseQty(item.qtyPassed) > 0;
+
+                        return (
+                          <>
+                      <div className={styles.editableItemHeader}>
+                        <div>
+                          <div className={styles.mono_code}>{item.skuCode ?? '—'}</div>
+                          <div className={styles.detail_val}>{item.skuName ?? '—'}</div>
+                          {item.hasDyeLot ? (
+                            <div className={styles.inlineMeta}>缸号管理物料，请按实际来料缸号拆分分段后分别录入抽检与处置结果。</div>
+                          ) : null}
+                        </div>
+                        <div className={styles.editableItemQty}>到货数量 {item.qtyDelivered}</div>
+                      </div>
+
+                      {item.hasDyeLot && item.dyeLotSegments?.length ? (
+                        <div className={styles.dyeLotSection}>
+                          <div className={styles.dyeLotSectionHeader}>
+                            <div className={styles.form_help}>
+                              同一 SKU 可按不同缸号拆分多条来料分段。所有缸号分段的到货数量合计必须等于该 SKU 的总到货数量
+                              {' '}
+                              {item.qtyDelivered}
+                              。
+                            </div>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => addDyeLotSegment(item.id)}
+                            >
+                              新增缸号
+                            </Button>
+                          </div>
+                          <div className={styles.dyeLotSegmentList}>
+                            {item.dyeLotSegments.map((segment, segmentIndex) => {
+                              const segmentDeliveredQty = parseQty(segment.qtyDelivered);
+                              const segmentSampledQty = parseQty(segment.qtySampled);
+                              const segmentPassedQty = parseQty(segment.qtyPassed);
+                              const segmentIsFullInspection = segmentDeliveredQty > 0 && segmentSampledQty === segmentDeliveredQty;
+                              const segmentIsAcceptDisposition = segment.disposition === 'accept';
+                              const segmentHasAcceptedSampleReceipt = segmentSampledQty > 0
+                                && segmentSampledQty < segmentDeliveredQty
+                                && segmentIsAcceptDisposition
+                                && segmentPassedQty > 0;
+
+                              return (
+                                <section key={segment.segmentKey} className={styles.dyeLotSegment}>
+                                  <div className={styles.dyeLotSegmentHeader}>
+                                    <div className={styles.dyeLotSegmentTitle}>
+                                      缸号分段
+                                      {' '}
+                                      {segmentIndex + 1}
+                                    </div>
+                                    {item.dyeLotSegments && item.dyeLotSegments.length > 1 ? (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => removeDyeLotSegment(item.id, segment.segmentKey)}
+                                      >
+                                        删除分段
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                  <div className={styles.editableItemGrid}>
+                                    <div className={`${styles.form_field} ${styles.form_field_full}`}>
+                                      <label className={styles.form_label}>缸号</label>
+                                      <input
+                                        className={styles.form_input}
+                                        value={segment.dyeLotNo}
+                                        onChange={(e) => setDyeLotSegmentField(item.id, segment.segmentKey, 'dyeLotNo', e.target.value)}
+                                        placeholder="请输入供应商来料缸号"
+                                      />
+                                      <div className={styles.form_help}>
+                                        面料/皮料等缸号管理物料需在来料后按缸号拆分登记，后续入库、三单匹配和结算都会沿用这里的缸号。
+                                      </div>
+                                    </div>
+                                    <div className={styles.form_field}>
+                                      <label className={styles.form_label}>该缸到货数量</label>
+                                      <input
+                                        className={styles.form_input}
+                                        value={segment.qtyDelivered}
+                                        onChange={(e) => setDyeLotSegmentField(item.id, segment.segmentKey, 'qtyDelivered', e.target.value.replace(/[^\d.]/g, ''))}
+                                      />
+                                    </div>
+                                    <div className={styles.form_field}>
+                                      <label className={styles.form_label}>抽检数量</label>
+                                      <input
+                                        className={styles.form_input}
+                                        value={segment.qtySampled}
+                                        onChange={(e) => setDyeLotSegmentField(item.id, segment.segmentKey, 'qtySampled', e.target.value.replace(/[^\d.]/g, ''))}
+                                      />
+                                    </div>
+                                    <div className={styles.form_field}>
+                                      <label className={styles.form_label}>合格数量</label>
+                                      <input
+                                        className={styles.form_input}
+                                        value={segment.qtyPassed}
+                                        onChange={(e) => setDyeLotSegmentField(item.id, segment.segmentKey, 'qtyPassed', e.target.value.replace(/[^\d.]/g, ''))}
+                                      />
+                                      <div className={styles.form_help}>
+                                        {segmentIsFullInspection
+                                          ? '全检时，单项结果为“通过”且处置方式为“接受”，系统将按该缸来料数量入库。'
+                                          : '抽检时，这里填写的是该缸本次确认入库数量；可按整缸来料或实际认可数量填写。'}
+                                      </div>
+                                    </div>
+                                    <div className={styles.form_field}>
+                                      <label className={styles.form_label}>不合格数量</label>
+                                      <input
+                                        className={styles.form_input}
+                                        value={segment.qtyFailed}
+                                        onChange={(e) => setDyeLotSegmentField(item.id, segment.segmentKey, 'qtyFailed', e.target.value.replace(/[^\d.]/g, ''))}
+                                      />
+                                    </div>
+                                    <div className={styles.form_field}>
+                                      <label className={styles.form_label}>单项结果</label>
+                                      <select
+                                        className={styles.form_input}
+                                        value={segment.result}
+                                        onChange={(e) => setDyeLotSegmentField(item.id, segment.segmentKey, 'result', e.target.value)}
+                                      >
+                                        <option value="">请选择</option>
+                                        <option value="pass">通过</option>
+                                        <option value="conditional_pass">有条件通过</option>
+                                        <option value="fail">不通过</option>
+                                      </select>
+                                    </div>
+                                    <div className={styles.form_field}>
+                                      <label className={styles.form_label}>处置方式</label>
+                                      <select
+                                        className={styles.form_input}
+                                        value={segment.disposition}
+                                        onChange={(e) => setDyeLotSegmentField(item.id, segment.segmentKey, 'disposition', e.target.value)}
+                                      >
+                                        <option value="accept">接受</option>
+                                        <option value="return">退货</option>
+                                        <option value="rework">返工</option>
+                                        <option value="scrap">报废</option>
+                                      </select>
+                                      {segmentIsAcceptDisposition ? (
+                                        <div className={styles.form_help}>
+                                          {segmentIsFullInspection
+                                            ? '当前为接受入库，全检通过时该缸将整缸入库。'
+                                            : '当前为接受入库，抽检场景请用“合格数量”明确该缸本次入库数量。'}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </div>
+
+                                  {segmentHasAcceptedSampleReceipt ? (
+                                    <div className={`${styles.inline_notice} ${styles.inline_notice__warning}`}>
+                                      当前缸号为抽检且处置方式为“接受”。若总体质检结论提交为“不通过”，系统仅会按该缸合格数量
+                                      {' '}
+                                      {segment.qtyPassed}
+                                      {' '}
+                                      入库，其余未入库数量需继续执行退货。
+                                    </div>
+                                  ) : null}
+
+                                  <div className={styles.form_field}>
+                                    <label className={styles.form_label}>备注</label>
+                                    <textarea
+                                      className={styles.form_textarea}
+                                      rows={2}
+                                      value={segment.notes}
+                                      onChange={(e) => setDyeLotSegmentField(item.id, segment.segmentKey, 'notes', e.target.value)}
+                                      placeholder="可填写缺陷描述、抽检说明等"
+                                    />
+                                  </div>
+                                </section>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className={styles.editableItemGrid}>
+                            <div className={styles.form_field}>
+                              <label className={styles.form_label}>抽检数量</label>
+                              <input
+                                className={styles.form_input}
+                                value={item.qtySampled}
+                                onChange={(e) => setEditableField(item.id, 'qtySampled', e.target.value.replace(/[^\d.]/g, ''))}
+                              />
+                            </div>
+                            <div className={styles.form_field}>
+                              <label className={styles.form_label}>合格数量</label>
+                              <input
+                                className={styles.form_input}
+                                value={item.qtyPassed}
+                                onChange={(e) => setEditableField(item.id, 'qtyPassed', e.target.value.replace(/[^\d.]/g, ''))}
+                              />
+                              <div className={styles.form_help}>
+                                {isFullInspection
+                                  ? '全检时，单项结果为“通过”且处置方式为“接受”，系统将按来料数量入库。'
+                                  : '抽检时，这里填写的是本次确认入库数量；可按整批来料或实际认可数量填写。'}
+                              </div>
+                            </div>
+                            <div className={styles.form_field}>
+                              <label className={styles.form_label}>不合格数量</label>
+                              <input
+                                className={styles.form_input}
+                                value={item.qtyFailed}
+                                onChange={(e) => setEditableField(item.id, 'qtyFailed', e.target.value.replace(/[^\d.]/g, ''))}
+                              />
+                            </div>
+                            <div className={styles.form_field}>
+                              <label className={styles.form_label}>单项结果</label>
+                              <select
+                                className={styles.form_input}
+                                value={item.result}
+                                onChange={(e) => setEditableField(item.id, 'result', e.target.value)}
+                              >
+                                <option value="">请选择</option>
+                                <option value="pass">通过</option>
+                                <option value="conditional_pass">有条件通过</option>
+                                <option value="fail">不通过</option>
+                              </select>
+                            </div>
+                            <div className={styles.form_field}>
+                              <label className={styles.form_label}>处置方式</label>
+                              <select
+                                className={styles.form_input}
+                                value={item.disposition}
+                                onChange={(e) => setEditableField(item.id, 'disposition', e.target.value)}
+                              >
+                                <option value="accept">接受</option>
+                                <option value="return">退货</option>
+                                <option value="rework">返工</option>
+                                <option value="scrap">报废</option>
+                              </select>
+                              {isAcceptDisposition ? (
+                                <div className={styles.form_help}>
+                                  {isFullInspection
+                                    ? '当前为接受入库，全检通过时将整批入库。'
+                                    : '当前为接受入库，抽检场景请用“合格数量”明确本次入库数量。'}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          {hasAcceptedSampleReceipt ? (
+                            <div className={`${styles.inline_notice} ${styles.inline_notice__warning}`}>
+                              当前为抽检且处置方式为“接受”。若总体质检结论提交为“不通过”，系统仅会按合格数量
+                              {' '}
+                              {item.qtyPassed}
+                              {' '}
+                              入库，其余未入库数量需继续执行退货。
+                            </div>
+                          ) : null}
+
+                          <div className={styles.form_field}>
+                            <label className={styles.form_label}>备注</label>
+                            <textarea
+                              className={styles.form_textarea}
+                              rows={2}
+                              value={item.notes}
+                              onChange={(e) => setEditableField(item.id, 'notes', e.target.value)}
+                              placeholder="可填写缺陷描述、抽检说明等"
+                            />
+                          </div>
+                        </>
+                      )}
+                          </>
+                        );
+                      })()}
+                    </article>
+                  ))}
+                </div>
               ) : (
                 <div className={styles.items_table_wrap}>
                   <Table<ItemRow>
                     columns={itemColumns}
-                    dataSource={detailItems as ItemRow[]}
-                    rowKey="id"
+                    dataSource={aggregatedDetailItems as ItemRow[]}
+                    rowKey={(record) => String(record.id)}
                     emptyText="暂无明细数据"
+                    className={styles.detailItemsTable}
                   />
                 </div>
               )}
@@ -753,7 +1757,11 @@ export default function IncomingInspectionPage() {
       <Modal
         open={createOpen}
         title="新建来料质检单"
-        onClose={() => { setCreateOpen(false); setCreateForm(DEFAULT_CREATE_FORM); }}
+        onClose={() => {
+          setCreateOpen(false);
+          setCreateForm(DEFAULT_CREATE_FORM);
+          clearCreateQuery();
+        }}
         onConfirm={() => void handleCreate()}
         confirmLabel="创建"
         confirmLoading={createMutation.isPending}
@@ -762,34 +1770,50 @@ export default function IncomingInspectionPage() {
         <div className={styles.form}>
           <div className={styles.form_field}>
             <label htmlFor="create-poId" className={styles.form_label}>
-              采购订单 ID <span className={styles.required}>*</span>
+              采购订单号 <span className={styles.required}>*</span>
             </label>
-            <input
-              id="create-poId"
-              type="number"
-              className={styles.form_input}
-              value={createForm.poId}
-              onChange={(e) => setCreateForm((f) => ({ ...f, poId: e.target.value }))}
-              placeholder="请输入采购订单 ID"
-              min="1"
-            />
+            {createFromDelivery && createForm.poId ? (
+              <input
+                id="create-poId"
+                className={styles.form_input}
+                value={createOrder?.poNo ?? ''}
+                placeholder="系统将自动带出采购订单号"
+                readOnly
+              />
+            ) : (
+              <input
+                id="create-poId"
+                className={styles.form_input}
+                value={createForm.poId}
+                onChange={(e) => setCreateForm((f) => ({ ...f, poId: e.target.value }))}
+                placeholder="请输入采购订单号"
+              />
+            )}
           </div>
 
           <div className={styles.form_field}>
             <label htmlFor="create-deliveryNoteId" className={styles.form_label}>
-              送货单 ID
+              送货单号
             </label>
-            <input
-              id="create-deliveryNoteId"
-              type="number"
-              className={styles.form_input}
-              value={createForm.deliveryNoteId}
-              onChange={(e) =>
-                setCreateForm((f) => ({ ...f, deliveryNoteId: e.target.value }))
-              }
-              placeholder="可选"
-              min="1"
-            />
+            {createFromDelivery && createForm.deliveryNoteId ? (
+              <input
+                id="create-deliveryNoteId"
+                className={styles.form_input}
+                value={createDelivery?.deliveryNo ?? ''}
+                placeholder="系统将自动带出送货单号"
+                readOnly
+              />
+            ) : (
+              <input
+                id="create-deliveryNoteId"
+                className={styles.form_input}
+                value={createForm.deliveryNoteId}
+                onChange={(e) =>
+                  setCreateForm((f) => ({ ...f, deliveryNoteId: e.target.value }))
+                }
+                placeholder="选填，输入送货单号"
+              />
+            )}
           </div>
 
           <div className={styles.form_field}>
@@ -834,6 +1858,23 @@ export default function IncomingInspectionPage() {
         size="sm"
       >
         <div className={styles.form}>
+          {showSubmitFailedReceiptNotice ? (
+            <div className={`${styles.rule_notice} ${styles.rule_notice__warning}`}>
+              <span className={styles.rule_notice__icon} aria-hidden="true">!</span>
+              <div>
+                <strong>提交前确认：</strong>
+                本次总体结论选择“不通过”，但抽检明细中仍有
+                {' '}
+                {formatQtyInput(editableReceiptInsight.acceptedReceiptQty)}
+                {' '}
+                合格数量会触发入库。系统仅会入库这部分合格数据，其余约
+                {' '}
+                {formatQtyInput(editableReceiptInsight.pendingReturnQty)}
+                {' '}
+                未入库数量需后续执行退货。
+              </div>
+            </div>
+          ) : null}
           <div className={styles.form_field}>
             <label className={styles.form_label}>
               总体质检结论 <span className={styles.required}>*</span>

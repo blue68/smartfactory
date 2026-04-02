@@ -195,13 +195,13 @@ export class PurchaseSuggestionEngine {
     // 批量查询供应商报价
     const supplierPriceRows = await AppDataSource.query<(SupplierPriceRow & { sku_id: number })[]>(
       `SELECT sp.sku_id, sp.supplier_id, sup.name AS supplier_name,
-              sp.unit_price, sp.lead_time_days
+              sp.price AS unit_price, NULL AS lead_time_days
        FROM supplier_prices sp
        INNER JOIN suppliers sup ON sup.id = sp.supplier_id AND sup.tenant_id = sp.tenant_id
        WHERE sp.sku_id IN (${skuPlaceholders}) AND sp.tenant_id = ?
-         AND sp.status = 'active'
-         AND (sp.effective_to IS NULL OR sp.effective_to >= CURDATE())
-         AND (sp.effective_from IS NULL OR sp.effective_from <= CURDATE())`,
+         AND sp.is_current = 1
+         AND (sp.expired_at IS NULL OR sp.expired_at >= CURDATE())
+         AND (sp.effective_at IS NULL OR sp.effective_at <= CURDATE())`,
       [...skuIds, tenantId],
     );
     const supplierPriceMap = new Map<number, SupplierPriceRow[]>();

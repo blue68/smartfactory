@@ -17,6 +17,8 @@ export interface IncomingInspectionItem {
   qtySampled: string;
   qtyPassed: string;
   qtyFailed: string;
+  dyeLotNo?: string | null;
+  hasDyeLot?: boolean;
   result: 'pass' | 'fail' | 'conditional_pass' | null;
   defectTypes: string[] | null;
   defectImages: string[] | null;
@@ -57,10 +59,13 @@ export interface CreateInspectionPayload {
 
 export interface UpdateInspectionItemsPayload {
   items: Array<{
-    id: number;
-    qtySampled: string;
+    id?: number;
+    sourceItemIds?: number[];
+    qtyDelivered?: string;
+    qtysampled: string;
     qtyPassed: string;
     qtyFailed: string;
+    dyeLotNo?: string;
     result: 'pass' | 'fail' | 'conditional_pass' | null;
     defectTypes?: string[];
     disposition?: 'accept' | 'return' | 'rework' | 'scrap' | null;
@@ -89,6 +94,7 @@ export const inspectionKeys = {
   list: (params?: Record<string, unknown>) =>
     [...inspectionKeys.all, 'list', params] as const,
   detail: (id: number) => [...inspectionKeys.all, 'detail', id] as const,
+  previewReceipt: (id: number) => [...inspectionKeys.all, 'preview-receipt', id] as const,
 };
 
 // ── API Functions ──────────────────────────────────────────────────────────────
@@ -170,8 +176,19 @@ export function useSubmitInspection() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: SubmitInspectionPayload }) =>
       incomingInspectionApi.submit(id, data),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       void qc.invalidateQueries({ queryKey: inspectionKeys.all });
+      void qc.invalidateQueries({ queryKey: inspectionKeys.detail(variables.id) });
+      void qc.invalidateQueries({ queryKey: inspectionKeys.previewReceipt(variables.id) });
     },
+  });
+}
+
+/** 预览质检关联入库单 */
+export function useInspectionPreviewReceipt(id: number | null, enabled = true) {
+  return useQuery({
+    queryKey: inspectionKeys.previewReceipt(id!),
+    queryFn: () => incomingInspectionApi.previewReceipt(id!),
+    enabled: enabled && id !== null && id > 0,
   });
 }

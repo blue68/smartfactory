@@ -58,17 +58,18 @@ export interface SuggestionBatch {
   };
 }
 
-// ─── 历史记录批次摘要 ──────────────────────────
+// ─── 历史记录批次摘要（匹配后端扁平结构，经 camelCase 转换后）──────────────
 export interface SuggestionHistoryBatch {
-  batchId: string;
-  calculatedAt: string;
-  isColdStart: boolean;
-  summary: {
-    totalPurchaseItems: number;
-    totalProductionItems: number;
-    estimatedTotalAmount: string | null;
-  };
-  snapshot?: SuggestionBatch;
+  id: number;
+  batchNo: string;
+  triggerType: string;          // 'manual' | 'auto' 等
+  status: string;               // 'completed' | 'failed'
+  purchaseCount: number;
+  productionCount: number;
+  calcStartedAt: string | null;
+  calcFinishedAt: string | null;
+  errorMessage: string | null;
+  createdAt: string;
 }
 
 // ─── 计算任务状态 ──────────────────────────────

@@ -5,7 +5,7 @@
  *   - ProcessTemplateEntity (process_templates 表)
  *     字段：id, tenantId, skuId, name, status, createdAt, updatedAt, createdBy, updatedBy
  *   - ProcessStepEntity (process_steps 表)
- *     字段：id, tenantId, templateId, stepNo, stepName, standardHours, workstationType, createdAt
+ *     字段：id, tenantId, templateId, stepNo, stepName, standardHours, workstationType, workstationId, createdAt
  *
  * list 接口额外 JOIN skus 表，补充 skuName/skuCode 字段。
  *
@@ -31,6 +31,7 @@ export interface ProcessTemplateListItem {
   skuName: string | null;
   skuCode: string | null;
   status: 'active' | 'inactive';
+  isDefault: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -44,7 +45,10 @@ export interface ProcessStep {
   stepName: string;
   /** decimal 字段，后端返回字符串，如 "2.0000" */
   standardHours: string | null;
+  /** decimal 字段，R-05 新增，后端返回字符串，如 "8.00" */
+  maxHours: string | null;
   workstationType: string | null;
+  workstationId: number | null;
   createdAt: string;
 }
 
@@ -84,6 +88,7 @@ export interface ProcessStepPayload {
   stepName: string;
   standardHours?: number;
   workstationType?: string;
+  workstationId?: number;
 }
 
 export interface CreateProcessConfigPayload {
@@ -158,6 +163,9 @@ export const processConfigApi = {
   remove: (id: number) =>
     request.delete<{ id: number }>(`/api/process-configs/${id}`),
 
+  setDefault: (id: number) =>
+    request.patch<ProcessTemplateListItem>(`/api/process-configs/${id}/set-default`, {}),
+
   // ── R-05 新增 ──
   // FE-05-07: 使用 PATCH 替代 PUT（语义更准确，仅更新指定字段）
   setMaxHours: (stepId: number, maxHours: number) =>
@@ -229,6 +237,76 @@ export function useDeleteProcessConfig() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: processConfigKeys.lists() });
     },
+  });
+}
+
+/** 设为默认工序模板 */
+export function useSetDefaultProcessConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => processConfigApi.setDefault(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: processConfigKeys.lists() });
+    },
+  });
+}
+
+// ─────────────────────────────────────────────
+// 工种类型
+// ─────────────────────────────────────────────
+
+export interface WorkstationType {
+  id: number;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export const workstationTypeKeys = {
+  all: ['workstation-types'] as const,
+};
+
+export const workstationTypeApi = {
+  getList: () =>
+    request.get<WorkstationType[]>('/api/process-configs/workstation-types'),
+  create: (payload: { name: string; sortOrder?: number }) =>
+    request.post<WorkstationType>('/api/process-configs/workstation-types', payload),
+  update: (id: number, payload: { name?: string; sortOrder?: number }) =>
+    request.patch<WorkstationType>(`/api/process-configs/workstation-types/${id}`, payload),
+  remove: (id: number) =>
+    request.delete<{ id: number }>(`/api/process-configs/workstation-types/${id}`),
+};
+
+export function useWorkstationTypes() {
+  return useQuery({
+    queryKey: workstationTypeKeys.all,
+    queryFn: workstationTypeApi.getList,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCreateWorkstationType() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: workstationTypeApi.create,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: workstationTypeKeys.all }),
+  });
+}
+
+export function useUpdateWorkstationType() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: { name?: string; sortOrder?: number } }) =>
+      workstationTypeApi.update(id, payload),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: workstationTypeKeys.all }),
+  });
+}
+
+export function useDeleteWorkstationType() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => workstationTypeApi.remove(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: workstationTypeKeys.all }),
   });
 }
 

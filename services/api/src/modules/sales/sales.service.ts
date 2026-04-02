@@ -1,9 +1,16 @@
 import { AppDataSource } from '../../config/database';
+import { getRedisClient, RedisKeys } from '../../config/redis';
 import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import { ConstraintEngine } from './constraintEngine';
 import Decimal from 'decimal.js';
+import { generateNo } from '../../shared/generateNo';
+
+type InventorySnapshotTrackedManager = {
+  query: typeof AppDataSource.query;
+  __inventorySnapshotSkuIds?: Set<number>;
+};
 
 export interface CreateOrderParams {
   customerId: number;
@@ -38,6 +45,66 @@ export class SalesService {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
     this.constraintEngine = new ConstraintEngine(ctx);
+  }
+
+  private async syncDailySnapshot(
+    manager: { query: typeof AppDataSource.query },
+    skuId: number,
+  ): Promise<void> {
+    await manager.query(
+      `INSERT INTO inventory_daily_snapshots
+         (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
+       SELECT
+         tenant_id,
+         CURDATE(),
+         sku_id,
+         qty_on_hand,
+         qty_reserved,
+         qty_on_hand - qty_reserved
+       FROM inventory
+       WHERE tenant_id = ? AND sku_id = ?
+       ON DUPLICATE KEY UPDATE
+         qty_on_hand = VALUES(qty_on_hand),
+         qty_reserved = VALUES(qty_reserved),
+         qty_available = VALUES(qty_available)`,
+      [this.tenantId, skuId],
+    );
+  }
+
+  private async invalidateInventorySnapshotCaches(skuIds: number[]): Promise<void> {
+    if (skuIds.length === 0) return;
+    try {
+      const redis = getRedisClient();
+      await Promise.all(
+        Array.from(new Set(skuIds)).map((skuId) =>
+          redis.del(RedisKeys.inventorySnapshot(this.tenantId, skuId)),
+        ),
+      );
+    } catch (err) {
+      console.warn('[SalesService] 库存缓存失效失败，已忽略:', (err as Error).message);
+    }
+  }
+
+  private trackInventorySnapshotCacheInvalidation(
+    manager: { query: typeof AppDataSource.query },
+    skuIds: number[],
+  ): void {
+    if (skuIds.length === 0) return;
+    const trackedManager = manager as InventorySnapshotTrackedManager;
+    const tracked = (trackedManager.__inventorySnapshotSkuIds ??= new Set<number>());
+    for (const skuId of skuIds) {
+      tracked.add(Number(skuId));
+    }
+  }
+
+  private consumeTrackedInventorySnapshotSkuIds(
+    manager: InventorySnapshotTrackedManager | null,
+  ): number[] {
+    const skuIds = Array.from(manager?.__inventorySnapshotSkuIds ?? []);
+    if (manager) {
+      delete manager.__inventorySnapshotSkuIds;
+    }
+    return skuIds;
   }
 
   /**
@@ -306,13 +373,16 @@ export class SalesService {
     // 2. 如果传入了新 items，重新执行约束检查
     let constraintResult: string | null = null;
     let requiresApproval = false;
+    let mergedConstraintReport: any | null = null;
 
     if (payload.items && payload.items.length > 0) {
       const effectiveDelivery: string =
         payload.expectedDelivery ??
         (await AppDataSource.query<Array<{ expected_delivery: string }>>(
-          'SELECT DATE_FORMAT(expected_delivery, "%Y-%m-%d") AS expected_delivery FROM sales_orders WHERE id = ? LIMIT 1',
-          [orderId],
+          `SELECT DATE_FORMAT(expected_delivery, "%Y-%m-%d") AS expected_delivery
+           FROM sales_orders
+           WHERE id = ? AND tenant_id = ? LIMIT 1`,
+          [orderId, this.tenantId],
         ).then((rows) => rows[0]?.expected_delivery ?? ''));
 
       const itemReports = await Promise.all(
@@ -328,18 +398,45 @@ export class SalesService {
       );
 
       const resultPriority = { block: 2, warning: 1, pass: 0 } as const;
-      const merged = itemReports.reduce((acc, report) => {
-        if (resultPriority[report.overallResult] > resultPriority[acc.overallResult]) {
-          acc.overallResult = report.overallResult;
+      mergedConstraintReport = itemReports.reduce((merged, report) => {
+        if (resultPriority[report.overallResult] > resultPriority[merged.overallResult]) {
+          merged.overallResult = report.overallResult;
+        }
+        if (!report.inventoryTurnoverCheck.passed) {
+          merged.inventoryTurnoverCheck = report.inventoryTurnoverCheck;
+        }
+        if (!report.capitalOccupationCheck.passed) {
+          merged.capitalOccupationCheck = report.capitalOccupationCheck;
+        }
+        if (!report.productionCostCheck.passed) {
+          merged.productionCostCheck = report.productionCostCheck;
+        }
+        if (!report.capacityLoadCheck.passed) {
+          merged.capacityLoadCheck = report.capacityLoadCheck;
         }
         for (const reason of report.blockedReasons) {
-          if (!acc.blockedReasons.includes(reason)) acc.blockedReasons.push(reason);
+          if (!merged.blockedReasons.includes(reason)) {
+            merged.blockedReasons.push(reason);
+          }
         }
-        return acc;
+        const ia = report.impactAnalysis;
+        for (const o of ia.affectedOrders) {
+          const exists = merged.impactAnalysis.affectedOrders.find((x: any) => x.orderId === o.orderId);
+          if (!exists) merged.impactAnalysis.affectedOrders.push(o);
+        }
+        merged.impactAnalysis.additionalCapital = (
+          parseFloat(merged.impactAnalysis.additionalCapital) +
+          parseFloat(ia.additionalCapital)
+        ).toFixed(2);
+        merged.impactAnalysis.additionalProductionCost = (
+          parseFloat(merged.impactAnalysis.additionalProductionCost) +
+          parseFloat(ia.additionalProductionCost)
+        ).toFixed(2);
+        return merged;
       }, itemReports[0]);
 
-      constraintResult = merged.overallResult;
-      requiresApproval = merged.overallResult === 'block';
+      constraintResult = mergedConstraintReport.overallResult;
+      requiresApproval = mergedConstraintReport.overallResult === 'block';
     }
 
     // 3. 事务内完成写入
@@ -404,36 +501,7 @@ export class SalesService {
       }
 
       // 3c. 若有新约束检查结果，追加一条检查记录
-      if (constraintResult !== null && payload.items && payload.items.length > 0) {
-        const itemReports = await Promise.all(
-          payload.items.map((item) => {
-            const deliveryDate =
-              payload.expectedDelivery ?? new Date().toISOString().slice(0, 10);
-            return this.constraintEngine.check(
-              item.skuId,
-              item.bomId,
-              item.qtyOrdered,
-              deliveryDate,
-              order.order_type === 'urgent',
-            );
-          }),
-        );
-        const resultPriority = { block: 2, warning: 1, pass: 0 } as const;
-        const finalReport = itemReports.reduce((acc, report) => {
-          if (resultPriority[report.overallResult] > resultPriority[acc.overallResult]) {
-            acc.overallResult = report.overallResult;
-          }
-          if (!acc.inventoryTurnoverCheck.passed) { /* keep worst */ }
-          if (!report.inventoryTurnoverCheck.passed) acc.inventoryTurnoverCheck = report.inventoryTurnoverCheck;
-          if (!report.capitalOccupationCheck.passed) acc.capitalOccupationCheck = report.capitalOccupationCheck;
-          if (!report.productionCostCheck.passed) acc.productionCostCheck = report.productionCostCheck;
-          if (!report.capacityLoadCheck.passed) acc.capacityLoadCheck = report.capacityLoadCheck;
-          for (const r of report.blockedReasons) {
-            if (!acc.blockedReasons.includes(r)) acc.blockedReasons.push(r);
-          }
-          return acc;
-        }, itemReports[0]);
-
+      if (mergedConstraintReport && payload.items && payload.items.length > 0) {
         await manager.query(
           `INSERT INTO order_constraint_checks
              (tenant_id, order_id, check_time, inventory_turnover_check, capital_occupation_check,
@@ -441,13 +509,13 @@ export class SalesService {
            VALUES (?,?,NOW(),?,?,?,?,?,?,?,?)`,
           [
             this.tenantId, orderId,
-            JSON.stringify(finalReport.inventoryTurnoverCheck),
-            JSON.stringify(finalReport.capitalOccupationCheck),
-            JSON.stringify(finalReport.productionCostCheck),
-            JSON.stringify(finalReport.capacityLoadCheck),
-            finalReport.overallResult,
-            JSON.stringify(finalReport.blockedReasons),
-            JSON.stringify(finalReport.impactAnalysis),
+            JSON.stringify(mergedConstraintReport.inventoryTurnoverCheck),
+            JSON.stringify(mergedConstraintReport.capitalOccupationCheck),
+            JSON.stringify(mergedConstraintReport.productionCostCheck),
+            JSON.stringify(mergedConstraintReport.capacityLoadCheck),
+            mergedConstraintReport.overallResult,
+            JSON.stringify(mergedConstraintReport.blockedReasons),
+            JSON.stringify(mergedConstraintReport.impactAnalysis),
             this.userId,
           ],
         );
@@ -497,13 +565,34 @@ export class SalesService {
       throw AppError.badRequest('订单已是取消状态，请勿重复操作', ResponseCode.ORDER_CANNOT_MODIFY);
     }
 
-    // 2. 获取订单 SKU 列表，用于释放库存预留
-    const orderItems = await AppDataSource.query<Array<{ sku_id: number; qty_ordered: string }>>(
-      'SELECT sku_id, qty_ordered FROM sales_order_items WHERE order_id = ? AND tenant_id = ?',
-      [orderId, this.tenantId],
-    );
+    let trackedInventoryManager: InventorySnapshotTrackedManager | null = null;
+    const result = await AppDataSource.transaction(async (manager) => {
+      trackedInventoryManager = manager as InventorySnapshotTrackedManager;
+      const productionOrders = await manager.query<Array<{ id: number }>>(
+        `SELECT id
+         FROM production_orders
+         WHERE sales_order_id = ? AND tenant_id = ?
+           AND status IN ('pending', 'scheduled')
+         ORDER BY id
+         FOR UPDATE`,
+        [orderId, this.tenantId],
+      );
+      const productionOrderIds = productionOrders.map((row) => Number(row.id));
+      const productionOrderPlaceholders = productionOrderIds.map(() => '?').join(', ');
 
-    return AppDataSource.transaction(async (manager) => {
+      const materialRows =
+        productionOrderIds.length === 0
+          ? []
+          : await manager.query<Array<{ sku_id: number; qty_reserved: string }>>(
+              `SELECT sku_id, SUM(qty_reserved) AS qty_reserved
+               FROM material_requirements
+               WHERE production_order_id IN (${productionOrderPlaceholders})
+                 AND tenant_id = ?
+                 AND qty_reserved > 0
+               GROUP BY sku_id`,
+              [...productionOrderIds, this.tenantId],
+            );
+
       // 2a. 取消销售订单
       await manager.query(
         `UPDATE sales_orders
@@ -517,30 +606,59 @@ export class SalesService {
         ],
       );
 
-      // 2b. 联动取消关联生产工单（只取消可撤销的工单）
-      const cancelResult = await manager.query(
-        `UPDATE production_orders
-         SET status = 'cancelled', updated_by = ?
-         WHERE sales_order_id = ? AND tenant_id = ?
-           AND status IN ('pending', 'scheduled')`,
-        [this.userId, orderId, this.tenantId],
-      );
-      const cancelledProductionOrders = Number(cancelResult.affectedRows ?? 0);
+      let cancelledProductionOrders = 0;
+      if (productionOrderIds.length > 0) {
+        // 2b. 联动取消关联生产工单与未完工任务（只取消可撤销的工单）
+        const cancelResult = await manager.query(
+          `UPDATE production_orders
+           SET status = 'cancelled', updated_by = ?
+           WHERE id IN (${productionOrderPlaceholders}) AND tenant_id = ?`,
+          [this.userId, ...productionOrderIds, this.tenantId],
+        );
+        cancelledProductionOrders = Number(cancelResult.affectedRows ?? 0);
 
-      // 2c. 释放库存预留
+        await manager.query(
+          `UPDATE production_tasks
+           SET status = 'cancelled', updated_by = ?
+           WHERE production_order_id IN (${productionOrderPlaceholders}) AND tenant_id = ?
+             AND status NOT IN ('completed', 'cancelled')`,
+          [this.userId, ...productionOrderIds, this.tenantId],
+        );
+      }
+
+      // 2c. 按关联工单的物料预留释放库存，并重置需求行为 shortage
       let releasedSkus = 0;
-      if (orderItems.length > 0) {
-        for (const item of orderItems) {
+      if (materialRows.length > 0) {
+        for (const item of materialRows) {
           // GREATEST 防止 qty_reserved 被减成负数
           await manager.query(
             `UPDATE inventory
              SET qty_reserved = GREATEST(0, qty_reserved - ?)
              WHERE sku_id = ? AND tenant_id = ?`,
-            [item.qty_ordered, item.sku_id, this.tenantId],
+            [item.qty_reserved, item.sku_id, this.tenantId],
           );
+          await this.syncDailySnapshot(manager, item.sku_id);
         }
-        releasedSkus = orderItems.length;
+        releasedSkus = materialRows.length;
       }
+
+      if (productionOrderIds.length > 0) {
+        await manager.query(
+          `UPDATE material_requirements
+           SET qty_reserved = 0,
+               qty_shortage = qty_required,
+               status = 'shortage',
+               updated_at = NOW()
+           WHERE production_order_id IN (${productionOrderPlaceholders})
+             AND tenant_id = ?`,
+          [...productionOrderIds, this.tenantId],
+        );
+      }
+
+      this.trackInventorySnapshotCacheInvalidation(
+        manager,
+        materialRows.map((item) => Number(item.sku_id)),
+      );
 
       return {
         orderId,
@@ -549,6 +667,11 @@ export class SalesService {
         releasedSkus,
       };
     });
+
+    await this.invalidateInventorySnapshotCaches(
+      this.consumeTrackedInventorySnapshotSkuIds(trackedInventoryManager),
+    );
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -613,35 +736,108 @@ export class SalesService {
     );
     if (!order) throw AppError.notFound('销售订单不存在', ResponseCode.ORDER_NOT_FOUND);
 
-    const SHIPPABLE_STATUSES = ['produced', 'partial_shipped'];
+    const SHIPPABLE_STATUSES = ['in_production', 'produced', 'partial_shipped'];
     if (!SHIPPABLE_STATUSES.includes(order.status)) {
       throw AppError.badRequest(
-        `订单状态「${order.status}」不允许发货，仅 produced / partial_shipped 状态可发货`,
+        `订单状态「${order.status}」不允许发货，仅 in_production / produced / partial_shipped 状态可发货`,
         ResponseCode.ORDER_CANNOT_MODIFY,
       );
     }
 
-    // 2. 校验所有 orderItemId 均属于本订单
+    // 2. 校验请求基础结构
     if (params.shippedItems.length === 0) {
       throw AppError.badRequest('shippedItems 不能为空');
     }
     const orderItemIds = params.shippedItems.map((i) => i.orderItemId);
     const placeholders = orderItemIds.map(() => '?').join(',');
-    const existingItems = await AppDataSource.query<
-      Array<{ id: number; qty_ordered: string; qty_delivered: string }>
-    >(
-      `SELECT id, qty_ordered, qty_delivered
-       FROM sales_order_items
-       WHERE id IN (${placeholders}) AND order_id = ? AND tenant_id = ?`,
-      [...orderItemIds, orderId, this.tenantId],
-    );
-    if (existingItems.length !== orderItemIds.length) {
-      throw AppError.badRequest('部分 orderItemId 不属于该订单，请检查参数');
+    const seenOrderItemIds = new Set<number>();
+    for (const item of params.shippedItems) {
+      if (seenOrderItemIds.has(item.orderItemId)) {
+        throw AppError.badRequest('发货明细存在重复的订单行，请合并后重试', ResponseCode.INVALID_PARAMS);
+      }
+      seenOrderItemIds.add(item.orderItemId);
+      if (!Number.isFinite(item.shippedQty) || item.shippedQty <= 0) {
+        throw AppError.badRequest('发货数量必须大于 0', ResponseCode.INVALID_PARAMS);
+      }
     }
 
     const deliveryNo = this.generateDeliveryNo();
+    const affectedSkuIds: number[] = [];
 
-    return AppDataSource.transaction(async (manager) => {
+    const result = await AppDataSource.transaction(async (manager) => {
+      const lockedItems = await manager.query<
+        Array<{ id: number; sku_id: number; stock_unit: string; qty_ordered: string; qty_delivered: string }>
+      >(
+        `SELECT
+           soi.id,
+           soi.sku_id,
+           s.stock_unit,
+           soi.qty_ordered,
+           soi.qty_delivered
+         FROM sales_order_items soi
+         INNER JOIN skus s ON s.id = soi.sku_id AND s.tenant_id = soi.tenant_id
+         WHERE soi.id IN (${placeholders}) AND soi.order_id = ? AND soi.tenant_id = ?
+         ORDER BY soi.id ASC
+         FOR UPDATE`,
+        [...orderItemIds, orderId, this.tenantId],
+      );
+      if (lockedItems.length !== orderItemIds.length) {
+        throw AppError.badRequest('部分 orderItemId 不属于该订单，请检查参数');
+      }
+
+      const itemMap = new Map(lockedItems.map((item) => [Number(item.id), item]));
+      const shippedBySku = new Map<number, { stockUnit: string; qty: Decimal }>();
+
+      for (const item of params.shippedItems) {
+        const lockedItem = itemMap.get(item.orderItemId);
+        if (!lockedItem) {
+          throw AppError.badRequest('部分发货明细不属于该订单', ResponseCode.INVALID_PARAMS);
+        }
+
+        const remainingQty = new Decimal(lockedItem.qty_ordered).minus(lockedItem.qty_delivered);
+        const shippedQty = new Decimal(item.shippedQty);
+        if (shippedQty.gt(remainingQty)) {
+          throw AppError.badRequest('发货数量超过该明细剩余待发数量', ResponseCode.INVALID_PARAMS);
+        }
+
+        const existingSku = shippedBySku.get(Number(lockedItem.sku_id));
+        if (existingSku) {
+          existingSku.qty = existingSku.qty.plus(shippedQty);
+        } else {
+          shippedBySku.set(Number(lockedItem.sku_id), {
+            stockUnit: lockedItem.stock_unit,
+            qty: shippedQty,
+          });
+        }
+      }
+
+      const shippedSkuIds = Array.from(shippedBySku.keys()).sort((a, b) => a - b);
+      const skuPlaceholders = shippedSkuIds.map(() => '?').join(',');
+      const inventoryRows = await manager.query<Array<{ sku_id: number; qty_on_hand: string; qty_reserved: string }>>(
+        `SELECT sku_id, qty_on_hand, qty_reserved
+         FROM inventory
+         WHERE tenant_id = ? AND sku_id IN (${skuPlaceholders})
+         ORDER BY sku_id ASC
+         FOR UPDATE`,
+        [this.tenantId, ...shippedSkuIds],
+      );
+      const inventoryMap = new Map(inventoryRows.map((row) => [Number(row.sku_id), row]));
+
+      for (const skuId of shippedSkuIds) {
+        const inventoryRow = inventoryMap.get(skuId);
+        if (!inventoryRow) {
+          throw new AppError('库存记录不存在', ResponseCode.INVENTORY_INSUFFICIENT);
+        }
+        const availableQty = new Decimal(inventoryRow.qty_on_hand).minus(inventoryRow.qty_reserved);
+        const shippedQty = shippedBySku.get(skuId)?.qty ?? new Decimal(0);
+        if (shippedQty.gt(availableQty)) {
+          throw new AppError(
+            `库存不足：可用 ${availableQty.toFixed(4)} ${shippedBySku.get(skuId)?.stockUnit ?? ''}，需要 ${shippedQty.toFixed(4)} ${shippedBySku.get(skuId)?.stockUnit ?? ''}`,
+            ResponseCode.INVENTORY_INSUFFICIENT,
+          );
+        }
+      }
+
       // 3. 插入发货主表
       const deliveryResult = await manager.query(
         `INSERT INTO sales_deliveries
@@ -675,6 +871,44 @@ export class SalesService {
         );
       }
 
+      for (const skuId of shippedSkuIds) {
+        const shipped = shippedBySku.get(skuId);
+        if (!shipped) continue;
+
+        const txNo = await generateNo('transaction', this.tenantId);
+        await manager.query(
+          `INSERT INTO inventory_transactions
+             (tenant_id, transaction_no, sku_id, transaction_type, direction,
+              qty_input, input_unit, qty_stock_unit, stock_unit,
+              reference_type, reference_id, reference_no, notes, created_by)
+           VALUES (?, ?, ?, 'DELIVERY_OUT', 'OUT', ?, ?, ?, ?, 'sales_delivery', ?, ?, ?, ?)`,
+          [
+            this.tenantId,
+            txNo,
+            skuId,
+            shipped.qty.toFixed(4),
+            shipped.stockUnit,
+            shipped.qty.toFixed(4),
+            shipped.stockUnit,
+            deliveryId,
+            deliveryNo,
+            `销售订单 ${order.order_no} 发货出库`,
+            this.userId,
+          ],
+        );
+
+        await manager.query(
+          `UPDATE inventory
+           SET qty_on_hand = qty_on_hand - ?,
+               last_out_at = NOW()
+           WHERE tenant_id = ? AND sku_id = ?`,
+          [shipped.qty.toFixed(4), this.tenantId, skuId],
+        );
+
+        await this.syncDailySnapshot(manager, skuId);
+        affectedSkuIds.push(skuId);
+      }
+
       // 5. 判断是否全部发货完毕（每条明细 qty_delivered >= qty_ordered）
       const [qtyCheck] = await manager.query<
         Array<{ total: number; fully_shipped: number }>
@@ -699,6 +933,9 @@ export class SalesService {
 
       return { deliveryId, deliveryNo, orderStatus: newOrderStatus };
     });
+
+    await this.invalidateInventorySnapshotCaches(affectedSkuIds);
+    return result;
   }
 
   /**
@@ -823,39 +1060,42 @@ export class SalesService {
     orderId: number,
     params: { dueDate: string; notes?: string },
   ): Promise<{ settlementId: number; settlementNo: string }> {
-    const [order] = await AppDataSource.query<
-      Array<{ id: number; status: string; total_amount: string; order_no: string }>
-    >(
-      'SELECT id, status, total_amount, order_no FROM sales_orders WHERE id = ? AND tenant_id = ? LIMIT 1',
-      [orderId, this.tenantId],
-    );
-    if (!order) throw AppError.notFound('销售订单不存在', ResponseCode.ORDER_NOT_FOUND);
+    return AppDataSource.transaction(async (manager) => {
+      const [order] = await manager.query<
+        Array<{ id: number; status: string; total_amount: string; order_no: string }>
+      >(
+        `SELECT id, status, total_amount, order_no
+         FROM sales_orders
+         WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
+        [orderId, this.tenantId],
+      );
+      if (!order) throw AppError.notFound('销售订单不存在', ResponseCode.ORDER_NOT_FOUND);
 
-    const SETTLEMENT_STATUSES = ['shipped', 'completed', 'partial_shipped'];
-    if (!SETTLEMENT_STATUSES.includes(order.status)) {
-      throw AppError.badRequest(`订单状态「${order.status}」不允许创建结算单，需先发货`);
-    }
+      const SETTLEMENT_STATUSES = ['shipped', 'completed', 'partial_shipped'];
+      if (!SETTLEMENT_STATUSES.includes(order.status)) {
+        throw AppError.badRequest(`订单状态「${order.status}」不允许创建结算单，需先发货`);
+      }
 
-    // 检查是否已有结算单
-    const [existing] = await AppDataSource.query<Array<{ id: number }>>(
-      'SELECT id FROM sales_settlements WHERE order_id = ? AND tenant_id = ? LIMIT 1',
-      [orderId, this.tenantId],
-    );
-    if (existing) {
-      throw AppError.badRequest('该订单已有结算单，请勿重复创建');
-    }
+      const [existing] = await manager.query<Array<{ id: number }>>(
+        'SELECT id FROM sales_settlements WHERE order_id = ? AND tenant_id = ? LIMIT 1',
+        [orderId, this.tenantId],
+      );
+      if (existing) {
+        throw AppError.badRequest('该订单已有结算单，请勿重复创建');
+      }
 
-    const settlementNo = this.generateSettlementNo();
-    const result = await AppDataSource.query(
-      `INSERT INTO sales_settlements
-         (tenant_id, order_id, settlement_no, total_amount, paid_amount, status, due_date, notes, created_by, updated_by)
-       VALUES (?, ?, ?, ?, 0, 'pending', ?, ?, ?, ?)`,
-      [
-        this.tenantId, orderId, settlementNo, order.total_amount,
-        params.dueDate, params.notes ?? null, this.userId, this.userId,
-      ],
-    );
-    return { settlementId: Number(result.insertId), settlementNo };
+      const settlementNo = this.generateSettlementNo();
+      const result = await manager.query(
+        `INSERT INTO sales_settlements
+           (tenant_id, order_id, settlement_no, total_amount, paid_amount, status, due_date, notes, created_by, updated_by)
+         VALUES (?, ?, ?, ?, 0, 'pending', ?, ?, ?, ?)`,
+        [
+          this.tenantId, orderId, settlementNo, order.total_amount,
+          params.dueDate, params.notes ?? null, this.userId, this.userId,
+        ],
+      );
+      return { settlementId: Number(result.insertId), settlementNo };
+    });
   }
 
   /**
@@ -865,28 +1105,29 @@ export class SalesService {
     settlementId: number,
     params: { paymentAmount: string; paymentMethod?: string; paymentDate: string; referenceNo?: string; notes?: string },
   ): Promise<{ paymentId: number; settlementStatus: string }> {
-    const [settlement] = await AppDataSource.query<
-      Array<{ id: number; total_amount: string; paid_amount: string; status: string }>
-    >(
-      'SELECT id, total_amount, paid_amount, status FROM sales_settlements WHERE id = ? AND tenant_id = ? LIMIT 1',
-      [settlementId, this.tenantId],
-    );
-    if (!settlement) throw AppError.notFound('结算单不存在');
-    if (settlement.status === 'paid') {
-      throw AppError.badRequest('该结算单已全额付清');
-    }
-
     const paymentAmount = new Decimal(params.paymentAmount);
-    const newPaid = new Decimal(settlement.paid_amount).plus(paymentAmount);
-    const total = new Decimal(settlement.total_amount);
-
-    if (newPaid.gt(total)) {
-      throw AppError.badRequest(`付款总额 ${newPaid.toFixed(2)} 超过结算金额 ${total.toFixed(2)}`);
-    }
-
-    const newStatus = newPaid.gte(total) ? 'paid' : 'partial_paid';
 
     return AppDataSource.transaction(async (manager) => {
+      const [settlement] = await manager.query<
+        Array<{ id: number; total_amount: string; paid_amount: string; status: string }>
+      >(
+        `SELECT id, total_amount, paid_amount, status
+         FROM sales_settlements
+         WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
+        [settlementId, this.tenantId],
+      );
+      if (!settlement) throw AppError.notFound('结算单不存在');
+      if (settlement.status === 'paid') {
+        throw AppError.badRequest('该结算单已全额付清');
+      }
+
+      const newPaid = new Decimal(settlement.paid_amount).plus(paymentAmount);
+      const total = new Decimal(settlement.total_amount);
+      if (newPaid.gt(total)) {
+        throw AppError.badRequest(`付款总额 ${newPaid.toFixed(2)} 超过结算金额 ${total.toFixed(2)}`);
+      }
+      const newStatus = newPaid.gte(total) ? 'paid' : 'partial_paid';
+
       const payResult = await manager.query(
         `INSERT INTO sales_payments
            (tenant_id, settlement_id, payment_amount, payment_method, payment_date, reference_no, notes, created_by)

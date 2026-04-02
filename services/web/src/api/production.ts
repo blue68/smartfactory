@@ -21,6 +21,7 @@ export interface MaterialRequirement {
   skuId: number;
   skuCode: string;
   skuName: string;
+  purchaseUnit: string | null;
   qtyRequired: string;
   qtyReserved: string;
   qtyShortage: string;
@@ -36,6 +37,63 @@ export interface MaterialCheckResult {
   totalShortage: number;
 }
 
+export interface ProductionOrderComponent {
+  id: number;
+  parentComponentId: number | null;
+  skuId: number;
+  skuName: string;
+  resolvedSkuId: number | null;
+  resolvedSkuName: string | null;
+  componentType: 'fg' | 'wip' | 'rm';
+  qtyRequired: string;
+  bomLevel: number;
+  bomPath: string | null;
+}
+
+export interface ProductionOrderOperation {
+  id: number;
+  componentId: number;
+  componentType: 'fg' | 'wip' | 'rm' | null;
+  processStepId: number;
+  stepNo: number;
+  stepName: string;
+  outputSkuId: number | null;
+  outputSkuName: string | null;
+  plannedQty: string;
+  completedQty: string;
+  status: string;
+}
+
+export interface ScheduleAdjustmentPayload {
+  scheduleId: number;
+  workerId?: number;
+  workstationId?: number;
+  plannedQty?: string;
+  expectedUpdatedAt?: string;
+}
+
+export interface ProductionWorkerOption {
+  id: number;
+  name: string;
+  station?: string;
+}
+
+export interface WorkstationOption {
+  id: number;
+  name: string;
+  type: string;
+  capacity: number;
+  status: 'active' | 'inactive';
+  linkedProcessCount: number;
+}
+
+export interface WorkstationPayload {
+  name: string;
+  type: string;
+  capacity?: number;
+  status?: 'active' | 'inactive';
+}
+
 // ── Query Keys ───────────────────────────────
 export const productionKeys = {
   all: ['production'] as const,
@@ -43,6 +101,8 @@ export const productionKeys = {
   orderList: (params: { status?: ProductionOrderStatus; salesOrderId?: number }) =>
     [...productionKeys.orders(), params] as const,
   orderDetail: (id: number) => [...productionKeys.orders(), 'detail', id] as const,
+  orderComponents: (id: number) => [...productionKeys.orders(), id, 'components'] as const,
+  orderOperations: (id: number) => [...productionKeys.orders(), id, 'operations'] as const,
   schedule: (date: string) => [...productionKeys.all, 'schedule', date] as const,
   workerTasks: (workerId: number, date: string) =>
     [...productionKeys.all, 'workerTasks', workerId, date] as const,
@@ -67,13 +127,19 @@ export const productionApi = {
   getOrderById: (id: number) =>
     request.get<ProductionOrder>(`/api/production/orders/${id}`),
 
+  getOrderComponents: (id: number) =>
+    request.get<ProductionOrderComponent[]>(`/api/production/orders/${id}/components`),
+
+  getOrderOperations: (id: number) =>
+    request.get<ProductionOrderOperation[]>(`/api/production/orders/${id}/operations`),
+
   createOrder: (payload: CreateProductionOrderPayload) =>
     request.post<{ id: number; workOrderNo: string }>('/api/production/orders', payload),
 
-  generateSchedule: (date?: string) =>
+  generateSchedule: (date?: string, force?: boolean) =>
     request.get<ScheduleResult>(
       '/api/production/schedule/generate',
-      date ? { date } : undefined,
+      date || force ? { ...(date ? { date } : {}), ...(force ? { force: true } : {}) } : undefined,
       { timeout: config.aiRequestTimeout },
     ),
 
@@ -85,6 +151,24 @@ export const productionApi = {
       `/api/production/tasks/worker/${workerId}`,
       date ? { date } : undefined,
     ),
+
+  adjustSchedule: (date: string, adjustments: ScheduleAdjustmentPayload[]) =>
+    request.put<{ updated: number }>(`/api/production/schedule/${date}/adjust`, { adjustments }),
+
+  getWorkers: () =>
+    request.get<ProductionWorkerOption[]>('/api/production/workers'),
+
+  getWorkstations: (params?: { includeInactive?: boolean }) =>
+    request.get<WorkstationOption[]>('/api/production/workstations', params),
+
+  createWorkstation: (payload: WorkstationPayload) =>
+    request.post<WorkstationOption>('/api/production/workstations', payload),
+
+  updateWorkstation: (id: number, payload: Partial<WorkstationPayload>) =>
+    request.put<WorkstationOption>(`/api/production/workstations/${id}`, payload),
+
+  removeWorkstation: (id: number) =>
+    request.delete<{ id: number }>(`/api/production/workstations/${id}`),
 
   startTask: (taskId: number) =>
     request.post<null>(`/api/production/tasks/${taskId}/start`),
@@ -117,7 +201,7 @@ export function useProductionOrderList(
   pageSize = 20,
 ) {
   return useQuery({
-    queryKey: productionKeys.orderList(params),
+    queryKey: [...productionKeys.orderList(params), page, pageSize],
     queryFn: () => productionApi.getOrders({ ...params, page, pageSize }),
   });
 }
@@ -127,6 +211,22 @@ export function useProductionOrderDetail(id: number | null) {
   return useQuery({
     queryKey: productionKeys.orderDetail(id!),
     queryFn: () => productionApi.getOrderById(id!),
+    enabled: id !== null && id > 0,
+  });
+}
+
+export function useProductionOrderComponents(id: number | null) {
+  return useQuery({
+    queryKey: productionKeys.orderComponents(id!),
+    queryFn: () => productionApi.getOrderComponents(id!),
+    enabled: id !== null && id > 0,
+  });
+}
+
+export function useProductionOrderOperations(id: number | null) {
+  return useQuery({
+    queryKey: productionKeys.orderOperations(id!),
+    queryFn: () => productionApi.getOrderOperations(id!),
     enabled: id !== null && id > 0,
   });
 }
@@ -143,10 +243,11 @@ export function useCreateProductionOrder() {
 }
 
 /** 生成排产计划（3-10s，有12小时缓存） */
-export function useSchedule(date: string) {
+export function useSchedule(date: string | null) {
   return useQuery({
-    queryKey: productionKeys.schedule(date),
-    queryFn: () => productionApi.generateSchedule(date),
+    queryKey: productionKeys.schedule(date ?? 'pending'),
+    queryFn: () => productionApi.generateSchedule(date ?? undefined),
+    enabled: Boolean(date),
     staleTime: 1000 * 60 * 60 * 12, // 12小时缓存
   });
 }
@@ -163,6 +264,18 @@ export function useConfirmSchedule() {
   });
 }
 
+/** 手动调整排产 */
+export function useAdjustSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ date, adjustments }: { date: string; adjustments: ScheduleAdjustmentPayload[] }) =>
+      productionApi.adjustSchedule(date, adjustments),
+    onSuccess: (_data, { date }) => {
+      void qc.invalidateQueries({ queryKey: productionKeys.schedule(date) });
+    },
+  });
+}
+
 /** 工人当日任务 */
 export function useWorkerTasks(workerId: number | null, date: string) {
   return useQuery({
@@ -170,6 +283,55 @@ export function useWorkerTasks(workerId: number | null, date: string) {
     queryFn: () => productionApi.getWorkerTasks(workerId!, date),
     enabled: workerId !== null && workerId > 0,
     refetchInterval: 1000 * 60 * 2, // 每2分钟轮询
+  });
+}
+
+/** 工人列表 */
+export function useProductionWorkers() {
+  return useQuery({
+    queryKey: [...productionKeys.all, 'workers'],
+    queryFn: () => productionApi.getWorkers(),
+    staleTime: 1000 * 60 * 10,
+  });
+}
+
+/** 工作站列表 */
+export function useProductionWorkstations(includeInactive = false) {
+  return useQuery({
+    queryKey: [...productionKeys.all, 'workstations', { includeInactive }],
+    queryFn: () => productionApi.getWorkstations(includeInactive ? { includeInactive: true } : undefined),
+    staleTime: 1000 * 60 * 10,
+  });
+}
+
+export function useCreateProductionWorkstation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: productionApi.createWorkstation,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [...productionKeys.all, 'workstations'] });
+    },
+  });
+}
+
+export function useUpdateProductionWorkstation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: Partial<WorkstationPayload> }) =>
+      productionApi.updateWorkstation(id, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [...productionKeys.all, 'workstations'] });
+    },
+  });
+}
+
+export function useDeleteProductionWorkstation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => productionApi.removeWorkstation(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [...productionKeys.all, 'workstations'] });
+    },
   });
 }
 

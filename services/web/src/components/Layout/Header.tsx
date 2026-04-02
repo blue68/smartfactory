@@ -22,6 +22,7 @@ const PATH_MAP: Record<string, { label: string; group: string }> = {
   '/purchase/suggestions':       { label: 'AI 采购建议', group: '采购' },
   '/purchase/match':             { label: '三单匹配',    group: '采购' },
   '/purchase/prices':            { label: '采购价格',    group: '采购' },
+  '/purchase/settlements':       { label: '采购结算',    group: '采购' },
   '/sales/orders':               { label: '新建订单',    group: '销售' },
   '/sales/order-list':           { label: '订单管理',    group: '销售' },
   '/sales/customers':            { label: '客户管理',    group: '销售' },

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import * as XLSX from 'xlsx';
+import Decimal from 'decimal.js';
 import { AppDataSource } from '../../config/database';
+import { getRedisClient, RedisKeys } from '../../config/redis';
 import { AppError } from '../../shared/AppError';
 import { buildPaginated, PaginatedData, ResponseCode } from '../../shared/ApiResponse';
 import { TenantContext } from '../../shared/BaseRepository';
@@ -230,7 +232,7 @@ export class StocktakingService {
 
     await AppDataSource.transaction(async (manager) => {
       for (const input of inputs) {
-        const [res] = await manager.query(
+        const res = await manager.query(
           `UPDATE stocktaking_items
            SET actual_qty = ?, notes = ?, updated_at = NOW(3)
            WHERE task_id = ? AND sku_id = ? AND tenant_id = ?`,
@@ -317,6 +319,28 @@ export class StocktakingService {
     await AppDataSource.transaction(async (manager) => {
       // 更新 inventory.qty_on_hand（STOCKTAKE_ADJUST）
       for (const row of diffRows) {
+        const [inventoryRow] = await manager.query<Array<{ qty_on_hand: string; stock_unit: string | null }>>(
+          `SELECT i.qty_on_hand, s.stock_unit
+           FROM inventory i
+           INNER JOIN skus s
+             ON s.id = i.sku_id
+            AND s.tenant_id = i.tenant_id
+           WHERE i.tenant_id = ? AND i.sku_id = ?
+           LIMIT 1 FOR UPDATE`,
+          [this.tenantId, row.sku_id],
+        );
+
+        if (!inventoryRow) {
+          throw AppError.notFound(`SKU#${row.sku_id} 的库存记录不存在，无法确认盘点`);
+        }
+
+        const nextQtyOnHand = new Decimal(inventoryRow.qty_on_hand).plus(row.diff_qty);
+        if (nextQtyOnHand.lt(0)) {
+          throw AppError.badRequest(
+            `SKU#${row.sku_id} 盘点调整后在库将变为负数，请刷新盘点任务后重试`,
+          );
+        }
+
         await manager.query(
           `UPDATE inventory
            SET qty_on_hand = qty_on_hand + ?,
@@ -328,13 +352,31 @@ export class StocktakingService {
         // 记录库存流水
         const direction = Number(row.diff_qty) > 0 ? 'IN' : 'OUT';
         const absQty = Math.abs(Number(row.diff_qty));
+        const stockUnit = String(inventoryRow.stock_unit ?? '');
+        const transactionNo = await generateNo('transaction', this.tenantId);
         await manager.query(
           `INSERT INTO inventory_transactions
-             (tenant_id, sku_id, transaction_type, direction, qty_stock_unit,
-              reference_type, reference_id, created_by, created_at)
-           VALUES (?, ?, 'STOCKTAKE_ADJUST', ?, ?, 'stocktaking_task', ?, ?, NOW(3))`,
-          [this.tenantId, row.sku_id, direction, absQty, taskId, this.userId],
+             (tenant_id, transaction_no, sku_id, transaction_type, direction,
+              qty_input, input_unit, qty_stock_unit, stock_unit,
+              reference_type, reference_id, reference_no, notes, created_by, created_at)
+           VALUES (?, ?, ?, 'STOCKTAKE_ADJUST', ?, ?, ?, ?, ?, 'stocktaking_task', ?, ?, ?, ?, NOW(3))`,
+          [
+            this.tenantId,
+            transactionNo,
+            row.sku_id,
+            direction,
+            absQty,
+            stockUnit,
+            absQty,
+            stockUnit,
+            taskId,
+            task.taskNo,
+            '盘点确认差异调整',
+            this.userId,
+          ],
         );
+
+        await this.syncDailySnapshot(manager, row.sku_id);
       }
 
       // 计算 diff_items 数量并更新主任务
@@ -351,6 +393,8 @@ export class StocktakingService {
       );
     });
 
+    await this.invalidateInventorySnapshotCaches(diffRows.map((row) => Number(row.sku_id)));
+
     return { confirmedAt };
   }
 
@@ -363,6 +407,44 @@ export class StocktakingService {
     );
     if (!row) throw AppError.notFound('盘点任务不存在');
     return this.mapTask(row);
+  }
+
+  private async syncDailySnapshot(
+    manager: { query: typeof AppDataSource.query },
+    skuId: number,
+  ): Promise<void> {
+    await manager.query(
+      `INSERT INTO inventory_daily_snapshots
+         (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
+       SELECT
+         tenant_id,
+         CURDATE(),
+         sku_id,
+         qty_on_hand,
+         qty_reserved,
+         qty_on_hand - qty_reserved
+       FROM inventory
+       WHERE tenant_id = ? AND sku_id = ?
+       ON DUPLICATE KEY UPDATE
+         qty_on_hand = VALUES(qty_on_hand),
+         qty_reserved = VALUES(qty_reserved),
+         qty_available = VALUES(qty_available)`,
+      [this.tenantId, skuId],
+    );
+  }
+
+  private async invalidateInventorySnapshotCaches(skuIds: number[]): Promise<void> {
+    if (skuIds.length === 0) return;
+    try {
+      const redis = getRedisClient();
+      await Promise.all(
+        Array.from(new Set(skuIds)).map((skuId) =>
+          redis.del(RedisKeys.inventorySnapshot(this.tenantId, skuId)),
+        ),
+      );
+    } catch (err) {
+      console.warn('[StocktakingService] 库存缓存失效失败，已忽略:', (err as Error).message);
+    }
   }
 
   private mapTask(r: Record<string, unknown>): StocktakingTask {

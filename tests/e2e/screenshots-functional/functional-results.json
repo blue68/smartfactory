@@ -1,0 +1,456 @@
+{
+  "timestamp": "2026-03-18T04:19:52.698Z",
+  "summary": {
+    "total": 74,
+    "pass": 69,
+    "warn": 5,
+    "fail": 0
+  },
+  "results": [
+    {
+      "module": "首页看板",
+      "testName": "页面加载",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "首页看板",
+      "testName": "KPI 卡片渲染",
+      "status": "PASS",
+      "detail": "69 个卡片"
+    },
+    {
+      "module": "首页看板",
+      "testName": "图表组件渲染",
+      "status": "WARN",
+      "detail": "未找到图表组件"
+    },
+    {
+      "module": "库存管理",
+      "testName": "列表数据加载",
+      "status": "PASS",
+      "detail": "20 行数据"
+    },
+    {
+      "module": "库存管理",
+      "testName": "搜索框存在",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "库存管理",
+      "testName": "导出按钮",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "库存管理",
+      "testName": "表格列完整性",
+      "status": "PASS",
+      "detail": "列: , 状态, 物料名称, 分类, 库存量, 安全库存, 库存天数, 缸号批次, 操作"
+    },
+    {
+      "module": "SKU管理",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "20 行"
+    },
+    {
+      "module": "SKU管理",
+      "testName": "统计卡片",
+      "status": "PASS",
+      "detail": "15 个统计元素"
+    },
+    {
+      "module": "SKU管理",
+      "testName": "新增按钮可点击",
+      "status": "PASS",
+      "detail": "弹窗正常打开"
+    },
+    {
+      "module": "SKU管理",
+      "testName": "搜索筛选",
+      "status": "PASS",
+      "detail": "搜索触发成功"
+    },
+    {
+      "module": "BOM管理",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "5 行"
+    },
+    {
+      "module": "BOM管理",
+      "testName": "新增BOM按钮",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "BOM管理",
+      "testName": "展开/成本分析入口",
+      "status": "PASS",
+      "detail": "10 个操作入口"
+    },
+    {
+      "module": "供应商管理",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "3 行"
+    },
+    {
+      "module": "供应商管理",
+      "testName": "新增供应商弹窗",
+      "status": "PASS",
+      "detail": "弹窗正常"
+    },
+    {
+      "module": "供应商管理",
+      "testName": "导出功能",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "工序配置",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "25 行"
+    },
+    {
+      "module": "工序配置",
+      "testName": "新增工序",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "SKU分类",
+      "testName": "分类树/列表加载",
+      "status": "PASS",
+      "detail": "34 个节点/行"
+    },
+    {
+      "module": "SKU分类",
+      "testName": "新增分类",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "采购建议",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "0 行"
+    },
+    {
+      "module": "采购建议",
+      "testName": "审批按钮",
+      "status": "PASS",
+      "detail": "4 个审批相关按钮"
+    },
+    {
+      "module": "采购比价",
+      "testName": "页面加载",
+      "status": "PASS",
+      "detail": "内容长度 548"
+    },
+    {
+      "module": "采购比价",
+      "testName": "三方比价表格/卡片",
+      "status": "PASS",
+      "detail": "1 表格, 24 卡片"
+    },
+    {
+      "module": "价格管理",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "5 行"
+    },
+    {
+      "module": "价格管理",
+      "testName": "导入按钮",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "MRP采购建议",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "1 行"
+    },
+    {
+      "module": "MRP采购建议",
+      "testName": "批量操作按钮",
+      "status": "PASS",
+      "detail": "1 个批量操作"
+    },
+    {
+      "module": "来料检验",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "4 行"
+    },
+    {
+      "module": "来料检验",
+      "testName": "检验操作入口",
+      "status": "PASS",
+      "detail": "4 个操作按钮"
+    },
+    {
+      "module": "退货管理",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "1 行"
+    },
+    {
+      "module": "退货管理",
+      "testName": "新建退货",
+      "status": "WARN",
+      "detail": "未找到新建按钮"
+    },
+    {
+      "module": "销售订单(约束)",
+      "testName": "页面加载",
+      "status": "PASS",
+      "detail": "内容长度 1007"
+    },
+    {
+      "module": "销售订单(约束)",
+      "testName": "紧急插单分析入口",
+      "status": "PASS",
+      "detail": "0 个分析入口"
+    },
+    {
+      "module": "销售订单列表",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "2 行"
+    },
+    {
+      "module": "销售订单列表",
+      "testName": "新增订单弹窗",
+      "status": "PASS",
+      "detail": "弹窗正常"
+    },
+    {
+      "module": "销售订单列表",
+      "testName": "状态筛选",
+      "status": "PASS",
+      "detail": "2 个筛选控件"
+    },
+    {
+      "module": "客户管理",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "2 行"
+    },
+    {
+      "module": "客户管理",
+      "testName": "新增客户",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "客户管理",
+      "testName": "导出功能",
+      "status": "WARN",
+      "detail": "未找到导出按钮"
+    },
+    {
+      "module": "排产计划",
+      "testName": "页面加载",
+      "status": "PASS",
+      "detail": "内容长度 745"
+    },
+    {
+      "module": "排产计划",
+      "testName": "生成排产按钮",
+      "status": "PASS",
+      "detail": "0 个排产操作按钮"
+    },
+    {
+      "module": "生产任务",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "1 行"
+    },
+    {
+      "module": "生产任务",
+      "testName": "任务操作按钮",
+      "status": "PASS",
+      "detail": "2 个操作按钮"
+    },
+    {
+      "module": "生产工单",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "1 行"
+    },
+    {
+      "module": "生产工单",
+      "testName": "新建工单",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "生产工单",
+      "testName": "物料检查入口",
+      "status": "PASS",
+      "detail": "0 个物料操作"
+    },
+    {
+      "module": "缺料看板",
+      "testName": "页面加载",
+      "status": "PASS",
+      "detail": "内容长度 410"
+    },
+    {
+      "module": "缺料看板",
+      "testName": "看板卡片/表格",
+      "status": "PASS",
+      "detail": "3 卡片, 1 表格"
+    },
+    {
+      "module": "质量追溯",
+      "testName": "页面加载",
+      "status": "PASS",
+      "detail": "内容长度 710"
+    },
+    {
+      "module": "质量追溯",
+      "testName": "搜索/追溯查询",
+      "status": "PASS",
+      "detail": "0 个搜索入口"
+    },
+    {
+      "module": "质量追溯",
+      "testName": "统计数据",
+      "status": "PASS",
+      "detail": "19 个统计元素"
+    },
+    {
+      "module": "工资报表",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "1 行"
+    },
+    {
+      "module": "工资报表",
+      "testName": "导出按钮",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "工资报表",
+      "testName": "时间筛选",
+      "status": "PASS",
+      "detail": "2 个日期选择器"
+    },
+    {
+      "module": "我的工资",
+      "testName": "页面加载",
+      "status": "PASS",
+      "detail": "内容长度 362"
+    },
+    {
+      "module": "智能排产建议",
+      "testName": "统计卡片",
+      "status": "PASS",
+      "detail": "36 个卡片"
+    },
+    {
+      "module": "智能排产建议",
+      "testName": "历史记录表格",
+      "status": "PASS",
+      "detail": "4 行历史记录"
+    },
+    {
+      "module": "智能排产建议",
+      "testName": "生成建议按钮",
+      "status": "PASS",
+      "detail": "4 个操作按钮"
+    },
+    {
+      "module": "AI助手",
+      "testName": "对话界面渲染",
+      "status": "PASS",
+      "detail": "48 个聊天元素"
+    },
+    {
+      "module": "AI助手",
+      "testName": "输入框存在",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "module": "AI助手",
+      "testName": "发送按钮",
+      "status": "WARN",
+      "detail": "未找到发送按钮"
+    },
+    {
+      "module": "AI助手",
+      "testName": "发送消息交互",
+      "status": "WARN",
+      "detail": "未能发送消息"
+    },
+    {
+      "module": "通知中心",
+      "testName": "页面加载",
+      "status": "PASS",
+      "detail": "内容长度 360"
+    },
+    {
+      "module": "通知中心",
+      "testName": "通知列表",
+      "status": "PASS",
+      "detail": "30 个通知项"
+    },
+    {
+      "module": "通知中心",
+      "testName": "全部已读按钮",
+      "status": "PASS",
+      "detail": "2 个标记按钮"
+    },
+    {
+      "module": "库存盘点",
+      "testName": "列表加载",
+      "status": "PASS",
+      "detail": "8 行"
+    },
+    {
+      "module": "库存盘点",
+      "testName": "新建盘点",
+      "status": "PASS",
+      "detail": "弹窗未检测到"
+    },
+    {
+      "module": "销售结算",
+      "testName": "页面加载",
+      "status": "PASS",
+      "detail": "内容长度 397"
+    },
+    {
+      "module": "销售结算",
+      "testName": "结算列表/空状态",
+      "status": "PASS",
+      "detail": "1 行数据"
+    },
+    {
+      "module": "经营分析",
+      "testName": "页面加载",
+      "status": "PASS",
+      "detail": "内容长度 411"
+    },
+    {
+      "module": "经营分析",
+      "testName": "Tab 切换",
+      "status": "PASS",
+      "detail": "4 个 Tab，已切换测试"
+    },
+    {
+      "module": "经营分析",
+      "testName": "图表渲染",
+      "status": "PASS",
+      "detail": "0 个图表元素"
+    }
+  ],
+  "pageErrors": []
+}

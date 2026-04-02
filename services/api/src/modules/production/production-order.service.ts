@@ -6,6 +6,8 @@ import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import { BomSnapshotService } from './bom-snapshot.service';
 import { generateNo } from '../../shared/generateNo';
+import { MrpService } from '../mrp/mrp.service';
+import { getRedisClient, RedisKeys } from '../../config/redis';
 
 // ─── 内部行类型 ──────────────────────────────────────────────────────────────
 
@@ -35,19 +37,23 @@ interface ProcessTemplateRow {
 interface InventoryRow {
   qty_on_hand: string;
   qty_reserved: string;
+  qty_in_transit: string;
 }
 
 interface MaterialRequirementRow {
   id: number;
-  sku_id: number;
-  sku_code: string;
-  sku_name: string;
-  qty_required: string;
-  qty_reserved: string;
-  qty_shortage: string;
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  purchaseUnit: string | null;
+  qtyRequired: string;
+  qtyReserved: string;
+  qtyShortage: string;
   status: string;
-  qty_on_hand: string;
-  available_qty: string;
+  qtyOnHand?: string;
+  availableQty?: string;
+  currentStock: string;
+  inTransit: string;
 }
 
 // ─── 公共接口 ────────────────────────────────────────────────────────────────
@@ -88,6 +94,65 @@ export class ProductionOrderService {
     this.snapshotSvc = new BomSnapshotService(ctx);
   }
 
+  private _mrpService(): MrpService {
+    return new MrpService({ tenantId: this.tenantId, userId: this.userId });
+  }
+
+  private trackInventorySnapshotSkuIds(manager: EntityManager, skuIds: number[]): void {
+    const trackedManager = manager as EntityManager & {
+      __inventorySnapshotSkuIds?: Set<number>;
+    };
+    const tracked = (trackedManager.__inventorySnapshotSkuIds ??= new Set<number>());
+    skuIds.forEach((skuId) => tracked.add(Number(skuId)));
+  }
+
+  static drainTrackedInventorySnapshotSkuIds(manager: EntityManager): number[] {
+    const trackedManager = manager as EntityManager & {
+      __inventorySnapshotSkuIds?: Set<number>;
+    };
+    const skuIds = Array.from(trackedManager.__inventorySnapshotSkuIds ?? []);
+    delete trackedManager.__inventorySnapshotSkuIds;
+    return skuIds;
+  }
+
+  async invalidateInventorySnapshotCaches(skuIds: number[]): Promise<void> {
+    if (skuIds.length === 0) return;
+    try {
+      const redis = getRedisClient();
+      await Promise.all(
+        Array.from(new Set(skuIds)).map((skuId) =>
+          redis.del(RedisKeys.inventorySnapshot(this.tenantId, skuId)),
+        ),
+      );
+    } catch (err) {
+      console.warn('[ProductionOrderService] 库存缓存失效失败，已忽略:', (err as Error).message);
+    }
+  }
+
+  private async syncDailySnapshot(
+    manager: Pick<EntityManager, 'query'>,
+    skuId: number,
+  ): Promise<void> {
+    await manager.query(
+      `INSERT INTO inventory_daily_snapshots
+         (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
+       SELECT
+         tenant_id,
+         CURDATE(),
+         sku_id,
+         qty_on_hand,
+         qty_reserved,
+         qty_on_hand - qty_reserved
+       FROM inventory
+       WHERE tenant_id = ? AND sku_id = ?
+       ON DUPLICATE KEY UPDATE
+         qty_on_hand = VALUES(qty_on_hand),
+         qty_reserved = VALUES(qty_reserved),
+         qty_available = VALUES(qty_available)`,
+      [this.tenantId, skuId],
+    );
+  }
+
   // ── R-10: 从销售订单创建生产工单 ──────────────────────────────────────────
 
   /**
@@ -100,7 +165,10 @@ export class ProductionOrderService {
     salesOrderId: number,
     outerManager?: EntityManager,
   ): Promise<CreatedOrder[]> {
-    const run = async (manager: EntityManager): Promise<CreatedOrder[]> => {
+    const run = async (
+      manager: EntityManager,
+    ): Promise<{ createdOrders: CreatedOrder[]; affectedSkuIds: number[] }> => {
+      const affectedSkuIds = new Set<number>();
       // 1. 查询销售订单
       const salesOrderRows: SalesOrderRow[] = await manager.query(
         `SELECT id, order_no, status, expected_delivery
@@ -115,9 +183,9 @@ export class ProductionOrderService {
 
       const salesOrder = salesOrderRows[0];
 
-      if (!['confirmed', 'approved'].includes(salesOrder.status)) {
+      if (salesOrder.status !== 'confirmed') {
         throw AppError.badRequest(
-          `销售订单状态为 "${salesOrder.status}"，无法创建工单（需为 confirmed 或 approved）`,
+          `销售订单状态为 "${salesOrder.status}"，无法创建工单（需为 confirmed）`,
           ResponseCode.ORDER_CANNOT_MODIFY,
         );
       }
@@ -127,7 +195,7 @@ export class ProductionOrderService {
         `SELECT soi.id, soi.sku_id, s.sku_code, soi.qty_ordered
          FROM sales_order_items soi
          INNER JOIN skus s ON s.id = soi.sku_id
-         WHERE soi.sales_order_id = ? AND soi.tenant_id = ?
+         WHERE soi.order_id = ? AND soi.tenant_id = ?
          ORDER BY soi.id`,
         [salesOrderId, this.tenantId],
       );
@@ -143,7 +211,7 @@ export class ProductionOrderService {
         // 3a. 查询激活 BOM
         const bomRows: ActiveBomRow[] = await manager.query(
           `SELECT id, version FROM bom_headers
-           WHERE sku_id = ? AND tenant_id = ? AND is_active = 1
+           WHERE sku_id = ? AND tenant_id = ? AND status = 'active'
            LIMIT 1`,
           [item.sku_id, this.tenantId],
         );
@@ -157,13 +225,21 @@ export class ProductionOrderService {
 
         const bom = bomRows[0];
 
-        // 3b. 查询工艺模板（按 sku_id 匹配最新模板）
-        const templateRows: ProcessTemplateRow[] = await manager.query(
+        // 3b. 查询工艺模板（T-05: 优先 is_default=1，fallback 最新）
+        let templateRows: ProcessTemplateRow[] = await manager.query(
           `SELECT id FROM process_templates
-           WHERE sku_id = ? AND tenant_id = ?
-           ORDER BY id DESC LIMIT 1`,
+           WHERE sku_id = ? AND tenant_id = ? AND is_default = 1
+           LIMIT 1`,
           [item.sku_id, this.tenantId],
         );
+        if (templateRows.length === 0) {
+          templateRows = await manager.query(
+            `SELECT id FROM process_templates
+             WHERE sku_id = ? AND tenant_id = ?
+             ORDER BY id DESC LIMIT 1`,
+            [item.sku_id, this.tenantId],
+          );
+        }
 
         if (templateRows.length === 0) {
           throw AppError.badRequest(
@@ -215,8 +291,8 @@ export class ProductionOrderService {
           await manager.query(
             `INSERT INTO material_requirements
                (tenant_id, production_order_id, bom_snapshot_id, sku_id,
-                qty_required, qty_reserved, qty_shortage, status, created_by, updated_by)
-             VALUES (?, ?, ?, ?, ?, 0, ?, 'shortage', ?, ?)`,
+                qty_required, qty_reserved, qty_shortage, status)
+             VALUES (?, ?, ?, ?, ?, 0, ?, 'shortage')`,
             [
               this.tenantId,
               productionOrderId,
@@ -224,8 +300,6 @@ export class ProductionOrderService {
               material.skuId,
               material.qty,
               material.qty,
-              this.userId,
-              this.userId,
             ],
           );
         }
@@ -238,11 +312,11 @@ export class ProductionOrderService {
         for (const material of expandedItems) {
           const requiredQty = new Decimal(material.qty);
 
-          // 查询当前库存可用量
+          // 锁定库存行后再计算可用量，避免并发工单建单时基于旧快照超预留。
           const invRows: InventoryRow[] = await manager.query(
             `SELECT qty_on_hand, qty_reserved
              FROM inventory
-             WHERE sku_id = ? AND tenant_id = ? LIMIT 1`,
+             WHERE sku_id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
             [material.skuId, this.tenantId],
           );
 
@@ -266,6 +340,8 @@ export class ProductionOrderService {
             );
 
             if (Number(updateResult.affectedRows) > 0) {
+              await this.syncDailySnapshot(manager, material.skuId);
+              affectedSkuIds.add(Number(material.skuId));
               // 更新物料需求行状态
               await manager.query(
                 `UPDATE material_requirements
@@ -294,6 +370,8 @@ export class ProductionOrderService {
                WHERE sku_id = ? AND tenant_id = ?`,
               [reserveQty.toFixed(6), material.skuId, this.tenantId],
             );
+            await this.syncDailySnapshot(manager, material.skuId);
+            affectedSkuIds.add(Number(material.skuId));
 
             await manager.query(
               `UPDATE material_requirements
@@ -329,6 +407,10 @@ export class ProductionOrderService {
           [materialStatus, this.userId, productionOrderId, this.tenantId],
         );
 
+        if (materialStatus !== 'ready') {
+          await this._mrpService().generateSuggestions(productionOrderId, manager);
+        }
+
         createdOrders.push({
           id: productionOrderId,
           workOrderNo,
@@ -346,14 +428,21 @@ export class ProductionOrderService {
         [this.userId, salesOrderId, this.tenantId],
       );
 
-      return createdOrders;
+      return {
+        createdOrders,
+        affectedSkuIds: Array.from(affectedSkuIds),
+      };
     };
 
     // 若调用方已有事务则复用，否则开启新事务
     if (outerManager) {
-      return run(outerManager);
+      const result = await run(outerManager);
+      this.trackInventorySnapshotSkuIds(outerManager, result.affectedSkuIds);
+      return result.createdOrders;
     }
-    return AppDataSource.transaction(run);
+    const result = await AppDataSource.transaction(run);
+    await this.invalidateInventorySnapshotCaches(result.affectedSkuIds);
+    return result.createdOrders;
   }
 
   // ── 工单列表 ─────────────────────────────────────────────────────────────
@@ -455,11 +544,13 @@ export class ProductionOrderService {
   // ── 取消工单 ─────────────────────────────────────────────────────────────
 
   async cancel(id: number): Promise<void> {
+    const affectedSkuIds = new Set<number>();
+
     await AppDataSource.transaction(async (manager) => {
       // 查询工单状态
       const orderRows = await manager.query(
         `SELECT id, status, bom_snapshot_id FROM production_orders
-         WHERE id = ? AND tenant_id = ? LIMIT 1`,
+         WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
         [id, this.tenantId],
       );
 
@@ -510,6 +601,8 @@ export class ProductionOrderService {
              WHERE sku_id = ? AND tenant_id = ?`,
             [mat.qty_reserved, mat.sku_id, this.tenantId],
           );
+          await this.syncDailySnapshot(manager, mat.sku_id);
+          affectedSkuIds.add(Number(mat.sku_id));
         }
       }
 
@@ -521,6 +614,8 @@ export class ProductionOrderService {
         [id, this.tenantId],
       );
     });
+
+    await this.invalidateInventorySnapshotCaches(Array.from(affectedSkuIds));
   }
 
   // ── 获取工单物料需求明细 ──────────────────────────────────────────────────
@@ -538,16 +633,35 @@ export class ProductionOrderService {
 
     return AppDataSource.query(
       `SELECT mr.id, mr.sku_id AS skuId, s.sku_code AS skuCode, s.name AS skuName,
+              s.purchase_unit AS purchaseUnit,
               mr.qty_required AS qtyRequired, mr.qty_reserved AS qtyReserved,
               mr.qty_shortage AS qtyShortage, mr.status,
               COALESCE(inv.qty_on_hand, 0) AS qtyOnHand,
-              COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) AS availableQty
+              COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) AS availableQty,
+              COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) AS currentStock,
+              COALESCE(transit.qty_in_transit, 0) AS inTransit
        FROM material_requirements mr
        INNER JOIN skus s ON s.id = mr.sku_id
        LEFT JOIN inventory inv ON inv.sku_id = mr.sku_id AND inv.tenant_id = mr.tenant_id
+       LEFT JOIN (
+         SELECT poi.sku_id,
+                COALESCE(SUM(
+                  GREATEST(poi.qty_ordered - poi.qty_received, 0) *
+                  COALESCE(uc.conversion_rate, 1)
+                ), 0) AS qty_in_transit
+         FROM purchase_order_items poi
+         INNER JOIN purchase_orders po ON po.id = poi.po_id AND po.tenant_id = poi.tenant_id
+         LEFT JOIN sku_unit_conversions uc
+           ON uc.sku_id = poi.sku_id
+          AND uc.from_unit = poi.purchase_unit
+          AND uc.tenant_id = poi.tenant_id
+         WHERE poi.tenant_id = ?
+           AND po.status IN ('confirmed', 'partial_received')
+         GROUP BY poi.sku_id
+       ) transit ON transit.sku_id = mr.sku_id
        WHERE mr.production_order_id = ? AND mr.tenant_id = ?
        ORDER BY mr.id`,
-      [id, this.tenantId],
+      [this.tenantId, id, this.tenantId],
     );
   }
 

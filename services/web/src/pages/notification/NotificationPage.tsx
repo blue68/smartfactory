@@ -15,6 +15,7 @@ import Button from '@/components/common/Button';
 import {
   useNotifications,
   useUnreadCount,
+  useNotificationStream,
   useMarkAsRead,
   useMarkAllAsRead,
   type NotificationType,
@@ -80,6 +81,7 @@ export default function NotificationPage() {
   const [page, setPage] = useState(1);
 
   useEffect(() => { setPageTitle('通知中心'); }, [setPageTitle]);
+  useNotificationStream();
 
   const query: NotificationListQuery = {
     page,

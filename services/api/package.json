@@ -11,7 +11,10 @@
     "test": "jest --forceExit --detectOpenHandles",
     "test:unit": "jest tests/unit/ --forceExit",
     "test:integration": "jest tests/integration/ --forceExit --detectOpenHandles",
+    "test:integration:managed": "TEST_DEFAULT_TARGET=tests/integration/ bash ../../scripts/run-api-integration.sh",
+    "test:integration:local": "UPLOAD_DIR=/tmp/uploads jest --testPathPattern=tests/integration/.*\\.local\\.test\\.ts$ --runInBand --forceExit",
     "test:e2e": "jest tests/e2e/ --forceExit --detectOpenHandles --testTimeout=60000",
+    "test:e2e:managed": "TEST_DEFAULT_TARGET=tests/e2e/ TEST_TIMEOUT_MS=90000 bash ../../scripts/run-api-integration.sh",
     "test:coverage": "jest tests/unit/ --coverage --forceExit"
   },
   "dependencies": {

@@ -1,0 +1,14 @@
+name: Setup API Managed Test CI
+description: Prepare dependencies and database schema for managed API integration/e2e jobs
+
+runs:
+  using: composite
+  steps:
+    - name: Install API dependencies
+      shell: bash
+      run: npm ci
+      working-directory: services/api
+
+    - name: Apply API test DB schema
+      shell: bash
+      run: bash scripts/prepare-api-test-db.sh

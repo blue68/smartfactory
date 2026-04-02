@@ -3,6 +3,11 @@ import { z } from 'zod';
 import { PurchaseService } from './purchase.service';
 import { SuggestionService } from './suggestion.service';
 import { ThreeWayMatchService } from './threeWayMatch.service';
+import {
+  PurchaseSettlementService,
+  CreatePurchaseSettlementSchema,
+  ListPurchaseSettlementSchema,
+} from './purchaseSettlement.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
 
@@ -35,6 +40,14 @@ const CreateDeliveryNoteSchema = z.object({
   items: z.array(DeliveryNoteItemSchema).min(1),
 });
 
+const ClosePOSchema = z.object({
+  reason: z.string().trim().min(1).max(200),
+});
+
+const UpdateReceiptNotesSchema = z.object({
+  notes: z.string().trim().min(1).max(500),
+});
+
 const ApproveSchema = z.object({
   approved: z.boolean(),
   rejectReason: z.string().max(500).optional(),
@@ -55,6 +68,7 @@ export class PurchaseController {
   private svc(req: Request) { return new PurchaseService({ tenantId: req.tenantId, userId: req.userId }); }
   private suggSvc(req: Request) { return new SuggestionService({ tenantId: req.tenantId, userId: req.userId }); }
   private matchSvc(req: Request) { return new ThreeWayMatchService({ tenantId: req.tenantId, userId: req.userId }); }
+  private settlementSvc(req: Request) { return new PurchaseSettlementService({ tenantId: req.tenantId, userId: req.userId }); }
 
   // ── 采购建议 ──
 
@@ -93,6 +107,68 @@ export class PurchaseController {
     created(res, data, '采购订单已创建');
   }
 
+  async getOrderById(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const data = await this.svc(req).getById(id);
+    success(res, data);
+  }
+
+  async closeOrder(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const body = ClosePOSchema.parse(req.body);
+    await this.svc(req).closeOrder(id, body);
+    success(res, null, '采购订单已关闭');
+  }
+
+  async listTailOrders(req: Request, res: Response): Promise<void> {
+    const q = PaginationSchema.parse(req.query);
+    const { list, total } = await this.svc(req).listTailOrders(q);
+    success(res, buildPaginated(list, total, q.page, q.pageSize));
+  }
+
+  async listOrderDeliveries(req: Request, res: Response): Promise<void> {
+    const poId = Number(req.params.id);
+    const data = await this.svc(req).listDeliveryNotesByOrderId(poId);
+    success(res, data);
+  }
+
+  async listDeliveryNotes(req: Request, res: Response): Promise<void> {
+    const q = PaginationSchema.extend({
+      status: z.string().optional(),
+      poId: z.coerce.number().int().positive().optional(),
+    }).parse(req.query);
+    const { list, total } = await this.svc(req).listDeliveryNotes(q);
+    success(res, buildPaginated(list, total, q.page, q.pageSize));
+  }
+
+  async getDeliveryNoteById(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const data = await this.svc(req).getDeliveryNoteById(id);
+    success(res, data);
+  }
+
+  async listReceipts(req: Request, res: Response): Promise<void> {
+    const q = PaginationSchema.extend({
+      status: z.string().optional(),
+      poId: z.coerce.number().int().positive().optional(),
+    }).parse(req.query);
+    const { list, total } = await this.svc(req).listReceipts(q);
+    success(res, buildPaginated(list, total, q.page, q.pageSize));
+  }
+
+  async getReceiptById(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const data = await this.svc(req).getReceiptById(id);
+    success(res, data);
+  }
+
+  async updateReceiptNotes(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const body = UpdateReceiptNotesSchema.parse(req.body);
+    await this.svc(req).updateReceiptNotes(id, body);
+    success(res, null, '入库备注已更新');
+  }
+
   async createDeliveryNote(req: Request, res: Response): Promise<void> {
     const body = CreateDeliveryNoteSchema.parse(req.body);
     const data = await this.svc(req).createDeliveryNote(body);
@@ -111,9 +187,17 @@ export class PurchaseController {
     const q = PaginationSchema.extend({
       status: z.string().optional(),
       supplierId: z.coerce.number().int().positive().optional(),
+      poId: z.coerce.number().int().positive().optional(),
+      receiptId: z.coerce.number().int().positive().optional(),
     }).parse(req.query);
     const { list, total } = await this.matchSvc(req).listMatchRecords(q);
     success(res, buildPaginated(list, total, q.page, q.pageSize));
+  }
+
+  async getMatchById(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const data = await this.matchSvc(req).getMatchById(id);
+    success(res, data);
   }
 
   async confirmDiff(req: Request, res: Response): Promise<void> {
@@ -121,6 +205,71 @@ export class PurchaseController {
     const { diffReason, diffNotes } = ConfirmDiffSchema.parse(req.body);
     await this.matchSvc(req).confirmDiff(id, diffReason, diffNotes);
     success(res, null, '差异已确认');
+  }
+
+  // ── 采购结算 ──
+
+  async createSettlement(req: Request, res: Response): Promise<void> {
+    const body = CreatePurchaseSettlementSchema.parse(req.body);
+    const data = await this.settlementSvc(req).createSettlement(body);
+    created(res, data, '采购结算单创建成功');
+  }
+
+  async listSettlements(req: Request, res: Response): Promise<void> {
+    const q = ListPurchaseSettlementSchema.parse(req.query);
+    const data = await this.settlementSvc(req).listSettlements(q);
+    success(res, data);
+  }
+
+  async exportSettlements(req: Request, res: Response): Promise<void> {
+    const q = ListPurchaseSettlementSchema.parse(req.query);
+    const rows = await this.settlementSvc(req).listSettlementExportRows(q);
+    const headers = ['结算单号', '采购单号', '供应商', '入库单号', '结算金额', '状态', '到期日', '创建时间'];
+    const escape = (s: string) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+    const encodedFilename = encodeURIComponent('采购结算.csv');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="purchase_settlements.csv"; filename*=UTF-8''${encodedFilename}`);
+    res.write('\uFEFF' + headers.map(escape).join(',') + '\n');
+
+    for (const row of rows) {
+      res.write([
+        row.settlementNo,
+        row.poNo,
+        row.supplierName,
+        row.receiptNo,
+        row.totalAmount,
+        row.status,
+        row.dueDate ?? '',
+        row.createdAt,
+      ].map(escape).join(',') + '\n');
+    }
+
+    res.end();
+  }
+
+  async getSettlementById(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const data = await this.settlementSvc(req).getDetail(id);
+    success(res, data);
+  }
+
+  async confirmSettlement(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const data = await this.settlementSvc(req).confirmSettlement(id);
+    success(res, data, '采购结算单确认成功');
+  }
+
+  async paySettlement(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const data = await this.settlementSvc(req).paySettlement(id);
+    success(res, data, '采购结算单已标记为已付款');
+  }
+
+  async cancelSettlement(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const data = await this.settlementSvc(req).cancelSettlement(id);
+    success(res, data, '采购结算单已取消');
   }
 }
 

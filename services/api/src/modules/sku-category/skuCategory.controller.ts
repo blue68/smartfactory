@@ -40,7 +40,7 @@ const UpdateCategorySchema = z.object({
 
 // BE-01-02: 审计日志查询 Schema
 const AuditLogsQuerySchema = z.object({
-  type: z.enum(['add', 'edit', 'delete']).optional(),
+  type: z.enum(['create', 'update', 'delete', 'add', 'edit']).optional(),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
@@ -144,8 +144,14 @@ export class SkuCategoryController {
    */
   async getAuditLogs(req: Request, res: Response): Promise<void> {
     const q = AuditLogsQuerySchema.parse(req.query);
+    // Normalize frontend type values (create→add, update→edit) to service layer values
+    const typeMap: Record<string, 'add' | 'edit' | 'delete'> = {
+      create: 'add', add: 'add',
+      update: 'edit', edit: 'edit',
+      delete: 'delete',
+    };
     const logs = await this.svc(req).getAuditLogs({
-      type: q.type,
+      type: q.type ? typeMap[q.type] : undefined,
       from: q.from,
       to: q.to,
     });

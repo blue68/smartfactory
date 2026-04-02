@@ -57,6 +57,323 @@
   border-bottom-color: var(--color-primary-500);
 }
 
+/* ── 筛选栏 ───────────────────────────────────── */
+.filter_bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.filter_input {
+  min-width: 280px;
+  flex: 1 1 320px;
+  height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.filter_checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.filter_actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.active_filter_bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.active_filter_chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.375rem 0.75rem;
+  border-radius: 999px;
+  background: var(--color-primary-50, #eff6ff);
+  color: var(--color-primary-700);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.active_filter_clear {
+  border: none;
+  background: none;
+  color: var(--color-primary-600);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── 应收汇总 ─────────────────────────────────── */
+.receivable_grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+}
+
+.receivable_switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.receivable_switch_btn {
+  padding: 0.5rem 0.875rem;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.receivable_switch_btn--active {
+  background: var(--color-primary-600);
+  border-color: var(--color-primary-600);
+  color: #fff;
+}
+
+.receivable_card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.receivable_card_header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.receivable_card_title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.receivable_card_meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.receivable_list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.receivable_bar_row {
+  display: grid;
+  grid-template-columns: 96px 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.receivable_bar_row_active {
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-50, #eff6ff);
+}
+
+.receivable_bar_label {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.receivable_bar_track {
+  position: relative;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--color-gray-100);
+  overflow: hidden;
+}
+
+.receivable_bar_fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, #f59e0b 0%, #ef4444 100%);
+  border-radius: 999px;
+}
+
+.receivable_bar_value {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding-left: var(--space-3);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.receivable_bar_meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.receivable_total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.receivable_total strong {
+  font-size: 1.25rem;
+  color: var(--color-error-600, #dc2626);
+  font-variant-numeric: tabular-nums;
+}
+
+.receivable_table_wrap {
+  overflow-x: auto;
+}
+
+.aging_summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.aging_metric {
+  padding: var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-50, #f9fafb);
+}
+
+.aging_metric_label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.aging_metric_value {
+  font-size: 1.25rem;
+  color: var(--color-error-700, #b91c1c);
+  font-variant-numeric: tabular-nums;
+}
+
+.aging_list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.aging_row {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.aging_label {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+}
+
+.aging_track {
+  position: relative;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--color-gray-100);
+  overflow: hidden;
+}
+
+.aging_fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, #f97316 0%, #dc2626 100%);
+  border-radius: 999px;
+}
+
+.aging_value {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding-left: var(--space-3);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.aging_meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.receivable_table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.receivable_table th,
+.receivable_table td {
+  padding: var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-gray-100);
+}
+
+.receivable_table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  background: var(--color-gray-50, #f9fafb);
+}
+
+.receivable_amount_cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--color-warning-700, #b45309);
+}
+
+.receivable_empty,
+.receivable_empty_cell {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+.receivable_empty_cell {
+  text-align: center;
+}
+
 /* ── 表格容器 ─────────────────────────────────── */
 .table_wrap {
   background: var(--bg-card);
@@ -113,6 +430,27 @@
 .cell_secondary {
   color: var(--text-secondary);
   font-size: 0.8125rem;
+}
+
+.cell_overdue {
+  color: var(--color-error-700, #b91c1c);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.overdue_badge {
+  display: inline-flex;
+  margin-left: var(--space-2);
+  padding: 0.125rem 0.375rem;
+  border-radius: 999px;
+  background: var(--color-error-50, #fef2f2);
+  color: var(--color-error-700, #b91c1c);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.row_overdue {
+  background: linear-gradient(90deg, rgba(254, 242, 242, 0.9) 0%, rgba(255, 255, 255, 0) 100%);
 }
 
 /* ── 状态徽章 ─────────────────────────────────── */
@@ -280,6 +618,25 @@
 
 @media (max-width: 767px) {
   .page_header { flex-direction: column; align-items: stretch; }
+  .filter_input {
+    min-width: 100%;
+  }
+  .filter_actions {
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+  .receivable_bar_row {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
+  .aging_summary {
+    grid-template-columns: 1fr;
+  }
+  .aging_row {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
   .table thead th:nth-child(5),
   .table tbody td:nth-child(5) { display: none; }
   .pagination { flex-direction: column; align-items: flex-start; }

@@ -2,7 +2,7 @@
 # CI — Pull Request 检查
 # 触发: PR 向 main / develop 提交或更新时
 # 步骤: type-check → lint → unit-test (后端 + 前端并行)
-#       → integration-test (后端，依赖 MySQL + Redis)
+#       → integration-test / e2e-test (后端，依赖 MySQL + Redis)
 # =============================================================================
 
 name: CI
@@ -14,12 +14,31 @@ on:
       - develop
     paths:
       - "services/**"
-      - ".github/workflows/ci.yml"
+      - "tests/**"
+      - "scripts/**"
+      - "infra/**"
+      - "docker-compose.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "playwright.config.ts"
+      - "playwright.global-setup.ts"
+      - ".github/workflows/**"
+      - ".github/actions/**"
   push:
     branches:
       - develop
     paths:
       - "services/**"
+      - "tests/**"
+      - "scripts/**"
+      - "infra/**"
+      - "docker-compose.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "playwright.config.ts"
+      - "playwright.global-setup.ts"
+      - ".github/workflows/**"
+      - ".github/actions/**"
 
 concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
@@ -71,87 +90,21 @@ jobs:
   # 后端: integration test (依赖 MySQL 8.0 + Redis 7)
   # ---------------------------------------------------------------------------
   api-integration:
-    name: "API — integration test"
-    runs-on: ubuntu-latest
     needs: api-unit
-    defaults:
-      run:
-        working-directory: services/api
+    uses: ./.github/workflows/api-managed-test.yml
+    with:
+      job_name: "API — integration test"
+      test_command: "npm run test:integration:managed"
 
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: smart_factory_test
-          MYSQL_USER: sfuser
-          MYSQL_PASSWORD: sfpass
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost -u root -proot"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-          --health-start-period=30s
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=5s
-          --health-timeout=3s
-          --health-retries=10
-
-    env:
-      NODE_ENV: test
-      PORT: 3000
-      DB_HOST: 127.0.0.1
-      DB_PORT: 3306
-      DB_NAME: smart_factory_test
-      DB_USER: sfuser
-      DB_PASS: sfpass
-      REDIS_HOST: 127.0.0.1
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ""
-      JWT_SECRET: ci-test-secret-do-not-use-in-prod-32c
-      JWT_REFRESH_SECRET: ci-test-refresh-secret-32chars
-      JWT_EXPIRES_IN: 1h
-      CORS_ORIGINS: http://localhost
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: services/api/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Apply DB init schema
-        run: |
-          mysql -h 127.0.0.1 -P 3306 -u sfuser -psfpass smart_factory_test \
-            < ../../infra/db/init.sql 2>/dev/null || \
-          mysql -h 127.0.0.1 -P 3306 -u root -proot smart_factory_test \
-            < ../../infra/db/init.sql || echo "init.sql skipped"
-
-      - name: Run migrations
-        run: |
-          for f in $(ls src/migrations/*.sql 2>/dev/null | sort); do
-            echo "Applying $f ..."
-            mysql -h 127.0.0.1 -P 3306 -u sfuser -psfpass smart_factory_test < "$f"
-          done
-
-      - name: Build
-        run: npm run build
-
-      - name: Integration tests
-        run: npm run test:integration -- --ci --forceExit --detectOpenHandles
+  # ---------------------------------------------------------------------------
+  # 后端: e2e test (依赖 MySQL 8.0 + Redis 7)
+  # ---------------------------------------------------------------------------
+  api-e2e:
+    needs: api-integration
+    uses: ./.github/workflows/api-managed-test.yml
+    with:
+      job_name: "API — e2e test"
+      test_command: "npm run test:e2e:managed"
 
   # ---------------------------------------------------------------------------
   # 前端: lint + type-check + unit test
@@ -185,28 +138,455 @@ jobs:
         run: npm test
 
   # ---------------------------------------------------------------------------
+  # 前端: Playwright mock browser regression
+  # ---------------------------------------------------------------------------
+  web-ui-mock:
+    name: "Web UI — Playwright mock browser (${{ matrix.label }})"
+    runs-on: ubuntu-latest
+    needs: web
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: settlement
+            command: npm run test:web:ui:settlement
+            artifact: web-ui-mock-settlement
+          - label: sales-order
+            command: npm run test:web:ui:sales-order
+            artifact: web-ui-mock-sales-order
+          - label: purchase-delivery
+            command: npm run test:web:ui:purchase-delivery
+            artifact: web-ui-mock-purchase-delivery
+          - label: process-config
+            command: npm run test:web:ui:process-config
+            artifact: web-ui-mock-process-config
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            services/web/package-lock.json
+
+      - uses: ./.github/actions/setup-web-ui-mock-ci
+
+      - name: Playwright mock browser regression
+        run: ${{ matrix.command }}
+
+      - name: Upload Playwright artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 采购前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  purchase-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Purchase UI — Playwright smoke"
+      test_command: "npm run test:purchase:ui:smoke"
+      artifact_name: "purchase-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 来料质检前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  incoming-inspection-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Incoming Inspection UI — Playwright smoke"
+      test_command: "npm run test:incoming-inspection:ui:smoke"
+      artifact_name: "incoming-inspection-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 采购建议管理前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  purchase-suggestion-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Purchase Suggestion UI — Playwright smoke"
+      test_command: "npm run test:purchase-suggestion:ui:smoke"
+      artifact_name: "purchase-suggestion-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 销售订单前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  sales-order-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Sales Order UI — Playwright smoke"
+      test_command: "npm run test:sales-order:ui:smoke"
+      artifact_name: "sales-order-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 工序配置前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  process-config-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Process Config UI — Playwright smoke"
+      test_command: "npm run test:process-config:ui:smoke"
+      artifact_name: "process-config-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 生产排产前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  production-schedule-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Production Schedule UI — Playwright smoke"
+      test_command: "npm run test:production-schedule:ui:smoke"
+      artifact_name: "production-schedule-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 生产排产前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  production-schedule-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Production Schedule UI — Playwright regression"
+      test_command: "npm run test:production-schedule:ui:regression"
+      artifact_name: "production-schedule-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 生产工单前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  production-order-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Production Order UI — Playwright smoke"
+      test_command: "npm run test:production-order:ui:smoke"
+      artifact_name: "production-order-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 生产工单前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  production-order-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Production Order UI — Playwright regression"
+      test_command: "npm run test:production-order:ui:regression"
+      artifact_name: "production-order-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 生产任务前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  production-task-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Production Task UI — Playwright smoke"
+      test_command: "npm run test:production-task:ui:smoke"
+      artifact_name: "production-task-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 生产任务前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  production-task-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Production Task UI — Playwright regression"
+      test_command: "npm run test:production-task:ui:regression"
+      artifact_name: "production-task-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 生产缺料看板前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  production-shortage-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Production Shortage UI — Playwright smoke"
+      test_command: "npm run test:production-shortage:ui:smoke"
+      artifact_name: "production-shortage-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 生产缺料看板前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  production-shortage-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Production Shortage UI — Playwright regression"
+      test_command: "npm run test:production-shortage:ui:regression"
+      artifact_name: "production-shortage-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 工序配置前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  process-config-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Process Config UI — Playwright regression"
+      test_command: "npm run test:process-config:ui:regression"
+      artifact_name: "process-config-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 库存总览前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  inventory-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Inventory UI — Playwright smoke"
+      test_command: "npm run test:inventory:ui:smoke"
+      artifact_name: "inventory-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 库存盘点前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  stocktaking-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Stocktaking UI — Playwright smoke"
+      test_command: "npm run test:stocktaking:ui:smoke"
+      artifact_name: "stocktaking-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 库存总览前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  inventory-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Inventory UI — Playwright regression"
+      test_command: "npm run test:inventory:ui:regression"
+      artifact_name: "inventory-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 库存盘点前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  stocktaking-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Stocktaking UI — Playwright regression"
+      test_command: "npm run test:stocktaking:ui:regression"
+      artifact_name: "stocktaking-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 销售结算前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  settlement-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Settlement UI — Playwright smoke"
+      test_command: "npm run test:settlement:ui:smoke"
+      artifact_name: "settlement-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 销售结算前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  settlement-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Settlement UI — Playwright regression"
+      test_command: "npm run test:settlement:ui:regression"
+      artifact_name: "settlement-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 销售订单前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  sales-order-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Sales Order UI — Playwright regression"
+      test_command: "npm run test:sales-order:ui:regression"
+      artifact_name: "sales-order-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 采购前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  purchase-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Purchase UI — Playwright regression"
+      test_command: "npm run test:purchase:ui:regression"
+      artifact_name: "purchase-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 来料质检前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  incoming-inspection-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Incoming Inspection UI — Playwright regression"
+      test_command: "npm run test:incoming-inspection:ui:regression"
+      artifact_name: "incoming-inspection-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 采购建议管理前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  purchase-suggestion-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Purchase Suggestion UI — Playwright regression"
+      test_command: "npm run test:purchase-suggestion:ui:regression"
+      artifact_name: "purchase-suggestion-ui-regression-playwright"
+
+  # ---------------------------------------------------------------------------
   # 汇总门禁: 所有 job 通过才允许合并
   # ---------------------------------------------------------------------------
   ci-gate:
     name: CI Gate
-    needs: [api-unit, api-integration, web]
+    needs: [api-unit, api-integration, api-e2e, web, web-ui-mock, purchase-ui-smoke, incoming-inspection-ui-smoke, purchase-suggestion-ui-smoke, sales-order-ui-smoke, process-config-ui-smoke, production-schedule-ui-smoke, production-order-ui-smoke, production-task-ui-smoke, production-shortage-ui-smoke, inventory-ui-smoke, stocktaking-ui-smoke, settlement-ui-smoke, purchase-ui-regression, incoming-inspection-ui-regression, purchase-suggestion-ui-regression, sales-order-ui-regression, process-config-ui-regression, production-schedule-ui-regression, production-order-ui-regression, production-task-ui-regression, production-shortage-ui-regression, inventory-ui-regression, stocktaking-ui-regression, settlement-ui-regression]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Check all jobs passed
         run: |
-          results=(
+          failed=0
+          required_results=(
             "${{ needs.api-unit.result }}"
             "${{ needs.api-integration.result }}"
+            "${{ needs.api-e2e.result }}"
             "${{ needs.web.result }}"
+            "${{ needs.web-ui-mock.result }}"
+            "${{ needs.purchase-ui-smoke.result }}"
+            "${{ needs.incoming-inspection-ui-smoke.result }}"
+            "${{ needs.purchase-suggestion-ui-smoke.result }}"
+            "${{ needs.sales-order-ui-smoke.result }}"
+            "${{ needs.process-config-ui-smoke.result }}"
+            "${{ needs.production-schedule-ui-smoke.result }}"
+            "${{ needs.production-order-ui-smoke.result }}"
+            "${{ needs.production-task-ui-smoke.result }}"
+            "${{ needs.production-shortage-ui-smoke.result }}"
+            "${{ needs.inventory-ui-smoke.result }}"
+            "${{ needs.stocktaking-ui-smoke.result }}"
+            "${{ needs.settlement-ui-smoke.result }}"
           )
-          failed=0
-          for r in "${results[@]}"; do
+          for r in "${required_results[@]}"; do
             if [ "$r" != "success" ]; then
-              echo "Job failed or skipped: $r"
+              echo "Required job failed or skipped: $r"
               failed=1
             fi
           done
+          purchase_regression_result="${{ needs.purchase-ui-regression.result }}"
+          incoming_inspection_regression_result="${{ needs.incoming-inspection-ui-regression.result }}"
+          purchase_suggestion_regression_result="${{ needs.purchase-suggestion-ui-regression.result }}"
+          sales_order_regression_result="${{ needs.sales-order-ui-regression.result }}"
+          process_config_regression_result="${{ needs.process-config-ui-regression.result }}"
+          production_schedule_regression_result="${{ needs.production-schedule-ui-regression.result }}"
+          production_order_regression_result="${{ needs.production-order-ui-regression.result }}"
+          production_task_regression_result="${{ needs.production-task-ui-regression.result }}"
+          production_shortage_regression_result="${{ needs.production-shortage-ui-regression.result }}"
+          inventory_regression_result="${{ needs.inventory-ui-regression.result }}"
+          stocktaking_regression_result="${{ needs.stocktaking-ui-regression.result }}"
+          settlement_regression_result="${{ needs.settlement-ui-regression.result }}"
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_name }}" = "develop" ]; then
+            if [ "$purchase_regression_result" != "success" ]; then
+              echo "Purchase regression job failed on develop push: $purchase_regression_result"
+              failed=1
+            fi
+            if [ "$incoming_inspection_regression_result" != "success" ]; then
+              echo "Incoming-inspection regression job failed on develop push: $incoming_inspection_regression_result"
+              failed=1
+            fi
+            if [ "$purchase_suggestion_regression_result" != "success" ]; then
+              echo "Purchase-suggestion regression job failed on develop push: $purchase_suggestion_regression_result"
+              failed=1
+            fi
+            if [ "$sales_order_regression_result" != "success" ]; then
+              echo "Sales-order regression job failed on develop push: $sales_order_regression_result"
+              failed=1
+            fi
+            if [ "$process_config_regression_result" != "success" ]; then
+              echo "Process-config regression job failed on develop push: $process_config_regression_result"
+              failed=1
+            fi
+            if [ "$production_schedule_regression_result" != "success" ]; then
+              echo "Production-schedule regression job failed on develop push: $production_schedule_regression_result"
+              failed=1
+            fi
+            if [ "$production_order_regression_result" != "success" ]; then
+              echo "Production-order regression job failed on develop push: $production_order_regression_result"
+              failed=1
+            fi
+            if [ "$production_task_regression_result" != "success" ]; then
+              echo "Production-task regression job failed on develop push: $production_task_regression_result"
+              failed=1
+            fi
+            if [ "$production_shortage_regression_result" != "success" ]; then
+              echo "Production-shortage regression job failed on develop push: $production_shortage_regression_result"
+              failed=1
+            fi
+            if [ "$inventory_regression_result" != "success" ]; then
+              echo "Inventory regression job failed on develop push: $inventory_regression_result"
+              failed=1
+            fi
+            if [ "$stocktaking_regression_result" != "success" ]; then
+              echo "Stocktaking regression job failed on develop push: $stocktaking_regression_result"
+              failed=1
+            fi
+            if [ "$settlement_regression_result" != "success" ]; then
+              echo "Settlement regression job failed on develop push: $settlement_regression_result"
+              failed=1
+            fi
+          else
+            if [ "$purchase_regression_result" != "success" ] && [ "$purchase_regression_result" != "skipped" ]; then
+              echo "Unexpected purchase regression job state: $purchase_regression_result"
+              failed=1
+            fi
+            if [ "$incoming_inspection_regression_result" != "success" ] && [ "$incoming_inspection_regression_result" != "skipped" ]; then
+              echo "Unexpected incoming-inspection regression job state: $incoming_inspection_regression_result"
+              failed=1
+            fi
+            if [ "$purchase_suggestion_regression_result" != "success" ] && [ "$purchase_suggestion_regression_result" != "skipped" ]; then
+              echo "Unexpected purchase-suggestion regression job state: $purchase_suggestion_regression_result"
+              failed=1
+            fi
+            if [ "$sales_order_regression_result" != "success" ] && [ "$sales_order_regression_result" != "skipped" ]; then
+              echo "Unexpected sales-order regression job state: $sales_order_regression_result"
+              failed=1
+            fi
+            if [ "$process_config_regression_result" != "success" ] && [ "$process_config_regression_result" != "skipped" ]; then
+              echo "Unexpected process-config regression job state: $process_config_regression_result"
+              failed=1
+            fi
+            if [ "$production_schedule_regression_result" != "success" ] && [ "$production_schedule_regression_result" != "skipped" ]; then
+              echo "Unexpected production-schedule regression job state: $production_schedule_regression_result"
+              failed=1
+            fi
+            if [ "$production_order_regression_result" != "success" ] && [ "$production_order_regression_result" != "skipped" ]; then
+              echo "Unexpected production-order regression job state: $production_order_regression_result"
+              failed=1
+            fi
+            if [ "$production_task_regression_result" != "success" ] && [ "$production_task_regression_result" != "skipped" ]; then
+              echo "Unexpected production-task regression job state: $production_task_regression_result"
+              failed=1
+            fi
+            if [ "$production_shortage_regression_result" != "success" ] && [ "$production_shortage_regression_result" != "skipped" ]; then
+              echo "Unexpected production-shortage regression job state: $production_shortage_regression_result"
+              failed=1
+            fi
+            if [ "$inventory_regression_result" != "success" ] && [ "$inventory_regression_result" != "skipped" ]; then
+              echo "Unexpected inventory regression job state: $inventory_regression_result"
+              failed=1
+            fi
+            if [ "$stocktaking_regression_result" != "success" ] && [ "$stocktaking_regression_result" != "skipped" ]; then
+              echo "Unexpected stocktaking regression job state: $stocktaking_regression_result"
+              failed=1
+            fi
+            if [ "$settlement_regression_result" != "success" ] && [ "$settlement_regression_result" != "skipped" ]; then
+              echo "Unexpected settlement regression job state: $settlement_regression_result"
+              failed=1
+            fi
+          fi
           if [ "$failed" -eq 1 ]; then
             echo "CI gate FAILED — merge blocked."
             exit 1

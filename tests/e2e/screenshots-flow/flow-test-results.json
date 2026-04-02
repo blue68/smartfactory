@@ -1,0 +1,331 @@
+{
+  "timestamp": "2026-03-18T05:59:28.557Z",
+  "summary": {
+    "total": 53,
+    "pass": 52,
+    "warn": 1,
+    "fail": 0
+  },
+  "results": [
+    {
+      "step": 1,
+      "test": "登录",
+      "status": "PASS",
+      "detail": "http://localhost/dashboard"
+    },
+    {
+      "step": 2,
+      "test": "KPI 卡片展示",
+      "status": "PASS",
+      "detail": "64 个卡片"
+    },
+    {
+      "step": 2,
+      "test": "看板有数据展示",
+      "status": "PASS",
+      "detail": "页面含数字数据"
+    },
+    {
+      "step": 3,
+      "test": "客户列表加载",
+      "status": "PASS",
+      "detail": "2 行"
+    },
+    {
+      "step": 3,
+      "test": "新增客户",
+      "status": "WARN",
+      "detail": "未找到提交按钮"
+    },
+    {
+      "step": 4,
+      "test": "SKU列表加载",
+      "status": "PASS",
+      "detail": "20 行"
+    },
+    {
+      "step": 4,
+      "test": "SKU搜索",
+      "status": "PASS",
+      "detail": "搜索\"沙发\"→2行"
+    },
+    {
+      "step": 5,
+      "test": "BOM列表加载",
+      "status": "PASS",
+      "detail": "5 行"
+    },
+    {
+      "step": 5,
+      "test": "BOM展开/详情",
+      "status": "PASS",
+      "detail": "物料明细展示"
+    },
+    {
+      "step": 6,
+      "test": "销售订单列表",
+      "status": "PASS",
+      "detail": "5 行"
+    },
+    {
+      "step": 6,
+      "test": "创建销售订单",
+      "status": "PASS",
+      "detail": "行数 5→6"
+    },
+    {
+      "step": 6,
+      "test": "状态筛选控件",
+      "status": "PASS",
+      "detail": "存在"
+    },
+    {
+      "step": 7,
+      "test": "约束引擎页面",
+      "status": "PASS",
+      "detail": "内容长度=1007"
+    },
+    {
+      "step": 8,
+      "test": "库存列表",
+      "status": "PASS",
+      "detail": "20 行"
+    },
+    {
+      "step": 8,
+      "test": "库存搜索",
+      "status": "PASS",
+      "detail": "搜索\"珍珠棉\"→20行"
+    },
+    {
+      "step": 8,
+      "test": "导出按钮",
+      "status": "PASS",
+      "detail": "存在"
+    },
+    {
+      "step": 9,
+      "test": "采购建议列表",
+      "status": "PASS",
+      "detail": "0 行"
+    },
+    {
+      "step": 9,
+      "test": "审批操作入口",
+      "status": "PASS",
+      "detail": "4 个审批按钮"
+    },
+    {
+      "step": 10,
+      "test": "采购比价页面",
+      "status": "PASS",
+      "detail": "内容长度=548"
+    },
+    {
+      "step": 11,
+      "test": "价格列表",
+      "status": "PASS",
+      "detail": "5 行"
+    },
+    {
+      "step": 11,
+      "test": "价格导入入口",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "step": 12,
+      "test": "MRP采购建议列表",
+      "status": "PASS",
+      "detail": "1 行"
+    },
+    {
+      "step": 12,
+      "test": "转采购单操作",
+      "status": "PASS",
+      "detail": "1 个"
+    },
+    {
+      "step": 13,
+      "test": "来料检验列表",
+      "status": "PASS",
+      "detail": "4 行"
+    },
+    {
+      "step": 13,
+      "test": "检验详情",
+      "status": "PASS",
+      "detail": "弹窗打开"
+    },
+    {
+      "step": 14,
+      "test": "退货列表",
+      "status": "PASS",
+      "detail": "1 行"
+    },
+    {
+      "step": 15,
+      "test": "供应商列表",
+      "status": "PASS",
+      "detail": "3 行"
+    },
+    {
+      "step": 15,
+      "test": "供应商导出",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "step": 16,
+      "test": "排产计划页面",
+      "status": "PASS",
+      "detail": "内容=745"
+    },
+    {
+      "step": 17,
+      "test": "生产工单列表",
+      "status": "PASS",
+      "detail": "2 行"
+    },
+    {
+      "step": 18,
+      "test": "生产任务列表",
+      "status": "PASS",
+      "detail": "1 行"
+    },
+    {
+      "step": 19,
+      "test": "缺料看板",
+      "status": "PASS",
+      "detail": "内容=410"
+    },
+    {
+      "step": 20,
+      "test": "质量追溯页面",
+      "status": "PASS",
+      "detail": "内容=710"
+    },
+    {
+      "step": 20,
+      "test": "质量统计数据",
+      "status": "PASS",
+      "detail": "19 个统计元素"
+    },
+    {
+      "step": 21,
+      "test": "工序配置列表",
+      "status": "PASS",
+      "detail": "25 行"
+    },
+    {
+      "step": 22,
+      "test": "分类数据",
+      "status": "PASS",
+      "detail": "34 个节点"
+    },
+    {
+      "step": 23,
+      "test": "盘点列表",
+      "status": "PASS",
+      "detail": "9 行"
+    },
+    {
+      "step": 23,
+      "test": "新建盘点",
+      "status": "PASS",
+      "detail": "操作可触发"
+    },
+    {
+      "step": 24,
+      "test": "工资报表列表",
+      "status": "PASS",
+      "detail": "1 行"
+    },
+    {
+      "step": 24,
+      "test": "工资导出",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "step": 25,
+      "test": "我的工资页面",
+      "status": "PASS",
+      "detail": "内容=362"
+    },
+    {
+      "step": 26,
+      "test": "排产建议卡片",
+      "status": "PASS",
+      "detail": "35 个"
+    },
+    {
+      "step": 26,
+      "test": "排产历史表格",
+      "status": "PASS",
+      "detail": "4 行"
+    },
+    {
+      "step": 26,
+      "test": "触发排产计算",
+      "status": "PASS",
+      "detail": "已点击"
+    },
+    {
+      "step": 27,
+      "test": "AI 对话",
+      "status": "PASS",
+      "detail": "3 条消息"
+    },
+    {
+      "step": 28,
+      "test": "通知页面",
+      "status": "PASS",
+      "detail": "内容=482"
+    },
+    {
+      "step": 28,
+      "test": "标记已读按钮",
+      "status": "PASS",
+      "detail": "1 个"
+    },
+    {
+      "step": 29,
+      "test": "结算页面",
+      "status": "PASS",
+      "detail": "内容=397"
+    },
+    {
+      "step": 30,
+      "test": "分析 Tab",
+      "status": "PASS",
+      "detail": "4 个 Tab"
+    },
+    {
+      "step": 30,
+      "test": "分析Tab: 库存结构",
+      "status": "PASS",
+      "detail": "切换成功"
+    },
+    {
+      "step": 30,
+      "test": "分析Tab: 生产效率",
+      "status": "PASS",
+      "detail": "切换成功"
+    },
+    {
+      "step": 30,
+      "test": "分析Tab: 采购成本",
+      "status": "PASS",
+      "detail": "切换成功"
+    },
+    {
+      "step": 30,
+      "test": "分析Tab: 物料占比",
+      "status": "PASS",
+      "detail": "切换成功"
+    }
+  ],
+  "pageErrors": [],
+  "apiErrors": []
+}

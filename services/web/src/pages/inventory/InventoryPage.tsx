@@ -14,13 +14,28 @@
 
 import { useEffect, useState, useCallback, useMemo, Fragment } from 'react';
 import { useAppStore } from '@/stores/appStore';
-import { useInventoryList, useDyeLots, useInbound, inventoryApi } from '@/api/inventory';
+import {
+  useInventoryList,
+  useInventorySummary,
+  useInventoryTransactions,
+  useInventoryDailySnapshots,
+  useDyeLots,
+  useInbound,
+  inventoryApi,
+} from '@/api/inventory';
 import { useSkuCategories } from '@/api/sku';
-import type { InventoryItem, DyeLot, InventoryListQuery, InboundPayload } from '@/types/models';
+import type {
+  InventoryItem,
+  DyeLot,
+  DailyInventorySnapshotItem,
+  InventoryListQuery,
+  InboundPayload,
+} from '@/types/models';
 import { formatDate } from '@/utils/format';
 import Tag from '@/components/common/Tag';
 import Button from '@/components/common/Button';
 import Modal from '@/components/common/Modal';
+import Drawer from '@/components/common/Drawer';
 import styles from './InventoryPage.module.css';
 
 // ── 库存状态 4 态 ──────────────────────────────────────────
@@ -175,6 +190,15 @@ const INBOUND_FORM_DEFAULT: InboundFormState = {
   notes: '',
 };
 
+interface TraceTarget {
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  stockUnit: string;
+  source: 'inventory' | 'snapshot';
+  snapshotDate?: string;
+}
+
 // ── 主页面 ─────────────────────────────────────────────────
 // statusFilter 取值：空串=全部；danger/warning/normal/stagnant=客户端筛选；
 // belowSafety=传给后端（由后端返回 isBelowSafety=true 的记录）
@@ -183,6 +207,16 @@ type StatusFilter = '' | 'danger' | 'warning' | 'normal' | 'stagnant' | 'belowSa
 export default function InventoryPage() {
   const { setPageTitle } = useAppStore();
   const [query, setQuery] = useState<InventoryListQuery>({ page: 1, pageSize: 20 });
+  const [snapshotDate, setSnapshotDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [snapshotKeywordInput, setSnapshotKeywordInput] = useState('');
+  const [snapshotKeyword, setSnapshotKeyword] = useState('');
+  const [snapshotPage, setSnapshotPage] = useState(1);
+  const [traceTarget, setTraceTarget] = useState<TraceTarget | null>(null);
+  const [traceKeywordInput, setTraceKeywordInput] = useState('');
+  const [traceKeyword, setTraceKeyword] = useState('');
+  const [traceDateFrom, setTraceDateFrom] = useState('');
+  const [traceDateTo, setTraceDateTo] = useState('');
+  const [tracePage, setTracePage] = useState(1);
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
   const [useStockUnit, setUseStockUnit] = useState(true);
@@ -202,19 +236,79 @@ export default function InventoryPage() {
 
   const { data: categories } = useSkuCategories();
   const { data, isLoading, error } = useInventoryList(query);
+  const { data: summaryData } = useInventorySummary();
+  const {
+    data: dailySnapshotData,
+    isLoading: dailySnapshotLoading,
+    error: dailySnapshotError,
+  } = useInventoryDailySnapshots({
+    snapshotDate,
+    keyword: snapshotKeyword || undefined,
+    page: snapshotPage,
+    pageSize: 5,
+  });
+  const {
+    data: traceData,
+    isLoading: traceLoading,
+    error: traceError,
+  } = useInventoryTransactions(
+    traceTarget?.skuId ?? null,
+    {
+      page: tracePage,
+      pageSize: 6,
+      dateFrom: traceDateFrom || undefined,
+      dateTo: traceDateTo || undefined,
+      keyword: traceKeyword || undefined,
+    },
+    traceTarget !== null,
+  );
 
   const cat1List = categories?.filter((c) => c.level === 1) ?? [];
 
   // ── 汇总统计（Summary Bar）──────────────────────────────
   const summaryStats = useMemo(() => {
-    // 使用 mock 数据展示固定汇总（API 当前不返回分类金额）
+    const categories = summaryData?.categories ?? [];
+    const totalSkuCount = summaryData?.totalSkuCount ?? 0;
+    const categoryMeta = [
+      { label: '原材料', color: 'var(--color-primary-500)' },
+      { label: '半成品', color: 'var(--color-warning-500)' },
+      { label: '成品', color: 'var(--color-success-500)' },
+    ] as const;
+
+    const items = categoryMeta.map((meta) => {
+      const category = categories.find((item) => item.categoryName === meta.label);
+      const skuCount = category?.skuCount ?? 0;
+      const totalQty = category?.totalQty ?? 0;
+      const alertCount = category?.alertCount ?? 0;
+      const pct = totalSkuCount > 0 ? `${Math.round((skuCount / totalSkuCount) * 100)}%` : '0%';
+
+      return {
+        label: meta.label,
+        color: meta.color,
+        value: `${skuCount} SKU`,
+        pct,
+        hint: `在库 ${formatQty(totalQty)} · 预警 ${alertCount}`,
+      };
+    });
+
     return {
-      rawMaterial:  { label: '原材料',  value: '¥89,400', pct: '56%', color: 'var(--color-primary-500)' },
-      semiProduct:  { label: '半成品',  value: '¥48,200', pct: '30%', color: 'var(--color-warning-500)' },
-      finished:     { label: '成品',    value: '¥22,100', pct: '14%', color: 'var(--color-success-500)' },
-      updateTime:   '08:31',
+      items,
+      totalSkuCount,
+      totalAlertCount: summaryData?.totalAlertCount ?? 0,
     };
-  }, []);
+  }, [summaryData]);
+
+  const dailySnapshotPreview: DailyInventorySnapshotItem[] = dailySnapshotData?.list ?? [];
+  const resolvedSnapshotDate = dailySnapshotData?.snapshotDate ?? snapshotDate;
+  const snapshotTotalPages = Math.max(
+    1,
+    Math.ceil((dailySnapshotData?.total ?? 0) / (dailySnapshotData?.pageSize ?? 5)),
+  );
+  const tracePreview = traceData?.list ?? [];
+  const traceTotalPages = Math.max(
+    1,
+    Math.ceil((traceData?.total ?? 0) / (traceData?.pageSize ?? 6)),
+  );
 
   // ── 客户端状态筛选（仅对非 belowSafety 的状态做二次筛选）──
   // belowSafety 已由后端 query 参数过滤，无需再过滤
@@ -256,10 +350,39 @@ export default function InventoryPage() {
     });
   }, []);
 
+  const applySnapshotSearch = useCallback(() => {
+    setSnapshotKeyword(snapshotKeywordInput.trim());
+    setSnapshotPage(1);
+  }, [snapshotKeywordInput]);
+
+  const applyTraceSearch = useCallback(() => {
+    setTraceKeyword(traceKeywordInput.trim());
+    setTracePage(1);
+  }, [traceKeywordInput]);
+
+  const openTrace = useCallback((target: TraceTarget) => {
+    setTraceTarget(target);
+    setTraceKeywordInput('');
+    setTraceKeyword('');
+    setTraceDateFrom('');
+    setTraceDateTo('');
+    setTracePage(1);
+  }, []);
+
+  const closeTrace = useCallback(() => {
+    setTraceTarget(null);
+    setTraceKeywordInput('');
+    setTraceKeyword('');
+    setTraceDateFrom('');
+    setTraceDateTo('');
+    setTracePage(1);
+  }, []);
+
   // ── 打开入库弹窗 ───────────────────────────────────────────
   const openInbound = useCallback((item: InventoryItem) => {
+    const skuId = Number(item.skuId);
     setInboundTarget({
-      skuId: item.skuId,
+      skuId,
       skuName: item.skuName,
       stockUnit: item.stockUnit,
       hasDyeLot: item.hasDyeLot,
@@ -366,24 +489,146 @@ export default function InventoryPage() {
 
       {/* Summary Bar */}
       <div className={styles.summary_bar} role="region" aria-label="库存汇总">
-        {[summaryStats.rawMaterial, summaryStats.semiProduct, summaryStats.finished].map((item) => (
+        {summaryStats.items.map((item) => (
           <div className={styles.summary_bar__item} key={item.label}>
             <span
               className={styles.summary_bar__dot}
               style={{ background: item.color }}
               aria-hidden="true"
             />
-            <span className={styles.summary_bar__label}>{item.label}</span>
-            <strong className={styles.summary_bar__value}>
-              {item.value}{' '}
-              <span className={styles.summary_bar__pct}>（{item.pct}）</span>
-            </strong>
+            <div className={styles.summary_bar__content}>
+              <span className={styles.summary_bar__label}>{item.label}</span>
+              <strong className={styles.summary_bar__value}>
+                {item.value}{' '}
+                <span className={styles.summary_bar__pct}>（{item.pct}）</span>
+              </strong>
+              <span className={styles.summary_bar__hint}>{item.hint}</span>
+            </div>
           </div>
         ))}
         <div className={styles.summary_bar__realtime}>
           <span className={styles.summary_bar__pulse_dot} aria-hidden="true" />
-          实时库存，更新于 {summaryStats.updateTime}
+          实时库存摘要，共 {summaryStats.totalSkuCount} 个 SKU，预警 {summaryStats.totalAlertCount}
         </div>
+      </div>
+
+      <div className={styles.snapshot_card} role="region" aria-label="日结库存快照">
+        <div className={styles.snapshot_card__header}>
+          <div>
+            <div className={styles.snapshot_card__title}>日结库存快照（{resolvedSnapshotDate}）</div>
+            <div className={styles.snapshot_card__desc}>
+              只读口径，来自 `inventory_daily_snapshots`
+            </div>
+          </div>
+          <label className={styles.snapshot_card__date}>
+            快照日期
+            <input
+              type="date"
+              value={snapshotDate}
+              onChange={(e) => {
+                setSnapshotDate(e.target.value);
+                setSnapshotPage(1);
+              }}
+            />
+          </label>
+        </div>
+
+        <div className={styles.snapshot_card__filter}>
+          <input
+            className={styles.snapshot_card__search}
+            type="search"
+            value={snapshotKeywordInput}
+            placeholder="按 SKU 编码/名称筛选快照"
+            onChange={(e) => setSnapshotKeywordInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && applySnapshotSearch()}
+            aria-label="筛选日结快照"
+          />
+          <button className={styles.snapshot_card__btn} onClick={applySnapshotSearch}>
+            查询
+          </button>
+          <button
+            className={styles.snapshot_card__btn_ghost}
+            onClick={() => {
+              setSnapshotKeywordInput('');
+              setSnapshotKeyword('');
+              setSnapshotPage(1);
+            }}
+          >
+            清空
+          </button>
+        </div>
+
+        <div className={styles.snapshot_card__meta}>
+          <span>记录数 {dailySnapshotData?.total ?? 0}</span>
+          <span>日期 {resolvedSnapshotDate}</span>
+          <span>页码 {dailySnapshotData?.page ?? snapshotPage} / {snapshotTotalPages}</span>
+          {snapshotKeyword ? <span>关键词 “{snapshotKeyword}”</span> : <span>未使用关键词筛选</span>}
+        </div>
+
+        {dailySnapshotLoading ? (
+          <div className={styles.snapshot_card__empty}>正在加载日结快照…</div>
+        ) : dailySnapshotError ? (
+          <div className={styles.snapshot_card__error}>日结快照加载失败</div>
+        ) : dailySnapshotPreview.length === 0 ? (
+          <div className={styles.snapshot_card__empty}>当前日期暂无日结快照</div>
+        ) : (
+          <div className={styles.snapshot_card__list}>
+            {dailySnapshotPreview.map((item) => (
+              <div key={`${item.snapshotDate}-${item.skuId}`} className={styles.snapshot_card__row}>
+                <div className={styles.snapshot_card__sku}>
+                  <strong>{item.skuName}</strong>
+                  <span>{item.skuCode}</span>
+                </div>
+                <div className={styles.snapshot_card__qty}>
+                  <span>在库 {item.qtyOnHand}</span>
+                  <span>预留 {item.qtyReserved}</span>
+                  <span>可用 {item.qtyAvailable}</span>
+                  <span>{item.stockUnit}</span>
+                </div>
+                <div className={styles.snapshot_card__actions}>
+                  <button
+                    className={styles.snapshot_card__btn_ghost}
+                    onClick={() =>
+                      openTrace({
+                        skuId: Number(item.skuId),
+                        skuCode: item.skuCode,
+                        skuName: item.skuName,
+                        stockUnit: item.stockUnit,
+                        source: 'snapshot',
+                        snapshotDate: item.snapshotDate,
+                      })
+                    }
+                  >
+                    追溯
+                  </button>
+                </div>
+              </div>
+            ))}
+            {(dailySnapshotData?.total ?? 0) > dailySnapshotPreview.length && (
+              <div className={styles.snapshot_card__more}>可翻页查看全部快照记录</div>
+            )}
+          </div>
+        )}
+
+        {snapshotTotalPages > 1 && (
+          <div className={styles.snapshot_card__pagination}>
+            <button
+              className={styles.snapshot_card__btn_ghost}
+              disabled={snapshotPage <= 1}
+              onClick={() => setSnapshotPage((p) => Math.max(1, p - 1))}
+            >
+              上一页
+            </button>
+            <span>第 {dailySnapshotData?.page ?? snapshotPage} / {snapshotTotalPages} 页</span>
+            <button
+              className={styles.snapshot_card__btn_ghost}
+              disabled={(dailySnapshotData?.page ?? snapshotPage) >= snapshotTotalPages}
+              onClick={() => setSnapshotPage((p) => Math.min(snapshotTotalPages, p + 1))}
+            >
+              下一页
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 筛选栏 */}
@@ -518,14 +763,15 @@ export default function InventoryPage() {
                 </tr>
               ) : (
                 filteredList.map((item) => {
+                  const skuId = Number(item.skuId);
                   const stockDays = calcStockDays(item);
                   const status = calcInventoryStatus(item, stockDays);
-                  const isExpanded = expandedKeys.has(item.skuId);
+                  const isExpanded = expandedKeys.has(skuId);
                   const isStagnant = status === 'stagnant';
 
                   return (
                     // 使用 Fragment 并传递 key，避免 React key 警告
-                    <Fragment key={item.skuId}>
+                    <Fragment key={skuId}>
                       <tr
                         className={`${styles.tr} ${isExpanded ? styles['tr--expanded-parent'] : ''}`}
                       >
@@ -534,7 +780,7 @@ export default function InventoryPage() {
                           {item.hasDyeLot && (
                             <button
                               className={`${styles.expand_btn} ${isExpanded ? styles['expand_btn--expanded'] : ''}`}
-                              onClick={() => toggleExpand(item.skuId)}
+                              onClick={() => toggleExpand(skuId)}
                               aria-expanded={isExpanded}
                               aria-label={isExpanded ? '收起缸号批次' : '展开缸号批次'}
                             >
@@ -610,7 +856,7 @@ export default function InventoryPage() {
                           {item.hasDyeLot ? (
                             <button
                               className={styles.expand_btn_text}
-                              onClick={() => toggleExpand(item.skuId)}
+                              onClick={() => toggleExpand(skuId)}
                             >
                               查看缸号明细
                             </button>
@@ -622,7 +868,20 @@ export default function InventoryPage() {
                         {/* 操作 */}
                         <td className={styles.td}>
                           <div className={styles.actions}>
-                            <button className={styles.btn_sm_ghost}>详情</button>
+                            <button
+                              className={styles.btn_sm_ghost}
+                              onClick={() =>
+                                openTrace({
+                                  skuId,
+                                  skuCode: item.skuCode,
+                                  skuName: item.skuName,
+                                  stockUnit: item.stockUnit,
+                                  source: 'inventory',
+                                })
+                              }
+                            >
+                              追溯
+                            </button>
                             {isStagnant ? (
                               <button className={`${styles.btn_sm_ghost} ${styles.btn_sm_ghost_stagnant}`}>
                                 AI降库建议
@@ -643,7 +902,7 @@ export default function InventoryPage() {
                       {isExpanded && item.hasDyeLot && (
                         <tr className={styles.dye_lot_row}>
                           <td colSpan={9} style={{ padding: 0 }}>
-                            <DyeLotPanel skuId={item.skuId} skuName={item.skuName} />
+                            <DyeLotPanel skuId={skuId} skuName={item.skuName} />
                           </td>
                         </tr>
                       )}
@@ -851,6 +1110,152 @@ export default function InventoryPage() {
           )}
         </div>
       </Modal>
+
+      <Drawer
+        open={traceTarget !== null}
+        title={traceTarget ? `库存追溯 — ${traceTarget.skuName}` : '库存追溯'}
+        onClose={closeTrace}
+        width={620}
+      >
+        {traceTarget && (
+          <div className={styles.trace_drawer}>
+            <div className={styles.trace_drawer__hero}>
+              <div>
+                <div className={styles.trace_drawer__eyebrow}>实时库存流水追溯</div>
+                <div className={styles.trace_drawer__sku}>{traceTarget.skuName}</div>
+                <div className={styles.trace_drawer__code}>
+                  {traceTarget.skuCode} · 库存单位 {traceTarget.stockUnit}
+                </div>
+              </div>
+              <div className={styles.trace_drawer__source}>
+                {traceTarget.source === 'snapshot'
+                  ? `来自 ${traceTarget.snapshotDate} 日结快照入口`
+                  : '来自实时库存主表入口'}
+              </div>
+            </div>
+
+            <div className={styles.trace_drawer__filters}>
+              <input
+                className={styles.snapshot_card__search}
+                type="search"
+                value={traceKeywordInput}
+                placeholder="按流水号 / 参考单号 / 工单号 / 任务号筛选"
+                onChange={(e) => setTraceKeywordInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && applyTraceSearch()}
+                aria-label="筛选库存追溯"
+              />
+              <input
+                className={styles.trace_drawer__date}
+                type="date"
+                value={traceDateFrom}
+                onChange={(e) => {
+                  setTraceDateFrom(e.target.value);
+                  setTracePage(1);
+                }}
+                aria-label="追溯开始日期"
+              />
+              <input
+                className={styles.trace_drawer__date}
+                type="date"
+                value={traceDateTo}
+                onChange={(e) => {
+                  setTraceDateTo(e.target.value);
+                  setTracePage(1);
+                }}
+                aria-label="追溯结束日期"
+              />
+              <button className={styles.snapshot_card__btn} onClick={applyTraceSearch}>
+                查询
+              </button>
+              <button
+                className={styles.snapshot_card__btn_ghost}
+                onClick={() => {
+                  setTraceKeywordInput('');
+                  setTraceKeyword('');
+                  setTraceDateFrom('');
+                  setTraceDateTo('');
+                  setTracePage(1);
+                }}
+              >
+                清空
+              </button>
+            </div>
+
+            <div className={styles.trace_drawer__meta}>
+              <span>记录数 {traceData?.total ?? 0}</span>
+              {traceKeyword ? <span>关键词 “{traceKeyword}”</span> : <span>未使用关键词筛选</span>}
+              {traceTarget.source === 'snapshot' && traceTarget.snapshotDate ? (
+                <span>快照日期 {traceTarget.snapshotDate}</span>
+              ) : (
+                <span>实时流水口径</span>
+              )}
+            </div>
+
+            {traceLoading ? (
+              <div className={styles.trace_drawer__empty}>正在加载库存流水…</div>
+            ) : traceError ? (
+              <div className={styles.trace_drawer__error}>库存追溯加载失败</div>
+            ) : tracePreview.length === 0 ? (
+              <div className={styles.trace_drawer__empty}>当前筛选条件下暂无库存流水</div>
+            ) : (
+              <div className={styles.trace_list}>
+                {tracePreview.map((item) => (
+                  <div key={item.transactionId} className={styles.trace_item}>
+                    <div className={styles.trace_item__header}>
+                      <div>
+                        <strong>{item.transactionNo}</strong>
+                        <span>{item.transactionType}</span>
+                      </div>
+                      <div
+                        className={
+                          item.direction === 'IN'
+                            ? styles.trace_item__direction_in
+                            : styles.trace_item__direction_out
+                        }
+                      >
+                        {item.direction === 'IN' ? '入库' : '出库'} {formatQty(item.qtyChange)}
+                      </div>
+                    </div>
+                    <div className={styles.trace_item__meta}>
+                      <span>时间 {item.createdAt}</span>
+                      <span>参考单 {item.referenceNo || '—'}</span>
+                      <span>工单 {item.workOrderNo || '—'}</span>
+                    </div>
+                    <div className={styles.trace_item__meta}>
+                      <span>任务 {item.taskId ? `#${item.taskId}` : '—'}</span>
+                      <span>工序 {item.processStepName || '—'}</span>
+                      <span>工人 {item.workerName || '—'}</span>
+                    </div>
+                    {item.notes ? (
+                      <div className={styles.trace_item__notes}>{item.notes}</div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {traceTotalPages > 1 && (
+              <div className={styles.trace_drawer__pagination}>
+                <button
+                  className={styles.snapshot_card__btn_ghost}
+                  disabled={tracePage <= 1}
+                  onClick={() => setTracePage((page) => Math.max(1, page - 1))}
+                >
+                  上一页
+                </button>
+                <span>第 {traceData?.page ?? tracePage} / {traceTotalPages} 页</span>
+                <button
+                  className={styles.snapshot_card__btn_ghost}
+                  disabled={(traceData?.page ?? tracePage) >= traceTotalPages}
+                  onClick={() => setTracePage((page) => Math.min(traceTotalPages, page + 1))}
+                >
+                  下一页
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 }

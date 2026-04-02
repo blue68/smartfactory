@@ -115,6 +115,15 @@
   text-decoration: underline;
 }
 
+.empty_state {
+  padding: var(--space-4);
+  border: 1px dashed var(--border-default, #E2E8F0);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-page, #F8FAFC);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
 /* ── 生产进度列表 ── */
 .progress_list {
   display: flex;

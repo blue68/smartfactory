@@ -14,6 +14,12 @@ router.get(
   asyncHandler(wageController.exportExcel.bind(wageController)),
 );
 
+router.get(
+  '/tasks',
+  requireRoles('boss', 'manager'),
+  asyncHandler(wageController.getTaskWageReport.bind(wageController)),
+);
+
 // GET /api/reports/wages — 管理员工资报表
 router.get(
   '/',

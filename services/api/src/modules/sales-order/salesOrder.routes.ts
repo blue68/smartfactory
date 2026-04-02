@@ -30,9 +30,9 @@ router.put('/:id/items',   requireRoles('boss', 'supervisor', 'sales'), asyncHan
 router.post('/:id/transition',  requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.transition.bind(salesOrderController)));
 router.post('/:id/submit',      requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.submitForApproval.bind(salesOrderController)));
 router.post('/:id/withdraw',    requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.withdraw.bind(salesOrderController)));
-router.post('/:id/confirm',     requireRoles('boss'), asyncHandler(salesOrderController.confirm.bind(salesOrderController)));
+router.post('/:id/confirm',     requireRoles('boss', 'supervisor', 'sales'), asyncHandler(salesOrderController.confirm.bind(salesOrderController)));
 router.post('/:id/ship',        requireRoles('boss', 'supervisor'), asyncHandler(salesOrderController.ship.bind(salesOrderController)));
-router.post('/:id/complete',    requireRoles('boss', 'supervisor'), asyncHandler(salesOrderController.complete.bind(salesOrderController)));
+router.post('/:id/complete',    requireRoles('boss', 'sales'), asyncHandler(salesOrderController.complete.bind(salesOrderController)));
 router.post('/:id/close',       requireRoles('boss'), asyncHandler(salesOrderController.close.bind(salesOrderController)));
 router.post('/:id/production-orders', requireRoles('boss', 'supervisor'), asyncHandler(salesOrderController.createProductionOrders.bind(salesOrderController)));
 

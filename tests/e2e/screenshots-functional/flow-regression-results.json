@@ -1,0 +1,206 @@
+{
+  "timestamp": "2026-03-18T04:44:21.014Z",
+  "summary": {
+    "total": 31,
+    "pass": 27,
+    "warn": 4,
+    "fail": 0
+  },
+  "context": {
+    "customerId": "2",
+    "salesOrderId": 6,
+    "purchaseOrderId": 1,
+    "productionOrderId": 2,
+    "productionTaskId": null,
+    "finishedSkuId": "44",
+    "bomId": "2"
+  },
+  "results": [
+    {
+      "step": 1,
+      "test": "登录成功",
+      "status": "PASS",
+      "detail": "user=admin, roles=boss,admin"
+    },
+    {
+      "step": 2,
+      "test": "客户数据存在",
+      "status": "PASS",
+      "detail": "2个客户"
+    },
+    {
+      "step": 2,
+      "test": "BOM数据存在",
+      "status": "PASS",
+      "detail": "5个BOM"
+    },
+    {
+      "step": 2,
+      "test": "BOM展开成功",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "step": 2,
+      "test": "物料需求计算成功",
+      "status": "PASS",
+      "detail": "生产5件"
+    },
+    {
+      "step": 3,
+      "test": "销售订单创建成功",
+      "status": "PASS",
+      "detail": "id=6, orderNo=SO-260318-0004"
+    },
+    {
+      "step": 3,
+      "test": "订单详情查询成功",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "step": 3,
+      "test": "订单包含明细行",
+      "status": "PASS",
+      "detail": "1行"
+    },
+    {
+      "step": 3,
+      "test": "订单数量正确",
+      "status": "PASS",
+      "detail": "期望=5, 实际=5.0000"
+    },
+    {
+      "step": 3,
+      "test": "订单单价正确",
+      "status": "PASS",
+      "detail": "期望=1280.00, 实际=1280.0000"
+    },
+    {
+      "step": 3,
+      "test": "订单金额计算正确",
+      "status": "PASS",
+      "detail": "5 × 1280.00 = 期望6400.00, 实际6400.00"
+    },
+    {
+      "step": 4,
+      "test": "提交审批成功",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "step": 4,
+      "test": "审批通过成功",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "step": 5,
+      "test": "库存列表查询成功",
+      "status": "PASS",
+      "detail": "25条库存记录"
+    },
+    {
+      "step": 5,
+      "test": "物料需求 vs 库存对比完成",
+      "status": "PASS",
+      "detail": "4种物料缺料"
+    },
+    {
+      "step": 6,
+      "test": "供应商数据存在",
+      "status": "PASS",
+      "detail": "3个"
+    },
+    {
+      "step": 6,
+      "test": "采购订单创建成功",
+      "status": "PASS",
+      "detail": "PO id=1, poNo=PO1773809059708295"
+    },
+    {
+      "step": 7,
+      "test": "采购物料入库",
+      "status": "PASS",
+      "detail": "2/3种物料入库成功"
+    },
+    {
+      "step": 8,
+      "test": "生产工单创建成功",
+      "status": "PASS",
+      "detail": "id=2, workOrderNo=WO1773809060335541"
+    },
+    {
+      "step": 8,
+      "test": "工单关联销售订单正确",
+      "status": "PASS",
+      "detail": "salesOrderId=6"
+    },
+    {
+      "step": 8,
+      "test": "工单关联成品SKU正确",
+      "status": "PASS",
+      "detail": "skuId=44"
+    },
+    {
+      "step": 8,
+      "test": "工单计划数量正确",
+      "status": "PASS",
+      "detail": "qtyPlanned=5.0000"
+    },
+    {
+      "step": 8,
+      "test": "齐套检查完成",
+      "status": "PASS",
+      "detail": "物料状态=ready"
+    },
+    {
+      "step": 9,
+      "test": "排产生成成功",
+      "status": "PASS",
+      "detail": "{\"totalOrders\":1,\"totalSteps\":0,\"capacityLoadRate\":\"0%\"}"
+    },
+    {
+      "step": 9,
+      "test": "生产任务列表查询成功",
+      "status": "PASS",
+      "detail": "0个任务"
+    },
+    {
+      "step": 9,
+      "test": "生产任务",
+      "status": "WARN",
+      "detail": "无可用生产任务"
+    },
+    {
+      "step": 10,
+      "test": "报工跳过",
+      "status": "WARN",
+      "detail": "无可用生产任务"
+    },
+    {
+      "step": 11,
+      "test": "最终库存查询成功",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "step": 12,
+      "test": "发货",
+      "status": "WARN",
+      "detail": "该操作需要以下角色之一：warehouse, supervisor — 可能需要特定状态才能发货"
+    },
+    {
+      "step": 13,
+      "test": "结算",
+      "status": "WARN",
+      "detail": "订单状态「confirmed」不允许创建结算单，需先发货 — 可能需要订单在completed状态"
+    },
+    {
+      "step": 14,
+      "test": "经营KPI获取成功",
+      "status": "PASS",
+      "detail": ""
+    }
+  ]
+}

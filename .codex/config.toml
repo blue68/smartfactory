@@ -1,0 +1,9 @@
+[agents]
+max_threads = 10
+max_depth = 1
+
+[mcp_servers.openaiDeveloperDocs]
+url = "https://developers.openai.com/mcp"
+startup_timeout_sec = 30
+enabled = true
+required = false

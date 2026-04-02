@@ -12,7 +12,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # 安装全部依赖（含 devDependencies，用于编译）
-RUN npm install --ignore-scripts && npm rebuild bcrypt --build-from-source
+RUN npm cache clean --force && npm ci --include=dev --ignore-scripts && npm rebuild bcrypt --build-from-source
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2: 编译 TypeScript
@@ -38,13 +38,10 @@ RUN addgroup -g 1001 -S appgroup && \
 
 WORKDIR /app
 
-# 仅安装 production 依赖
+# 复用 deps 阶段已安装并编译的依赖，再裁剪为 production 依赖
+COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json* ./
-RUN apk add --no-cache python3 make g++ dumb-init && \
-    npm install --omit=dev --ignore-scripts && \
-    npm rebuild bcrypt --build-from-source && \
-    apk del python3 make g++ && \
-    rm -rf /tmp/* /root/.npm
+RUN npm prune --omit=dev && rm -rf /tmp/* /root/.npm
 
 # 复制编译产物
 COPY --from=builder /app/dist ./dist
@@ -61,7 +58,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
 
 EXPOSE 3000
 
-# 使用 dumb-init 处理 PID 1 信号转发，确保容器优雅关闭
 ENV NODE_ENV=production
 
-CMD ["dumb-init", "node", "dist/index.js"]
+CMD ["node", "dist/index.js"]

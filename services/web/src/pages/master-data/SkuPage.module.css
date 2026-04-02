@@ -199,7 +199,7 @@
 /* ── 表格内单元格内容 ── */
 .sku_code_link {
   color: #2563eb;
-  font-family: var(--font-family-mono, 'Cascadia Code', monospace);
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", "Cascadia Code", monospace;
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;

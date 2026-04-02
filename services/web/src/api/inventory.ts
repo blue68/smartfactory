@@ -10,6 +10,11 @@ import type {
   InventoryItem,
   SkuAvailability,
   DyeLot,
+  DailyInventorySnapshotItem,
+  DailyInventorySnapshotQuery,
+  InventorySummary,
+  InventoryTransactionTraceQuery,
+  InventoryTransactionTraceResult,
   InboundPayload,
   OutboundPayload,
   StockTransactionResult,
@@ -22,6 +27,12 @@ export const inventoryKeys = {
   all: ['inventory'] as const,
   lists: () => [...inventoryKeys.all, 'list'] as const,
   list: (query: InventoryListQuery) => [...inventoryKeys.lists(), query] as const,
+  dailySnapshots: () => [...inventoryKeys.all, 'daily-snapshots'] as const,
+  dailySnapshotList: (query: DailyInventorySnapshotQuery) =>
+    [...inventoryKeys.dailySnapshots(), query] as const,
+  summary: () => [...inventoryKeys.all, 'summary'] as const,
+  transactions: (skuId: number, query: InventoryTransactionTraceQuery) =>
+    [...inventoryKeys.all, 'transactions', skuId, query] as const,
   available: (skuId: number) => [...inventoryKeys.all, 'available', skuId] as const,
   dyeLots: (skuId: number) => [...inventoryKeys.all, 'dyeLots', skuId] as const,
   fifoDyeLot: (skuId: number, qty: string) =>
@@ -43,12 +54,47 @@ function serializeQuery(query: InventoryListQuery): Record<string, unknown> {
   return params;
 }
 
+function serializeDailySnapshotQuery(query: DailyInventorySnapshotQuery): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
+  if (query.snapshotDate) params.snapshotDate = query.snapshotDate;
+  if (query.skuId !== undefined) params.skuId = query.skuId;
+  if (query.keyword !== undefined && query.keyword !== '') params.keyword = query.keyword;
+  if (query.page !== undefined) params.page = query.page;
+  if (query.pageSize !== undefined) params.pageSize = query.pageSize;
+  return params;
+}
+
+function serializeTransactionQuery(query: InventoryTransactionTraceQuery): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
+  if (query.page !== undefined) params.page = query.page;
+  if (query.pageSize !== undefined) params.pageSize = query.pageSize;
+  if (query.dateFrom) params.dateFrom = query.dateFrom;
+  if (query.dateTo) params.dateTo = query.dateTo;
+  if (query.keyword !== undefined && query.keyword !== '') params.keyword = query.keyword;
+  return params;
+}
+
 // ── 原始请求函数 ─────────────────────────────
 export const inventoryApi = {
   getList: (query: InventoryListQuery) =>
     request.get<PaginatedData<InventoryItem>>(
       '/api/inventory',
       serializeQuery(query),
+    ),
+
+  getDailySnapshots: (query: DailyInventorySnapshotQuery) =>
+    request.get<PaginatedData<DailyInventorySnapshotItem> & { snapshotDate: string }>(
+      '/api/inventory/daily-snapshots',
+      serializeDailySnapshotQuery(query),
+    ),
+
+  getSummary: () =>
+    request.get<InventorySummary>('/api/inventory/summary'),
+
+  getTransactions: (skuId: number, query: InventoryTransactionTraceQuery) =>
+    request.get<InventoryTransactionTraceResult>(
+      `/api/inventory/${skuId}/transactions`,
+      serializeTransactionQuery(query),
     ),
 
   getAvailable: (skuId: number) =>
@@ -105,6 +151,33 @@ export function useInventoryList(query: InventoryListQuery) {
   });
 }
 
+export function useInventoryDailySnapshots(query: DailyInventorySnapshotQuery, enabled = true) {
+  return useQuery({
+    queryKey: inventoryKeys.dailySnapshotList(query),
+    queryFn: () => inventoryApi.getDailySnapshots(query),
+    enabled,
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useInventorySummary(enabled = true) {
+  return useQuery({
+    queryKey: inventoryKeys.summary(),
+    queryFn: () => inventoryApi.getSummary(),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useInventoryTransactions(skuId: number | null, query: InventoryTransactionTraceQuery, enabled = true) {
+  return useQuery({
+    queryKey: inventoryKeys.transactions(skuId!, query),
+    queryFn: () => inventoryApi.getTransactions(skuId!, query),
+    enabled: enabled && skuId !== null && skuId > 0,
+    placeholderData: (prev) => prev,
+  });
+}
+
 /** 单 SKU 可用库存 */
 export function useSkuAvailability(skuId: number | null) {
   return useQuery({
@@ -138,7 +211,7 @@ export function useInbound() {
   return useMutation({
     mutationFn: inventoryApi.inbound,
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: inventoryKeys.lists() });
+      void qc.invalidateQueries({ queryKey: inventoryKeys.all });
     },
   });
 }
@@ -149,7 +222,7 @@ export function useOutbound() {
   return useMutation({
     mutationFn: inventoryApi.outbound,
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: inventoryKeys.lists() });
+      void qc.invalidateQueries({ queryKey: inventoryKeys.all });
     },
   });
 }

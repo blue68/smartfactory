@@ -43,6 +43,20 @@ const StepSchema = z.object({
   stepName: z.string().min(1).max(100),
   standardHours: z.number().positive().optional(),
   workstationType: z.string().max(50).optional(),
+  workstationId: z.number().int().positive().optional(),
+});
+
+const StepMaterialSchema = z.object({
+  stepNo: z.number().int().positive(),
+  inputSkuId: z.number().int().positive(),
+  usagePerUnit: z.number().positive(),
+  lossRate: z.number().min(0).max(1).optional(),
+  consumeTiming: z.enum(['start', 'complete']).optional(),
+  isKeyMaterial: z.boolean().optional(),
+});
+
+const StepMaterialsSchema = z.object({
+  items: z.array(StepMaterialSchema),
 });
 
 const CreateSchema = z.object({
@@ -143,6 +157,30 @@ export class ProcessConfigController {
     success(res, data);
   }
 
+  async getStepMaterials(req: Request, res: Response): Promise<void> {
+    const templateId = Number(req.params.templateId);
+    const data = await this.svc(req).getStepMaterials(templateId);
+    success(res, data);
+  }
+
+  async putStepMaterials(req: Request, res: Response): Promise<void> {
+    const templateId = Number(req.params.templateId);
+    const body = StepMaterialsSchema.parse(req.body);
+    const data = await this.svc(req).setStepMaterials(templateId, body.items);
+    success(res, data, '工序投入物料已更新');
+  }
+
+  // T-02: 设为默认模板
+  async setDefault(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    if (!id || isNaN(id)) {
+      res.status(400).json({ code: 400, message: '无效的模板ID', data: null });
+      return;
+    }
+    const template = await this.svc(req).setDefault(id);
+    success(res, template, '已设为默认模板');
+  }
+
   // BE-05-04: 工资汇总 CSV 导出
   async exportWageSummary(req: Request, res: Response): Promise<void> {
     const templateId = Number(req.params.templateId);
@@ -186,4 +224,46 @@ export class ProcessConfigController {
   }
 }
 
+// ─── 工种类型 Schema ────────────────────────────────────────────────────────
+
+const WorkstationTypeCreateSchema = z.object({
+  name: z.string().min(1).max(100),
+  sortOrder: z.number().int().min(0).optional(),
+});
+
+const WorkstationTypeUpdateSchema = WorkstationTypeCreateSchema.partial();
+
+// ─── ProcessConfigController 追加工种类型方法 ────────────────────────────────
+
+export class WorkstationTypeController {
+  private svc(req: Request): ProcessConfigService {
+    return new ProcessConfigService({ tenantId: req.tenantId, userId: req.userId });
+  }
+
+  async list(req: Request, res: Response): Promise<void> {
+    const data = await this.svc(req).listWorkstationTypes();
+    success(res, data);
+  }
+
+  async create(req: Request, res: Response): Promise<void> {
+    const { name, sortOrder } = WorkstationTypeCreateSchema.parse(req.body);
+    const data = await this.svc(req).createWorkstationType(name, sortOrder);
+    created(res, data, '工种类型已创建');
+  }
+
+  async update(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const body = WorkstationTypeUpdateSchema.parse(req.body);
+    const data = await this.svc(req).updateWorkstationType(id, body);
+    success(res, data, '工种类型已更新');
+  }
+
+  async remove(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    await this.svc(req).deleteWorkstationType(id);
+    success(res, { id }, '工种类型已删除');
+  }
+}
+
+export const workstationTypeController = new WorkstationTypeController();
 export const processConfigController = new ProcessConfigController();

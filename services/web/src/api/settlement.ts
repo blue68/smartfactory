@@ -52,6 +52,8 @@ export interface SettlementListQuery {
   pageSize?: number;
   status?: SettlementStatus | '';
   keyword?: string;
+  overdueOnly?: boolean;
+  customerId?: number;
 }
 
 export interface CreateSettlementPayload {
@@ -59,12 +61,58 @@ export interface CreateSettlementPayload {
   notes?: string;
 }
 
+export type ReceivableGroupBy = 'customer' | 'month' | 'aging';
+
+export interface ReceivableByCustomer {
+  customerId: number;
+  customerName: string;
+  totalAmount: string;
+  pendingCount: number;
+}
+
+export interface ReceivableByMonth {
+  month: string;
+  totalAmount: string;
+  count: number;
+}
+
+export interface ReceivableByAging {
+  bucket: 'current' | '1_30' | '31_60' | '61_90' | '90_plus';
+  label: string;
+  totalAmount: string;
+  count: number;
+}
+
+export interface ReceivableSummaryCustomer {
+  groupBy: 'customer';
+  data: ReceivableByCustomer[];
+}
+
+export interface ReceivableSummaryMonth {
+  groupBy: 'month';
+  data: ReceivableByMonth[];
+}
+
+export interface ReceivableSummaryAging {
+  groupBy: 'aging';
+  data: ReceivableByAging[];
+  overdueAmount: string;
+  overdueCount: number;
+}
+
+export type ReceivableSummary =
+  | ReceivableSummaryCustomer
+  | ReceivableSummaryMonth
+  | ReceivableSummaryAging;
+
 // ── Query Keys ─────────────────────────────────────────────
 
 export const settlementKeys = {
   all: ['settlement'] as const,
   list: (query: SettlementListQuery) =>
     [...settlementKeys.all, 'list', query] as const,
+  receivable: (groupBy: ReceivableGroupBy) =>
+    [...settlementKeys.all, 'receivable', groupBy] as const,
 };
 
 // ── API 函数 ────────────────────────────────────────────────
@@ -77,6 +125,8 @@ export const settlementApi = {
     };
     if (query.status) params.status = query.status;
     if (query.keyword) params.keyword = query.keyword;
+    if (query.customerId) params.customerId = query.customerId;
+    if (query.overdueOnly) params.overdueOnly = query.overdueOnly;
     return request.get<SettlementListResult>('/api/settlements', params);
   },
 
@@ -91,6 +141,26 @@ export const settlementApi = {
 
   cancel: (id: number) =>
     request.put<void>(`/api/settlements/${id}/cancel`),
+
+  getReceivable: (groupBy: ReceivableGroupBy) =>
+    request.get<ReceivableSummary>('/api/settlements/receivable', { groupBy }),
+
+  exportCsv: async (query: SettlementListQuery) => {
+    const blob = await request.downloadBlob('/api/settlements/export/csv', {
+      status: query.status || undefined,
+      keyword: query.keyword || undefined,
+      overdueOnly: query.overdueOnly || undefined,
+      customerId: query.customerId,
+    });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `销售结算_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
 };
 
 // ── React Query Hooks ───────────────────────────────────────
@@ -141,5 +211,14 @@ export function useCancelSettlement() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: settlementKeys.all });
     },
+  });
+}
+
+export function useSettlementReceivable(groupBy: ReceivableGroupBy, enabled = true) {
+  return useQuery({
+    queryKey: settlementKeys.receivable(groupBy),
+    queryFn: () => settlementApi.getReceivable(groupBy),
+    staleTime: 30_000,
+    enabled,
   });
 }

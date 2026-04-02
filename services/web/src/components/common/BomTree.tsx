@@ -10,7 +10,7 @@
  * - 使用 CSS Module（BomTree.module.css）
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import type { BomItem } from '@/types/models';
 import styles from './BomTree.module.css';
 
@@ -30,6 +30,12 @@ export interface BomTreeProps {
   _expandedIds?: Set<number>;
   /** 内部透传：切换展开状态的回调 */
   _onToggle?: (id: number) => void;
+}
+
+/** 通过 ref 暴露给父组件的方法 */
+export interface BomTreeRef {
+  expandAll: () => void;
+  collapseAll: () => void;
 }
 
 // ─────────────────────────────────────────────
@@ -192,12 +198,27 @@ function BomNode({
 // 根组件（管理展开状态）
 // ─────────────────────────────────────────────
 
-export default function BomTree({
+/** 递归收集所有含 children 的节点 bomItemId */
+function collectAllParentIds(items: BomItem[]): number[] {
+  const ids: number[] = [];
+  function walk(list: BomItem[]) {
+    for (const item of list) {
+      if (item.children && item.children.length > 0) {
+        ids.push(item.bomItemId);
+        walk(item.children);
+      }
+    }
+  }
+  walk(items);
+  return ids;
+}
+
+const BomTree = forwardRef<BomTreeRef, BomTreeProps>(function BomTree({
   items,
   level = 0,
   onSelect,
   selectedId,
-}: BomTreeProps) {
+}, ref) {
   // 初始展开第一层（所有顶层节点）
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => {
     const ids = new Set<number>();
@@ -220,6 +241,16 @@ export default function BomTree({
       return next;
     });
   }, []);
+
+  // 暴露 expandAll / collapseAll 给父组件
+  useImperativeHandle(ref, () => ({
+    expandAll() {
+      setExpandedIds(new Set(collectAllParentIds(items)));
+    },
+    collapseAll() {
+      setExpandedIds(new Set());
+    },
+  }), [items]);
 
   if (!items || items.length === 0) {
     return (
@@ -257,4 +288,6 @@ export default function BomTree({
       ))}
     </div>
   );
-}
+});
+
+export default BomTree;

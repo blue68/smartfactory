@@ -62,9 +62,24 @@ router.get('/orders/export/csv', asyncHandler(async (req: Request, res: Response
 
 // 采购订单
 router.get('/orders',       asyncHandler(purchaseController.listPOs.bind(purchaseController)));
+router.get('/orders/tail-tracking', asyncHandler(purchaseController.listTailOrders.bind(purchaseController)));
+router.get('/orders/:id/delivery', asyncHandler(purchaseController.listOrderDeliveries.bind(purchaseController)));
+router.get('/orders/:id', asyncHandler(purchaseController.getOrderById.bind(purchaseController)));
+router.get('/delivery-notes', asyncHandler(purchaseController.listDeliveryNotes.bind(purchaseController)));
+router.get('/delivery-notes/:id', asyncHandler(purchaseController.getDeliveryNoteById.bind(purchaseController)));
+router.get('/receipts', asyncHandler(purchaseController.listReceipts.bind(purchaseController)));
+router.get('/receipts/:id', asyncHandler(purchaseController.getReceiptById.bind(purchaseController)));
+router.patch('/receipts/:id/notes',
+  requireRoles('warehouse', 'supervisor', 'boss'),
+  asyncHandler(purchaseController.updateReceiptNotes.bind(purchaseController)),
+);
 router.post('/orders',
   requireRoles('purchaser', 'boss'),
   asyncHandler(purchaseController.createPO.bind(purchaseController)),
+);
+router.patch('/orders/:id/close',
+  requireRoles('boss', 'supervisor'),
+  asyncHandler(purchaseController.closeOrder.bind(purchaseController)),
 );
 router.post('/orders/:id/delivery',
   requireRoles('purchaser'),
@@ -77,9 +92,40 @@ router.post('/three-way-match',
   asyncHandler(purchaseController.runMatch.bind(purchaseController)),
 );
 router.get('/three-way-match',  asyncHandler(purchaseController.listMatches.bind(purchaseController)));
+router.get('/three-way-match/:id', asyncHandler(purchaseController.getMatchById.bind(purchaseController)));
 router.post('/three-way-match/:id/confirm',
   requireRoles('purchaser'),
   asyncHandler(purchaseController.confirmDiff.bind(purchaseController)),
+);
+
+// 采购结算
+router.get('/settlements/export/csv',
+  requireRoles('boss', 'supervisor', 'purchaser'),
+  asyncHandler(purchaseController.exportSettlements.bind(purchaseController)),
+);
+router.post('/settlements',
+  requireRoles('boss', 'supervisor', 'purchaser'),
+  asyncHandler(purchaseController.createSettlement.bind(purchaseController)),
+);
+router.get('/settlements',
+  requireRoles('boss', 'supervisor', 'purchaser'),
+  asyncHandler(purchaseController.listSettlements.bind(purchaseController)),
+);
+router.get('/settlements/:id',
+  requireRoles('boss', 'supervisor', 'purchaser'),
+  asyncHandler(purchaseController.getSettlementById.bind(purchaseController)),
+);
+router.put('/settlements/:id/confirm',
+  requireRoles('boss'),
+  asyncHandler(purchaseController.confirmSettlement.bind(purchaseController)),
+);
+router.put('/settlements/:id/pay',
+  requireRoles('boss'),
+  asyncHandler(purchaseController.paySettlement.bind(purchaseController)),
+);
+router.put('/settlements/:id/cancel',
+  requireRoles('boss', 'supervisor'),
+  asyncHandler(purchaseController.cancelSettlement.bind(purchaseController)),
 );
 
 export default router;

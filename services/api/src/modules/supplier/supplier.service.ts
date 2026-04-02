@@ -184,7 +184,7 @@ export class SupplierService {
     const [onTimeRow] = await AppDataSource.query(
       `SELECT COUNT(*) AS cnt FROM purchase_orders
        WHERE tenant_id = ? AND supplier_id = ? AND status = 'completed'
-         AND actual_delivery_date <= expected_date`,
+         AND expected_date IS NOT NULL AND updated_at <= DATE_ADD(expected_date, INTERVAL 1 DAY)`,
       [this.tenantId, supplierId],
     );
     const [completedRow] = await AppDataSource.query(
@@ -214,12 +214,11 @@ export class SupplierService {
     );
     const totalPurchaseAmount = String(totalAmountRow?.total ?? '0');
 
-    // ── 平均交货周期（已完成订单的 actual_delivery_date - created_at，单位天）──
+    // ── 平均交货周期（已完成订单的 updated_at - created_at，单位天）──
     const [leadRow] = await AppDataSource.query(
-      `SELECT AVG(DATEDIFF(actual_delivery_date, created_at)) AS avg_days
+      `SELECT AVG(DATEDIFF(updated_at, created_at)) AS avg_days
        FROM purchase_orders
-       WHERE tenant_id = ? AND supplier_id = ? AND status = 'completed'
-         AND actual_delivery_date IS NOT NULL`,
+       WHERE tenant_id = ? AND supplier_id = ? AND status = 'completed'`,
       [this.tenantId, supplierId],
     );
     const avgLeadDays = leadRow?.avg_days != null ? Math.round(Number(leadRow.avg_days)) : 0;

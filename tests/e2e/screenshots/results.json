@@ -1,0 +1,272 @@
+{
+  "timestamp": "2026-03-18T03:51:16.295Z",
+  "summary": {
+    "total": 29,
+    "pass": 28,
+    "warn": 1,
+    "fail": 0
+  },
+  "results": [
+    {
+      "name": "库存盘点",
+      "path": "/stocktaking",
+      "status": "PASS",
+      "elements": "表格+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "销售结算",
+      "path": "/settlement",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "经营分析",
+      "path": "/analytics",
+      "status": "PASS",
+      "elements": "卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "通知中心",
+      "path": "/notifications",
+      "status": "PASS",
+      "elements": "卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "首页看板",
+      "path": "/dashboard",
+      "status": "PASS",
+      "elements": "卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "库存管理",
+      "path": "/inventory",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "SKU管理",
+      "path": "/master-data/sku",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "BOM管理",
+      "path": "/master-data/bom",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "供应商管理",
+      "path": "/master-data/supplier",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "工序配置",
+      "path": "/master-data/process-config",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "SKU分类",
+      "path": "/master-data/sku-category",
+      "status": "PASS",
+      "elements": "按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "采购建议",
+      "path": "/purchase/suggestions",
+      "status": "PASS",
+      "elements": "卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "采购比价",
+      "path": "/purchase/match",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "价格管理",
+      "path": "/purchase/prices",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "MRP采购建议",
+      "path": "/purchase/purchase-suggestions",
+      "status": "PASS",
+      "elements": "表格+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "来料检验",
+      "path": "/purchase/incoming-inspection",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "退货管理",
+      "path": "/purchase/returns",
+      "status": "PASS",
+      "elements": "表格+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "销售订单(约束)",
+      "path": "/sales/orders",
+      "status": "PASS",
+      "elements": "卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "销售订单列表",
+      "path": "/sales/order-list",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "客户管理",
+      "path": "/sales/customers",
+      "status": "WARN",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 1,
+      "networkErrors": 0,
+      "issues": "1个控制台错误"
+    },
+    {
+      "name": "排产计划",
+      "path": "/production/schedule",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "生产任务",
+      "path": "/production/tasks",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "生产工单",
+      "path": "/production/orders",
+      "status": "PASS",
+      "elements": "表格+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "缺料看板",
+      "path": "/production/shortage",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "质量追溯",
+      "path": "/quality/trace",
+      "status": "PASS",
+      "elements": "卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "工资报表",
+      "path": "/report/wages",
+      "status": "PASS",
+      "elements": "表格+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "我的工资",
+      "path": "/report/my-wages",
+      "status": "PASS",
+      "elements": "表格+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "智能排产建议",
+      "path": "/schedule-suggestions",
+      "status": "PASS",
+      "elements": "表格+卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    },
+    {
+      "name": "AI助手",
+      "path": "/ai-chat",
+      "status": "PASS",
+      "elements": "卡片+按钮+表单+列表",
+      "consoleErrors": 0,
+      "networkErrors": 0,
+      "issues": "-"
+    }
+  ]
+}

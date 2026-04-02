@@ -1,7 +1,10 @@
 import { AppDataSource } from '../../config/database';
 import { ProcessTemplateEntity, ProcessStepEntity } from './processConfig.entity';
+import { ProcessStepMaterialEntity } from './processStepMaterial.entity';
 import { ProcessWageEntity } from './processWage.entity';
+import { WorkstationTypeEntity } from './workstationType.entity';
 import { AppError } from '../../shared/AppError';
+import { ResponseCode } from '../../shared/ApiResponse';
 
 export interface ProcessConfigListFilter {
   page: number;
@@ -18,7 +21,17 @@ export interface CreateProcessConfigParams {
     stepName: string;
     standardHours?: number;
     workstationType?: string;
+    workstationId?: number;
   }>;
+}
+
+interface StepMaterialInput {
+  stepNo: number;
+  inputSkuId: number;
+  usagePerUnit: number;
+  lossRate?: number;
+  consumeTiming?: 'start' | 'complete';
+  isKeyMaterial?: boolean;
 }
 
 export class ProcessConfigService {
@@ -41,6 +54,7 @@ export class ProcessConfigService {
         'k.name AS skuName',
         'k.sku_code AS skuCode',
         't.status AS status',
+        't.is_default AS isDefault',
         't.created_at AS createdAt',
         't.updated_at AS updatedAt',
       ])
@@ -75,6 +89,60 @@ export class ProcessConfigService {
     return { template, steps };
   }
 
+  async getStepMaterials(templateId: number): Promise<ProcessStepMaterialEntity[]> {
+    const templateRepo = AppDataSource.getRepository(ProcessTemplateEntity);
+    const template = await templateRepo.findOne({ where: { id: templateId, tenantId: this.tenantId } });
+    if (!template) throw AppError.notFound('工序模板不存在');
+
+    return AppDataSource.getRepository(ProcessStepMaterialEntity).find({
+      where: { tenantId: this.tenantId, templateId },
+      order: { stepNo: 'ASC', inputSkuId: 'ASC' },
+    });
+  }
+
+  async setStepMaterials(templateId: number, items: StepMaterialInput[]): Promise<ProcessStepMaterialEntity[]> {
+    const templateRepo = AppDataSource.getRepository(ProcessTemplateEntity);
+    const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
+    const template = await templateRepo.findOne({ where: { id: templateId, tenantId: this.tenantId } });
+    if (!template) throw AppError.notFound('工序模板不存在');
+
+    const steps = await stepRepo.find({
+      where: { tenantId: this.tenantId, templateId },
+      order: { stepNo: 'ASC' },
+    });
+    const validStepNos = new Set(steps.map((step) => step.stepNo));
+
+    for (const item of items) {
+      if (!validStepNos.has(item.stepNo)) {
+        throw AppError.badRequest(`模板 ${templateId} 不存在 stepNo=${item.stepNo} 的工序步骤`);
+      }
+    }
+
+    return AppDataSource.transaction(async (manager) => {
+      await manager.delete(ProcessStepMaterialEntity, {
+        tenantId: this.tenantId,
+        templateId,
+      });
+
+      if (items.length === 0) return [];
+
+      const entities = items.map((item) => manager.create(ProcessStepMaterialEntity, {
+        tenantId: this.tenantId,
+        templateId,
+        stepNo: item.stepNo,
+        inputSkuId: item.inputSkuId,
+        usagePerUnit: item.usagePerUnit.toFixed(4),
+        lossRate: (item.lossRate ?? 0).toFixed(4),
+        consumeTiming: item.consumeTiming ?? 'start',
+        isKeyMaterial: Boolean(item.isKeyMaterial),
+        createdBy: this.userId,
+        updatedBy: this.userId,
+      }));
+
+      return manager.save(ProcessStepMaterialEntity, entities);
+    });
+  }
+
   async create(params: CreateProcessConfigParams): Promise<ProcessTemplateEntity> {
     const templateRepo = AppDataSource.getRepository(ProcessTemplateEntity);
     const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
@@ -90,7 +158,8 @@ export class ProcessConfigService {
     const saved = await templateRepo.save(template);
 
     if (params.steps?.length) {
-      const stepEntities = params.steps.map((s) =>
+      const normalizedSteps = await this.normalizeSteps(params.steps);
+      const stepEntities = normalizedSteps.map((s) =>
         stepRepo.create({
           tenantId: this.tenantId,
           templateId: saved.id,
@@ -98,6 +167,7 @@ export class ProcessConfigService {
           stepName: s.stepName,
           standardHours: s.standardHours?.toString() ?? null,
           workstationType: s.workstationType ?? null,
+          workstationId: s.workstationId ?? null,
         }),
       );
       await stepRepo.save(stepEntities);
@@ -120,7 +190,8 @@ export class ProcessConfigService {
     if (params.steps) {
       // 删除旧步骤，重建
       await stepRepo.delete({ templateId: id, tenantId: this.tenantId });
-      const stepEntities = params.steps.map((s) =>
+      const normalizedSteps = await this.normalizeSteps(params.steps);
+      const stepEntities = normalizedSteps.map((s) =>
         stepRepo.create({
           tenantId: this.tenantId,
           templateId: id,
@@ -128,6 +199,7 @@ export class ProcessConfigService {
           stepName: s.stepName,
           standardHours: s.standardHours?.toString() ?? null,
           workstationType: s.workstationType ?? null,
+          workstationId: s.workstationId ?? null,
         }),
       );
       await stepRepo.save(stepEntities);
@@ -283,26 +355,26 @@ export class ProcessConfigService {
     totalWage: number;
   }>> {
     const conditions: string[] = [
-      'pt.tenant_id = ?',
+      'wr.tenant_id = ?',
       'ps.template_id = ?',
     ];
     const params: unknown[] = [this.tenantId, templateId];
 
     if (filter.from) {
-      conditions.push('pt.task_date >= ?');
+      conditions.push('wr.work_date >= ?');
       params.push(filter.from);
     }
     if (filter.to) {
-      conditions.push('pt.task_date <= ?');
+      conditions.push('wr.work_date <= ?');
       params.push(filter.to);
     }
     if (filter.workerIds && filter.workerIds.length > 0) {
       const ph = filter.workerIds.map(() => '?').join(',');
-      conditions.push(`pt.worker_id IN (${ph})`);
+      conditions.push(`wr.worker_id IN (${ph})`);
       params.push(...filter.workerIds);
     }
     if (filter.grade) {
-      conditions.push('u.worker_grade = ?');
+      conditions.push('u.skill_level = ?');
       params.push(filter.grade);
     }
 
@@ -314,25 +386,23 @@ export class ProcessConfigService {
       stepName: string;
       completedQty: string;
       unitPrice: string | null;
+      wageAmount: string;
     }>>(
       `SELECT
-         u.id            AS userId,
-         u.real_name     AS userName,
-         u.worker_grade  AS workerGrade,
-         ps.id           AS stepId,
-         ps.step_name    AS stepName,
-         SUM(pt.completed_qty) AS completedQty,
-         pw.unit_price   AS unitPrice
-       FROM production_tasks pt
-       INNER JOIN process_steps ps ON ps.id = pt.process_step_id
-       INNER JOIN users u ON u.id = pt.worker_id
-       LEFT JOIN process_wages pw
-         ON pw.step_id = ps.id
-         AND pw.tenant_id = pt.tenant_id
-         AND pw.worker_grade = u.worker_grade
+         u.id                AS userId,
+         u.real_name         AS userName,
+         COALESCE(u.skill_level, '') AS workerGrade,
+         ps.id               AS stepId,
+         ps.step_name        AS stepName,
+         SUM(wr.qty_completed) AS completedQty,
+         COALESCE(MAX(wr.unit_wage), 0) AS unitPrice,
+         SUM(wr.wage_amount) AS wageAmount
+       FROM work_reports wr
+       INNER JOIN process_steps ps ON ps.id = wr.process_step_id
+       INNER JOIN users u ON u.id = wr.worker_id
        WHERE ${conditions.join(' AND ')}
-         AND pt.status = 'completed'
-       GROUP BY u.id, u.real_name, u.worker_grade, ps.id, ps.step_name, pw.unit_price
+         AND wr.status IN ('confirmed', 'settled')
+       GROUP BY u.id, u.real_name, u.skill_level, ps.id, ps.step_name
        ORDER BY u.real_name, ps.step_name`,
       params,
     );
@@ -350,7 +420,7 @@ export class ProcessConfigService {
       const uid = Number(row.userId);
       const qty = Number(row.completedQty ?? 0);
       const price = Number(row.unitPrice ?? 0);
-      const subtotal = Math.round(qty * price * 100) / 100;
+      const subtotal = Math.round(Number(row.wageAmount ?? 0) * 100) / 100;
 
       if (!workerMap.has(uid)) {
         workerMap.set(uid, {
@@ -373,5 +443,113 @@ export class ProcessConfigService {
     }
 
     return Array.from(workerMap.values());
+  }
+
+  // ─── T-02: 设为默认模板 ──────────────────────────────────────────────────────
+
+  async setDefault(id: number): Promise<ProcessTemplateEntity> {
+    const templateRepo = AppDataSource.getRepository(ProcessTemplateEntity);
+    const tmpl = await templateRepo.findOne({ where: { id, tenantId: this.tenantId } });
+    if (!tmpl) throw new AppError('工序模板不存在', ResponseCode.NOT_FOUND, 404);
+
+    await AppDataSource.transaction(async (manager) => {
+      // 清除同 SKU 下所有默认标记
+      await manager.update(
+        ProcessTemplateEntity,
+        { tenantId: this.tenantId, skuId: tmpl.skuId },
+        { isDefault: false },
+      );
+      // 设置当前模板为默认
+      await manager.update(ProcessTemplateEntity, { id }, { isDefault: true });
+    });
+
+    tmpl.isDefault = true;
+    return tmpl;
+  }
+
+  // ─── 工种类型管理 ──────────────────────────────────────────────────────────
+
+  private get wtRepo() {
+    return AppDataSource.getRepository(WorkstationTypeEntity);
+  }
+
+  async listWorkstationTypes(): Promise<WorkstationTypeEntity[]> {
+    return this.wtRepo.find({
+      where: { tenantId: this.tenantId },
+      order: { sortOrder: 'ASC', createdAt: 'ASC' },
+    });
+  }
+
+  async createWorkstationType(name: string, sortOrder = 0): Promise<WorkstationTypeEntity> {
+    const exists = await this.wtRepo.findOne({
+      where: { tenantId: this.tenantId, name },
+    });
+    if (exists) throw new AppError(`工种类型"${name}"已存在`, ResponseCode.CONFLICT, 409);
+
+    const entity = this.wtRepo.create({ tenantId: this.tenantId, name, sortOrder });
+    return this.wtRepo.save(entity);
+  }
+
+  async updateWorkstationType(
+    id: number,
+    data: { name?: string; sortOrder?: number },
+  ): Promise<WorkstationTypeEntity> {
+    const entity = await this.wtRepo.findOne({ where: { id, tenantId: this.tenantId } });
+    if (!entity) throw new AppError('工种类型不存在', ResponseCode.NOT_FOUND, 404);
+
+    if (data.name !== undefined) entity.name = data.name;
+    if (data.sortOrder !== undefined) entity.sortOrder = data.sortOrder;
+    return this.wtRepo.save(entity);
+  }
+
+  async deleteWorkstationType(id: number): Promise<void> {
+    const entity = await this.wtRepo.findOne({ where: { id, tenantId: this.tenantId } });
+    if (!entity) throw new AppError('工种类型不存在', ResponseCode.NOT_FOUND, 404);
+    await this.wtRepo.remove(entity);
+  }
+
+  private async normalizeSteps(
+    steps: Array<{
+      stepNo: number;
+      stepName: string;
+      standardHours?: number;
+      workstationType?: string;
+      workstationId?: number;
+    }>,
+  ) {
+    const workstationIds = [...new Set(
+      steps
+        .map((item) => item.workstationId)
+        .filter((value): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0),
+    )];
+
+    const workstationMap = new Map<number, { id: number; type: string }>();
+    if (workstationIds.length > 0) {
+      const placeholders = workstationIds.map(() => '?').join(', ');
+      const rows = await AppDataSource.query<Array<{ id: number; type: string }>>(
+        `SELECT id, type
+         FROM workstations
+         WHERE tenant_id = ? AND id IN (${placeholders})`,
+        [this.tenantId, ...workstationIds],
+      );
+      rows.forEach((row) => {
+        workstationMap.set(Number(row.id), { id: Number(row.id), type: row.type });
+      });
+    }
+
+    return steps.map((step) => {
+      const linkedWorkstation = step.workstationId ? workstationMap.get(Number(step.workstationId)) : null;
+      if (step.workstationId && !linkedWorkstation) {
+        throw AppError.badRequest(`工序“${step.stepName}”关联的工作站不存在`);
+      }
+      if (linkedWorkstation && step.workstationType && step.workstationType !== linkedWorkstation.type) {
+        throw AppError.badRequest(`工序“${step.stepName}”的工作站类型与具体工作站不一致`);
+      }
+      return {
+        ...step,
+        workstationType: linkedWorkstation?.type ?? step.workstationType,
+        workstationId: linkedWorkstation?.id ?? step.workstationId,
+      };
+    });
   }
 }

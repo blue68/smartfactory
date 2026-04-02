@@ -36,7 +36,7 @@
 }
 
 .input {
-  height: 44px;
+  height: 40px;
   padding: 0 var(--space-4);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
@@ -48,7 +48,7 @@
   width: 100%;
 }
 .input:focus {
-  border-color: var(--border-focus);
+  border-color: var(--color-primary-500);
   box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
 }
 

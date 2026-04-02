@@ -6,13 +6,21 @@
  * FE-05-06: CSS 横向柱状图视图（熟练工蓝色，学徒橙色）
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import Button from '@/components/common/Button';
-import { useWageReport, exportWages } from '@/api/wage';
-import type { WageReportRow, WageReportParams } from '@/api/wage';
+import { useWageReport, useTaskWageReport, exportWages } from '@/api/wage';
+import type {
+  WageReportRow,
+  WageReportParams,
+  WageTaskReportRow,
+  WageTaskReportParams,
+} from '@/api/wage';
 import { useAuthStore } from '@/stores/authStore';
 import { UserRole } from '@/types/enums';
+
+const EMPTY_WAGE_ROWS: WageReportRow[] = [];
+const EMPTY_WAGE_TASK_ROWS: WageTaskReportRow[] = [];
 
 // ─── 工具：获取当月起止日期 ───────────────────────────────
 
@@ -212,6 +220,7 @@ function MonthlySummaryTable({ list, isAdmin }: MonthlySummaryProps) {
 
 type ViewMode = 'table' | 'chart';
 type ReportTab = 'daily' | 'monthly';
+type DailyDetailMode = 'wage' | 'task';
 
 const defaultRange = getCurrentMonthRange();
 
@@ -224,12 +233,17 @@ export default function WageReportPage() {
   const [dateTo, setDateTo] = useState(defaultRange.to);
   const [userId, setUserId] = useState('');
   const [workerGrade, setWorkerGrade] = useState<'' | 'skilled' | 'apprentice'>('');
+  const [productionOrderIdInput, setProductionOrderIdInput] = useState('');
+  const [taskIdInput, setTaskIdInput] = useState('');
+  const [productionOrderId, setProductionOrderId] = useState('');
+  const [taskId, setTaskId] = useState('');
   const [page, setPage] = useState(1);
   const pageSize = 20;
   const [exporting, setExporting] = useState(false);
 
   // FE-05-01: 视图切换（表格 / 图表）
   const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [detailMode, setDetailMode] = useState<DailyDetailMode>('wage');
 
   // P1-#15: Tab 切换 — 日工资明细 / 月度汇总
   const [activeTab, setActiveTab] = useState<ReportTab>('daily');
@@ -245,10 +259,48 @@ export default function WageReportPage() {
     workerGrade: workerGrade || undefined,
   };
 
-  const { data, isLoading } = useWageReport(filter);
-  const list: WageReportRow[] = data?.list ?? [];
-  const total = data?.total ?? 0;
+  const taskFilter: WageTaskReportParams = {
+    ...filter,
+    productionOrderId: productionOrderId ? Number(productionOrderId) : undefined,
+    taskId: taskId ? Number(taskId) : undefined,
+  };
+
+  const { data: wageData, isLoading: wageLoading } = useWageReport(filter);
+  const { data: taskData, isLoading: taskLoading } = useTaskWageReport(
+    taskFilter,
+    activeTab === 'daily' && detailMode === 'task',
+  );
+
+  const list: WageReportRow[] = wageData?.list ?? EMPTY_WAGE_ROWS;
+  const taskList: WageTaskReportRow[] = taskData?.list ?? EMPTY_WAGE_TASK_ROWS;
+  const total = detailMode === 'task' ? (taskData?.total ?? 0) : (wageData?.total ?? 0);
   const totalPages = Math.ceil(total / pageSize);
+  const isLoading = detailMode === 'task' ? taskLoading : wageLoading;
+
+  const taskSummary = useMemo(() => {
+    const totalHours = taskList.reduce((sum, row) => sum + Number(row.workHours || 0), 0);
+    const totalQty = taskList.reduce((sum, row) => sum + Number(row.qtyCompleted || 0), 0);
+    const totalWage = taskList.reduce((sum, row) => sum + Number(row.subtotal || 0), 0);
+    return {
+      totalHours: totalHours.toFixed(2),
+      totalQty: totalQty.toFixed(4),
+      totalWage: totalWage.toFixed(2),
+    };
+  }, [taskList]);
+
+  const applyTaskSearch = useCallback(() => {
+    setProductionOrderId(productionOrderIdInput.trim());
+    setTaskId(taskIdInput.trim());
+    setPage(1);
+  }, [productionOrderIdInput, taskIdInput]);
+
+  const clearTaskSearch = useCallback(() => {
+    setProductionOrderIdInput('');
+    setTaskIdInput('');
+    setProductionOrderId('');
+    setTaskId('');
+    setPage(1);
+  }, []);
 
   const handleExport = async () => {
     setExporting(true);
@@ -354,7 +406,6 @@ export default function WageReportPage() {
 
         <div style={{ flex: 1 }} />
 
-        {/* FE-05-01: 视图切换按钮组 */}
         <div
           style={{
             display: 'flex',
@@ -363,27 +414,34 @@ export default function WageReportPage() {
             overflow: 'hidden',
           }}
           role="group"
-          aria-label="视图切换"
+          aria-label="日报细分视图"
         >
           <button
-            onClick={() => setViewMode('table')}
-            aria-pressed={viewMode === 'table'}
+            onClick={() => {
+              setDetailMode('wage');
+              setPage(1);
+              setViewMode((prev) => prev);
+            }}
+            aria-pressed={detailMode === 'wage'}
             style={{
               padding: '6px 14px',
               fontSize: 13,
               fontWeight: 600,
               border: 'none',
               cursor: 'pointer',
-              background: viewMode === 'table' ? 'var(--color-primary-500, #3B82F6)' : 'transparent',
-              color: viewMode === 'table' ? '#fff' : 'var(--text-secondary)',
-              transition: 'background 150ms ease, color 150ms ease',
+              background: detailMode === 'wage' ? 'var(--color-primary-500, #3B82F6)' : 'transparent',
+              color: detailMode === 'wage' ? '#fff' : 'var(--text-secondary)',
             }}
           >
-            表格
+            工资汇总
           </button>
           <button
-            onClick={() => setViewMode('chart')}
-            aria-pressed={viewMode === 'chart'}
+            onClick={() => {
+              setDetailMode('task');
+              setPage(1);
+              setViewMode('table');
+            }}
+            aria-pressed={detailMode === 'task'}
             style={{
               padding: '6px 14px',
               fontSize: 13,
@@ -391,14 +449,94 @@ export default function WageReportPage() {
               border: 'none',
               borderLeft: '1px solid var(--border-default, #E2E8F0)',
               cursor: 'pointer',
-              background: viewMode === 'chart' ? 'var(--color-primary-500, #3B82F6)' : 'transparent',
-              color: viewMode === 'chart' ? '#fff' : 'var(--text-secondary)',
-              transition: 'background 150ms ease, color 150ms ease',
+              background: detailMode === 'task' ? 'var(--color-primary-500, #3B82F6)' : 'transparent',
+              color: detailMode === 'task' ? '#fff' : 'var(--text-secondary)',
             }}
           >
-            图表
+            任务报工
           </button>
         </div>
+
+        {detailMode === 'task' && (
+          <>
+            <label>
+              工单 ID
+              <input
+                type="number"
+                value={productionOrderIdInput}
+                placeholder="不限"
+                onChange={(e) => setProductionOrderIdInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && applyTaskSearch()}
+                style={{ marginLeft: 4, width: 100, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-default)' }}
+              />
+            </label>
+            <label>
+              任务 ID
+              <input
+                type="number"
+                value={taskIdInput}
+                placeholder="不限"
+                onChange={(e) => setTaskIdInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && applyTaskSearch()}
+                style={{ marginLeft: 4, width: 100, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-default)' }}
+              />
+            </label>
+            <Button variant="ghost" size="sm" onClick={applyTaskSearch}>
+              查询
+            </Button>
+            <Button variant="ghost" size="sm" onClick={clearTaskSearch}>
+              清空
+            </Button>
+          </>
+        )}
+
+        {/* FE-05-01: 视图切换按钮组 */}
+        {detailMode === 'wage' && (
+          <div
+            style={{
+              display: 'flex',
+              borderRadius: 6,
+              border: '1px solid var(--border-default, #E2E8F0)',
+              overflow: 'hidden',
+            }}
+            role="group"
+            aria-label="视图切换"
+          >
+            <button
+              onClick={() => setViewMode('table')}
+              aria-pressed={viewMode === 'table'}
+              style={{
+                padding: '6px 14px',
+                fontSize: 13,
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                background: viewMode === 'table' ? 'var(--color-primary-500, #3B82F6)' : 'transparent',
+                color: viewMode === 'table' ? '#fff' : 'var(--text-secondary)',
+                transition: 'background 150ms ease, color 150ms ease',
+              }}
+            >
+              表格
+            </button>
+            <button
+              onClick={() => setViewMode('chart')}
+              aria-pressed={viewMode === 'chart'}
+              style={{
+                padding: '6px 14px',
+                fontSize: 13,
+                fontWeight: 600,
+                border: 'none',
+                borderLeft: '1px solid var(--border-default, #E2E8F0)',
+                cursor: 'pointer',
+                background: viewMode === 'chart' ? 'var(--color-primary-500, #3B82F6)' : 'transparent',
+                color: viewMode === 'chart' ? '#fff' : 'var(--text-secondary)',
+                transition: 'background 150ms ease, color 150ms ease',
+              }}
+            >
+              图表
+            </button>
+          </div>
+        )}
 
         {/* FE-05-01: 导出按钮（仅管理员可见，按 FE-05-03 权限规则） */}
         {isAdmin && (
@@ -409,23 +547,38 @@ export default function WageReportPage() {
       </div>
 
       {/* 汇总信息 */}
-      {data && (
+      {(detailMode === 'wage' ? wageData : taskData) && (
         <div style={{ display: 'flex', gap: 24, fontSize: 14, color: 'var(--text-secondary)' }}>
           <span>共 {total} 条</span>
-          {/* FE-05-03: 工资合计仅管理员可见 */}
-          {isAdmin && data.totalWage && (
-            <span>工资合计: {data.totalWage} 元</span>
+          {detailMode === 'wage' ? (
+            <>
+              {isAdmin && wageData?.totalWage && (
+                <span>工资合计: {wageData.totalWage} 元</span>
+              )}
+              {isAdmin && (wageData?.unconfiguredCount ?? 0) > 0 && (
+                <span style={{ color: 'var(--color-warning)' }}>
+                  未配置单价: {wageData?.unconfiguredCount} 条
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <span>本页工时: {taskSummary.totalHours} h</span>
+              <span>本页产量: {taskSummary.totalQty}</span>
+              {isAdmin && <span>本页工资: {taskSummary.totalWage} 元</span>}
+            </>
           )}
-          {isAdmin && data.unconfiguredCount > 0 && (
-            <span style={{ color: 'var(--color-warning)' }}>
-              未配置单价: {data.unconfiguredCount} 条
-            </span>
-          )}
+        </div>
+      )}
+      {detailMode === 'task' && (
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+          任务报工口径来自已确认报工记录
+          {productionOrderId || taskId ? `（已筛选：工单 ${productionOrderId || '不限'} / 任务 ${taskId || '不限'}）` : ''}
         </div>
       )}
 
       {/* FE-05-06: 图表视图 */}
-      {viewMode === 'chart' && (
+      {detailMode === 'wage' && viewMode === 'chart' && (
         <div style={{ background: '#fff', borderRadius: 8, border: '1px solid var(--border-default)', padding: 16 }}>
           {isLoading ? (
             <p style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>加载中…</p>
@@ -439,28 +592,45 @@ export default function WageReportPage() {
       {viewMode === 'table' && (
         <div style={{ overflowX: 'auto', background: '#fff', borderRadius: 8, border: '1px solid var(--border-default)' }}>
           {isLoading ? (
-            <p style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>加载中…</p>
+            <p style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
+              {detailMode === 'task' ? '任务报工加载中…' : '加载中…'}
+            </p>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
               <thead>
-                <tr style={{ background: 'var(--bg-subtle, #f9fafb)', borderBottom: '1px solid var(--border-default)' }}>
-                  <th style={thStyle}>工人</th>
-                  <th style={thStyle}>技能等级</th>
-                  <th style={thStyle}>工序</th>
-                  <th style={thStyle}>完成数量</th>
-                  {/* FE-05-03: 工价/小计列仅管理员渲染（不用 CSS 隐藏，直接不渲染） */}
-                  {isAdmin && <th style={thStyle}>单价</th>}
-                  {isAdmin && <th style={thStyle}>小计</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {list.length === 0 ? (
-                  <tr>
-                    <td colSpan={isAdmin ? 6 : 4} style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
-                      暂无数据
-                    </td>
+                {detailMode === 'wage' ? (
+                  <tr style={{ background: 'var(--bg-subtle, #f9fafb)', borderBottom: '1px solid var(--border-default)' }}>
+                    <th style={thStyle}>工人</th>
+                    <th style={thStyle}>技能等级</th>
+                    <th style={thStyle}>工序</th>
+                    <th style={thStyle}>完成数量</th>
+                    {isAdmin && <th style={thStyle}>单价</th>}
+                    {isAdmin && <th style={thStyle}>小计</th>}
                   </tr>
                 ) : (
+                  <tr style={{ background: 'var(--bg-subtle, #f9fafb)', borderBottom: '1px solid var(--border-default)' }}>
+                    <th style={thStyle}>日期</th>
+                    <th style={thStyle}>工单号</th>
+                    <th style={thStyle}>任务号</th>
+                    <th style={thStyle}>工人</th>
+                    <th style={thStyle}>工序</th>
+                    <th style={thStyle}>完成数</th>
+                    <th style={thStyle}>合格数</th>
+                    <th style={thStyle}>不良数</th>
+                    <th style={thStyle}>工时</th>
+                    {isAdmin && <th style={thStyle}>单价</th>}
+                    {isAdmin && <th style={thStyle}>小计</th>}
+                  </tr>
+                )}
+              </thead>
+              <tbody>
+                {(detailMode === 'wage' ? list.length === 0 : taskList.length === 0) ? (
+                  <tr>
+                    <td colSpan={detailMode === 'wage' ? (isAdmin ? 6 : 4) : (isAdmin ? 11 : 9)} style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
+                      {detailMode === 'wage' ? '暂无数据' : '暂无任务报工记录'}
+                    </td>
+                  </tr>
+                ) : detailMode === 'wage' ? (
                   list.map((row, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid var(--border-default)' }}>
                       <td style={tdStyle}>{row.userName}</td>
@@ -478,6 +648,30 @@ export default function WageReportPage() {
                       {isAdmin && (
                         <td style={{ ...tdStyle, fontWeight: 600, fontFamily: 'var(--font-family-number)' }}>
                           {row.subtotal ?? '—'}
+                        </td>
+                      )}
+                    </tr>
+                  ))
+                ) : (
+                  taskList.map((row) => (
+                    <tr key={row.reportId} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                      <td style={tdStyle}>{row.reportDate}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'var(--font-family-number)' }}>{row.orderNo ?? '—'}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'var(--font-family-number)' }}>{row.taskNo ?? '—'}</td>
+                      <td style={tdStyle}>{row.userName}</td>
+                      <td style={tdStyle}>{row.stepName}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'var(--font-family-number)' }}>{row.qtyCompleted}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'var(--font-family-number)' }}>{row.qtyQualified}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'var(--font-family-number)' }}>{row.qtyDefective}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'var(--font-family-number)' }}>{row.workHours}</td>
+                      {isAdmin && (
+                        <td style={{ ...tdStyle, fontFamily: 'var(--font-family-number)' }}>
+                          {row.unitPrice}
+                        </td>
+                      )}
+                      {isAdmin && (
+                        <td style={{ ...tdStyle, fontWeight: 600, fontFamily: 'var(--font-family-number)' }}>
+                          {row.subtotal}
                         </td>
                       )}
                     </tr>

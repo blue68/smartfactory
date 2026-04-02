@@ -8,12 +8,11 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import { useUrgentAnalysis } from '@/api/sales';
-import { useCreateSalesOrder } from '@/api/salesOrder';
+import { useCreateSalesOrder, useConfirmSalesOrder } from '@/api/salesOrder';
 import { useCustomerOptions } from '@/api/customer';
 import { useSkuList } from '@/api/sku';
 import { ConstraintResult } from '@/types/enums';
 import type {
-  SalesOrderCreateResult,
   UrgentAnalysisResult,
   ConstraintCheck,
 } from '@/types/models';
@@ -60,24 +59,6 @@ function buildConstraintChecksFromAnalysis(
   });
 }
 
-// ─── 根据普通订单创建结果构建简化约束检查展示（createOrder 不返回各维度详情）──
-// 后端 createOrder 仅返回 overallResult（pass/block/warning），不含各维度细节。
-// 待后端 createOrder 支持返回完整 ConstraintCheckReport 后可替换此函数。
-function buildConstraintChecksFromCreateResult(
-  result: SalesOrderCreateResult,
-): ConstraintCheckDisplay[] {
-  const passed = result.constraintResult !== ConstraintResult.BLOCK;
-  return [
-    {
-      passed,
-      label: '综合约束检查',
-      detail: passed
-        ? `约束检查通过（${result.constraintResult}）。订单 ${result.orderNo} 已确认。`
-        : `约束检查未通过（${result.constraintResult}），订单已进入待审批状态。请老板审批后继续。`,
-    },
-  ];
-}
-
 // ─── AI step definition ──────────────────────────────────────────────────────
 type StepStatus = 'done' | 'current' | 'pending';
 
@@ -92,69 +73,6 @@ const INITIAL_AI_STEPS: AiStep[] = [
   { label: '模拟插入后各订单交期变化…', status: 'current' },
   { label: '计算资金占用与库存周转变化', status: 'pending' },
 ];
-
-// ─── Constraint Blocked Modal ─────────────────────────────────────────────────
-interface ConstraintModalProps {
-  open: boolean;
-  onClose: () => void;
-  onViewDetail: () => void;
-  result: SalesOrderCreateResult | null;
-}
-
-function ConstraintBlockedModal({ open, onClose, onViewDetail, result }: ConstraintModalProps) {
-  const isBlocked = result?.constraintResult === ConstraintResult.BLOCK;
-  const title = isBlocked
-    ? '约束检查未通过，需老板审批'
-    : result?.requiresApproval
-    ? '订单需审批确认'
-    : '约束检查通过';
-
-  return (
-    <Modal
-      open={open}
-      title={title}
-      onClose={onClose}
-      confirmLabel="查看订单详情"
-      cancelLabel="关闭"
-      confirmVariant="primary"
-      onConfirm={onViewDetail}
-      size="md"
-    >
-      <div className={styles.constraint_modal_body}>
-        <div className={styles.modal_section_label}>触发原因</div>
-        <div className={styles.modal_error_item}>
-          <span className={styles.modal_error_icon}>✖</span>
-          <span className={styles.modal_error_text}>
-            <strong>资金占用超标：</strong>新增后总占用 ¥192,000，超出预算上限 ¥180,000（超出 6.7%）
-          </span>
-        </div>
-
-        <div className={styles.modal_section_label}>AI 影响分析</div>
-        <div className={styles.modal_ai_block}>
-          <div className={styles.modal_ai_block_title}>
-            <span>🤖</span> AI 智能分析
-          </div>
-          <ul className={styles.modal_ai_list}>
-            <li className={styles.modal_ai_item}>
-              受影响订单：现有 3 单（ORD-031101/031102/031103）交期可能延后 1-2 天
-            </li>
-            <li className={styles.modal_ai_item}>
-              库存周转天数将从 38 天增至 44 天，仍在安全阈值内
-            </li>
-            <li className={styles.modal_ai_item}>
-              建议与客户协商将交期延后至 2026-04-02，可完全规避资金超标风险
-            </li>
-          </ul>
-        </div>
-
-        <div className={styles.modal_pending_notice}>
-          <span className={styles.modal_pending_icon}>⏳</span>
-          <span>订单已暂存，等待老板审批（预计 4 小时内处理）</span>
-        </div>
-      </div>
-    </Modal>
-  );
-}
 
 // ─── Urgent AI Analysis Modal ─────────────────────────────────────────────────
 interface UrgentModalProps {
@@ -218,6 +136,7 @@ interface FormState {
   orderType: 'normal' | 'urgent';
   product: string;
   qty: string;
+  unitPrice: string;
   deadline: string;
   notes: string;
 }
@@ -228,9 +147,9 @@ export default function OrderPage() {
 
   // ─── 真实 API 数据：客户列表 & 成品 SKU 列表 ─────────────────────────────
   const { data: customerOptions = [] } = useCustomerOptions();
-  const { data: skuPage } = useSkuList({ pageSize: 200 });
+  const { data: skuPage } = useSkuList({ pageSize: 200, skuTypes: 'finished' });
   const finishedSkus = useMemo(
-    () => (skuPage?.list ?? []),
+    () => (skuPage?.list ?? []).filter((sku) => sku.category1Code === 'FINISHED'),
     [skuPage],
   );
 
@@ -239,14 +158,14 @@ export default function OrderPage() {
     orderType: 'normal',
     product: '',
     qty: '8',
+    unitPrice: '0',
     deadline: '2026-03-25',
     notes: '',
   });
 
   const [showConstraintCard, setShowConstraintCard] = useState(false);
-  const [constraintModalOpen, setConstraintModalOpen] = useState(false);
   const [urgentModalOpen, setUrgentModalOpen] = useState(false);
-  const [createResult, setCreateResult] = useState<SalesOrderCreateResult | null>(null);
+  const [urgentAnalysisReady, setUrgentAnalysisReady] = useState(false);
 
   // 约束检查展示数据：优先使用 API 返回数据，fallback 为空数组
   const [constraintChecks, setConstraintChecks] = useState<ConstraintCheckDisplay[]>([]);
@@ -261,6 +180,7 @@ export default function OrderPage() {
   const [autoSaveText, setAutoSaveText] = useState('自动保存 10 秒前');
 
   const createMutation = useCreateSalesOrder();
+  const confirmMutation = useConfirmSalesOrder();
   const urgentMutation = useUrgentAnalysis();
 
   useEffect(() => {
@@ -278,17 +198,48 @@ export default function OrderPage() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => {
     const { name, value } = e.target;
+    if (form.orderType === 'urgent') {
+      setUrgentAnalysisReady(false);
+      setShowConstraintCard(false);
+      setConstraintChecks([]);
+    }
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleOrderTypeChange = (value: 'normal' | 'urgent') => {
+    setUrgentAnalysisReady(false);
+    setShowConstraintCard(false);
+    setConstraintChecks([]);
     setForm((prev) => ({ ...prev, orderType: value }));
   };
 
   const handleSaveDraft = () => {
-    setDraftLabel('草稿（已保存）');
-    setAutoSaveText('刚刚已保存');
-    showToast({ type: 'success', message: '草稿已保存' });
+    const saveDraft = async () => {
+      try {
+        if (!form.customer || !form.product || !form.qty || !form.deadline) {
+          localStorage.setItem('sales-order-draft:order-page', JSON.stringify(form));
+          setDraftLabel('草稿（本地暂存）');
+          setAutoSaveText('刚刚已本地保存');
+          showToast({ type: 'info', message: '关键信息未填完，已先本地暂存' });
+          return;
+        }
+
+        const payload = buildSingleItemPayload();
+        const draftPayload = {
+          ...payload,
+          saveAsDraft: true,
+        };
+        await createMutation.mutateAsync(draftPayload);
+        setDraftLabel('草稿（已保存）');
+        setAutoSaveText('刚刚已保存');
+        showToast({ type: 'success', message: '草稿已保存到系统' });
+        navigate('/sales/order-list');
+      } catch (e) {
+        showToast({ type: 'error', message: (e as Error).message });
+      }
+    };
+
+    void saveDraft();
   };
 
   const handleCancel = () => {
@@ -334,13 +285,59 @@ export default function OrderPage() {
     }, 1000);
   };
 
+  const buildSingleItemPayload = () => {
+    const selectedCustomer = customerOptions.find((c) => String(c.id) === form.customer);
+    const selectedSku = finishedSkus.find((s) => String(s.id) === form.product);
+
+    if (!selectedCustomer) {
+      throw new Error('请选择有效客户');
+    }
+    if (!selectedSku) {
+      throw new Error('请选择有效产品');
+    }
+
+    const customerId = Number(selectedCustomer.id);
+    const skuId = Number(selectedSku.id);
+
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      throw new Error('客户数据无效，请重新选择');
+    }
+    if (!Number.isInteger(skuId) || skuId <= 0) {
+      throw new Error('产品数据无效，请重新选择');
+    }
+
+    return {
+      customerId,
+      orderDate: new Date().toISOString().slice(0, 10),
+      deliveryDate: form.deadline,
+      isUrgent: form.orderType === 'urgent',
+      notes: form.notes,
+      items: [
+        {
+          skuId,
+          productName: selectedSku.name,
+          quantity: Number(form.qty),
+          unitPrice: form.unitPrice || '0',
+        },
+      ],
+    };
+  };
+
   const handleSubmit = async () => {
-    if (!form.customer || !form.product || !form.qty || !form.deadline) {
+    if (!form.customer || !form.product || !form.qty || !form.unitPrice || !form.deadline) {
       showToast({ type: 'error', message: '请填写所有必填字段' });
       return;
     }
+    if (Number(form.qty) <= 0) {
+      showToast({ type: 'error', message: '数量必须大于 0' });
+      return;
+    }
+    if (Number(form.unitPrice) < 0) {
+      showToast({ type: 'error', message: '单价不能为负数' });
+      return;
+    }
 
-    if (form.orderType === 'urgent') {
+    if (form.orderType === 'urgent' && !urgentAnalysisReady) {
       setUrgentModalOpen(true);
 
       // 并行执行：倒计时动画 + AI 分析 API
@@ -370,48 +367,40 @@ export default function OrderPage() {
             : [];
         setConstraintChecks(checks);
         setShowConstraintCard(true);
+        setUrgentAnalysisReady(true);
 
         // 若 API 分析结果表明有问题，显示提示
         if (analysisResult && analysisResult.overallResult === ConstraintResult.BLOCK) {
           showToast({ type: 'error', message: '插单影响分析：当前约束不满足，请确认后提交' });
         } else if (analysisResult) {
           showToast({ type: 'info', message: '插单影响分析完成，请查看约束检查结果' });
+        } else {
+          showToast({ type: 'warning', message: '影响分析未返回结果，仍可继续提交插单申请' });
         }
       });
 
       return;
     }
 
-    // Normal order
     try {
-      const selectedCustomer = customerOptions.find((c) => String(c.id) === form.customer);
-      const selectedSku = finishedSkus.find((s) => String(s.id) === form.product);
-      const result = await createMutation.mutateAsync({
-        customerId: selectedCustomer?.id ?? 1,
-        orderDate: new Date().toISOString().slice(0, 10),
-        deliveryDate: form.deadline,
-        isUrgent: false,
-        notes: form.notes,
-        items: [
-          {
-            skuId: selectedSku?.id ?? 1,
-            productName: selectedSku?.name ?? '',
-            quantity: Number(form.qty),
-            unitPrice: '0',
-          },
-        ],
-      });
+      const payload = buildSingleItemPayload();
+      const result = await createMutation.mutateAsync(payload);
+      const createdOrderId = Number((result as { id: number }).id);
+      const createdOrderNo = String((result as { orderNo: string }).orderNo ?? '');
 
-      setCreateResult(result as unknown as SalesOrderCreateResult);
-      setShowConstraintCard(true);
-
-      const cr = result as unknown as SalesOrderCreateResult;
-      if (cr.constraintResult === ConstraintResult.BLOCK || cr.requiresApproval) {
-        setConstraintChecks(buildConstraintChecksFromCreateResult(cr));
-        setTimeout(() => setConstraintModalOpen(true), 400);
+      if (form.orderType === 'urgent') {
+        showToast({
+          type: 'success',
+          message: `插单申请 ${createdOrderNo || ''} 已提交审批`,
+        });
       } else {
-        showToast({ type: 'success', message: `订单 ${cr.orderNo ?? '已'} 创建成功` });
+        await confirmMutation.mutateAsync(createdOrderId);
+        showToast({
+          type: 'success',
+          message: `订单 ${createdOrderNo || ''} 已确认并触发生产工单创建`,
+        });
       }
+      navigate('/sales/order-list');
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
     }
@@ -423,7 +412,8 @@ export default function OrderPage() {
   };
 
   const isUrgent = form.orderType === 'urgent';
-  const isSubmitting = createMutation.isPending || urgentMutation.isPending;
+  const isSubmitting =
+    createMutation.isPending || confirmMutation.isPending || urgentMutation.isPending;
 
   return (
     <div className={styles.page}>
@@ -556,6 +546,26 @@ export default function OrderPage() {
                 </div>
               </div>
 
+              {/* 单价 */}
+              <div className={styles.form_group}>
+                <label className={`${styles.form_label} ${styles['form_label--required']}`} htmlFor="unitPrice">
+                  单价
+                </label>
+                <div className={styles.input_with_unit}>
+                  <input
+                    type="number"
+                    id="unitPrice"
+                    name="unitPrice"
+                    className={styles.form_input}
+                    value={form.unitPrice}
+                    min={0}
+                    step="0.01"
+                    onChange={handleFormChange}
+                  />
+                  <span className={styles.input_unit}>元</span>
+                </div>
+              </div>
+
               {/* 期望交期 */}
               <div className={styles.form_group}>
                 <label className={`${styles.form_label} ${styles['form_label--required']}`} htmlFor="deadline">
@@ -600,9 +610,8 @@ export default function OrderPage() {
               }`
             : '当前利用率 72%，可接单'; // TODO: 接入 /api/sales/orders/estimate 接口后替换
 
-          // 预估最早交期：createOrder 返回的 estimatedDelivery（当前后端始终返回 null）
-          // 若有值则展示，否则不展示交期预警行
-          const estimatedDelivery = createResult?.estimatedDelivery ?? null;
+          // TODO: 接入实时产能/交期预估接口后，用真实 estimatedDelivery 替换
+          const estimatedDelivery = null;
           const expectedDelivery = form.deadline;
           const delayDays = estimatedDelivery
             ? Math.ceil(
@@ -743,22 +752,9 @@ export default function OrderPage() {
           loading={isSubmitting}
           onClick={() => void handleSubmit()}
         >
-          {isUrgent ? '发起影响评估' : '提交订单'}
+          {isUrgent ? (urgentAnalysisReady ? '提交插单申请' : '发起影响评估') : '确认订单'}
         </Button>
       </footer>
-
-      {/* ── Modal: Constraint Blocked ───────────────────────── */}
-      <ConstraintBlockedModal
-        open={constraintModalOpen}
-        onClose={() => setConstraintModalOpen(false)}
-        onViewDetail={() => {
-          setConstraintModalOpen(false);
-          if (createResult) {
-            navigate(`/sales/orders/${createResult.orderId}`);
-          }
-        }}
-        result={createResult}
-      />
 
       {/* ── Modal: Urgent AI Analysis ───────────────────────── */}
       <UrgentAnalysisModal

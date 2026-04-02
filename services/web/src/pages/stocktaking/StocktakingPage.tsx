@@ -142,6 +142,7 @@ interface TaskRowProps {
 
 function TaskRow({ task, expanded, onToggle, onConfirm, confirming }: TaskRowProps) {
   const diffColor = task.diffItems > 0 ? styles.cell_diff_positive : styles.cell_diff_zero;
+  const canConfirm = task.status === 'in_progress' || task.status === 'pending_confirm';
 
   return (
     <tr className={expanded ? styles['row--expanded'] : undefined}>
@@ -165,7 +166,7 @@ function TaskRow({ task, expanded, onToggle, onConfirm, confirming }: TaskRowPro
           >
             {expanded ? '收起' : '查看'}
           </button>
-          {task.status === 'pending_confirm' && (
+          {canConfirm && (
             <button
               className={styles.confirm_btn}
               onClick={() => onConfirm(task.id)}

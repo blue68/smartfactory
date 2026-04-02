@@ -5,6 +5,8 @@ import { SalesOrderItemEntity } from './salesOrderItem.entity';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import { NotificationService } from '../notification/notification.service';
+import { ProductionOrderService } from '../production/production-order.service';
+import { SalesService } from '../sales/sales.service';
 
 // ─── 产能检查常量 ─────────────────────────────────────────────────────────────
 /** 默认日产能（件/天），当工作站表无数据时降级使用 */
@@ -35,9 +37,12 @@ const TRANSITION_MAP: Record<SalesOrderStatus, SalesOrderStatus[]> = {
   pending_approval: ['confirmed', 'draft', 'closed'],
   confirmed:        ['in_production', 'closed'],
   in_production:    ['shipped', 'closed'],
+  produced:         ['shipped', 'closed'],
+  partial_shipped:  ['shipped', 'closed'],
   shipped:          ['completed', 'closed'],
   completed:        ['closed'],
   closed:           [],
+  cancelled:        [],
 };
 
 // ─── 参数接口 ────────────────────────────────────────────────────────────────
@@ -64,6 +69,7 @@ export interface CreateSalesOrderParams {
   orderDate: string;
   deliveryDate: string;
   isUrgent?: boolean;
+  saveAsDraft?: boolean;
   notes?: string;
   items: OrderItemInput[];
 }
@@ -77,6 +83,44 @@ export class SalesOrderService {
   constructor(ctx: { tenantId: number; userId: number }) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+  }
+
+  private _productionOrderService(): ProductionOrderService {
+    return new ProductionOrderService({ tenantId: this.tenantId, userId: this.userId });
+  }
+
+  private _salesFlowService(): SalesService {
+    return new SalesService({ tenantId: this.tenantId, userId: this.userId });
+  }
+
+  private async _writeAuditLog(
+    executor: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+    params: {
+      action: string;
+      targetId: number;
+      targetCode: string;
+      beforeData?: unknown;
+      afterData?: unknown;
+    },
+  ): Promise<void> {
+    try {
+      await executor.query(
+        `INSERT INTO audit_logs
+           (tenant_id, module, action, target_id, target_code, before_data, after_data, operator_id)
+         VALUES (?, 'sales_order', ?, ?, ?, ?, ?, ?)`,
+        [
+          this.tenantId,
+          params.action,
+          params.targetId,
+          params.targetCode,
+          params.beforeData ? JSON.stringify(params.beforeData) : null,
+          params.afterData ? JSON.stringify(params.afterData) : null,
+          this.userId,
+        ],
+      );
+    } catch {
+      // 审计日志缺失不应阻断销售主链路
+    }
   }
 
   // ── 1. 列表（联表查询客户名，支持关键字 / 状态 / 客户 / 紧急）──────────────
@@ -162,41 +206,80 @@ export class SalesOrderService {
 
   // ── 2. 详情（含明细行 + 客户名）──────────────────────────────────────────
 
-  async getById(id: number): Promise<{ order: SalesOrderEntity; items: SalesOrderItemEntity[]; customerName: string }> {
-    const [orderRows] = await AppDataSource.query<SalesOrderEntity[]>(
+  async getById(id: number): Promise<Record<string, unknown>> {
+    const [orderRow] = await AppDataSource.query<Array<Record<string, unknown>>>(
       `SELECT so.id, so.tenant_id AS tenantId, so.order_no AS orderNo,
-              so.customer_id AS customerId, so.order_date AS orderDate,
+              so.customer_id AS customerId, DATE(so.created_at) AS orderDate,
               so.expected_delivery AS deliveryDate,
               (so.order_type = 'urgent') AS isUrgent,
               so.status, so.total_amount AS totalAmount,
               so.approved_by AS approvedBy, so.approved_at AS approvedAt,
-              so.submit_count AS submitCount, so.reject_reason AS rejectReason,
+              so.approval_status AS approvalStatus, so.approval_notes AS approvalNotes,
               so.notes, so.created_by AS createdBy, so.updated_by AS updatedBy,
               so.created_at AS createdAt, so.updated_at AS updatedAt,
-              c.name AS customerName
+              COALESCE(c.name, CONCAT('客户#', so.customer_id)) AS customerName,
+              approver.real_name AS approvedByName
        FROM sales_orders so
-       INNER JOIN customers c ON c.id = so.customer_id
+       LEFT JOIN customers c ON c.id = so.customer_id AND c.tenant_id = so.tenant_id
+       LEFT JOIN users approver ON approver.id = so.approved_by AND approver.tenant_id = so.tenant_id
        WHERE so.id = ? AND so.tenant_id = ? LIMIT 1`,
       [id, this.tenantId],
     );
-    if (!orderRows) {
+    if (!orderRow) {
       throw AppError.notFound('销售订单不存在', ResponseCode.ORDER_NOT_FOUND);
     }
 
-    const items = await AppDataSource.query<SalesOrderItemEntity[]>(
-      `SELECT soi.*, s.name AS skuName, s.sku_code AS skuCode
+    const items = await AppDataSource.query<Array<Record<string, unknown>>>(
+      `SELECT soi.id, soi.order_id AS orderId, soi.sku_id AS productId,
+              COALESCE(s.sku_code, CONCAT('SKU#', soi.sku_id)) AS productCode,
+              COALESCE(s.name, CONCAT('SKU#', soi.sku_id)) AS productName, s.spec,
+              soi.qty_ordered AS quantity, soi.qty_ordered AS qtyOrdered,
+              COALESCE(soi.qty_delivered, 0) AS qtyDelivered, COALESCE(s.stock_unit, '件') AS unit,
+              soi.unit_price AS unitPrice, soi.amount, NULL AS notes
        FROM sales_order_items soi
-       LEFT JOIN skus s ON s.id = soi.sku_id
+       LEFT JOIN skus s ON s.id = soi.sku_id AND s.tenant_id = soi.tenant_id
        WHERE soi.order_id = ? AND soi.tenant_id = ?
-       ORDER BY soi.sort_order ASC, soi.id ASC`,
+      ORDER BY soi.id ASC`,
       [id, this.tenantId],
     );
 
-    const raw = orderRows as unknown as Record<string, unknown>;
+    const productionOrders = await AppDataSource.query<Array<Record<string, unknown>>>(
+      `SELECT po.id, po.work_order_no AS workOrderNo, po.status,
+              po.material_status AS materialStatus, po.created_at AS createdAt,
+              po.planned_end AS plannedEnd
+       FROM production_orders po
+       WHERE po.sales_order_id = ? AND po.tenant_id = ?
+       ORDER BY po.id ASC`,
+      [id, this.tenantId],
+    ).catch(() => []);
+
+    const deliveries = await AppDataSource.query<Array<Record<string, unknown>>>(
+      `SELECT sd.id, sd.delivery_no AS deliveryNo, sd.tracking_no AS trackingNo,
+              sd.status, sd.shipped_at AS shippedAt, sd.received_at AS receivedAt
+       FROM sales_deliveries sd
+       WHERE sd.order_id = ? AND sd.tenant_id = ?
+       ORDER BY sd.id DESC`,
+      [id, this.tenantId],
+    ).catch(() => []);
+
+    const auditLogs = await AppDataSource.query<Array<Record<string, unknown>>>(
+      `SELECT al.id, al.module, al.action, al.target_id AS targetId, al.target_code AS targetCode,
+              al.before_data AS beforeData, al.after_data AS afterData,
+              al.operator_id AS operatorId, al.created_at AS createdAt,
+              u.real_name AS operatorName
+       FROM audit_logs al
+       LEFT JOIN users u ON u.id = al.operator_id AND u.tenant_id = al.tenant_id
+       WHERE al.tenant_id = ? AND al.module = 'sales_order' AND al.target_id = ?
+       ORDER BY al.id DESC`,
+      [this.tenantId, id],
+    ).catch(() => []);
+
     return {
-      order: orderRows,
-      customerName: String(raw.customerName ?? ''),
+      ...orderRow,
       items,
+      productionOrders,
+      deliveries,
+      auditLogs,
     };
   }
 
@@ -221,8 +304,12 @@ export class SalesOrderService {
     const orderNo = await this._generateOrderNo();
     const totalAmount = this._calcTotal(params.items);
 
-    // 紧急订单初始状态为 pending_approval，常规为 draft
-    const initialStatus: SalesOrderStatus = params.isUrgent ? 'pending_approval' : 'draft';
+    // 保存草稿时始终为 draft；正式创建时紧急订单进入 pending_approval
+    const initialStatus: SalesOrderStatus = params.saveAsDraft
+      ? 'draft'
+      : params.isUrgent
+      ? 'pending_approval'
+      : 'draft';
 
     return AppDataSource.transaction(async (manager) => {
       const result = await manager.query(
@@ -243,6 +330,17 @@ export class SalesOrderService {
       const orderId = Number(result.insertId);
 
       await this._insertItems(manager, orderId, params.items);
+      await this._writeAuditLog(manager, {
+        action: 'CREATE',
+        targetId: orderId,
+        targetCode: orderNo,
+        afterData: {
+          status: initialStatus,
+          orderType: params.isUrgent ? 'urgent' : 'normal',
+          totalAmount,
+          saveAsDraft: Boolean(params.saveAsDraft),
+        },
+      });
 
       return { id: orderId, orderNo };
     });
@@ -309,16 +407,24 @@ export class SalesOrderService {
 
     await AppDataSource.query(
       `UPDATE sales_orders
-       SET status = 'pending_approval', reject_reason = NULL, updated_by = ?
+       SET status = 'pending_approval', approval_notes = NULL, updated_by = ?
        WHERE id = ? AND tenant_id = ?`,
       [this.userId, id, this.tenantId],
     );
+    await this._writeAuditLog(AppDataSource, {
+      action: 'SUBMIT_APPROVAL',
+      targetId: id,
+      targetCode: order.orderNo,
+      beforeData: { status: order.status },
+      afterData: { status: 'pending_approval' },
+    });
   }
 
   // ── 7. 审批通过（pending_approval → confirmed）────────────────────────────
 
   async approve(id: number, approverId: number): Promise<void> {
     const order = await this._loadOrder(id);
+    let affectedInventorySkuIds: number[] = [];
 
     if (order.status !== 'pending_approval') {
       throw AppError.badRequest(
@@ -327,13 +433,27 @@ export class SalesOrderService {
       );
     }
 
-    await AppDataSource.query(
-      `UPDATE sales_orders
-       SET status = 'confirmed', approved_by = ?, approved_at = NOW(3),
-           reject_reason = NULL, updated_by = ?
-       WHERE id = ? AND tenant_id = ?`,
-      [approverId, approverId, id, this.tenantId],
-    );
+    await AppDataSource.transaction(async (manager) => {
+      await manager.query(
+        `UPDATE sales_orders
+         SET status = 'confirmed', approved_by = ?, approved_at = NOW(3),
+             approval_notes = NULL, updated_by = ?
+         WHERE id = ? AND tenant_id = ?`,
+        [approverId, approverId, id, this.tenantId],
+      );
+
+      await this._productionOrderService().createFromSalesOrder(id, manager);
+      affectedInventorySkuIds = ProductionOrderService.drainTrackedInventorySnapshotSkuIds(manager);
+      await this._writeAuditLog(manager, {
+        action: 'APPROVE',
+        targetId: id,
+        targetCode: order.orderNo,
+        beforeData: { status: order.status },
+        afterData: { status: 'in_production' },
+      });
+    });
+
+    await this._productionOrderService().invalidateInventorySnapshotCaches(affectedInventorySkuIds);
 
     // GAP-R08-25: 通知订单创建者审批已通过
     const notificationService = new NotificationService({ tenantId: this.tenantId, userId: approverId });
@@ -362,10 +482,17 @@ export class SalesOrderService {
 
     await AppDataSource.query(
       `UPDATE sales_orders
-       SET status = 'closed', reject_reason = ?, updated_by = ?
+       SET status = 'closed', approval_notes = ?, updated_by = ?
        WHERE id = ? AND tenant_id = ?`,
       [reason, rejectorId, id, this.tenantId],
     );
+    await this._writeAuditLog(AppDataSource, {
+      action: 'REJECT',
+      targetId: id,
+      targetCode: order.orderNo,
+      beforeData: { status: order.status },
+      afterData: { status: 'closed', approvalNotes: reason },
+    });
 
     // GAP-R08-25: 通知订单创建者审批已驳回
     const notificationService = new NotificationService({ tenantId: this.tenantId, userId: rejectorId });
@@ -398,10 +525,17 @@ export class SalesOrderService {
 
     await AppDataSource.query(
       `UPDATE sales_orders
-       SET status = 'draft', reject_reason = NULL, updated_by = ?
+       SET status = 'draft', approval_notes = NULL, updated_by = ?
        WHERE id = ? AND tenant_id = ?`,
       [this.userId, id, this.tenantId],
     );
+    await this._writeAuditLog(AppDataSource, {
+      action: 'WITHDRAW',
+      targetId: id,
+      targetCode: order.orderNo,
+      beforeData: { status: order.status },
+      afterData: { status: 'draft' },
+    });
   }
 
   // ── 10. 编辑订单（仅 draft 状态）────────────────────────────────────────────
@@ -445,26 +579,122 @@ export class SalesOrderService {
 
   async confirm(id: number): Promise<void> {
     const order = await this._loadOrder(id);
+    let affectedInventorySkuIds: number[] = [];
     if (order.status !== 'draft') {
       throw AppError.badRequest('只有草稿状态的订单才能直接确认（待审批订单请使用审批功能）', ResponseCode.ORDER_INVALID_TRANSITION);
     }
-    await AppDataSource.query(
-      `UPDATE sales_orders SET status = 'confirmed', approved_by = ?, approved_at = NOW(3), updated_by = ? WHERE id = ? AND tenant_id = ?`,
-      [this.userId, this.userId, id, this.tenantId],
-    );
+    await AppDataSource.transaction(async (manager) => {
+      await manager.query(
+        `UPDATE sales_orders
+         SET status = 'confirmed', approved_by = ?, approved_at = NOW(3), updated_by = ?
+         WHERE id = ? AND tenant_id = ?`,
+        [this.userId, this.userId, id, this.tenantId],
+      );
+
+      await this._productionOrderService().createFromSalesOrder(id, manager);
+      affectedInventorySkuIds = ProductionOrderService.drainTrackedInventorySnapshotSkuIds(manager);
+      await this._writeAuditLog(manager, {
+        action: 'CONFIRM',
+        targetId: id,
+        targetCode: order.orderNo,
+        beforeData: { status: order.status },
+        afterData: { status: 'in_production' },
+      });
+    });
+
+    await this._productionOrderService().invalidateInventorySnapshotCaches(affectedInventorySkuIds);
   }
 
   // ── 12. 标记发货 ──────────────────────────────────────────────────────────
 
-  async ship(id: number): Promise<void> {
+  async ship(
+    id: number,
+    trackingNo?: string,
+    shippedItemsInput?: Array<{ orderItemId: number; shippedQty: number }>,
+  ): Promise<void> {
     const order = await this._loadOrder(id);
-    if (order.status !== 'in_production' && order.status !== 'confirmed') {
-      throw AppError.badRequest('只有已确认或生产中的订单才能标记发货', ResponseCode.ORDER_INVALID_TRANSITION);
+    const SHIPPABLE_STATUSES: SalesOrderStatus[] = ['in_production', 'produced', 'partial_shipped'];
+    if (!SHIPPABLE_STATUSES.includes(order.status)) {
+      throw AppError.badRequest(
+        '只有生产中、待发货或部分发货状态的订单才能标记发货',
+        ResponseCode.ORDER_INVALID_TRANSITION,
+      );
     }
-    await AppDataSource.query(
-      `UPDATE sales_orders SET status = 'shipped', updated_by = ? WHERE id = ? AND tenant_id = ?`,
-      [this.userId, id, this.tenantId],
+
+    const rawOrderItems = await AppDataSource.query<Array<{
+      id: number;
+      qty_ordered: string;
+      qty_delivered: string;
+    }>>(
+      `SELECT id, qty_ordered, qty_delivered
+       FROM sales_order_items
+       WHERE order_id = ? AND tenant_id = ?
+       ORDER BY id ASC`,
+      [id, this.tenantId],
     );
+    const orderItems = rawOrderItems.map((item) => ({
+      id: Number(item.id),
+      qty_ordered: item.qty_ordered,
+      qty_delivered: item.qty_delivered,
+    }));
+    if (orderItems.length === 0) {
+      throw AppError.badRequest('订单无可发货明细', ResponseCode.INVALID_PARAMS);
+    }
+
+    const remainingQtyByItemId = new Map(
+      orderItems.map((item) => [
+        item.id,
+        Math.max(0, Number(item.qty_ordered) - Number(item.qty_delivered ?? 0)),
+      ]),
+    );
+
+    const shippedItems = shippedItemsInput && shippedItemsInput.length > 0
+      ? shippedItemsInput.map((item) => ({
+          orderItemId: item.orderItemId,
+          shippedQty: Number(item.shippedQty),
+        }))
+      : orderItems
+          .map((item) => ({
+            orderItemId: item.id,
+            shippedQty: remainingQtyByItemId.get(item.id) ?? 0,
+          }))
+          .filter((item) => item.shippedQty > 0);
+
+    if (shippedItems.length === 0) {
+      throw AppError.badRequest('订单已全部发货，无需重复操作', ResponseCode.ORDER_INVALID_TRANSITION);
+    }
+
+    const seenOrderItemIds = new Set<number>();
+    for (const item of shippedItems) {
+      if (seenOrderItemIds.has(item.orderItemId)) {
+        throw AppError.badRequest('发货明细存在重复的订单行，请合并后重试', ResponseCode.INVALID_PARAMS);
+      }
+      seenOrderItemIds.add(item.orderItemId);
+
+      const remainingQty = remainingQtyByItemId.get(item.orderItemId);
+      if (remainingQty === undefined) {
+        throw AppError.badRequest('部分发货明细不属于该订单', ResponseCode.INVALID_PARAMS);
+      }
+      if (item.shippedQty <= 0) {
+        throw AppError.badRequest('发货数量必须大于 0', ResponseCode.INVALID_PARAMS);
+      }
+      if (item.shippedQty > remainingQty) {
+        throw AppError.badRequest('发货数量超过该明细剩余待发数量', ResponseCode.INVALID_PARAMS);
+      }
+    }
+
+    const shipResult = await this._salesFlowService().shipOrder(id, {
+      trackingNo,
+      shippedItems,
+    });
+
+    await this._writeAuditLog(AppDataSource, {
+      action: 'SHIP',
+      targetId: id,
+      targetCode: order.orderNo,
+      beforeData: { status: order.status },
+      afterData: { status: shipResult.orderStatus },
+    });
   }
 
   // ── 13. 标记完成 ──────────────────────────────────────────────────────────
@@ -474,10 +704,30 @@ export class SalesOrderService {
     if (order.status !== 'shipped') {
       throw AppError.badRequest('只有已发货的订单才能标记完成', ResponseCode.ORDER_INVALID_TRANSITION);
     }
-    await AppDataSource.query(
-      `UPDATE sales_orders SET status = 'completed', updated_by = ? WHERE id = ? AND tenant_id = ?`,
-      [this.userId, id, this.tenantId],
-    );
+
+    const pendingDeliveries = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT id
+       FROM sales_deliveries
+       WHERE order_id = ? AND tenant_id = ? AND status = 'pending'
+       ORDER BY id ASC`,
+      [id, this.tenantId],
+    ).catch(() => []);
+
+    if (pendingDeliveries.length === 0) {
+      throw AppError.badRequest('订单没有待确认收货的发货记录', ResponseCode.ORDER_INVALID_TRANSITION);
+    }
+
+    for (const delivery of pendingDeliveries) {
+      await this._salesFlowService().confirmReceipt(id, delivery.id);
+    }
+
+    await this._writeAuditLog(AppDataSource, {
+      action: 'COMPLETE',
+      targetId: id,
+      targetCode: order.orderNo,
+      beforeData: { status: order.status },
+      afterData: { status: 'completed' },
+    });
   }
 
   // ── 14. 关闭订单 ──────────────────────────────────────────────────────────
@@ -488,9 +738,16 @@ export class SalesOrderService {
       throw AppError.badRequest('已完成或已关闭的订单不能再关闭', ResponseCode.ORDER_INVALID_TRANSITION);
     }
     await AppDataSource.query(
-      `UPDATE sales_orders SET status = 'closed', reject_reason = ?, updated_by = ? WHERE id = ? AND tenant_id = ?`,
+      `UPDATE sales_orders SET status = 'closed', approval_notes = ?, updated_by = ? WHERE id = ? AND tenant_id = ?`,
       [reason, this.userId, id, this.tenantId],
     );
+    await this._writeAuditLog(AppDataSource, {
+      action: 'CLOSE',
+      targetId: id,
+      targetCode: order.orderNo,
+      beforeData: { status: order.status },
+      afterData: { status: 'closed', approvalNotes: reason },
+    });
   }
 
   // ── 15. 触发建工单 ────────────────────────────────────────────────────────
@@ -500,34 +757,8 @@ export class SalesOrderService {
     if (order.status !== 'confirmed') {
       throw AppError.badRequest('只有已确认的订单才能创建生产工单', ResponseCode.ORDER_INVALID_TRANSITION);
     }
-
-    const items = await AppDataSource.query<Array<{ id: number; sku_id: number; quantity: string }>>(
-      `SELECT soi.id, soi.sku_id, soi.quantity FROM sales_order_items soi WHERE soi.order_id = ? AND soi.tenant_id = ?`,
-      [id, this.tenantId],
-    );
-
-    if (!items || items.length === 0) {
-      throw AppError.badRequest('订单无明细行，无法创建生产工单');
-    }
-
-    const productionOrderIds: number[] = [];
-
-    await AppDataSource.transaction(async (manager) => {
-      for (const item of items) {
-        const woNo = `WO-${order.orderNo}-${String(productionOrderIds.length + 1).padStart(2, '0')}`;
-        const result = await manager.query(
-          `INSERT INTO production_orders (tenant_id, work_order_no, sku_id, qty_planned, status, sales_order_id, bom_header_id, process_template_id, created_by, updated_by)
-           VALUES (?, ?, ?, ?, 'pending', ?, 0, 0, ?, ?)`,
-          [this.tenantId, woNo, item.sku_id, item.quantity, id, this.userId, this.userId],
-        );
-        productionOrderIds.push(Number(result.insertId));
-      }
-
-      await manager.query(
-        `UPDATE sales_orders SET status = 'in_production', updated_by = ? WHERE id = ? AND tenant_id = ?`,
-        [this.userId, id, this.tenantId],
-      );
-    });
+    const createdOrders = await this._productionOrderService().createFromSalesOrder(id);
+    const productionOrderIds = createdOrders.map((orderRow) => orderRow.id);
 
     return { productionOrderIds };
   }

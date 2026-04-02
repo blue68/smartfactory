@@ -21,6 +21,15 @@ export class ProcessTemplateEntity {
   @Column({ type: 'enum', enum: ['active', 'inactive'], default: 'active' })
   status: 'active' | 'inactive';
 
+  @Column({ name: 'is_default', type: 'tinyint', width: 1, default: 0 })
+  isDefault!: boolean;
+
+  @Column({ name: 'template_type', type: 'enum', enum: ['standard', 'custom', 'trial'], default: 'standard' })
+  templateType!: 'standard' | 'custom' | 'trial';
+
+  @Column({ name: 'version', type: 'varchar', length: 20, default: '1.0' })
+  version!: string;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime', precision: 3 })
   createdAt: Date;
 
@@ -64,6 +73,9 @@ export class ProcessStepEntity {
 
   @Column({ name: 'workstation_type', type: 'varchar', length: 50, nullable: true })
   workstationType: string | null;
+
+  @Column({ name: 'workstation_id', type: 'bigint', unsigned: true, nullable: true })
+  workstationId: number | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'datetime', precision: 3 })
   createdAt: Date;

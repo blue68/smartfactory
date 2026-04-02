@@ -1,0 +1,2072 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>采购建议管理 — 设计效果图</title>
+<style>
+/* ═══════════════════════════════════════
+   Design Tokens
+═══════════════════════════════════════ */
+:root {
+  --color-primary-50:  #EFF6FF;
+  --color-primary-100: #DBEAFE;
+  --color-primary-200: #BFDBFE;
+  --color-primary-500: #3B82F6;
+  --color-primary-600: #2563EB;
+  --color-primary-700: #1D4ED8;
+  --color-primary-800: #1E40AF;
+  --color-primary-900: #1E3A8A;
+
+  --color-success-50:  #F0FDF4;
+  --color-success-100: #DCFCE7;
+  --color-success-500: #22C55E;
+  --color-success-600: #16A34A;
+  --color-success-700: #15803D;
+
+  --color-warning-50:  #FFFBEB;
+  --color-warning-100: #FEF3C7;
+  --color-warning-500: #F59E0B;
+  --color-warning-600: #D97706;
+  --color-warning-700: #B45309;
+
+  --color-error-50:  #FEF2F2;
+  --color-error-100: #FEE2E2;
+  --color-error-500: #EF4444;
+  --color-error-600: #DC2626;
+  --color-error-700: #B91C1C;
+
+  --color-gray-0:   #FFFFFF;
+  --color-gray-50:  #F8FAFC;
+  --color-gray-100: #F1F5F9;
+  --color-gray-200: #E2E8F0;
+  --color-gray-300: #CBD5E1;
+  --color-gray-400: #94A3B8;
+  --color-gray-500: #64748B;
+  --color-gray-600: #475569;
+  --color-gray-700: #334155;
+  --color-gray-800: #1E293B;
+  --color-gray-900: #0F172A;
+
+  --bg-page:        #F8FAFC;
+  --bg-card:        #FFFFFF;
+  --bg-sidebar:     #1E293B;
+  --text-primary:   #1E293B;
+  --text-secondary: #64748B;
+  --border-default: #E2E8F0;
+
+  --font-base: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,.10), 0 2px 4px -1px rgba(0,0,0,.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.10), 0 4px 6px -2px rgba(0,0,0,.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0,0,0,.10), 0 10px 10px -5px rgba(0,0,0,.04);
+}
+
+/* ═══════════════════════════════════════
+   Reset
+═══════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; }
+body {
+  font-family: var(--font-base);
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+input, select, textarea { font-family: inherit; font-size: inherit; }
+
+/* ═══════════════════════════════════════
+   App Shell
+═══════════════════════════════════════ */
+.app-layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ─── Sidebar ─── */
+.sidebar {
+  width: 64px;
+  flex-shrink: 0;
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  z-index: 10;
+}
+
+.sidebar__logo {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  flex-shrink: 0;
+}
+.sidebar__logo-mark {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, #3B82F6, #1D4ED8);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  box-shadow: 0 4px 12px rgba(37,99,235,.4);
+}
+
+.sidebar__menu {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.5rem 0;
+}
+.sidebar__menu::-webkit-scrollbar { width: 0; }
+
+.sidebar__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  color: #94A3B8;
+  cursor: pointer;
+  position: relative;
+  transition: background 150ms ease, color 150ms ease;
+  text-decoration: none;
+}
+.sidebar__item:hover {
+  background: rgba(255,255,255,.08);
+  color: #fff;
+}
+.sidebar__item--active {
+  background: #2563EB;
+  color: #fff;
+}
+.sidebar__item--active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 3px;
+  background: #fff;
+  border-radius: 0 3px 3px 0;
+}
+.sidebar__item-icon { font-size: 1.1rem; line-height: 1; }
+
+.sidebar__badge-dot {
+  position: absolute;
+  top: 9px; right: 11px;
+  width: 7px; height: 7px;
+  background: #EF4444;
+  border-radius: 50%;
+  border: 1.5px solid var(--bg-sidebar);
+}
+
+.sidebar__user {
+  border-top: 1px solid rgba(255,255,255,.08);
+  padding: 0.75rem 0;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sidebar__avatar {
+  width: 32px; height: 32px;
+  background: #2563EB;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 700; font-size: 0.75rem;
+}
+
+/* ─── Main Area ─── */
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ─── Header ─── */
+.header {
+  height: 64px;
+  flex-shrink: 0;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-default);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  align-items: center;
+  padding: 0 1.5rem;
+  gap: 1rem;
+  z-index: 5;
+}
+
+.header__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  flex-shrink: 0;
+  margin-right: 0.5rem;
+}
+.header__brand-icon {
+  width: 28px; height: 28px;
+  background: linear-gradient(135deg, #3B82F6, #1D4ED8);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.875rem;
+}
+
+.header__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.header__breadcrumb-sep { color: #CBD5E1; }
+.header__breadcrumb-current {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.header__search {
+  flex: 1;
+  max-width: 360px;
+  position: relative;
+  margin-left: auto;
+}
+.header__search-icon {
+  position: absolute;
+  left: 10px; top: 50%; transform: translateY(-50%);
+  color: #94A3B8;
+  font-size: 0.875rem;
+  pointer-events: none;
+}
+.header__search-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  outline: none;
+  transition: border-color 150ms, box-shadow 150ms;
+}
+.header__search-input:focus {
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+  background: #fff;
+}
+.header__search-input::placeholder { color: #94A3B8; }
+
+.header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.header__icon-btn {
+  width: 36px; height: 36px;
+  border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-secondary);
+  transition: background 150ms, color 150ms;
+  cursor: pointer;
+  position: relative;
+  font-size: 1rem;
+  background: transparent;
+  border: 1px solid transparent;
+}
+.header__icon-btn:hover {
+  background: var(--bg-page);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+.header__icon-btn--ai {
+  background: linear-gradient(135deg, #EDE9FE, #DDD6FE);
+  color: #7C3AED;
+  border-color: #C4B5FD;
+}
+.header__icon-btn--ai:hover { background: linear-gradient(135deg, #DDD6FE, #C4B5FD); }
+
+.header__notification-dot {
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 7px; height: 7px;
+  background: #EF4444;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+}
+
+.header__avatar {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, #2563EB, #1D4ED8);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 700; font-size: 0.75rem;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(37,99,235,.3);
+  flex-shrink: 0;
+}
+
+/* ─── Content ─── */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.content::-webkit-scrollbar { width: 5px; }
+.content::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 99px; }
+
+/* ═══════════════════════════════════════
+   Page Header
+═══════════════════════════════════════ */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.page-header__title-block {}
+.page-header__title {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  line-height: 1.3;
+}
+.page-header__title-icon {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, #DBEAFE, #BFDBFE);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.page-header__subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin-top: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.page-header__subtitle-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: #CBD5E1;
+  flex-shrink: 0;
+}
+
+.page-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-shrink: 0;
+}
+
+/* ─── Buttons ─── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0 1rem;
+  height: 36px;
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  text-decoration: none;
+}
+.btn--primary {
+  background: #2563EB;
+  color: #fff;
+  border-color: #2563EB;
+  box-shadow: 0 1px 3px rgba(37,99,235,.3);
+}
+.btn--primary:hover {
+  background: #1D4ED8;
+  border-color: #1D4ED8;
+  box-shadow: 0 4px 12px rgba(37,99,235,.35);
+  transform: translateY(-1px);
+}
+.btn--secondary {
+  background: #fff;
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+.btn--secondary:hover {
+  background: var(--bg-page);
+  border-color: #CBD5E1;
+}
+.btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: transparent;
+}
+.btn--ghost:hover { background: var(--bg-page); color: var(--text-primary); }
+.btn--sm {
+  height: 28px;
+  padding: 0 0.625rem;
+  font-size: 0.75rem;
+  border-radius: var(--radius-sm);
+}
+.btn--approve {
+  background: #16A34A;
+  color: #fff;
+  border-color: #16A34A;
+}
+.btn--approve:hover { background: #15803D; border-color: #15803D; }
+.btn--reject {
+  background: transparent;
+  color: #DC2626;
+  border-color: #DC2626;
+}
+.btn--reject:hover {
+  background: #DC2626;
+  color: #fff;
+}
+.btn-icon { font-size: 0.9em; line-height: 1; }
+
+/* ═══════════════════════════════════════
+   KPI Cards
+═══════════════════════════════════════ */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.875rem;
+}
+
+.kpi-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 1.125rem 1.25rem;
+  position: relative;
+  overflow: hidden;
+  transition: box-shadow 150ms ease, transform 150ms ease;
+  cursor: default;
+}
+.kpi-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+}
+.kpi-card--orange::before { background: #F59E0B; }
+.kpi-card--green::before  { background: #22C55E; }
+.kpi-card--gray::before   { background: #94A3B8; }
+.kpi-card--blue::before   { background: #3B82F6; }
+
+.kpi-card__bg-icon {
+  position: absolute;
+  right: 1rem; top: 50%; transform: translateY(-50%);
+  font-size: 3.5rem;
+  opacity: 0.06;
+  pointer-events: none;
+  user-select: none;
+}
+
+.kpi-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.625rem;
+}
+.kpi-card__label {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+.kpi-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.kpi-card__badge--orange { background: #FEF3C7; color: #92400E; }
+.kpi-card__badge--green  { background: #DCFCE7; color: #14532D; }
+.kpi-card__badge--gray   { background: #F1F5F9; color: #475569; }
+.kpi-card__badge--blue   { background: #DBEAFE; color: #1E3A8A; }
+
+.kpi-card__value {
+  font-family: var(--font-mono);
+  font-size: 2.125rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.375rem;
+}
+.kpi-card__value--orange { color: #D97706; }
+.kpi-card__value--green  { color: #16A34A; }
+.kpi-card__value--gray   { color: #64748B; }
+.kpi-card__value--blue   { color: #2563EB; }
+
+.kpi-card__value-unit {
+  font-size: 1rem;
+  font-weight: 500;
+  font-family: var(--font-base);
+  opacity: 0.7;
+  margin-left: 0.125rem;
+}
+
+.kpi-card__sub {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* ═══════════════════════════════════════
+   Filter Bar
+═══════════════════════════════════════ */
+.filter-bar {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem 1.125rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.filter-bar__search {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 280px;
+}
+.filter-bar__search-icon {
+  position: absolute;
+  left: 10px; top: 50%; transform: translateY(-50%);
+  color: #94A3B8; font-size: 0.875rem; pointer-events: none;
+}
+.filter-bar__search-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px 0 32px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  outline: none;
+  transition: border-color 150ms, box-shadow 150ms;
+}
+.filter-bar__search-input:focus {
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.1);
+  background: #fff;
+}
+.filter-bar__search-input::placeholder { color: #94A3B8; }
+
+.filter-bar__select {
+  height: 34px;
+  padding: 0 2rem 0 0.75rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  outline: none;
+  cursor: pointer;
+  min-width: 130px;
+  transition: border-color 150ms;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6' stroke='%2394A3B8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+  background-size: 12px;
+}
+.filter-bar__select:focus {
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.1);
+}
+
+.filter-bar__divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-default);
+  flex-shrink: 0;
+}
+
+.filter-bar__count {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.filter-bar__count strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ═══════════════════════════════════════
+   Table Card
+═══════════════════════════════════════ */
+.table-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+.table-wrap::-webkit-scrollbar { height: 5px; }
+.table-wrap::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 99px; }
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  min-width: 1240px;
+}
+
+/* ─── Table Header ─── */
+.data-table thead tr {
+  background: #F8FAFC;
+  border-bottom: 1px solid var(--border-default);
+}
+.data-table thead th {
+  padding: 0.75rem 0.875rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  user-select: none;
+  letter-spacing: 0.01em;
+}
+.data-table thead th:first-child { padding-left: 1.125rem; width: 40px; }
+.data-table thead th.th-num { text-align: right; }
+
+/* ─── Table Body ─── */
+.data-table tbody tr {
+  border-bottom: 1px solid #F1F5F9;
+  transition: background 120ms ease;
+  position: relative;
+}
+.data-table tbody tr:nth-child(even) { background: #FAFAFA; }
+.data-table tbody tr:nth-child(even):hover { background: #EFF6FF; }
+.data-table tbody tr:nth-child(odd):hover { background: #EFF6FF; }
+.data-table tbody tr:last-child { border-bottom: none; }
+
+/* Urgent row accent */
+.data-table tbody tr.row--urgent td:first-child {
+  box-shadow: inset 2px 0 0 #EF4444;
+}
+
+.data-table tbody td {
+  padding: 0.75rem 0.875rem;
+  vertical-align: middle;
+  color: var(--text-primary);
+}
+.data-table tbody td:first-child { padding-left: 1.125rem; }
+.data-table tbody td.td-num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Checkbox ─── */
+.row-checkbox {
+  width: 15px; height: 15px;
+  cursor: pointer;
+  accent-color: #2563EB;
+}
+
+/* ─── ID Link ─── */
+.id-link {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: #2563EB;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 120ms;
+  white-space: nowrap;
+}
+.id-link:hover { color: #1D4ED8; text-decoration: underline; }
+
+/* ─── Source Badge ─── */
+.badge-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1875rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.badge-source--shortage {
+  background: #FEF3C7;
+  color: #92400E;
+}
+.badge-source--ai {
+  background: #EDE9FE;
+  color: #5B21B6;
+}
+.badge-source--manual {
+  background: #F1F5F9;
+  color: #475569;
+}
+
+/* ─── SKU Cell ─── */
+.sku-cell__code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #2563EB;
+}
+.sku-cell__name {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* ─── Supplier ─── */
+.supplier-name {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* ─── Amount ─── */
+.amount-value {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.amount-value--highlight { color: #2563EB; }
+
+/* ─── Work Order ─── */
+.workorder-link {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: var(--radius-sm);
+  padding: 0.125rem 0.375rem;
+  white-space: nowrap;
+  transition: all 120ms;
+}
+.workorder-link:hover {
+  background: #EFF6FF;
+  border-color: #BFDBFE;
+  color: #2563EB;
+}
+.workorder-empty {
+  color: #CBD5E1;
+  font-size: 0.75rem;
+}
+
+/* ─── Urgency Badge ─── */
+.urgency-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.urgency-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+}
+.urgency-dot--urgent {
+  background: #EF4444;
+  box-shadow: 0 0 0 3px rgba(239,68,68,.2);
+}
+.urgency-dot--urgent::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1px solid rgba(239,68,68,.4);
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+.urgency-dot--normal { background: #94A3B8; }
+.urgency-badge--urgent { color: #DC2626; }
+.urgency-badge--normal { color: #64748B; }
+
+@keyframes pulse-ring {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.8); }
+}
+
+/* ─── Status Badge ─── */
+.badge-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+.badge-status--pending {
+  background: #FEF9C3;
+  color: #713F12;
+}
+.badge-status--approved {
+  background: #DCFCE7;
+  color: #14532D;
+}
+.badge-status--rejected {
+  background: #FEE2E2;
+  color: #7F1D1D;
+}
+.badge-status--executed {
+  background: #DBEAFE;
+  color: #1E3A8A;
+}
+.badge-status--expired {
+  background: #F1F5F9;
+  color: #475569;
+}
+.badge-status__icon { font-size: 0.75em; }
+
+/* ─── Action Buttons ─── */
+.action-group {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+}
+
+.action-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+.action-link--transfer {
+  color: #2563EB;
+  background: #EFF6FF;
+  border-color: #BFDBFE;
+}
+.action-link--transfer:hover {
+  background: #DBEAFE;
+  border-color: #93C5FD;
+}
+.action-link--gray {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+}
+.action-link--gray:hover {
+  background: #F8FAFC;
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════
+   Pagination
+═══════════════════════════════════════ */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem 1.125rem;
+  border-top: 1px solid var(--border-default);
+  background: #FCFCFD;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.pagination-bar__left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.pagination-bar__per-page {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.pagination-bar__select {
+  height: 28px;
+  padding: 0 1.5rem 0 0.5rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='none' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6' stroke='%2394A3B8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.375rem center;
+}
+.pagination-bar__total { color: var(--text-secondary); }
+.pagination-bar__total strong { color: var(--text-primary); }
+
+.pagination-bar__right {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.page-btn {
+  min-width: 32px; height: 32px;
+  padding: 0 0.375rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  background: #fff;
+  cursor: pointer;
+  transition: all 120ms ease;
+  font-family: var(--font-base);
+}
+.page-btn:hover {
+  background: var(--bg-page);
+  border-color: #CBD5E1;
+  color: var(--text-primary);
+}
+.page-btn--active {
+  background: #2563EB;
+  border-color: #2563EB;
+  color: #fff;
+  font-weight: 600;
+}
+.page-btn--active:hover {
+  background: #1D4ED8;
+  border-color: #1D4ED8;
+}
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.page-ellipsis {
+  min-width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.8125rem;
+  color: #CBD5E1;
+}
+
+/* ═══════════════════════════════════════
+   Modal Overlay
+═══════════════════════════════════════ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,23,42,.45);
+  backdrop-filter: blur(2px);
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 1.5rem;
+  animation: fade-in-overlay 200ms ease;
+}
+
+@keyframes fade-in-overlay {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modal {
+  background: #fff;
+  border-radius: var(--radius-xl);
+  width: 500px;
+  max-height: 92vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-xl), 0 0 0 1px rgba(0,0,0,.06);
+  animation: slide-in-modal 250ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: flex;
+  flex-direction: column;
+}
+.modal::-webkit-scrollbar { width: 4px; }
+.modal::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 99px; }
+
+@keyframes slide-in-modal {
+  from { opacity: 0; transform: translateX(24px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+/* ─── Modal Header ─── */
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem 1rem;
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+.modal__title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+.modal__title-icon {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, #DBEAFE, #BFDBFE);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.modal__title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.modal__close {
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 120ms;
+  font-size: 1rem;
+  background: transparent;
+  border: 1px solid transparent;
+}
+.modal__close:hover {
+  background: #F8FAFC;
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+/* ─── Modal Body ─── */
+.modal__body {
+  padding: 1.25rem 1.5rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+}
+
+/* Info Card */
+.modal__info-card {
+  background: #F8FAFC;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.125rem;
+}
+.modal__info-card-title {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.modal__info-card-title::before {
+  content: '';
+  width: 3px; height: 12px;
+  background: #2563EB;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.modal__info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 1.25rem;
+}
+.modal__info-item {}
+.modal__info-label {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.125rem;
+}
+.modal__info-value {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.modal__info-value--mono {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+.modal__info-value--amount {
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #2563EB;
+}
+
+/* Action Radio */
+.modal__action-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.625rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.modal__action-label span { color: #EF4444; }
+
+.modal__radio-group {
+  display: flex;
+  gap: 0.75rem;
+}
+.modal__radio-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 150ms ease;
+  position: relative;
+}
+.modal__radio-item:hover {
+  border-color: #BFDBFE;
+  background: #F8FAFC;
+}
+.modal__radio-item--approve.modal__radio-item--selected {
+  border-color: #22C55E;
+  background: #F0FDF4;
+}
+.modal__radio-item--reject.modal__radio-item--selected {
+  border-color: #EF4444;
+  background: #FEF2F2;
+}
+.modal__radio-item input[type="radio"] {
+  accent-color: #16A34A;
+  width: 15px; height: 15px;
+  flex-shrink: 0;
+}
+.modal__radio-item--reject input[type="radio"] { accent-color: #DC2626; }
+.modal__radio-icon { font-size: 1.1rem; }
+.modal__radio-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.0625rem;
+}
+.modal__radio-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.modal__radio-item--approve.modal__radio-item--selected .modal__radio-title { color: #15803D; }
+.modal__radio-item--reject.modal__radio-item--selected .modal__radio-title { color: #DC2626; }
+.modal__radio-desc {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+/* Form field */
+.modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.modal__field-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.modal__field-label span { color: #EF4444; }
+.modal__field-hint { font-size: 0.6875rem; color: var(--text-secondary); margin-left: auto; }
+
+.modal__textarea {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  background: #fff;
+  outline: none;
+  resize: vertical;
+  min-height: 80px;
+  transition: border-color 150ms, box-shadow 150ms;
+  font-family: var(--font-base);
+  line-height: 1.5;
+}
+.modal__textarea:focus {
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.1);
+}
+.modal__textarea::placeholder { color: #94A3B8; }
+.modal__textarea--reject:focus {
+  border-color: #EF4444;
+  box-shadow: 0 0 0 3px rgba(239,68,68,.1);
+}
+
+.modal__reason-box {
+  background: #FFF8F8;
+  border: 1px solid #FECACA;
+  border-radius: var(--radius-md);
+  padding: 0.625rem 0.875rem;
+}
+.modal__reason-box .modal__textarea {
+  background: transparent;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+  min-height: 60px;
+}
+.modal__reason-box .modal__textarea:focus { box-shadow: none; }
+
+/* ─── Modal Footer ─── */
+.modal__footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.625rem;
+  background: #FCFCFD;
+  flex-shrink: 0;
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+}
+
+.btn--modal-cancel {
+  background: #fff;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  height: 36px;
+  padding: 0 1.125rem;
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms;
+}
+.btn--modal-cancel:hover {
+  background: #F8FAFC;
+  color: var(--text-primary);
+  border-color: #CBD5E1;
+}
+.btn--modal-approve {
+  background: #16A34A;
+  color: #fff;
+  border: 1px solid #16A34A;
+  height: 36px;
+  padding: 0 1.25rem;
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  box-shadow: 0 2px 8px rgba(22,163,74,.3);
+}
+.btn--modal-approve:hover {
+  background: #15803D;
+  border-color: #15803D;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(22,163,74,.35);
+}
+
+/* ═══════════════════════════════════════
+   Misc Utilities
+═══════════════════════════════════════ */
+.text-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.dash { color: #CBD5E1; }
+
+/* Batch Action Bar */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 1.125rem;
+  background: linear-gradient(135deg, #EFF6FF, #DBEAFE);
+  border-top: 2px solid #3B82F6;
+  font-size: 0.8125rem;
+}
+.batch-bar__count {
+  color: var(--text-secondary);
+}
+.batch-bar__count strong { color: #2563EB; font-weight: 700; }
+.batch-bar__divider { width: 1px; height: 16px; background: #BFDBFE; }
+.batch-bar__label { color: var(--text-secondary); }
+.batch-bar__spacer { flex: 1; }
+.batch-bar__clear {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  transition: all 120ms;
+}
+.batch-bar__clear:hover {
+  background: rgba(255,255,255,.6);
+  border-color: #BFDBFE;
+  color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════
+   Print / Screenshot utility
+═══════════════════════════════════════ */
+html, body { overflow: hidden; }
+</style>
+</head>
+<body>
+
+<div class="app-layout">
+
+  <!-- ══════════════════════════════════
+       Sidebar (collapsed icon-only)
+  ══════════════════════════════════ -->
+  <nav class="sidebar" aria-label="主导航">
+    <div class="sidebar__logo">
+      <div class="sidebar__logo-mark">🏭</div>
+    </div>
+
+    <div class="sidebar__menu">
+      <!-- 首页 -->
+      <a class="sidebar__item" href="#" title="总览">
+        <span class="sidebar__item-icon">🏠</span>
+      </a>
+      <!-- 生产 -->
+      <a class="sidebar__item" href="#" title="生产管理">
+        <span class="sidebar__item-icon">⚙️</span>
+      </a>
+      <!-- 采购（active） -->
+      <a class="sidebar__item sidebar__item--active" href="#" title="采购管理">
+        <span class="sidebar__item-icon">🛒</span>
+      </a>
+      <!-- 库存 -->
+      <a class="sidebar__item" href="#" title="库存管理">
+        <span class="sidebar__item-icon">📦</span>
+      </a>
+      <!-- 销售 -->
+      <a class="sidebar__item" href="#" title="销售管理">
+        <span class="sidebar__item-icon">📈</span>
+      </a>
+      <!-- 质检 -->
+      <a class="sidebar__item" href="#" title="质量管理">
+        <span class="sidebar__item-icon">🔍</span>
+      </a>
+      <!-- 报表 -->
+      <a class="sidebar__item" href="#" title="数据分析">
+        <span class="sidebar__item-icon">📊</span>
+      </a>
+      <!-- 主数据 -->
+      <a class="sidebar__item" href="#" title="主数据">
+        <span class="sidebar__item-icon">🗂️</span>
+      </a>
+      <!-- 通知（badge） -->
+      <a class="sidebar__item" href="#" title="消息通知" style="position:relative;">
+        <span class="sidebar__item-icon">🔔</span>
+        <span class="sidebar__badge-dot"></span>
+      </a>
+      <!-- AI助手 -->
+      <a class="sidebar__item" href="#" title="AI 智能助手" style="margin-top:auto;">
+        <span class="sidebar__item-icon">🤖</span>
+      </a>
+    </div>
+
+    <div class="sidebar__user">
+      <div class="sidebar__avatar" title="采购员 · 李明">李</div>
+    </div>
+  </nav>
+
+  <!-- ══════════════════════════════════
+       Main
+  ══════════════════════════════════ -->
+  <div class="app-main">
+
+    <!-- Header -->
+    <header class="header" role="banner">
+      <div class="header__brand">
+        <div class="header__brand-icon">🏭</div>
+        智造ERP
+      </div>
+
+      <nav class="header__breadcrumb" aria-label="面包屑导航">
+        <span>采购管理</span>
+        <span class="header__breadcrumb-sep">›</span>
+        <span class="header__breadcrumb-current">采购建议管理</span>
+      </nav>
+
+      <div class="header__search">
+        <span class="header__search-icon">🔍</span>
+        <input type="text" class="header__search-input"
+          placeholder="全局搜索：工单、物料、供应商…" aria-label="全局搜索">
+      </div>
+
+      <div class="header__actions">
+        <button class="header__icon-btn header__icon-btn--ai" title="AI 智能助手" aria-label="AI 智能助手">
+          🤖
+        </button>
+        <button class="header__icon-btn" title="消息通知" aria-label="消息通知" style="position:relative;">
+          🔔
+          <span class="header__notification-dot"></span>
+        </button>
+        <div class="header__avatar" title="李明 · 采购员" role="button" tabindex="0">李</div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="content" id="main-content">
+
+      <!-- ── Page Header ── -->
+      <div class="page-header">
+        <div class="page-header__title-block">
+          <h1 class="page-header__title">
+            <span class="page-header__title-icon">🛒</span>
+            采购建议管理
+          </h1>
+          <p class="page-header__subtitle">
+            <span class="page-header__subtitle-dot"></span>
+            AI 自动生成的采购建议，需人工审批后转为采购单
+            <span class="page-header__subtitle-dot"></span>
+            最后更新：2026-03-25 09:42
+          </p>
+        </div>
+        <div class="page-header__actions">
+          <button class="btn btn--secondary" type="button">
+            <span class="btn-icon">⬇</span>
+            导出
+          </button>
+          <button class="btn btn--primary" type="button">
+            <span class="btn-icon">↗</span>
+            批量转采购订单
+          </button>
+        </div>
+      </div>
+
+      <!-- ── KPI Cards ── -->
+      <div class="kpi-grid" role="region" aria-label="汇总统计">
+
+        <!-- 待审批 -->
+        <div class="kpi-card kpi-card--orange" role="article" aria-label="待审批数量">
+          <div class="kpi-card__bg-icon">⏳</div>
+          <div class="kpi-card__header">
+            <span class="kpi-card__label">待审批</span>
+            <span class="kpi-card__badge kpi-card__badge--orange">需处理</span>
+          </div>
+          <div class="kpi-card__value kpi-card__value--orange">3</div>
+          <div class="kpi-card__sub">
+            <span>📋</span>
+            <span>含 2 条紧急建议，请优先处理</span>
+          </div>
+        </div>
+
+        <!-- 已通过 -->
+        <div class="kpi-card kpi-card--green" role="article" aria-label="已通过数量">
+          <div class="kpi-card__bg-icon">✅</div>
+          <div class="kpi-card__header">
+            <span class="kpi-card__label">已通过</span>
+            <span class="kpi-card__badge kpi-card__badge--green">本月</span>
+          </div>
+          <div class="kpi-card__value kpi-card__value--green">2</div>
+          <div class="kpi-card__sub">
+            <span>📅</span>
+            <span>2026 年 3 月</span>
+          </div>
+        </div>
+
+        <!-- 已驳回 -->
+        <div class="kpi-card kpi-card--gray" role="article" aria-label="已驳回数量">
+          <div class="kpi-card__bg-icon">✕</div>
+          <div class="kpi-card__header">
+            <span class="kpi-card__label">已驳回</span>
+            <span class="kpi-card__badge kpi-card__badge--gray">本月</span>
+          </div>
+          <div class="kpi-card__value kpi-card__value--gray">2</div>
+          <div class="kpi-card__sub">
+            <span>📋</span>
+            <span>可查看驳回原因</span>
+          </div>
+        </div>
+
+        <!-- 预计采购金额 -->
+        <div class="kpi-card kpi-card--blue" role="article" aria-label="待审批建议预估采购金额">
+          <div class="kpi-card__bg-icon">¥</div>
+          <div class="kpi-card__header">
+            <span class="kpi-card__label">预计采购金额</span>
+            <span class="kpi-card__badge kpi-card__badge--blue">待审批合计</span>
+          </div>
+          <div class="kpi-card__value kpi-card__value--blue">
+            ¥20,190
+          </div>
+          <div class="kpi-card__sub">
+            <span>📊</span>
+            <span>3 条待审批建议合计金额</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ── Filter Bar ── -->
+      <div class="filter-bar" role="search" aria-label="筛选条件">
+        <div class="filter-bar__search">
+          <span class="filter-bar__search-icon">🔍</span>
+          <input type="text" class="filter-bar__search-input"
+            placeholder="搜索 SKU 编码 / 物料名称…" aria-label="搜索物料">
+        </div>
+
+        <div class="filter-bar__divider"></div>
+
+        <select class="filter-bar__select" aria-label="筛选来源">
+          <option value="">全部来源</option>
+          <option value="shortage">生产缺料</option>
+          <option value="manual">手动</option>
+          <option value="ai">AI 排产</option>
+        </select>
+
+        <select class="filter-bar__select" aria-label="筛选状态">
+          <option value="">全部状态</option>
+          <option value="pending">待审批</option>
+          <option value="approved">已通过</option>
+          <option value="rejected">已驳回</option>
+          <option value="executed">已执行</option>
+          <option value="expired">已过期</option>
+        </select>
+
+        <select class="filter-bar__select" style="min-width:120px;" aria-label="筛选紧迫程度">
+          <option value="">全部紧迫度</option>
+          <option value="urgent">紧急</option>
+          <option value="normal">一般</option>
+        </select>
+
+        <div class="filter-bar__divider"></div>
+
+        <span class="filter-bar__count">
+          共 <strong>8</strong> 条建议
+        </span>
+      </div>
+
+      <!-- ── Table Card ── -->
+      <div class="table-card" role="region" aria-label="采购建议列表">
+
+        <div class="table-wrap">
+          <table class="data-table" aria-label="采购建议数据表">
+            <thead>
+              <tr>
+                <th scope="col"><input type="checkbox" class="row-checkbox" aria-label="全选"></th>
+                <th scope="col">建议编号</th>
+                <th scope="col">来源</th>
+                <th scope="col">SKU 编码</th>
+                <th scope="col">物料名称</th>
+                <th scope="col">推荐供应商</th>
+                <th scope="col" class="th-num">建议数量</th>
+                <th scope="col">单位</th>
+                <th scope="col" class="th-num">单价</th>
+                <th scope="col" class="th-num">预估金额</th>
+                <th scope="col">关联工单</th>
+                <th scope="col">紧迫程度</th>
+                <th scope="col">状态</th>
+                <th scope="col">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+
+              <!-- Row 1 — 待审批 紧急 -->
+              <tr class="row--urgent">
+                <td><input type="checkbox" class="row-checkbox" aria-label="选择 PS-260325-001"></td>
+                <td><a href="#" class="id-link">PS-260325-001</a></td>
+                <td><span class="badge-source badge-source--shortage">生产缺料</span></td>
+                <td><span class="sku-cell__code">RM-99</span></td>
+                <td><span class="sku-cell__name">示例物料</span></td>
+                <td><span class="supplier-name">测试供应商</span></td>
+                <td class="td-num">500</td>
+                <td>个</td>
+                <td class="td-num">¥12.50</td>
+                <td class="td-num"><span class="amount-value">¥6,250</span></td>
+                <td><a href="#" class="workorder-link">WO260325-003</a></td>
+                <td>
+                  <span class="urgency-badge urgency-badge--urgent">
+                    <span class="urgency-dot urgency-dot--urgent"></span>
+                    紧急
+                  </span>
+                </td>
+                <td>
+                  <span class="badge-status badge-status--pending">
+                    <span class="badge-status__icon">⏳</span>
+                    待审批
+                  </span>
+                </td>
+                <td>
+                  <div class="action-group">
+                    <button class="btn btn--sm btn--approve" type="button" aria-label="通过建议 PS-260325-001">通过</button>
+                    <button class="btn btn--sm btn--reject" type="button" aria-label="驳回建议 PS-260325-001">驳回</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 2 — 待审批 紧急 -->
+              <tr class="row--urgent">
+                <td><input type="checkbox" class="row-checkbox" aria-label="选择 PS-260325-002"></td>
+                <td><a href="#" class="id-link">PS-260325-002</a></td>
+                <td><span class="badge-source badge-source--shortage">生产缺料</span></td>
+                <td><span class="sku-cell__code">RM-00</span></td>
+                <td><span class="sku-cell__name">EPE 珍珠棉</span></td>
+                <td><span class="supplier-name">宁波宏图纸箱厂</span></td>
+                <td class="td-num">300</td>
+                <td>卷</td>
+                <td class="td-num">¥45.00</td>
+                <td class="td-num"><span class="amount-value amount-value--highlight">¥13,500</span></td>
+                <td><a href="#" class="workorder-link">WO260325-003</a></td>
+                <td>
+                  <span class="urgency-badge urgency-badge--urgent">
+                    <span class="urgency-dot urgency-dot--urgent"></span>
+                    紧急
+                  </span>
+                </td>
+                <td>
+                  <span class="badge-status badge-status--pending">
+                    <span class="badge-status__icon">⏳</span>
+                    待审批
+                  </span>
+                </td>
+                <td>
+                  <div class="action-group">
+                    <button class="btn btn--sm btn--approve" type="button" aria-label="通过建议 PS-260325-002">通过</button>
+                    <button class="btn btn--sm btn--reject" type="button" aria-label="驳回建议 PS-260325-002">驳回</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 3 — 待审批 一般 -->
+              <tr>
+                <td><input type="checkbox" class="row-checkbox" aria-label="选择 PS-260325-003"></td>
+                <td><a href="#" class="id-link">PS-260325-003</a></td>
+                <td><span class="badge-source badge-source--shortage">生产缺料</span></td>
+                <td><span class="sku-cell__code">RM-03</span></td>
+                <td><span class="sku-cell__name">纸箱（大）</span></td>
+                <td><span class="supplier-name">测试供应商</span></td>
+                <td class="td-num">50</td>
+                <td>个</td>
+                <td class="td-num">¥8.80</td>
+                <td class="td-num"><span class="amount-value">¥440</span></td>
+                <td><a href="#" class="workorder-link">WO260325-004</a></td>
+                <td>
+                  <span class="urgency-badge urgency-badge--normal">
+                    <span class="urgency-dot urgency-dot--normal"></span>
+                    一般
+                  </span>
+                </td>
+                <td>
+                  <span class="badge-status badge-status--pending">
+                    <span class="badge-status__icon">⏳</span>
+                    待审批
+                  </span>
+                </td>
+                <td>
+                  <div class="action-group">
+                    <button class="btn btn--sm btn--approve" type="button" aria-label="通过建议 PS-260325-003">通过</button>
+                    <button class="btn btn--sm btn--reject" type="button" aria-label="驳回建议 PS-260325-003">驳回</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 4 — 已通过 一般 -->
+              <tr>
+                <td><input type="checkbox" class="row-checkbox" aria-label="选择 PS-260325-004"></td>
+                <td><a href="#" class="id-link">PS-260325-004</a></td>
+                <td><span class="badge-source badge-source--ai">AI 排产</span></td>
+                <td><span class="sku-cell__code">RM-15</span></td>
+                <td><span class="sku-cell__name">抽屉滑轨</span></td>
+                <td><span class="supplier-name">测试供应商</span></td>
+                <td class="td-num">120</td>
+                <td>套</td>
+                <td class="td-num">¥35.00</td>
+                <td class="td-num"><span class="amount-value">¥4,200</span></td>
+                <td><span class="workorder-empty">—</span></td>
+                <td>
+                  <span class="urgency-badge urgency-badge--normal">
+                    <span class="urgency-dot urgency-dot--normal"></span>
+                    一般
+                  </span>
+                </td>
+                <td>
+                  <span class="badge-status badge-status--approved">
+                    <span class="badge-status__icon">✓</span>
+                    已通过
+                  </span>
+                </td>
+                <td>
+                  <div class="action-group">
+                    <a href="#" class="action-link action-link--transfer">转采购单</a>
+                    <button class="action-link action-link--gray" type="button">详情</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 5 — 已通过 紧急 -->
+              <tr class="row--urgent">
+                <td><input type="checkbox" class="row-checkbox" aria-label="选择 PS-260325-005"></td>
+                <td><a href="#" class="id-link">PS-260325-005</a></td>
+                <td><span class="badge-source badge-source--shortage">生产缺料</span></td>
+                <td><span class="sku-cell__code">RM-20</span></td>
+                <td><span class="sku-cell__name">水性清漆</span></td>
+                <td><span class="supplier-name">测试供应商</span></td>
+                <td class="td-num">80</td>
+                <td>桶</td>
+                <td class="td-num">¥128.00</td>
+                <td class="td-num"><span class="amount-value amount-value--highlight">¥10,240</span></td>
+                <td><a href="#" class="workorder-link">WO260325-004</a></td>
+                <td>
+                  <span class="urgency-badge urgency-badge--urgent">
+                    <span class="urgency-dot urgency-dot--urgent"></span>
+                    紧急
+                  </span>
+                </td>
+                <td>
+                  <span class="badge-status badge-status--approved">
+                    <span class="badge-status__icon">✓</span>
+                    已通过
+                  </span>
+                </td>
+                <td>
+                  <div class="action-group">
+                    <a href="#" class="action-link action-link--transfer">转采购单</a>
+                    <button class="action-link action-link--gray" type="button">详情</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 6 — 已驳回 一般 -->
+              <tr>
+                <td><input type="checkbox" class="row-checkbox" aria-label="选择 PS-260325-006"></td>
+                <td><a href="#" class="id-link">PS-260325-006</a></td>
+                <td><span class="badge-source badge-source--manual">手动</span></td>
+                <td><span class="sku-cell__code">RM-15</span></td>
+                <td><span class="sku-cell__name">铝合金合页</span></td>
+                <td><span class="supplier-name">测试供应商</span></td>
+                <td class="td-num">200</td>
+                <td>个</td>
+                <td class="td-num">¥3.50</td>
+                <td class="td-num"><span class="amount-value">¥700</span></td>
+                <td><span class="workorder-empty">—</span></td>
+                <td>
+                  <span class="urgency-badge urgency-badge--normal">
+                    <span class="urgency-dot urgency-dot--normal"></span>
+                    一般
+                  </span>
+                </td>
+                <td>
+                  <span class="badge-status badge-status--rejected">
+                    <span class="badge-status__icon">✕</span>
+                    已驳回
+                  </span>
+                </td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-link action-link--gray" type="button">查看原因</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 7 — 已驳回 紧急 -->
+              <tr class="row--urgent">
+                <td><input type="checkbox" class="row-checkbox" aria-label="选择 PS-260325-007"></td>
+                <td><a href="#" class="id-link">PS-260325-007</a></td>
+                <td><span class="badge-source badge-source--shortage">生产缺料</span></td>
+                <td><span class="sku-cell__code">RM-10</span></td>
+                <td><span class="sku-cell__name">再生海绵</span></td>
+                <td><span class="supplier-name">测试供应商</span></td>
+                <td class="td-num">400</td>
+                <td>块</td>
+                <td class="td-num">¥18.00</td>
+                <td class="td-num"><span class="amount-value">¥7,200</span></td>
+                <td><a href="#" class="workorder-link">WO260325-003</a></td>
+                <td>
+                  <span class="urgency-badge urgency-badge--urgent">
+                    <span class="urgency-dot urgency-dot--urgent"></span>
+                    紧急
+                  </span>
+                </td>
+                <td>
+                  <span class="badge-status badge-status--rejected">
+                    <span class="badge-status__icon">✕</span>
+                    已驳回
+                  </span>
+                </td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-link action-link--gray" type="button">查看原因</button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 8 — 已执行 一般 -->
+              <tr>
+                <td><input type="checkbox" class="row-checkbox" aria-label="选择 PS-260325-008"></td>
+                <td><a href="#" class="id-link">PS-260325-008</a></td>
+                <td><span class="badge-source badge-source--ai">AI 排产</span></td>
+                <td><span class="sku-cell__code">RM-07</span></td>
+                <td><span class="sku-cell__name">实木板材</span></td>
+                <td><span class="supplier-name">宁波宏图纸箱厂</span></td>
+                <td class="td-num">60</td>
+                <td>张</td>
+                <td class="td-num">¥220.00</td>
+                <td class="td-num"><span class="amount-value amount-value--highlight">¥13,200</span></td>
+                <td><span class="workorder-empty">—</span></td>
+                <td>
+                  <span class="urgency-badge urgency-badge--normal">
+                    <span class="urgency-dot urgency-dot--normal"></span>
+                    一般
+                  </span>
+                </td>
+                <td>
+                  <span class="badge-status badge-status--executed">
+                    <span class="badge-status__icon">→</span>
+                    已执行
+                  </span>
+                </td>
+                <td>
+                  <div class="action-group">
+                    <button class="action-link action-link--gray" type="button">查看采购单</button>
+                  </div>
+                </td>
+              </tr>
+
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Batch Bar -->
+        <div class="batch-bar" role="toolbar" aria-label="批量操作">
+          <span class="batch-bar__count">已选 <strong>2</strong> 条</span>
+          <span class="batch-bar__divider"></span>
+          <span class="batch-bar__label">批量操作：</span>
+          <button class="btn btn--sm btn--approve" type="button">批量通过</button>
+          <button class="btn btn--sm btn--reject" type="button">批量驳回</button>
+          <button class="btn btn--sm btn--secondary" type="button">
+            <span>↗</span>
+            转采购订单
+          </button>
+          <span class="batch-bar__spacer"></span>
+          <button class="batch-bar__clear" type="button">清除选择</button>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination-bar" role="navigation" aria-label="分页控制">
+          <div class="pagination-bar__left">
+            <div class="pagination-bar__per-page">
+              <span>每页显示</span>
+              <select class="pagination-bar__select" aria-label="每页条数">
+                <option value="10" selected>10 条</option>
+                <option value="20">20 条</option>
+                <option value="50">50 条</option>
+              </select>
+            </div>
+            <span class="pagination-bar__divider" style="width:1px;height:16px;background:#E2E8F0;"></span>
+            <span class="pagination-bar__total">共 <strong>38</strong> 条记录</span>
+          </div>
+          <div class="pagination-bar__right">
+            <button class="page-btn" disabled aria-label="上一页">‹</button>
+            <button class="page-btn page-btn--active" aria-current="page">1</button>
+            <button class="page-btn">2</button>
+            <button class="page-btn">3</button>
+            <span class="page-ellipsis">…</span>
+            <button class="page-btn">5</button>
+            <button class="page-btn" aria-label="下一页">›</button>
+          </div>
+        </div>
+
+      </div><!-- end .table-card -->
+
+    </main><!-- end .content -->
+  </div><!-- end .app-main -->
+
+</div><!-- end .app-layout -->
+
+
+<!-- ══════════════════════════════════════════
+     Modal — 审批采购建议（静态展示）
+══════════════════════════════════════════ -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+
+  <div class="modal">
+
+    <!-- Modal Header -->
+    <div class="modal__header">
+      <div class="modal__title-wrap">
+        <div class="modal__title-icon">📋</div>
+        <span class="modal__title" id="modal-title">审批采购建议</span>
+      </div>
+      <button class="modal__close" type="button" aria-label="关闭弹框">✕</button>
+    </div>
+
+    <!-- Modal Body -->
+    <div class="modal__body">
+
+      <!-- 物料信息卡 -->
+      <div class="modal__info-card">
+        <div class="modal__info-card-title">物料 &amp; 建议信息</div>
+        <div class="modal__info-grid">
+          <div class="modal__info-item">
+            <div class="modal__info-label">建议编号</div>
+            <div class="modal__info-value modal__info-value--mono">PS-260325-002</div>
+          </div>
+          <div class="modal__info-item">
+            <div class="modal__info-label">来源</div>
+            <div class="modal__info-value">
+              <span class="badge-source badge-source--shortage" style="font-size:.75rem;">生产缺料</span>
+            </div>
+          </div>
+          <div class="modal__info-item">
+            <div class="modal__info-label">SKU 编码</div>
+            <div class="modal__info-value modal__info-value--mono">RM-00</div>
+          </div>
+          <div class="modal__info-item">
+            <div class="modal__info-label">物料名称</div>
+            <div class="modal__info-value">EPE 珍珠棉</div>
+          </div>
+          <div class="modal__info-item">
+            <div class="modal__info-label">推荐供应商</div>
+            <div class="modal__info-value">宁波宏图纸箱厂</div>
+          </div>
+          <div class="modal__info-item">
+            <div class="modal__info-label">关联工单</div>
+            <div class="modal__info-value modal__info-value--mono">WO260325-003</div>
+          </div>
+          <div class="modal__info-item">
+            <div class="modal__info-label">建议数量</div>
+            <div class="modal__info-value">300 <span style="color:#64748B;font-size:.8rem;font-weight:400;">卷</span></div>
+          </div>
+          <div class="modal__info-item">
+            <div class="modal__info-label">预估金额</div>
+            <div class="modal__info-value modal__info-value--amount">¥13,500</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 操作选择 -->
+      <div>
+        <div class="modal__action-label">审批操作 <span>*</span></div>
+        <div class="modal__radio-group" role="radiogroup" aria-label="选择审批结果">
+
+          <label class="modal__radio-item modal__radio-item--approve modal__radio-item--selected">
+            <input type="radio" name="approval" value="approve" checked>
+            <span class="modal__radio-icon">✅</span>
+            <div class="modal__radio-text">
+              <span class="modal__radio-title">通过</span>
+              <span class="modal__radio-desc">建议转入采购执行</span>
+            </div>
+          </label>
+
+          <label class="modal__radio-item modal__radio-item--reject">
+            <input type="radio" name="approval" value="reject">
+            <span class="modal__radio-icon">❌</span>
+            <div class="modal__radio-text">
+              <span class="modal__radio-title">驳回</span>
+              <span class="modal__radio-desc">需填写驳回原因</span>
+            </div>
+          </label>
+
+        </div>
+      </div>
+
+      <!-- 驳回原因（选择驳回时显示） -->
+      <div class="modal__field">
+        <div class="modal__field-label" style="color:#DC2626;">
+          驳回原因 <span>*</span>
+          <span class="modal__field-hint" style="color:#94A3B8;font-size:.6875rem;margin-left:auto;font-weight:400;">
+            选择"驳回"时必填
+          </span>
+        </div>
+        <div class="modal__reason-box">
+          <textarea class="modal__textarea modal__textarea--reject"
+            placeholder="请填写驳回原因，例如：当前库存充足，暂不需要采购…"
+            aria-label="驳回原因" rows="3"></textarea>
+        </div>
+      </div>
+
+      <!-- 备注 -->
+      <div class="modal__field">
+        <div class="modal__field-label">
+          备注说明
+          <span class="modal__field-hint">可选</span>
+        </div>
+        <textarea class="modal__textarea"
+          placeholder="补充说明（可选）…"
+          aria-label="备注说明" rows="2"></textarea>
+      </div>
+
+    </div><!-- end .modal__body -->
+
+    <!-- Modal Footer -->
+    <div class="modal__footer">
+      <button class="btn--modal-cancel" type="button">取消</button>
+      <button class="btn--modal-approve" type="button">
+        <span>✓</span>
+        确认通过
+      </button>
+    </div>
+
+  </div><!-- end .modal -->
+
+</div><!-- end .modal-overlay -->
+
+</body>
+</html>

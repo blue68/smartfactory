@@ -7,8 +7,13 @@
 
 import jwt from 'jsonwebtoken';
 
-const TEST_JWT_SECRET = process.env.JWT_SECRET ?? 'test-jwt-secret-32chars-for-testing!!';
-const TEST_TENANT_ID = 9999;
+// 默认对齐仓库根目录 .env 的本地联调配置，避免 E2E/Integration 直连 localhost:3000 时
+// 因 Jest 未主动加载 .env 而生成错误签名的 token。需要覆盖时仍可显式设置环境变量。
+const TEST_JWT_SECRET =
+  process.env.TEST_JWT_SECRET
+  ?? process.env.JWT_SECRET
+  ?? 'local-test-jwt-secret-key-2026-smartfactory-at-least-32-chars';
+const TEST_TENANT_ID = Number(process.env.TEST_TENANT_ID ?? '9999');
 
 export type TestRole = 'boss' | 'purchaser' | 'warehouse' | 'supervisor' | 'worker' | 'qc' | 'sales';
 

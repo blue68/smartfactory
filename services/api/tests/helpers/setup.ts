@@ -1,6 +1,9 @@
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = 'change-me-in-production';
+const JWT_SECRET =
+  process.env.TEST_JWT_SECRET
+  ?? process.env.JWT_SECRET
+  ?? 'local-test-jwt-secret-key-2026-smartfactory-at-least-32-chars';
 
 export interface TestTokenPayload {
   userId?: number;

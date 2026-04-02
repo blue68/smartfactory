@@ -22,6 +22,7 @@ import {
   useSupplierPriceAgreements,
   useSupplierPerformance,
   exportSuppliers,
+  supplierApi,
 } from '@/api/supplier';
 import type {
   Supplier,
@@ -31,6 +32,7 @@ import type {
   SupplierRelatedSku,
   SupplierPriceAgreement,
   SupplierPerformance,
+  SupplierPerfSnapshot,
 } from '@/api/supplier';
 import { usePriceHistory, useCreatePrice } from '@/api/price';
 import type { PriceHistoryItem } from '@/api/price';
@@ -56,6 +58,7 @@ type SupplierRecord = Supplier & {
 };
 
 const RATING_OPTIONS: SupplierRating[] = ['A', 'B', 'C', 'D'];
+const EMPTY_SUPPLIER_LIST: SupplierRecord[] = [];
 
 // CATEGORY_OPTIONS 由实际供应商数据动态生成
 
@@ -481,16 +484,8 @@ type PerfModalProps = {
   open: boolean;
   onClose: () => void;
   compareIds: number[];
-  suppliers: SupplierRecord[];
 };
 
-const PERF_DATA = [
-  { name: '华森木业 (A)', onTime: 96, quality: 1.2 },
-  { name: '明辉五金 (A)', onTime: 94, quality: 0.8 },
-  { name: '广州板材 (B)', onTime: 82, quality: 3.5 },
-  { name: '联鑫材料 (B)', onTime: 78, quality: 6.2 },
-  { name: '顺达包材 (C)', onTime: 65, quality: 2.8 },
-];
 
 function HBarRow({
   label,
@@ -544,7 +539,7 @@ function HBarRow({
   );
 }
 
-function PerfModal({ open, onClose, compareIds, suppliers }: PerfModalProps) {
+function PerfModal({ open, onClose, compareIds }: PerfModalProps) {
   useEffect(() => {
     if (!open) return;
     const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -553,57 +548,92 @@ function PerfModal({ open, onClose, compareIds, suppliers }: PerfModalProps) {
   }, [open, onClose]);
 
   const [period, setPeriod] = useState('近3个月');
+  const [perfData, setPerfData] = useState<SupplierPerfSnapshot[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || compareIds.length === 0) return;
+    const monthsMap: Record<string, number> = { '近3个月': 3, '近6个月': 6, '近12个月': 12 };
+    setLoading(true);
+    supplierApi.comparePerformance(compareIds, monthsMap[period] ?? 6)
+      .then((data) => setPerfData(data ?? []))
+      .catch(() => setPerfData([]))
+      .finally(() => setLoading(false));
+  }, [open, compareIds, period]);
 
   if (!open) return null;
 
-  // Build compare supplier data: use selected ids if any, otherwise fallback to PERF_DATA
-  const compareSuppliers: CompareSupplier[] = compareIds.length > 0
-    ? compareIds.slice(0, MAX_COMPARE).map((id, idx) => {
-        const s = suppliers.find((sp) => sp.id === id);
-        const perfEntry = PERF_DATA[idx % PERF_DATA.length];
-        return {
-          id,
-          name: s?.name ?? perfEntry.name,
-          onTime: typeof (s as Record<string, unknown> | undefined)?.['onTimeRate'] === 'number'
-            ? ((s as Record<string, unknown>)['onTimeRate'] as number)
-            : perfEntry.onTime,
-          quality: typeof s?.qualityRate === 'number' ? s.qualityRate : perfEntry.quality,
-          price: 100 - idx * 8, // mock relative price score
-          scores: [
-            perfEntry.onTime,
-            100 - idx * 5,
-            100 - perfEntry.quality * 10,
-            80 + idx * 4,
-            perfEntry.onTime - 5,
-            90 - idx * 3,
-          ],
-        };
-      })
-    : PERF_DATA.slice(0, 3).map((d, idx) => ({
-        id: idx,
-        name: d.name,
-        onTime: d.onTime,
-        quality: d.quality,
-        price: 100 - idx * 8,
-        scores: [d.onTime, 90 - idx * 5, 100 - d.quality * 10, 82, d.onTime - 4, 88 - idx * 3],
-      }));
+  // No suppliers selected — prompt the user
+  if (compareIds.length === 0) {
+    return createPortal(
+      <div
+        className={`${styles.perfOverlay} ${styles.perfOverlayOpen}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="compare-title"
+        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      >
+        <div className={styles.perfModal}>
+          <div className={styles.perfModalHeader}>
+            <div className={styles.perfModalTitle} id="compare-title">供应商绩效对比</div>
+            <Button variant="ghost" size="sm" onClick={onClose} aria-label="关闭对比弹框">✕ 关闭</Button>
+          </div>
+          <div className={styles.perfModalBody} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>请先在列表中选择要对比的供应商</span>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
+  // Build compare supplier data from real API response
+  const compareSuppliers: CompareSupplier[] = perfData.map((snap) => {
+    const onTime = parseFloat(snap.onTimeRate) || 0;
+    const qualityGood = parseFloat(snap.qualityRate) || 0;
+    const qualityBad = parseFloat((100 - qualityGood).toFixed(1));
+    return {
+      id: snap.supplierId,
+      name: snap.supplierName,
+      onTime,
+      quality: qualityBad,
+      price: snap.priceScore,
+      scores: [
+        onTime,                                       // 准时交货率
+        snap.priceScore,                               // 价格竞争力
+        qualityGood,                                   // 质量合格率
+        Math.max(0, 100 - snap.responseHours * 2),     // 响应速度 (hours → score)
+        parseFloat(snap.completionRate) || 0,           // 订单完成率
+        snap.satisfactionScore,                         // 服务评分
+      ],
+    };
+  });
 
   const radarSuppliers: RadarSupplierData[] = compareSuppliers.map((cs) => ({
     name: cs.name,
     scores: cs.scores,
   }));
 
-  // Mock monthly price trend data (6 months)
-  const priceMonths = ['10月', '11月', '12月', '1月', '2月', '3月'];
-  const priceSeries: LineChartSeries[] = compareSuppliers.map((cs, idx) => ({
-    name: cs.name,
-    data: priceMonths.map((_, mi) => {
-      const base = 120 - idx * 10;
-      return base + (mi % 3 === 0 ? 5 : mi % 3 === 1 ? -3 : 2);
-    }),
+  // Monthly price trend data from real API
+  const priceMonths = (perfData[0]?.recentAmounts ?? []).map((a) => {
+    const [, m] = a.month.split('-');
+    return `${parseInt(m, 10)}月`;
+  });
+  const priceSeries: LineChartSeries[] = perfData.map((snap) => ({
+    name: snap.supplierName,
+    data: snap.recentAmounts.map((a) => parseFloat(a.amount) || 0),
   }));
 
-  // Price anomaly mock: supplier index 1 has anomaly (>20% from avg)
+  // Find the best supplier by composite score
+  const bestSupplier = compareSuppliers.length > 0
+    ? compareSuppliers.reduce((best, s) => {
+        const scoreA = (s.onTime + (100 - s.quality * 10) + s.price) / 3;
+        const scoreB = (best.onTime + (100 - best.quality * 10) + best.price) / 3;
+        return scoreA > scoreB ? s : best;
+      }, compareSuppliers[0])
+    : null;
+
+  // Price anomaly detection against average of first supplier's prices
   const avgPrices = priceSeries[0]?.data ?? [];
   const avgPriceAvg = avgPrices.length > 0
     ? avgPrices.reduce((a, b) => a + b, 0) / avgPrices.length
@@ -638,6 +668,24 @@ function PerfModal({ open, onClose, compareIds, suppliers }: PerfModalProps) {
         </div>
 
         <div className={styles.perfModalBody}>
+          {/* Loading state */}
+          {loading && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200, color: 'var(--text-secondary)', fontSize: '0.9rem', gap: 8 }}>
+              <span style={{ display: 'inline-block', width: 18, height: 18, border: '2px solid var(--color-primary-200)', borderTopColor: 'var(--color-primary-600)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+              加载中...
+            </div>
+          )}
+
+          {/* Empty state after load */}
+          {!loading && perfData.length === 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+              暂无对比数据，请检查所选供应商是否有绩效记录
+            </div>
+          )}
+
+          {/* Main content — only render when data is ready */}
+          {!loading && perfData.length > 0 && (
+          <>
           {/* FE-02-01: Stats summary bar */}
           <CompareSummaryBar suppliers={compareSuppliers} />
 
@@ -725,9 +773,11 @@ function PerfModal({ open, onClose, compareIds, suppliers }: PerfModalProps) {
               <span className={styles.aiSuggestionTitle}>AI 供应商评估建议</span>
             </div>
             <div className={styles.aiSuggestionBody}>
-              综合对比来看，{compareSuppliers[0]?.name ?? '华森木业'} 在准时交货率和综合评分方面表现最优。建议重点关注质量异常率偏高的供应商，推动整改或寻找替代方案。
+              综合对比来看，{bestSupplier?.name ?? compareSuppliers[0]?.name} 在准时交货率和综合评分方面表现最优。建议重点关注质量异常率偏高的供应商，推动整改或寻找替代方案。
             </div>
           </div>
+          </>
+          )}
         </div>
       </div>
     </div>,
@@ -906,6 +956,18 @@ function SupplierFormFields({ form, onChange, isNew }: SupplierFormFieldsProps) 
               onChange={set('contactPhone')}
             />
           </div>
+        </div>
+
+        {/* 联系邮箱 */}
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel}>联系邮箱</label>
+          <input
+            type="email"
+            className={styles.formInput}
+            placeholder="example@company.com"
+            value={form.contactEmail}
+            onChange={set('contactEmail')}
+          />
         </div>
 
         {/* 主供品类 */}
@@ -1683,7 +1745,7 @@ function SupplierDetailView({
             style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}
             onClick={onBack}
           >
-            采购管理
+            供应商管理
           </span>
           <span className={styles.detailBreadcrumbSep}>›</span>
           <span className={styles.detailBreadcrumbCurrent}>{supplier.name}</span>
@@ -1816,7 +1878,11 @@ export default function SupplierPage() {
   // Modal 状态
   const [perfModalOpen, setPerfModalOpen] = useState(false);
   const [compareSelectedIds, setCompareSelectedIds] = useState<number[]>([]);
-  void setCompareSelectedIds; // will be wired to CompareToggleButton
+  const handleCompareToggle = useCallback((id: number) => {
+    setCompareSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < MAX_COMPARE ? [...prev, id] : prev,
+    );
+  }, []);
 
   // Drawer 状态
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
@@ -2035,9 +2101,14 @@ export default function SupplierPage() {
     {
       key: 'actions',
       title: '操作',
-      width: 72,
+      width: 160,
       render: (_, r) => (
         <div className={styles.actionCell}>
+          <CompareToggleButton
+            supplierId={r.id}
+            selectedIds={compareSelectedIds}
+            onToggle={handleCompareToggle}
+          />
           <Button variant="ghost" size="sm" onClick={() => setSelectedSupplier(r)}>
             查看
           </Button>
@@ -2046,7 +2117,7 @@ export default function SupplierPage() {
     },
   ];
 
-  const supplierList = (data?.list ?? []) as SupplierRecord[];
+  const supplierList = (data?.list ?? EMPTY_SUPPLIER_LIST) as SupplierRecord[];
 
   // 动态提取品类选项
   const categoryOptions = useMemo(() => {
@@ -2155,8 +2226,9 @@ export default function SupplierPage() {
             variant="ghost"
             size="md"
             onClick={() => setPerfModalOpen(true)}
+            disabled={compareSelectedIds.length === 0}
           >
-            📊 绩效对比
+            📊 绩效对比{compareSelectedIds.length > 0 ? ` (${compareSelectedIds.length})` : ''}
           </Button>
           <Button
             variant="ghost"
@@ -2266,7 +2338,7 @@ export default function SupplierPage() {
       </div>
 
       {/* 绩效对比 Modal */}
-      <PerfModal open={perfModalOpen} onClose={() => setPerfModalOpen(false)} compareIds={compareSelectedIds} suppliers={supplierList} />
+      <PerfModal open={perfModalOpen} onClose={() => setPerfModalOpen(false)} compareIds={compareSelectedIds} />
 
       {/* 新建供应商 Drawer */}
       <Drawer

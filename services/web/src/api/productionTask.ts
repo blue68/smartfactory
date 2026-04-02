@@ -1,5 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import request from '@/utils/request';
+import type {
+  ProductionTaskDependencySummary,
+  ProductionTaskMaterialTransaction,
+  ProductionTaskWageReport,
+} from '@/types/models';
 
 export const taskKeys = {
   all: ['production-tasks'] as const,
@@ -41,15 +46,21 @@ export interface TaskStats {
 
 export interface ProductionTask {
   id: number;
+  taskNo?: string;
   taskDate: string;
   status: 'pending' | 'in_progress' | 'completed' | 'exception' | 'suspended';
+  statusLabel?: string;
   plannedQty: number;
   completedQty: number;
   scrapQty?: number;
   orderNo: string;
   productName?: string;
   plannedFinishTime?: string;
+  processStepId?: number;
   processName: string;
+  operationId?: number | null;
+  outputSkuId?: number | null;
+  outputSkuName?: string | null;
   workstationName: string;
   workerName: string;
   skuCode?: string;
@@ -61,26 +72,44 @@ export interface ProductionTask {
   unitPrice?: number;
   workerGrade?: string;
   workerGradeConfigured?: boolean;
+  dependencySummary?: ProductionTaskDependencySummary;
+  materialTransactions?: ProductionTaskMaterialTransaction[];
+  wageReport?: ProductionTaskWageReport | null;
   exceptions?: TaskException[];
+}
+
+function normalizeTaskStatus<T extends { status?: string | null }>(task: T): T {
+  if (task.status === 'started') {
+    return { ...task, status: 'in_progress' } as T;
+  }
+  return task;
 }
 
 export const taskApi = {
   list: (filter: TaskListQuery) =>
-    request.get<any>('/api/production/tasks', filter as Record<string, unknown>),
+    request.get<any>('/api/production/tasks', filter as Record<string, unknown>).then((result) => {
+      if (Array.isArray(result)) {
+        return result.map(normalizeTaskStatus);
+      }
+      return {
+        ...result,
+        list: Array.isArray(result?.list) ? result.list.map(normalizeTaskStatus) : [],
+      };
+    }),
   stats: () =>
     request.get<TaskStats>('/api/production/tasks/stats'),
   detail: (taskId: number) =>
-    request.get<ProductionTask>(`/api/production/tasks/${taskId}`),
+    request.get<ProductionTask>(`/api/production/tasks/${taskId}`).then(normalizeTaskStatus),
   start: (taskId: number) =>
     request.post<any>(`/api/production/tasks/${taskId}/start`),
-  complete: (taskId: number, data: { completedQty: string; actualHours: string; notes?: string }) =>
-    request.post<any>(`/api/production/tasks/${taskId}/complete`, data),
-  reportException: (taskId: number, data: { type: string; description: string; affectsProgress: boolean }) =>
+  complete: (taskId: number, data: { completedQty: string; actualHours: string; notes?: string; scrapQty?: string }) =>
+    request.post<any>(`/api/production/tasks/${taskId}/complete-v2`, data),
+  reportException: (taskId: number, data: { type: string; description: string; affectsProgress: boolean; severity: 'medium' | 'high' }) =>
     request.post<any>(`/api/production/tasks/${taskId}/exception`, data),
   resolveException: (taskId: number, data: { resolution: string }) =>
-    request.put<any>(`/api/production-tasks/${taskId}/resolve`, data),
+    request.post<any>(`/api/production/tasks/${taskId}/resolve-exception`, data),
   suspendTask: (taskId: number, data: { reason: string }) =>
-    request.put<any>(`/api/production-tasks/${taskId}/suspend`, data),
+    request.post<any>(`/api/production/tasks/${taskId}/suspend`, data),
 };
 
 export function useTaskList(filter: TaskListQuery) {
@@ -93,7 +122,16 @@ export function useTaskList(filter: TaskListQuery) {
 export function useTaskStats() {
   return useQuery({
     queryKey: taskKeys.stats(),
-    queryFn: () => taskApi.stats(),
+    queryFn: async () => {
+      const result = await taskApi.stats();
+      return {
+        ...result,
+        byStatus: {
+          ...result.byStatus,
+          in_progress: result.byStatus.in_progress ?? result.byStatus.started ?? 0,
+        },
+      };
+    },
     staleTime: 30_000,
   });
 }
@@ -126,7 +164,7 @@ export function useCompleteTask() {
 export function useReportException() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskId, data }: { taskId: number; data: { type: string; description: string; affectsProgress: boolean } }) =>
+    mutationFn: ({ taskId, data }: { taskId: number; data: { type: string; description: string; affectsProgress: boolean; severity: 'medium' | 'high' } }) =>
       taskApi.reportException(taskId, data),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: taskKeys.all }); },
   });

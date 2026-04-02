@@ -16,18 +16,102 @@
  */
 
 import request from 'supertest';
+import mysql, { Pool } from 'mysql2/promise';
 import { authHeader } from '../helpers/testAuth';
 import { buildSkuData, buildFabricSkuData } from '../helpers/testData';
 
 const BASE_URL = process.env.TEST_API_URL ?? 'http://localhost:3000';
+const TEST_TENANT_ID = 9999;
+
+let dbPool: Pool | null = null;
+
+function getDbPool(): Pool {
+  if (!dbPool) {
+    dbPool = mysql.createPool({
+      host: process.env.DB_HOST ?? '127.0.0.1',
+      port: Number(process.env.DB_PORT ?? '3307'),
+      user: process.env.DB_USER ?? 'sf_app',
+      password: process.env.DB_PASS ?? process.env.DB_PASSWORD ?? 'TestApp2026!Secure',
+      database: process.env.DB_NAME ?? 'smart_factory',
+      connectionLimit: 2,
+      waitForConnections: true,
+    });
+  }
+  return dbPool;
+}
+
+function readBooleanField(row: any, camel: string, snake: string): boolean {
+  return Boolean(row?.[camel] ?? row?.[snake]);
+}
+
+function readNumberField(row: any, camel: string, snake: string): number {
+  return Number(row?.[camel] ?? row?.[snake]);
+}
+
+let category1MaterialId = 1;
+let category2NormalId = 8;
+let category2FabricId = 5;
+
+function buildNormalSkuData(override: Record<string, unknown> = {}) {
+  return buildSkuData({
+    category1Id: category1MaterialId,
+    category2Id: category2NormalId,
+    ...override,
+  });
+}
+
+function buildMaterialFabricSkuData(override: Record<string, unknown> = {}) {
+  return buildFabricSkuData({
+    category1Id: category1MaterialId,
+    category2Id: category2FabricId,
+    ...override,
+  });
+}
 
 describe('SKU 主数据 API 集成测试', () => {
+  beforeAll(async () => {
+    const pool = getDbPool();
+
+    await pool.execute(
+      `INSERT INTO tenants (id, code, name, status, settings)
+       VALUES (?, 'TEST9999', 'E2E测试租户', 'active', JSON_OBJECT())
+       ON DUPLICATE KEY UPDATE
+         code = VALUES(code),
+         name = VALUES(name),
+         status = VALUES(status),
+         settings = VALUES(settings)`,
+      [TEST_TENANT_ID],
+    );
+
+    const [rows] = await pool.query<any[]>(
+      `SELECT id, code, level, parent_id
+       FROM sku_categories
+       WHERE tenant_id IN (0, ?) AND code IN ('MATERIAL', 'WOOD', 'FABRIC') AND is_active = 1`,
+      [TEST_TENANT_ID],
+    );
+    const material = rows.find((r) => r.code === 'MATERIAL' && Number(r.level) === 1);
+    const normal = rows.find((r) => r.code === 'WOOD' && Number(r.level) === 2 && Number(r.parent_id) === Number(material?.id));
+    const fabric = rows.find((r) => r.code === 'FABRIC' && Number(r.level) === 2 && Number(r.parent_id) === Number(material?.id));
+    if (!material || !normal || !fabric) {
+      throw new Error('缺少SKU分类基础数据：MATERIAL/WOOD/FABRIC');
+    }
+    category1MaterialId = Number(material.id);
+    category2NormalId = Number(normal.id);
+    category2FabricId = Number(fabric.id);
+  });
+
+  afterAll(async () => {
+    if (dbPool) {
+      await dbPool.end();
+      dbPool = null;
+    }
+  });
 
   // ─── 创建 SKU ───────────────────────────────────────────────
 
   describe('创建SKU — POST /api/skus', () => {
     test('TC-SKU-001: 创建普通SKU成功', async () => {
-      const payload = buildSkuData({ name: `红橡实木板材-${Date.now()}` });
+      const payload = buildNormalSkuData({ name: `红橡实木板材-${Date.now()}` });
       const res = await request(BASE_URL)
         .post('/api/skus')
         .set(authHeader('boss'))
@@ -35,12 +119,12 @@ describe('SKU 主数据 API 集成测试', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.code).toBe(0);
-      expect(res.body.data.id).toBeGreaterThan(0);
+      expect(Number(res.body.data.id)).toBeGreaterThan(0);
       expect(res.body.data.skuCode).toMatch(/^[A-Z]+\d{5}$/);
     });
 
     test('TC-SKU-002: 创建面料SKU时hasDyeLot自动强制为true', async () => {
-      const payload = buildFabricSkuData({
+      const payload = buildMaterialFabricSkuData({
         name: `仿皮面料-${Date.now()}`,
         hasDyeLot: false, // 传入false，系统应强制为true
       });
@@ -55,13 +139,13 @@ describe('SKU 主数据 API 集成测试', () => {
       const getRes = await request(BASE_URL)
         .get(`/api/skus/${res.body.data.id}`)
         .set(authHeader('boss'));
-      expect(getRes.body.data.hasDyeLot).toBe(true);
+      expect(readBooleanField(getRes.body.data, 'hasDyeLot', 'has_dye_lot')).toBe(true);
     });
 
     test('TC-SKU-003: 二级分类不属于一级分类 → 2003', async () => {
-      const payload = buildSkuData({
-        category1Id: 1,
-        category2Id: 9999, // 不存在的子分类
+      const payload = buildNormalSkuData({
+        category1Id: category1MaterialId,
+        category2Id: 10, // 10 在默认数据中属于一级分类 2（SEMIFIN）
       });
       const res = await request(BASE_URL)
         .post('/api/skus')
@@ -73,7 +157,7 @@ describe('SKU 主数据 API 集成测试', () => {
 
     test('TC-SKU-004: SKU编码重复 → 2002', async () => {
       // 第一次创建
-      const payload = buildSkuData({ name: `测试SKU-first-${Date.now()}` });
+      const payload = buildNormalSkuData({ name: `测试SKU-first-${Date.now()}` });
       const firstRes = await request(BASE_URL)
         .post('/api/skus')
         .set(authHeader('boss'))
@@ -84,13 +168,13 @@ describe('SKU 主数据 API 集成测试', () => {
       const res = await request(BASE_URL)
         .post('/api/skus')
         .set(authHeader('boss'))
-        .send({ ...buildSkuData(), skuCode: createdCode });
+        .send({ ...buildNormalSkuData(), skuCode: createdCode });
 
       expect(res.body.code).toBe(2002);
     });
 
     test('TC-SKU-011: SKU名称超过200字符 → 1001', async () => {
-      const payload = buildSkuData({ name: 'A'.repeat(201) });
+      const payload = buildNormalSkuData({ name: 'A'.repeat(201) });
       const res = await request(BASE_URL)
         .post('/api/skus')
         .set(authHeader('boss'))
@@ -100,7 +184,7 @@ describe('SKU 主数据 API 集成测试', () => {
     });
 
     test('缺少必填字段 category1Id → 1001', async () => {
-      const { category1Id, ...payload } = buildSkuData() as any;
+      const { category1Id, ...payload } = buildNormalSkuData() as any;
       const res = await request(BASE_URL)
         .post('/api/skus')
         .set(authHeader('boss'))
@@ -118,7 +202,7 @@ describe('SKU 主数据 API 集成测试', () => {
       await request(BASE_URL)
         .post('/api/skus')
         .set(authHeader('boss'))
-        .send(buildSkuData({ name: `${keyword}板材` }));
+        .send(buildNormalSkuData({ name: `${keyword}板材` }));
 
       const res = await request(BASE_URL)
         .get(`/api/skus?keyword=${keyword}`)
@@ -140,19 +224,19 @@ describe('SKU 主数据 API 集成测试', () => {
 
       expect(res.status).toBe(200);
       res.body.data.list.forEach((item: any) => {
-        expect(item.hasDyeLot).toBe(true);
+        expect(readBooleanField(item, 'hasDyeLot', 'has_dye_lot')).toBe(true);
       });
     });
 
     test('TC-SKU-012: 按一级和二级分类联动筛选', async () => {
       const res = await request(BASE_URL)
-        .get('/api/skus?category1Id=1&category2Id=10')
+        .get(`/api/skus?category1Id=${category1MaterialId}&category2Id=${category2NormalId}`)
         .set(authHeader('boss'));
 
       expect(res.status).toBe(200);
       res.body.data.list.forEach((item: any) => {
-        expect(item.category1Id).toBe(1);
-        expect(item.category2Id).toBe(10);
+        expect(readNumberField(item, 'category1Id', 'category1_id')).toBe(category1MaterialId);
+        expect(readNumberField(item, 'category2Id', 'category2_id')).toBe(category2NormalId);
       });
     });
 
@@ -193,7 +277,7 @@ describe('SKU 主数据 API 集成测试', () => {
       const createRes = await request(BASE_URL)
         .post('/api/skus')
         .set(authHeader('boss'))
-        .send(buildSkuData({ name: `单位测试SKU-${Date.now()}` }));
+        .send(buildNormalSkuData({ name: `单位测试SKU-${Date.now()}` }));
       const skuId = createRes.body.data?.id;
 
       // 配置换算
@@ -214,7 +298,7 @@ describe('SKU 主数据 API 集成测试', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.unitConversions).toBeDefined();
       expect(res.body.data.unitConversions.length).toBeGreaterThan(0);
-      expect(res.body.data.unitConversions[0].conversionRate).toBe('50.000000');
+      expect(Number(res.body.data.unitConversions[0].conversionRate)).toBeCloseTo(50, 6);
     });
   });
 
@@ -227,7 +311,7 @@ describe('SKU 主数据 API 集成测试', () => {
       const res = await request(BASE_URL)
         .post('/api/skus')
         .set(authHeader('boss'))
-        .send(buildSkuData({ name: `换算测试SKU-${Date.now()}` }));
+        .send(buildNormalSkuData({ name: `换算测试SKU-${Date.now()}` }));
       testSkuId = res.body.data?.id;
     });
 
@@ -258,7 +342,7 @@ describe('SKU 主数据 API 集成测试', () => {
         });
 
       expect(res.status).toBe(200);
-      expect(res.body.data[0].conversionRate).toBe('0.000001');
+      expect(Number(res.body.data[0].conversionRate)).toBeCloseTo(0.000001, 8);
     });
 
     test('conversions为空数组时返回错误', async () => {
@@ -278,7 +362,7 @@ describe('SKU 主数据 API 集成测试', () => {
       const createRes = await request(BASE_URL)
         .post('/api/skus')
         .set(authHeader('boss'))
-        .send(buildSkuData({ name: `原始名称-${Date.now()}` }));
+        .send(buildNormalSkuData({ name: `原始名称-${Date.now()}` }));
       const skuId = createRes.body.data?.id;
       const newName = `更新名称-${Date.now()}`;
 

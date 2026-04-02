@@ -15,7 +15,7 @@ const RecordIssueSchema = z.object({
   componentName: z.string().min(1).max(200),
   issueTypes: z.array(z.enum(['appearance', 'dimension', 'function', 'material'])).min(1),
   severity: z.enum(['minor', 'normal', 'severe']),
-  description: z.string().max(1000).optional(),
+  description: z.string().max(500).optional(),
   images: z.array(z.string()).max(3).optional(),
 });
 

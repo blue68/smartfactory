@@ -8,7 +8,7 @@ import { PaginationSchema } from '../../middleware/validator';
 // ─── 状态枚举值列表 ────────────────────────────────────────────────────────
 const SALES_ORDER_STATUSES = [
   'draft', 'pending_approval', 'confirmed',
-  'in_production', 'shipped', 'completed', 'closed',
+  'produced', 'in_production', 'partial_shipped', 'shipped', 'completed', 'closed',
 ] as const;
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
@@ -25,10 +25,14 @@ const CreateSchema = z.object({
   orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   isUrgent: z.boolean().default(false),
+  saveAsDraft: z.boolean().optional(),
   notes: z.string().max(2000).optional(),
   items: z.array(z.object({
     skuId: z.number().int().positive(),
-    quantity: z.string().regex(/^\d+$/),
+    quantity: z.union([
+      z.number().int().positive(),
+      z.string().regex(/^\d+$/),
+    ]),
     unitPrice: z.string().regex(/^\d+(\.\d{1,2})?$/),
     notes: z.string().max(500).optional(),
   })).default([]),
@@ -53,6 +57,14 @@ const RejectSchema = z.object({
 
 const CloseSchema = z.object({
   reason: z.string().min(1).max(500),
+});
+
+const ShipSchema = z.object({
+  trackingNo: z.string().max(128).optional(),
+  shippedItems: z.array(z.object({
+    orderItemId: z.coerce.number().int().positive(),
+    shippedQty: z.coerce.number().positive(),
+  })).optional(),
 });
 
 const CapacityCheckQuerySchema = z.object({
@@ -155,7 +167,15 @@ export class SalesOrderController {
   async update(req: Request, res: Response): Promise<void> {
     const id = Number(req.params.id);
     const body = CreateSchema.partial().parse(req.body);
-    const data = await this.svc(req).updateOrder(id, body);
+    const data = await this.svc(req).updateOrder(id, {
+      ...body,
+      items: body.items?.map((item) => ({
+        skuId: item.skuId,
+        quantity: String(item.quantity),
+        unitPrice: item.unitPrice,
+        notes: item.notes,
+      })),
+    });
     success(res, data, '订单已更新');
   }
 
@@ -169,7 +189,8 @@ export class SalesOrderController {
   /** POST /sales-orders/:id/ship */
   async ship(req: Request, res: Response): Promise<void> {
     const id = Number(req.params.id);
-    await this.svc(req).ship(id);
+    const { trackingNo, shippedItems } = ShipSchema.parse(req.body ?? {});
+    await this.svc(req).ship(id, trackingNo, shippedItems);
     success(res, null, '订单已发货');
   }
 

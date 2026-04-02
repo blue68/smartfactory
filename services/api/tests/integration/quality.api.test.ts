@@ -17,16 +17,123 @@
  */
 
 import request from 'supertest';
+import mysql, { Pool } from 'mysql2/promise';
 import { authHeader } from '../helpers/testAuth';
 import { buildQualityIssueData } from '../helpers/testData';
 
 const BASE_URL = process.env.TEST_API_URL ?? 'http://localhost:3000';
+const TEST_TENANT_ID = 9999;
 
 // 测试环境预置数据（需测试 DB seed 中存在）
 const PRODUCTION_ORDER_ID  = 80010; // 预置：进行中的生产工单
 const PRESET_INSPECTION_ID = 95001; // 预置：已创建的验货单（pending状态）
+const SEED_CUSTOMER_ID = 98001;
+const SEED_SALES_ORDER_ID = 98002;
+const SEED_SKU_ID = 98003;
+
+let dbPool: Pool | null = null;
+
+function getDbPool(): Pool {
+  if (!dbPool) {
+    dbPool = mysql.createPool({
+      host: process.env.DB_HOST ?? '127.0.0.1',
+      port: Number(process.env.DB_PORT ?? '3307'),
+      user: process.env.DB_USER ?? 'sf_app',
+      password: process.env.DB_PASS ?? process.env.DB_PASSWORD ?? 'TestApp2026!Secure',
+      database: process.env.DB_NAME ?? 'smart_factory',
+      connectionLimit: 2,
+      waitForConnections: true,
+    });
+  }
+  return dbPool;
+}
 
 describe('质量溯源模块 API 集成测试', () => {
+  beforeAll(async () => {
+    const pool = getDbPool();
+
+    await pool.execute(
+      `INSERT INTO tenants (id, code, name, status, settings)
+       VALUES (?, 'TEST9999', 'E2E测试租户', 'active', JSON_OBJECT())
+       ON DUPLICATE KEY UPDATE
+         code = VALUES(code),
+         name = VALUES(name),
+         status = VALUES(status),
+         settings = VALUES(settings)`,
+      [TEST_TENANT_ID],
+    );
+
+    await pool.execute(
+      `INSERT INTO customers
+        (id, tenant_id, code, name, status, created_by, updated_by)
+       VALUES (?, ?, 'CUS-QA-INT', '质量集成客户', 'active', 99004, 99004)
+       ON DUPLICATE KEY UPDATE
+         code = VALUES(code),
+         name = VALUES(name),
+         status = VALUES(status),
+         updated_by = VALUES(updated_by)`,
+      [SEED_CUSTOMER_ID, TEST_TENANT_ID],
+    );
+
+    await pool.execute(
+      `INSERT INTO skus
+        (id, tenant_id, sku_code, name, category1_id, category2_id, stock_unit, purchase_unit, production_unit, has_dye_lot, use_fifo, safety_stock, status, created_by, updated_by)
+       VALUES (?, ?, 'SKU-QA-TRACE', '质量溯源成品', 1, 8, '件', '件', '件', 0, 1, 0, 'active', 99004, 99004)
+       ON DUPLICATE KEY UPDATE
+         sku_code = VALUES(sku_code),
+         name = VALUES(name),
+         status = VALUES(status),
+         updated_by = VALUES(updated_by)`,
+      [SEED_SKU_ID, TEST_TENANT_ID],
+    );
+
+    await pool.execute(
+      `INSERT INTO sales_orders
+        (id, tenant_id, order_no, customer_id, order_type, status, priority, expected_delivery, total_amount, constraint_passed, approval_status, sales_person_id, created_by, updated_by)
+       VALUES (?, ?, 'SO-QA-INT', ?, 'normal', 'confirmed', 50, CURDATE(), 1000.00, 1, 'approved', 99007, 99004, 99004)
+       ON DUPLICATE KEY UPDATE
+         customer_id = VALUES(customer_id),
+         order_type = VALUES(order_type),
+         status = VALUES(status),
+         expected_delivery = VALUES(expected_delivery),
+         total_amount = VALUES(total_amount),
+         updated_by = VALUES(updated_by)`,
+      [SEED_SALES_ORDER_ID, TEST_TENANT_ID, SEED_CUSTOMER_ID],
+    );
+
+    await pool.execute(
+      'DELETE FROM quality_issues WHERE tenant_id = ? AND inspection_id IN (SELECT id FROM inspection_records WHERE tenant_id = ? AND production_order_id = ?)',
+      [TEST_TENANT_ID, TEST_TENANT_ID, PRODUCTION_ORDER_ID],
+    );
+    await pool.execute(
+      'DELETE FROM inspection_records WHERE tenant_id = ? AND production_order_id = ?',
+      [TEST_TENANT_ID, PRODUCTION_ORDER_ID],
+    );
+    await pool.execute(
+      'DELETE FROM traceability_records WHERE tenant_id = ? AND production_order_id = ?',
+      [TEST_TENANT_ID, PRODUCTION_ORDER_ID],
+    );
+
+    await pool.execute(
+      `INSERT INTO production_orders
+        (id, tenant_id, work_order_no, sales_order_id, sku_id, bom_header_id, process_template_id, qty_planned, qty_completed, status, priority, created_by, updated_by)
+       VALUES (?, ?, 'WO-QA-INT-80010', ?, ?, 1, 1, 100.0000, 0.0000, 'in_progress', 50, 99004, 99004)
+       ON DUPLICATE KEY UPDATE
+         sales_order_id = VALUES(sales_order_id),
+         sku_id = VALUES(sku_id),
+         qty_planned = VALUES(qty_planned),
+         status = VALUES(status),
+         updated_by = VALUES(updated_by)`,
+      [PRODUCTION_ORDER_ID, TEST_TENANT_ID, SEED_SALES_ORDER_ID, SEED_SKU_ID],
+    );
+  });
+
+  afterAll(async () => {
+    if (dbPool) {
+      await dbPool.end();
+      dbPool = null;
+    }
+  });
 
   // ─── 创建验货单 ──────────────────────────────────────────────
 
@@ -365,6 +472,104 @@ describe('质量溯源模块 API 集成测试', () => {
     });
   });
 
+  // ─── 质量问题列表 / 详情 ─────────────────────────────────────
+
+  describe('质量问题列表与详情 — GET /api/quality/issues*', () => {
+    let seededIssueId = 0;
+    let seededInspectionNo = '';
+
+    beforeAll(async () => {
+      const createInspectionRes = await request(BASE_URL)
+        .post('/api/quality/inspections')
+        .set(authHeader('qc'))
+        .send({
+          productionOrderId: PRODUCTION_ORDER_ID,
+          inspectionDate: '2026-03-12',
+          qtyInspected: '12',
+        });
+
+      const inspectionId = Number(createInspectionRes.body.data?.id ?? 0);
+      seededInspectionNo = String(createInspectionRes.body.data?.inspectionNo ?? '');
+
+      const createIssueRes = await request(BASE_URL)
+        .post('/api/quality/inspections/issues')
+        .set(authHeader('qc'))
+        .send(buildQualityIssueData(inspectionId, {
+          componentName: '靠背连接件',
+          issueTypes: ['material', 'function'],
+          severity: 'severe',
+          description: '材料强度不足且安装后存在功能卡滞',
+          images: ['https://storage.example.com/qc/material-issue-001.jpg'],
+        }));
+
+      seededIssueId = Number(createIssueRes.body.data?.issueId ?? 0);
+    });
+
+    test('问题列表支持 severity 筛选', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/issues?severity=severe&page=1&pageSize=20')
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.code).toBe(0);
+      const list: any[] = res.body.data?.list ?? [];
+      expect(list.length).toBeGreaterThan(0);
+      list.forEach((item) => expect(item.severity).toBe('severe'));
+      expect(list.some((item) => Number(item.id) === seededIssueId)).toBe(true);
+      const seeded = list.find((item) => Number(item.id) === seededIssueId);
+      expect(seeded).toHaveProperty('productionOrderId');
+      expect(seeded).toHaveProperty('productionOrderNo');
+    });
+
+    test('问题列表支持 issueType 筛选并返回分页结构', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/issues?issueType=material&page=1&pageSize=10')
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.code).toBe(0);
+      expect(res.body.data?.page).toBe(1);
+      expect(res.body.data?.pageSize).toBe(10);
+      expect(typeof res.body.data?.total).toBe('number');
+      const list: any[] = res.body.data?.list ?? [];
+      expect(list.some((item) => Number(item.id) === seededIssueId)).toBe(true);
+      list.forEach((item) => {
+        expect(Array.isArray(item.issueTypes)).toBe(true);
+        expect(item.issueTypes).toContain('material');
+      });
+    });
+
+    test('问题详情返回 inspection / 工单 / 图片等完整字段', async () => {
+      const res = await request(BASE_URL)
+        .get(`/api/quality/issues/${seededIssueId}`)
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.code).toBe(0);
+      expect(res.body.data).toMatchObject({
+        id: String(seededIssueId),
+        inspectionNo: seededInspectionNo,
+        productionOrderId: String(PRODUCTION_ORDER_ID),
+        componentName: '靠背连接件',
+        severity: 'severe',
+      });
+      expect(res.body.data.issueTypes).toEqual(expect.arrayContaining(['material', 'function']));
+      expect(res.body.data.images).toEqual([
+        'https://storage.example.com/qc/material-issue-001.jpg',
+      ]);
+    });
+
+    test('不存在的问题详情返回 7001', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/quality/issues/999999999')
+        .set(authHeader('qc'));
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe(1004);
+      expect(String(res.body.message ?? '')).toContain('不存在');
+    });
+  });
+
   // ─── 溯源链查询 ──────────────────────────────────────────────
 
   describe('溯源链查询 — GET /api/quality/traceability/:productionOrderId', () => {
@@ -386,6 +591,12 @@ describe('质量溯源模块 API 集成测试', () => {
       expect(data.summary).toHaveProperty('totalComponents');
       expect(data.summary).toHaveProperty('withScanRecord');
       expect(Array.isArray(data.summary.dyeLots)).toBe(true);
+      expect(data).toHaveProperty('aiAnalysis');
+      if (data.aiAnalysis) {
+        expect(data.aiAnalysis).toHaveProperty('summary');
+        expect(Array.isArray(data.aiAnalysis.rootCauses)).toBe(true);
+        expect(Array.isArray(data.aiAnalysis.recommendations)).toBe(true);
+      }
     });
 
     test('TC-QC-010: 工单不存在 → 7001', async () => {
@@ -447,6 +658,9 @@ describe('质量溯源模块 API 集成测试', () => {
       expect(data).toHaveProperty('totalInspected');
       expect(data).toHaveProperty('totalFailed');
       expect(data).toHaveProperty('failRate');
+      expect(data).toHaveProperty('traceCompletionRate');
+      expect(data).toHaveProperty('tracedIssueCount');
+      expect(data).toHaveProperty('totalIssueCount');
       expect(data).toHaveProperty('trendData');
       expect(data).toHaveProperty('issueTypeBreakdown');
       expect(data).toHaveProperty('top5Issues');

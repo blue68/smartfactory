@@ -505,19 +505,19 @@ function HistoryPanel() {
             </thead>
             <tbody>
               {batches.map((row) => (
-                <tr key={row.batchId}>
-                  <td>{fmtDate(row.calculatedAt)}</td>
-                  <td>{row.batchId}</td>
-                  <td>{row.summary.totalPurchaseItems} 条</td>
-                  <td>{row.summary.estimatedTotalAmount != null ? `¥${row.summary.estimatedTotalAmount}` : '—'}</td>
+                <tr key={row.id}>
+                  <td>{fmtDate(row.createdAt)}</td>
+                  <td>{row.batchNo}</td>
+                  <td>{row.purchaseCount} 条</td>
+                  <td>—</td>
                   <td>
                     <span
                       className={[
                         styles.history_result,
-                        row.isColdStart ? styles['history_result--approved'] : styles['history_result--approved'],
+                        styles['history_result--approved'],
                       ].join(' ')}
                     >
-                      {row.isColdStart ? '冷启动' : 'AI计算'}
+                      {row.triggerType !== 'manual' ? '冷启动' : 'AI计算'}
                     </span>
                   </td>
                 </tr>
@@ -557,13 +557,13 @@ function HistoryPanel() {
             </thead>
             <tbody>
               {batches.map((row) => (
-                <tr key={row.batchId}>
-                  <td>{fmtDate(row.calculatedAt)}</td>
-                  <td>{row.batchId}</td>
-                  <td>{row.summary.totalProductionItems} 条</td>
+                <tr key={row.id}>
+                  <td>{fmtDate(row.createdAt)}</td>
+                  <td>{row.batchNo}</td>
+                  <td>{row.productionCount} 条</td>
                   <td>
                     <span className={[styles.history_result, styles['history_result--approved']].join(' ')}>
-                      {row.isColdStart ? '冷启动' : 'AI计算'}
+                      {row.triggerType !== 'manual' ? '冷启动' : 'AI计算'}
                     </span>
                   </td>
                 </tr>

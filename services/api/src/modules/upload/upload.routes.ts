@@ -9,14 +9,19 @@ import { asyncHandler } from '../../app';
 const router = Router();
 router.use(authMiddleware);
 
-// Ensure upload directory exists
 const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || '/app/uploads');
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
 
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+  destination: (_req, _file, cb) => {
+    try {
+      if (!fs.existsSync(UPLOAD_DIR)) {
+        fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+      }
+      cb(null, UPLOAD_DIR);
+    } catch (error) {
+      cb(error as Error, UPLOAD_DIR);
+    }
+  },
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname);
     const hash = crypto.randomBytes(16).toString('hex');

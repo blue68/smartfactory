@@ -64,6 +64,54 @@ services/api/tests/
 - 生产环境性能压测（需单独立项）
 - 第三方支付、ERP 系统集成（超出当前版本范围）
 
+### 1.4 当前推荐执行入口
+
+- 后端 integration：`npm run test:api:integration`
+- 后端 e2e：`npm run test:api:e2e`
+- 前端 mock 浏览器回归：`npm run test:web:ui:mock`
+- 采购前端真实浏览器：`npm run test:purchase:ui:smoke` / `npm run test:purchase:ui:regression`
+- 来料质检前端真实浏览器：`npm run test:incoming-inspection:ui:smoke` / `npm run test:incoming-inspection:ui:regression`
+- 采购建议管理前端真实浏览器：`npm run test:purchase-suggestion:ui:smoke` / `npm run test:purchase-suggestion:ui:regression`
+- 销售订单前端真实浏览器：`npm run test:sales-order:ui:smoke` / `npm run test:sales-order:ui:regression`
+- 工序配置前端真实浏览器：`npm run test:process-config:ui:smoke` / `npm run test:process-config:ui:regression`
+- 生产排产前端真实浏览器：`npm run test:production-schedule:ui:smoke` / `npm run test:production-schedule:ui:regression`
+- 生产工单前端真实浏览器：`npm run test:production-order:ui:smoke` / `npm run test:production-order:ui:regression`
+- 生产任务前端真实浏览器：`npm run test:production-task:ui:smoke` / `npm run test:production-task:ui:regression`
+- 生产缺料看板前端真实浏览器：`npm run test:production-shortage:ui:smoke` / `npm run test:production-shortage:ui:regression`
+- 库存总览前端真实浏览器：`npm run test:inventory:ui:smoke` / `npm run test:inventory:ui:regression`
+- 库存盘点前端真实浏览器：`npm run test:stocktaking:ui:smoke` / `npm run test:stocktaking:ui:regression`
+- 销售结算前端真实浏览器：`npm run test:settlement:ui:smoke` / `npm run test:settlement:ui:regression`
+
+当前 CI 门禁已覆盖后端 managed integration/e2e、前端 mock 浏览器、采购真实浏览器 smoke、来料质检真实浏览器 smoke、采购建议管理真实浏览器 smoke、销售订单真实浏览器 smoke、工序配置真实浏览器 smoke、生产排产真实浏览器 smoke、生产工单真实浏览器 smoke、生产任务真实浏览器 smoke、生产缺料看板真实浏览器 smoke、库存总览真实浏览器 smoke、库存盘点真实浏览器 smoke、销售结算真实浏览器 smoke；`develop` push 还会补跑 purchase / incoming-inspection / purchase-suggestion / sales-order / process-config / production-schedule / production-order / production-task / production-shortage / inventory / stocktaking / settlement 十二组 real-browser regression。
+
+更多分层说明见 [half-finished-production-qa-runbook.md](/Users/kongwen/claude_wk/ai-software-company/docs/v3/half-finished-production-qa-runbook.md)。
+
+### 1.5 当前自动化推进快照（2026-04-02）
+
+- 后端托管测试入口已统一到 `npm run test:api:integration` 与 `npm run test:api:e2e`，本地与 CI 共用同一套启动/清理方式。
+- 前端 mock 浏览器层已形成固定四件套：`settlement`、`sales-order`、`purchase-delivery`、`process-config`，并已进入 CI 门禁。
+- 前端真实后端浏览器层当前已覆盖十一条业务流：
+  - purchase
+  - incoming-inspection
+  - sales-order
+  - process-config
+  - production-schedule
+  - production-order
+  - production-task
+  - production-shortage
+  - inventory
+  - stocktaking
+  - settlement
+- 上述十一条真实浏览器业务流已全部具备 `smoke` 入口；同一批业务流也已全部具备 `develop` push 的 `regression` 入口。
+- 采购域浏览器覆盖已从单链路扩展到三页：`purchase` 主链路、`incoming-inspection` 的页内新建/提交写路径，以及 `purchase-suggestions` 的审批与转单写路径。
+- 库存域浏览器覆盖已从“库存总览”扩展到两页：实时库存追溯 / 手动入库，以及 `stocktaking` 的新建盘点 / 差异确认写路径。
+- 生产域当前浏览器覆盖深度已从单页扩展到四页：
+  - 排产页：重新生成、调整与确认下发持久化
+  - 工单详情：冻结结构、工序链路，以及待排产取消 / 从销售订单手动创建写路径
+  - 任务详情：依赖阻塞与解除阻塞恢复、投入产出、工资工时、混合异常时间线、开始/完工/异常处理/挂起写路径与历史兼容降级
+  - 缺料看板：真实缺料聚合、工单联动详情，以及缺料页直发采购建议写路径
+- 当前最适合作为下一阶段增量的方向，已经从“继续铺生产页”转为“继续拆出非生产域独立页面”，优先级更高的是 `return-order` 这类仍挂在采购大链路里的真实写路径。
+
 ---
 
 ## 二、测试结果汇总
@@ -342,22 +390,45 @@ services/api/tests/
 
 ### A. 自动化测试执行说明
 
+短版执行指引：见 [half-finished-production-qa-runbook.md](/Users/kongwen/claude_wk/ai-software-company/docs/v3/half-finished-production-qa-runbook.md)
+部署后与环境级快速验证：见 [smoke-test-guide.md](/Users/kongwen/claude_wk/ai-software-company/docs/smoke-test-guide.md)
+
 ```bash
 # 安装依赖
-cd services/api
 npm install
+cd services/api
 
 # 单元测试（无需服务启动）
 npx jest tests/unit/ --coverage
 
-# 集成测试（需要 TEST_API_URL 指向运行中的测试服务）
-TEST_API_URL=http://localhost:3000 npx jest tests/integration/
+# 集成测试（托管模式：自动构建 / 启动 API / 注入 .env / 回收进程）
+cd ../..
+npm run test:api:integration
+cd services/api
 
-# E2E 测试（需要完整的测试环境 + seed 数据）
-TEST_API_URL=http://localhost:3000 npx jest tests/e2e/ --testTimeout=60000
+# E2E 测试（托管模式）
+cd ../..
+npm run test:api:e2e
+
+# 前端 mock 浏览器回归（自动拉起 services/web，本地 mock API）
+npm run test:web:ui:mock
+npm run test:web:ui:settlement
+npm run test:web:ui:sales-order
+
+# 前端真实浏览器采购回归（要求本地前后端服务已可访问）
+npm run test:purchase:ui:smoke
+npm run test:purchase:ui:regression
+npm run test:purchase-suggestion:ui:smoke
+npm run test:purchase-suggestion:ui:regression
+npm run test:stocktaking:ui:smoke
+npm run test:stocktaking:ui:regression
+
+# 部署后环境级冒烟
+./scripts/smoke-test.sh
+cd services/api
 
 # 全量运行
-TEST_API_URL=http://localhost:3000 npx jest --coverage
+npx jest --coverage
 ```
 
 ### B. 测试数据库 Seed 要求

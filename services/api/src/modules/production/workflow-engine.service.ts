@@ -6,6 +6,7 @@ import { generateNo } from '../../shared/generateNo';
 interface TaskRow {
   production_order_id: number;
   process_step_id: number;
+  resolved_output_sku_id: number | null;
 }
 
 interface ProcessStepRow {
@@ -43,6 +44,14 @@ interface CountRow {
   total: string;
 }
 
+interface CompletionWorkflowOptions {
+  syncOrderCompletion?: boolean;
+}
+
+type InventorySnapshotTrackedManager = EntityManager & {
+  __inventorySnapshotSkuIds?: Set<number>;
+};
+
 /**
  * 工序完工工作流引擎
  * 在 completeTask 事务内调用，处理：
@@ -69,12 +78,24 @@ export class WorkflowEngineService {
     taskId: number,
     completedQty: string,
     manager: EntityManager,
+    options: CompletionWorkflowOptions = {},
   ): Promise<void> {
+    const { syncOrderCompletion = true } = options;
+
     // Step 1: 查询任务关联的工单 + 工序信息
     const taskRows: TaskRow[] = await manager.query(
-      `SELECT production_order_id, process_step_id
-       FROM production_tasks
-       WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      `SELECT
+          pt.production_order_id,
+          pt.process_step_id,
+          COALESCE(poc.resolved_sku_id, po.output_sku_id, pt.output_sku_id) AS resolved_output_sku_id
+       FROM production_tasks pt
+       LEFT JOIN production_operations po
+         ON po.id = pt.operation_id
+        AND po.tenant_id = pt.tenant_id
+       LEFT JOIN production_order_components poc
+         ON poc.id = po.component_id
+        AND poc.tenant_id = po.tenant_id
+       WHERE pt.id = ? AND pt.tenant_id = ? LIMIT 1`,
       [taskId, this.tenantId],
     );
 
@@ -93,10 +114,11 @@ export class WorkflowEngineService {
     const step = stepRows[0];
 
     // Step 3: 半成品入库
-    if (step.output_type === 'semi_finished' && step.output_sku_id) {
+    if (step.output_type === 'semi_finished' && task.resolved_output_sku_id) {
       await this._handleSemiFinishedInventory(
+        taskId,
         task.production_order_id,
-        step.output_sku_id,
+        task.resolved_output_sku_id,
         completedQty,
         manager,
       );
@@ -111,7 +133,9 @@ export class WorkflowEngineService {
     );
 
     // Step 5: 检查工单是否全部完工
-    await this._checkOrderCompletion(task.production_order_id, completedQty, manager);
+    if (syncOrderCompletion) {
+      await this._checkOrderCompletion(task.production_order_id, completedQty, manager);
+    }
   }
 
   // ── 私有方法 ────────────────────────────────────────────────────────────
@@ -120,21 +144,47 @@ export class WorkflowEngineService {
    * 写入半成品入库事务记录并更新库存
    */
   private async _handleSemiFinishedInventory(
+    taskId: number,
     productionOrderId: number,
     outputSkuId: number,
     completedQty: string,
     manager: EntityManager,
   ): Promise<void> {
     const transactionNo = await generateNo('transaction', this.tenantId);
+    const [orderRow] = await manager.query<Array<{ work_order_no: string | null }>>(
+      `SELECT work_order_no
+       FROM production_orders
+       WHERE id = ? AND tenant_id = ?
+       LIMIT 1`,
+      [productionOrderId, this.tenantId],
+    );
+    const workOrderNo = orderRow?.work_order_no ?? `WO#${productionOrderId}`;
+    const notes = `生产工单 ${workOrderNo} 任务#${taskId} 工序完工，半成品自动入库`;
+
+    const [existingTxRow] = await manager.query<Array<{ cnt: string }>>(
+      `SELECT COUNT(*) AS cnt
+       FROM inventory_transactions
+       WHERE tenant_id = ?
+         AND transaction_type = 'PRODUCTION_IN'
+         AND reference_type = 'production_order'
+         AND reference_id = ?
+         AND sku_id = ?
+         AND notes = ?`,
+      [this.tenantId, productionOrderId, outputSkuId, notes],
+    );
+
+    if (Number(existingTxRow?.cnt ?? 0) > 0) {
+      await this._syncInventoryDailySnapshot(manager, outputSkuId);
+      return;
+    }
 
     // 写入库存流水（半成品生产入库）
     await manager.query(
       `INSERT INTO inventory_transactions
          (tenant_id, transaction_no, sku_id, transaction_type, direction,
           qty_input, input_unit, qty_stock_unit, stock_unit,
-          reference_type, reference_id, production_order_id,
-          created_by, updated_by)
-       VALUES (?, ?, ?, 'PRODUCTION_IN', 'IN', ?, '件', ?, '件',
+          reference_type, reference_id, reference_no, notes, created_by)
+       VALUES (?, ?, ?, 'PRODUCTION_IN', 'IN', ?, 'pcs', ?, 'pcs',
                'production_order', ?, ?, ?, ?)`,
       [
         this.tenantId,
@@ -143,8 +193,8 @@ export class WorkflowEngineService {
         completedQty,
         completedQty,
         productionOrderId,
-        productionOrderId,
-        this.userId,
+        workOrderNo,
+        notes,
         this.userId,
       ],
     );
@@ -158,6 +208,39 @@ export class WorkflowEngineService {
          last_in_at  = NOW()`,
       [this.tenantId, outputSkuId, completedQty],
     );
+
+    await this._syncInventoryDailySnapshot(manager, outputSkuId);
+    this._trackInventorySnapshotCacheInvalidation(manager, outputSkuId);
+  }
+
+  private async _syncInventoryDailySnapshot(
+    manager: EntityManager,
+    skuId: number,
+  ): Promise<void> {
+    await manager.query(
+      `INSERT INTO inventory_daily_snapshots
+         (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
+       SELECT
+         tenant_id,
+         CURDATE(),
+         sku_id,
+         qty_on_hand,
+         qty_reserved,
+         qty_on_hand - qty_reserved
+       FROM inventory
+       WHERE tenant_id = ? AND sku_id = ?
+       ON DUPLICATE KEY UPDATE
+         qty_on_hand = VALUES(qty_on_hand),
+         qty_reserved = VALUES(qty_reserved),
+         qty_available = VALUES(qty_available)`,
+      [this.tenantId, skuId],
+    );
+  }
+
+  private _trackInventorySnapshotCacheInvalidation(manager: EntityManager, skuId: number): void {
+    const trackedManager = manager as InventorySnapshotTrackedManager;
+    const tracked = (trackedManager.__inventorySnapshotSkuIds ??= new Set<number>());
+    tracked.add(Number(skuId));
   }
 
   /**

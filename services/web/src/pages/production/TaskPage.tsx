@@ -47,7 +47,7 @@ import styles from './TaskPage.module.css';
 
 type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'exception' | 'suspended';
 
-type ExceptionType = '设备故障' | '物料缺失' | '质量问题' | '其他';
+type ExceptionType = '设备故障' | '物料缺失' | '质量异常' | '其他';
 
 interface TaskException {
   id: number;
@@ -60,11 +60,16 @@ interface TaskException {
 
 interface ProductionTask {
   id: number;
+  taskNo?: string;
   taskDate: string;
   orderNo: string;
   productName?: string;
   plannedFinishTime?: string;
+  processStepId?: number;
   processName: string;
+  operationId?: number | null;
+  outputSkuId?: number | null;
+  outputSkuName?: string | null;
   workstationName: string;
   workerName: string;
   plannedQty: number;
@@ -80,6 +85,44 @@ interface ProductionTask {
   unitPrice?: number;
   workerGrade?: string;
   workerGradeConfigured?: boolean;
+  dependencySummary?: {
+    blocked: boolean;
+    blockingReason: string | null;
+    predecessors: Array<{
+      operationId: number;
+      stepName: string;
+      requiredQty: string;
+      completedQty: string;
+      status: string;
+    }>;
+  };
+  materialTransactions?: Array<{
+    id: number;
+    ioType: 'input' | 'output';
+    skuId: number;
+    skuCode: string | null;
+    skuName: string | null;
+    plannedQty: string;
+    actualQty: string;
+    inventoryTxId: number | null;
+    transactionNo: string | null;
+    transactionType: string | null;
+    direction: 'IN' | 'OUT' | null;
+    transactionQty: string | null;
+    transactionTime: string | null;
+    referenceNo: string | null;
+  }>;
+  wageReport?: {
+    reportId: number;
+    reportNo: string;
+    reportDate: string;
+    workerGrade: string;
+    stepName: string;
+    qtyQualified: string;
+    workHours: string;
+    unitPrice: string;
+    subtotal: string;
+  } | null;
   exceptions?: TaskException[];
   [key: string]: unknown;
 }
@@ -110,7 +153,7 @@ const STATUS_BADGE_CLASS: Record<TaskStatus, string> = {
 const EXCEPTION_TYPES: { value: ExceptionType; icon: string; desc: string }[] = [
   { value: '设备故障', icon: '⚙', desc: '机器设备损坏或故障导致停产' },
   { value: '物料缺失', icon: '📦', desc: '原材料不足或配件缺货' },
-  { value: '质量问题', icon: '🔍', desc: '产品质量不达标需返工' },
+  { value: '质量异常', icon: '🔍', desc: '产品质量不达标需返工' },
   { value: '其他',     icon: '📝', desc: '其他未分类的生产异常' },
 ];
 
@@ -142,6 +185,17 @@ function formatDate(dateStr: string | undefined): string {
   } catch {
     return dateStr;
   }
+}
+
+function formatTaskLabel(task: Pick<ProductionTask, 'id' | 'taskNo'> | null | undefined): string {
+  if (!task) return '—';
+  return task.taskNo || `任务 #${task.id}`;
+}
+
+function formatQty(value: string | number | undefined | null): string {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return '0';
+  return Number.isInteger(numeric) ? `${numeric}` : numeric.toFixed(2);
 }
 
 // ─── countUp hook ─────────────────────────────────────────
@@ -269,13 +323,13 @@ export default function TaskPage() {
 
   // ── 工序筛选选项（从列表动态提取）
   const processOptions = useMemo(() => {
-    const seen = new Set<string>();
+    const seen = new Set<number>();
     const opts: { label: string; value: string }[] = [];
     taskData.list.forEach((t) => {
-      const key = t.processName;
-      if (key && !seen.has(key)) {
+      const key = Number(t.processStepId ?? 0);
+      if (key > 0 && !seen.has(key)) {
         seen.add(key);
-        opts.push({ label: key, value: key });
+        opts.push({ label: t.processName, value: String(key) });
       }
     });
     return opts;
@@ -285,7 +339,7 @@ export default function TaskPage() {
   const { data: statsData } = useTaskStats();
   const stats = {
     total:      statsData?.total                    ?? taskData.total,
-    inProgress: statsData?.byStatus?.started        ?? 0,
+    inProgress: statsData?.byStatus?.in_progress    ?? 0,
     completed:  statsData?.byStatus?.completed      ?? 0,
     exception:  statsData?.byStatus?.exception      ?? 0,
     suspended:  statsData?.byStatus?.suspended      ?? 0,
@@ -315,6 +369,7 @@ export default function TaskPage() {
   const [completeOpen, setCompleteOpen]       = useState(false);
   const [selectedTask, setSelectedTask]       = useState<ProductionTask | null>(null);
   const [completeQty, setCompleteQty]         = useState<string>('');
+  const [completeScrapQty, setCompleteScrapQty] = useState<string>('');
   const [completeHours, setCompleteHours]     = useState<string>('');
   const [completeNotes, setCompleteNotes]     = useState('');
   const [completeError, setCompleteError]     = useState('');
@@ -323,6 +378,7 @@ export default function TaskPage() {
   const openCompleteModal = useCallback((task: ProductionTask) => {
     setSelectedTask(task);
     setCompleteQty('');
+    setCompleteScrapQty('');
     setCompleteHours('');
     setCompleteNotes('');
     setCompleteError('');
@@ -346,12 +402,14 @@ export default function TaskPage() {
     if (hasError) return;
 
     try {
+      const scrap = Number(completeScrapQty);
       await completeMutation.mutateAsync({
         taskId: selectedTask.id,
         data:   {
           completedQty: String(qty),
           actualHours:  String(hours),
           notes:        completeNotes || undefined,
+          ...(completeScrapQty && !isNaN(scrap) && scrap >= 0 && { scrapQty: String(scrap) }),
         },
       });
       showToast({ type: 'success', message: `任务 #${selectedTask.id} 已标记完成` });
@@ -359,7 +417,7 @@ export default function TaskPage() {
     } catch {
       showToast({ type: 'error', message: '操作失败，请稍后重试' });
     }
-  }, [selectedTask, completeQty, completeHours, completeNotes, completeMutation, showToast]);
+  }, [selectedTask, completeQty, completeHours, completeNotes, completeScrapQty, completeMutation, showToast]);
 
   // ── 上报异常弹窗状态 ─────────────────────────────────────
   const [exceptionOpen, setExceptionOpen]             = useState(false);
@@ -395,6 +453,7 @@ export default function TaskPage() {
           type:            exceptionType,
           description:     exceptionDesc,
           affectsProgress: exceptionAffects,
+          severity:        exceptionAffects ? 'high' : 'medium',
         },
       });
       showToast({ type: 'success', message: `任务 #${exceptionTask.id} 异常已上报` });
@@ -537,7 +596,10 @@ export default function TaskPage() {
       title: '工单号',
       width: 130,
       render: (_, record) => (
-        <span className={styles.orderNo}>{record.orderNo || '—'}</span>
+        <div className={styles.orderCell}>
+          <span className={styles.orderNo}>{record.orderNo || '—'}</span>
+          <span className={styles.taskMicroLabel}>{formatTaskLabel(record)}</span>
+        </div>
       ),
     },
     {
@@ -550,7 +612,12 @@ export default function TaskPage() {
       key:   'processName',
       title: '工序',
       width: 110,
-      render: (_, record) => record.processName || '—',
+      render: (_, record) => (
+        <div className={styles.processCell}>
+          <strong>{record.processName || '—'}</strong>
+          <span>{record.outputSkuName || '未配置产出半成品'}</span>
+        </div>
+      ),
     },
     {
       key:   'plannedFinishTime',
@@ -794,7 +861,7 @@ export default function TaskPage() {
         open={selectedTaskId !== null}
         title="任务详情"
         onClose={closeDrawer}
-        width={480}
+        width={640}
         footer={
           taskDetail ? (
             <TaskDrawerFooter
@@ -822,12 +889,14 @@ export default function TaskPage() {
         open={completeOpen}
         task={selectedTask}
         qty={completeQty}
+        scrapQty={completeScrapQty}
         hours={completeHours}
         notes={completeNotes}
         error={completeError}
         hoursError={completeHoursError}
         loading={completeMutation.isPending}
         onQtyChange={(v) => { setCompleteQty(v); setCompleteError(''); }}
+        onScrapQtyChange={setCompleteScrapQty}
         onHoursChange={(v) => { setCompleteHours(v); setCompleteHoursError(''); }}
         onNotesChange={setCompleteNotes}
         onClose={() => setCompleteOpen(false)}
@@ -958,25 +1027,39 @@ function TaskDetailContent({ task, loading }: TaskDetailContentProps) {
   }
 
   const overtime = isTaskOvertime(task);
+  const predecessors = task.dependencySummary?.predecessors ?? [];
+  const inputTransactions = task.materialTransactions?.filter((item) => item.ioType === 'input') ?? [];
+  const outputTransactions = task.materialTransactions?.filter((item) => item.ioType === 'output') ?? [];
 
   return (
     <div className={styles.drawerContent}>
-      {/* 基本信息 */}
+      <section className={styles.drawerSection}>
+        <h3 className={styles.drawerSectionTitle}>执行概览</h3>
+        <div className={styles.executionOverview}>
+          <MetricCard label="任务编号" value={formatTaskLabel(task)} />
+          <MetricCard label="计划数量" value={formatQty(task.plannedQty)} />
+          <MetricCard label="已完成" value={formatQty(task.completedQty ?? 0)} />
+          <MetricCard label="实际工时" value={task.actualHours != null ? `${task.actualHours}h` : '未上报'} />
+          <MetricCard label="产出半成品" value={task.outputSkuName || '未配置'} accent="teal" />
+          <MetricCard label="工资结果" value={task.wageReport ? `¥${task.wageReport.subtotal}` : '待生成'} accent="amber" />
+        </div>
+      </section>
+
       <section className={styles.drawerSection}>
         <h3 className={styles.drawerSectionTitle}>基本信息</h3>
         <dl className={styles.infoGrid}>
           <DetailItem label="任务日期" value={task.taskDate || '—'} />
-          <DetailItem label="工单号"   value={task.orderNo || '—'} />
+          <DetailItem label="工单号" value={task.orderNo || '—'} />
+          <DetailItem label="任务编号" value={formatTaskLabel(task)} />
           <DetailItem label="产品名称" value={task.productName || task.skuName || '—'} />
           <DetailItem label="工序名称" value={task.processName || '—'} />
-          <DetailItem label="工作站"   value={task.workstationName || '—'} />
-          <DetailItem label="工人"     value={task.workerName || '—'} />
+          <DetailItem label="产出 SKU" value={task.outputSkuName || '未配置'} />
+          <DetailItem label="工作站" value={task.workstationName || '—'} />
+          <DetailItem label="工人" value={task.workerName || '—'} />
           <DetailItem
             label="状态"
             value={
-              <span
-                className={`${styles.statusBadge} ${STATUS_BADGE_CLASS[task.status] ?? styles.badgePending}`}
-              >
+              <span className={`${styles.statusBadge} ${STATUS_BADGE_CLASS[task.status] ?? styles.badgePending}`}>
                 {STATUS_LABEL[task.status] ?? task.status}
               </span>
             }
@@ -984,12 +1067,42 @@ function TaskDetailContent({ task, loading }: TaskDetailContentProps) {
         </dl>
       </section>
 
-      {/* 生产数据 */}
+      <section className={styles.drawerSection}>
+        <h3 className={styles.drawerSectionTitle}>依赖与阻塞</h3>
+        {task.dependencySummary?.blocked && task.dependencySummary.blockingReason ? (
+          <div className={styles.dependencyBanner}>{task.dependencySummary.blockingReason}</div>
+        ) : null}
+        {predecessors.length === 0 ? (
+          <p className={styles.drawerEmptyText}>当前任务没有前置工序依赖</p>
+        ) : (
+          <div className={styles.dependencyList}>
+            {predecessors.map((item) => {
+              const blocked = Number(item.completedQty ?? 0) < Number(item.requiredQty ?? 0);
+              return (
+                <div key={item.operationId} className={styles.dependencyCard}>
+                  <div className={styles.dependencyCard__header}>
+                    <strong>{item.stepName}</strong>
+                    <span className={`${styles.dependencyStatus} ${blocked ? styles['dependencyStatus--blocked'] : styles['dependencyStatus--ready']}`}>
+                      {blocked ? '未满足' : '已满足'}
+                    </span>
+                  </div>
+                  <div className={styles.dependencyCard__meta}>
+                    <span>需求 {formatQty(item.requiredQty)}</span>
+                    <span>已完成 {formatQty(item.completedQty)}</span>
+                    <span>状态 {item.status}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       <section className={styles.drawerSection}>
         <h3 className={styles.drawerSectionTitle}>生产数据</h3>
         <dl className={styles.infoGrid}>
           <DetailItem label="计划数量" value={String(task.plannedQty ?? '—')} />
-          <DetailItem label="已完成"   value={String(task.completedQty ?? 0)} />
+          <DetailItem label="已完成" value={String(task.completedQty ?? 0)} />
           <DetailItem label="报废数量" value={String(task.scrapQty ?? 0)} />
           {task.maxHours != null && (
             <DetailItem label="极限工时" value={`${task.maxHours}h`} />
@@ -1009,7 +1122,6 @@ function TaskDetailContent({ task, loading }: TaskDetailContentProps) {
         </dl>
       </section>
 
-      {/* SKU 信息 */}
       {(task.skuCode || task.skuName) && (
         <section className={styles.drawerSection}>
           <h3 className={styles.drawerSectionTitle}>SKU 信息</h3>
@@ -1020,7 +1132,53 @@ function TaskDetailContent({ task, loading }: TaskDetailContentProps) {
         </section>
       )}
 
-      {/* 异常记录 */}
+      <section className={styles.drawerSection}>
+        <h3 className={styles.drawerSectionTitle}>投入产出与库存流水</h3>
+        <div className={styles.ioGrid}>
+          <MaterialTracePanel title="投入" items={inputTransactions} emptyText="尚无投入记录" />
+          <MaterialTracePanel title="产出" items={outputTransactions} emptyText="尚无产出记录" />
+        </div>
+      </section>
+
+      <section className={styles.drawerSection}>
+        <h3 className={styles.drawerSectionTitle}>工资与工时</h3>
+        {task.wageReport ? (
+          <div className={styles.wageBoard}>
+            <div className={styles.wageBoard__grid}>
+              <div>
+                <span>报工日期</span>
+                <strong>{task.wageReport.reportDate}</strong>
+              </div>
+              <div>
+                <span>工人等级</span>
+                <strong>{task.wageReport.workerGrade || '未配置'}</strong>
+              </div>
+              <div>
+                <span>工时</span>
+                <strong>{task.wageReport.workHours}h</strong>
+              </div>
+              <div>
+                <span>单价</span>
+                <strong>¥{task.wageReport.unitPrice}</strong>
+              </div>
+              <div>
+                <span>合格数</span>
+                <strong>{task.wageReport.qtyQualified}</strong>
+              </div>
+              <div>
+                <span>工资金额</span>
+                <strong>¥{task.wageReport.subtotal}</strong>
+              </div>
+            </div>
+            <div className={styles.wageBoard__footer}>
+              来源 {task.wageReport.reportNo} · {task.wageReport.stepName}
+            </div>
+          </div>
+        ) : (
+          <p className={styles.drawerEmptyText}>尚未生成工资报工记录，历史兼容任务会在这里安全降级为空。</p>
+        )}
+      </section>
+
       <section className={styles.drawerSection}>
         <h3 className={styles.drawerSectionTitle}>异常记录</h3>
         {(!task.exceptions || task.exceptions.length === 0) ? (
@@ -1064,6 +1222,63 @@ function DetailItem({ label, value }: DetailItemProps) {
       <dt className={styles.infoLabel}>{label}</dt>
       <dd className={styles.infoValue}>{value}</dd>
     </>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  accent = 'default',
+}: {
+  label: string;
+  value: string;
+  accent?: 'default' | 'teal' | 'amber';
+}) {
+  return (
+    <div className={`${styles.metricCard} ${styles[`metricCard--${accent}`]}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function MaterialTracePanel({
+  title,
+  items,
+  emptyText,
+}: {
+  title: string;
+  items: NonNullable<ProductionTask['materialTransactions']>;
+  emptyText: string;
+}) {
+  return (
+    <div className={styles.tracePanel}>
+      <div className={styles.tracePanel__title}>{title}</div>
+      {items.length === 0 ? (
+        <p className={styles.drawerEmptyText}>{emptyText}</p>
+      ) : (
+        <div className={styles.traceList}>
+          {items.map((item) => (
+            <div key={item.id} className={styles.traceItem}>
+              <div className={styles.traceItem__header}>
+                <strong>{item.skuName || item.skuCode || `SKU#${item.skuId}`}</strong>
+                <span>{formatQty(item.actualQty)}</span>
+              </div>
+              <div className={styles.traceItem__meta}>
+                <span>计划 {formatQty(item.plannedQty)}</span>
+                <span>{item.transactionType || '未落库存流水'}</span>
+                <span>{item.transactionNo || '待生成流水号'}</span>
+              </div>
+              <div className={styles.traceItem__meta}>
+                <span>{item.direction === 'OUT' ? '出库' : item.direction === 'IN' ? '入库' : '未同步'}</span>
+                <span>{item.transactionTime || '未写账本时间'}</span>
+                <span>{item.referenceNo || '无关联单号'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1179,12 +1394,14 @@ interface CompleteTaskModalProps {
   open: boolean;
   task: ProductionTask | null;
   qty: string;
+  scrapQty: string;
   hours: string;
   notes: string;
   error: string;
   hoursError: string;
   loading: boolean;
   onQtyChange: (v: string) => void;
+  onScrapQtyChange: (v: string) => void;
   onHoursChange: (v: string) => void;
   onNotesChange: (v: string) => void;
   onClose: () => void;
@@ -1195,12 +1412,14 @@ function CompleteTaskModal({
   open,
   task,
   qty,
+  scrapQty,
   hours,
   notes,
   error,
   hoursError,
   loading,
   onQtyChange,
+  onScrapQtyChange,
   onHoursChange,
   onNotesChange,
   onClose,
@@ -1249,11 +1468,22 @@ function CompleteTaskModal({
           <div className={`${styles.modalFormInner} ${gradeUnconfigured ? styles.modalFormDisabled : ''}`}>
             <div className={styles.modalTaskInfo}>
               <span className={styles.modalTaskLabel}>任务</span>
-              <span className={styles.modalTaskValue}>{task.id}</span>
+              <span className={styles.modalTaskValue}>{formatTaskLabel(task)}</span>
               <span className={styles.modalTaskSep}>·</span>
               <span className={styles.modalTaskValue}>{task.processName}</span>
               <span className={styles.modalTaskSep}>·</span>
               <span className={styles.modalTaskSecondary}>计划 {task.plannedQty} 件</span>
+            </div>
+
+            <div className={styles.completeSummary}>
+              <div className={styles.completeSummaryCard}>
+                <span>产出半成品</span>
+                <strong>{task.outputSkuName || '未配置产出'}</strong>
+              </div>
+              <div className={styles.completeSummaryCard}>
+                <span>依赖状态</span>
+                <strong>{task.dependencySummary?.blocked ? '仍有阻塞' : '可正常完工'}</strong>
+              </div>
             </div>
 
             {/* 超时预警横幅 */}
@@ -1311,6 +1541,27 @@ function CompleteTaskModal({
                   </p>
                 )}
               </div>
+            </div>
+
+            {/* 废品/损耗数量 */}
+            <div className={styles.formGroup}>
+              <label htmlFor="complete-scrap" className={styles.formLabel}>
+                废品数量（件）<span style={{ color: '#9ca3af', fontWeight: 400, marginLeft: '0.25rem' }}>选填</span>
+              </label>
+              <input
+                id="complete-scrap"
+                type="number"
+                min="0"
+                step="1"
+                className={styles.formInput}
+                placeholder="0"
+                value={scrapQty}
+                onChange={(e) => onScrapQtyChange(e.target.value)}
+                disabled={gradeUnconfigured}
+              />
+              <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.25rem' }}>
+                废品数量将记录为实际损耗，用于成本核算
+              </p>
             </div>
 
             {/* 工资预览卡片 */}
@@ -1412,7 +1663,7 @@ function ExceptionModal({
         <div className={styles.modalForm}>
           <div className={styles.modalTaskInfo}>
             <span className={styles.modalTaskLabel}>任务</span>
-            <span className={styles.modalTaskValue}>{task.id}</span>
+            <span className={styles.modalTaskValue}>{formatTaskLabel(task)}</span>
             <span className={styles.modalTaskSep}>·</span>
             <span className={styles.modalTaskValue}>{task.processName}</span>
           </div>

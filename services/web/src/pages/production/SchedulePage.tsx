@@ -1,111 +1,100 @@
-/**
- * [artifact:前端代码] — 每日排产计划页
- *
- * 100% 高保真还原设计稿 /docs/ui/web-production-schedule.html
- *
- * 功能范围：
- *   - StatusBar：AI 已生成计划状态摘要栏
- *   - AiRiskAlert：AI 风险提示（橙色左边框）
- *   - ViewToggle：工作站视图 / 订单视图 / 人员视图
- *   - GanttChart：工作站行 × 时间槽列（HTML table 结构）
- *   - GanttLegend：图例说明
- *   - WorkerSection：工人任务分配卡片网格
- *   - StickyActionBar：底部固定确认操作栏
- *
- * API 联调说明：
- *   - 甘特图工作站行数据：由 useSchedule (GET /api/production/schedule/generate) 返回的
- *     ScheduleResult.schedules[] 经 adaptScheduleToStations() 转换而来。
- *   - 工人卡片数据：由同一 schedules[] 经 adaptScheduleToWorkers() 转换而来。
- *     注意：useWorkerTasks 需要具体的 workerId，排产页展示的是"全员"视图，
- *     因此直接从 schedules[] 按 workerId 分组，而非逐人调用 useWorkerTasks。
- *   - materialStatus / materialLabel：后端排产引擎暂不返回物料备料状态，
- *     当前默认为 'ok'/'料已备好'。TODO: 待物料模块接口就绪后补充联查。
- *   - 时间槽（08:00-10:00 等）：后端仅返回 estimatedHours，不含具体开始/结束时间，
- *     适配层按工作站内任务顺序依次分配到固定 4 个时间槽（贪心填入）。
- *     TODO: 待排产引擎支持 plannedStartTime / plannedEndTime 字段后精确映射。
- */
-
-import { useEffect, useMemo, useState } from 'react';
+import { startTransition, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
-import { useSchedule, useConfirmSchedule } from '@/api/production';
-import type { ScheduleItem } from '@/types/models';
-import Tag from '@/components/common/Tag';
+import {
+  productionApi,
+  productionKeys,
+  useAdjustSchedule,
+  useConfirmSchedule,
+  useProductionWorkers,
+  useProductionWorkstations,
+  useSchedule,
+} from '@/api/production';
+import type { ProductionWorkerOption, WorkstationOption } from '@/api/production';
+import { ApiCode, ApiError } from '@/types/api';
+import type { ScheduleItem, ScheduleResult } from '@/types/models';
 import Button from '@/components/common/Button';
+import Tag from '@/components/common/Tag';
 import styles from './SchedulePage.module.css';
 
-// ─── 类型定义 ─────────────────────────────────────────────
-
-/** 甘特图任务块状态 */
-type TaskBlockVariant = 'normal' | 'warning' | 'danger';
-
-/** 物料备料状态 */
-type MaterialStatus = 'ok' | 'warn' | 'err';
-
-/** 时间槽标签（设计稿精确值） */
-type TimeSlotLabel = '08:00 — 10:00' | '10:00 — 12:00' | '13:30 — 15:30' | '15:30 — 17:30';
-
-/** 视图切换类型 */
 type ScheduleView = 'station' | 'order' | 'worker';
+type TaskBlockVariant = 'normal' | 'warning' | 'danger';
+type MaterialStatus = 'ok' | 'warn' | 'err';
+type TimeSlotLabel = '08:00 — 10:00' | '10:00 — 12:00' | '13:30 — 15:30' | '15:30 — 17:30';
+type RiskLevel = 'info' | 'warning' | 'danger';
 
-/** 甘特图任务块数据 */
 interface GanttTask {
-  id: string;
-  orderNo: string;
-  /** 含工序名等附加文字，例如 "开料 · 2.00套" */
+  source: ScheduleItem;
+  orderLabel: string;
   operation: string;
-  /** 例如 "张伟 · 2套" */
+  outputSkuName: string;
   workerInfo: string;
-  /**
-   * 例如 "✓ 备料就绪" 或 "⚠ 物料待确认"
-   * TODO: 后端暂未返回物料状态，默认显示"✓ 备料就绪"
-   */
   materialIcon: string;
   variant: TaskBlockVariant;
-  /** 用于 aria-label */
-  ariaLabel: string;
-  /** 订单标签文字，可含图标后缀 */
-  orderLabel: string;
 }
 
-/** 甘特图工作站行数据 */
 interface StationRow {
   stationId: string;
   stationName: string;
   workerInCharge: string;
-  /**
-   * 物料备料状态
-   * TODO: 后端排产引擎暂不返回物料状态，默认 'ok'。
-   * 待物料模块联查接口上线后替换此字段。
-   */
   materialStatus: MaterialStatus;
   materialLabel: string;
-  /** key: 时间槽 label，value: 该槽任务（最多1个） */
   slots: Partial<Record<TimeSlotLabel, GanttTask>>;
+  totalTasks: number;
 }
 
-/** 工人任务项 */
 interface WorkerTaskItem {
-  priority: 'high' | 'med' | 'low';
-  text: string;
-  /**
-   * 显示时间字符串
-   * TODO: 后端暂不返回精确时间段，当前按任务在工作站内的排列顺序映射到固定时间槽。
-   */
+  source: ScheduleItem;
+  scheduleId: number;
+  workOrderNo: string;
+  stepName: string;
+  outputSkuName: string;
+  stationName: string;
+  plannedQty: string;
+  estimatedHours: string;
   time: string;
-  /** 特殊样式（如延误订单的红色背景） */
-  highlight?: boolean;
 }
 
-/** 工人卡片数据 */
 interface WorkerCard {
   workerId: string;
   initial: string;
   name: string;
   roleLine: string;
+  totalHours: string;
   tasks: WorkerTaskItem[];
 }
 
-// ─── 时间槽常量 ───────────────────────────────────────────
+interface OrderCard {
+  productionOrderId: number;
+  workOrderNo: string;
+  outputSkuNames: string[];
+  totalHours: string;
+  totalQty: string;
+  stepCount: number;
+  workerCount: number;
+  stationCount: number;
+  risk: TaskBlockVariant;
+  lines: Array<{
+    source: ScheduleItem;
+    scheduleId: number;
+    stepName: string;
+    outputSkuName: string;
+    workerName: string;
+    workstationName: string;
+    plannedQty: string;
+    estimatedHours: string;
+    status: ScheduleItem['status'];
+  }>;
+}
+
+const EMPTY_SCHEDULES: ScheduleItem[] = [];
+
+interface ScheduleRisk {
+  level: RiskLevel;
+  title: string;
+  description: string;
+}
 
 const TIME_SLOTS: TimeSlotLabel[] = [
   '08:00 — 10:00',
@@ -114,643 +103,1102 @@ const TIME_SLOTS: TimeSlotLabel[] = [
   '15:30 — 17:30',
 ];
 
-// ─── 适配层：将后端 ScheduleItem[] 转换为前端展示结构 ────────
+const ALERT_STORAGE_KEY = 'schedule-risk-alert-dismissed';
 
-/**
- * 将后端排产计划条目列表转换为甘特图工作站行数据。
- *
- * 转换规则：
- * 1. 按 workstationId 分组，每组为一行
- * 2. 每个工作站内的任务按列表顺序依次填入 TIME_SLOTS（贪心填入）
- * 3. 超出 4 个时间槽的任务不显示（实际产能约束由后端保证不超载）
- * 4. materialStatus / materialLabel 后端暂无，默认 ok / 料已备好
- */
-function adaptScheduleToStations(schedules: ScheduleItem[]): StationRow[] {
-  // 按 workstationId 分组，保持首次出现的顺序
-  const stationMap = new Map<number, { items: ScheduleItem[]; name: string }>();
-  for (const item of schedules) {
-    const wsId = item.workstationId ?? 0;
-    const wsName = item.workstationName ?? '未分配工作站';
-    if (!stationMap.has(wsId)) {
-      stationMap.set(wsId, { items: [], name: wsName });
-    }
-    stationMap.get(wsId)!.items.push(item);
-  }
-
-  const rows: StationRow[] = [];
-
-  for (const [wsId, { items, name }] of stationMap.entries()) {
-    // 确定负责人：取该工作站第一个任务的工人名
-    const workerInCharge = items.find((i) => i.workerName)?.workerName ?? '—';
-
-    // 将任务按顺序分配到时间槽（一槽一任务，超出部分丢弃）
-    const slots: Partial<Record<TimeSlotLabel, GanttTask>> = {};
-    items.slice(0, TIME_SLOTS.length).forEach((item, idx) => {
-      const slot = TIME_SLOTS[idx];
-      const qty = parseFloat(item.plannedQty ?? '0');
-      const qtySuffix = Number.isInteger(qty) ? `${qty}套` : `${qty}套`;
-
-      slots[slot] = {
-        id: `ws${wsId}-step${item.processStepId}-order${item.productionOrderId}`,
-        orderNo: item.workOrderNo,
-        orderLabel: item.workOrderNo,
-        operation: item.stepName,
-        workerInfo: item.workerName ? `${item.workerName} · ${qtySuffix}` : qtySuffix,
-        // TODO: 后端暂不返回物料状态，固定显示备料就绪
-        materialIcon: '✓ 备料就绪',
-        // TODO: 后端暂不返回延误风险标记，固定为 normal
-        variant: 'normal' as TaskBlockVariant,
-        ariaLabel: `${item.workOrderNo} ${item.stepName}工序，可拖拽调整`,
-      };
-    });
-
-    rows.push({
-      stationId: String(wsId),
-      stationName: name,
-      workerInCharge,
-      // TODO: 后端排产引擎暂不返回物料备料状态，待物料联查接口上线后替换
-      materialStatus: 'ok' as MaterialStatus,
-      materialLabel: '料已备好',
-      slots,
-    });
-  }
-
-  return rows;
+function formatInputDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-/**
- * 将后端排产计划条目列表转换为工人卡片数据。
- *
- * 转换规则：
- * 1. 按 workerId 分组
- * 2. 每个任务按在工人任务列表中的顺序映射到固定时间槽（取时间槽的简短格式）
- * 3. 优先级：首个任务为 high，其余依次降级（med / low）
- * 4. 工作站信息取自 workstationName
- */
-function adaptScheduleToWorkers(schedules: ScheduleItem[]): WorkerCard[] {
-  const workerMap = new Map<number, { name: string; items: ScheduleItem[] }>();
-  for (const item of schedules) {
-    const wId = item.workerId ?? 0;
-    const wName = item.workerName ?? '未分配';
-    if (!workerMap.has(wId)) {
-      workerMap.set(wId, { name: wName, items: [] });
-    }
-    workerMap.get(wId)!.items.push(item);
+function getNextWorkday(date: Date): string {
+  const next = new Date(date);
+  next.setDate(next.getDate() + 1);
+  while (next.getDay() === 0 || next.getDay() === 6) {
+    next.setDate(next.getDate() + 1);
   }
+  return formatInputDate(next);
+}
 
-  const PRIORITY_MAP: Array<'high' | 'med' | 'low'> = ['high', 'med', 'low'];
+function formatScheduleDate(date: string): string {
+  const raw = new Date(`${date}T00:00:00`);
+  const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][raw.getDay()];
+  return `${date} ${week}`;
+}
 
-  const cards: WorkerCard[] = [];
+function parseNumeric(value?: string | number | null): number {
+  if (typeof value === 'number') return value;
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
-  for (const [wId, { name, items }] of workerMap.entries()) {
-    // 工人名首字作为头像
-    const initial = name.charAt(0);
+function parseOptionalId(value?: string | number | null): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
-    // 归属工作站（取第一个非空工作站名）
-    const station = items.find((i) => i.workstationName)?.workstationName ?? '—';
-    const roleLine = `${station} · ${items.length}任务`;
+function patchAdjustedScheduleResult(
+  current: ScheduleResult | undefined,
+  selectedTask: ScheduleItem,
+  adjustment: {
+    scheduleId: number;
+    workerId?: number;
+    workstationId?: number;
+    plannedQty?: string;
+  },
+  workers: ProductionWorkerOption[],
+  workstations: WorkstationOption[],
+): ScheduleResult | undefined {
+  if (!current) return current;
 
-    const tasks: WorkerTaskItem[] = items.slice(0, TIME_SLOTS.length).map((item, idx) => {
-      // 时间槽简短显示（去除长破折号）
-      const slotFull = TIME_SLOTS[idx] ?? TIME_SLOTS[TIME_SLOTS.length - 1];
-      const timeShort = slotFull.replace(' — ', '-');
-      const qty = parseFloat(item.plannedQty ?? '0');
+  const previousPlannedQty = parseNumeric(selectedTask.plannedQty);
+  const previousEstimatedHours = parseNumeric(selectedTask.estimatedHours);
+  const nextWorker = adjustment.workerId
+    ? workers.find((worker) => Number(worker.id) === adjustment.workerId)
+    : null;
+  const nextWorkstation = adjustment.workstationId
+    ? workstations.find((workstation) => Number(workstation.id) === adjustment.workstationId)
+    : null;
+
+  return {
+    ...current,
+    schedules: current.schedules.map((item) => {
+      if (parseOptionalId(item.scheduleId) !== adjustment.scheduleId) {
+        return item;
+      }
+
+      const nextPlannedQty = adjustment.plannedQty ?? item.plannedQty;
+      const nextEstimatedHours =
+        adjustment.plannedQty !== undefined && previousPlannedQty > 0
+          ? ((parseNumeric(nextPlannedQty) / previousPlannedQty) * previousEstimatedHours).toFixed(2)
+          : item.estimatedHours;
 
       return {
-        priority: PRIORITY_MAP[Math.min(idx, 2)],
-        text: `${item.workOrderNo}${item.stepName} · ${Number.isInteger(qty) ? qty : qty}套`,
-        // TODO: 后端暂不返回精确时间段，按任务顺序映射到固定时间槽
-        time: timeShort,
-        highlight: false,
+        ...item,
+        plannedQty: nextPlannedQty,
+        estimatedHours: nextEstimatedHours,
+        workerId: adjustment.workerId ?? item.workerId,
+        workerName: adjustment.workerId !== undefined ? nextWorker?.name ?? null : item.workerName,
+        workstationId: adjustment.workstationId ?? item.workstationId,
+        workstationName:
+          adjustment.workstationId !== undefined ? nextWorkstation?.name ?? null : item.workstationName,
+      };
+    }),
+  };
+}
+
+function formatQty(value: string): string {
+  const numeric = parseNumeric(value);
+  return Number.isInteger(numeric) ? `${numeric}` : numeric.toFixed(2);
+}
+
+function formatHours(value: string): string {
+  return `${parseNumeric(value).toFixed(1)}h`;
+}
+
+function parseLoadRate(rate?: string | null): number {
+  if (!rate) return 0;
+  return Number(String(rate).replace('%', '')) || 0;
+}
+
+function isValidDateString(value: string | null): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function getTaskVariant(item: ScheduleItem, slotIndex: number, loadRate: number): TaskBlockVariant {
+  if (!item.workerId || !item.workstationId) return 'danger';
+  if (loadRate >= 92 && slotIndex >= 2) return 'danger';
+  if (loadRate >= 80 && slotIndex >= 1) return 'warning';
+  return 'normal';
+}
+
+function getMaterialStatusForStation(items: ScheduleItem[]): { status: MaterialStatus; label: string } {
+  if (items.some((item) => !item.workstationId)) {
+    return { status: 'err', label: '待补排工位' };
+  }
+  if (items.some((item) => !item.workerId)) {
+    return { status: 'warn', label: '待补排工人' };
+  }
+  return { status: 'ok', label: '料已备好' };
+}
+
+function buildStationRows(schedules: ScheduleItem[], loadRate: number): StationRow[] {
+  const groups = new Map<string, ScheduleItem[]>();
+
+  schedules.forEach((item) => {
+    const key = item.workstationId ? String(item.workstationId) : `pending-${item.processStepId}`;
+    const current = groups.get(key) ?? [];
+    current.push(item);
+    groups.set(key, current);
+  });
+
+  return [...groups.entries()].map(([stationId, items]) => {
+    const slots: Partial<Record<TimeSlotLabel, GanttTask>> = {};
+    items.forEach((item, index) => {
+      if (index >= TIME_SLOTS.length) return;
+      const slot = TIME_SLOTS[index];
+      slots[slot] = {
+        source: item,
+        orderLabel: item.workOrderNo,
+        operation: item.stepName,
+        outputSkuName: item.outputSkuName ?? '未配置产出',
+        workerInfo: item.workerName
+          ? `${item.workerName} · ${formatQty(item.plannedQty)}套`
+          : `${formatQty(item.plannedQty)}套 · 待分配`,
+        materialIcon: item.workerId && item.workstationId ? '✓ 备料就绪' : '⚠ 待补排资源',
+        variant: getTaskVariant(item, index, loadRate),
       };
     });
 
-    cards.push({
-      workerId: String(wId),
-      initial,
-      name,
-      roleLine,
-      tasks,
+    const material = getMaterialStatusForStation(items);
+    const names = [...new Set(items.map((item) => item.workerName).filter(Boolean))] as string[];
+
+    return {
+      stationId,
+      stationName: items[0]?.workstationName ?? '待分配工位',
+      workerInCharge: names.length > 0 ? names.join(' / ') : '待分配',
+      materialStatus: material.status,
+      materialLabel: material.label,
+      slots,
+      totalTasks: items.length,
+    };
+  });
+}
+
+function buildWorkerCards(schedules: ScheduleItem[]): WorkerCard[] {
+  const groups = new Map<string, { name: string; tasks: ScheduleItem[] }>();
+
+  schedules.forEach((item) => {
+    const key = item.workerId ? String(item.workerId) : `pending-${item.scheduleId}`;
+    const name = item.workerName || '待分配工人';
+    const current = groups.get(key) ?? { name, tasks: [] };
+    current.tasks.push(item);
+    groups.set(key, current);
+  });
+
+  return [...groups.entries()]
+    .map(([workerId, group]) => {
+      const totalHours = group.tasks.reduce((sum, item) => sum + parseNumeric(item.estimatedHours), 0);
+      return {
+        workerId,
+        initial: group.name.charAt(0) || '?',
+        name: group.name,
+        roleLine: `${group.tasks[0]?.workstationName ?? '待排工位'} · ${group.tasks.length} 项任务`,
+        totalHours: totalHours.toFixed(1),
+        tasks: group.tasks.slice(0, TIME_SLOTS.length).map((item, index) => ({
+          source: item,
+          scheduleId: item.scheduleId,
+          workOrderNo: item.workOrderNo,
+          stepName: item.stepName,
+          outputSkuName: item.outputSkuName ?? '未配置产出',
+          stationName: item.workstationName ?? '待分配工位',
+          plannedQty: item.plannedQty,
+          estimatedHours: item.estimatedHours,
+          time: TIME_SLOTS[index] ?? TIME_SLOTS[TIME_SLOTS.length - 1],
+        })),
+      };
+    })
+    .sort((left, right) => parseNumeric(right.totalHours) - parseNumeric(left.totalHours));
+}
+
+function buildOrderCards(schedules: ScheduleItem[]): OrderCard[] {
+  const groups = new Map<number, ScheduleItem[]>();
+
+  schedules.forEach((item) => {
+    const current = groups.get(item.productionOrderId) ?? [];
+    current.push(item);
+    groups.set(item.productionOrderId, current);
+  });
+
+  return [...groups.entries()]
+    .map(([productionOrderId, items]) => {
+      const totalHours = items.reduce((sum, item) => sum + parseNumeric(item.estimatedHours), 0);
+      const totalQty = items.reduce((sum, item) => sum + parseNumeric(item.plannedQty), 0);
+      const hasGap = items.some((item) => !item.workerId || !item.workstationId);
+      const hasCrowded = items.length >= TIME_SLOTS.length;
+      const risk: TaskBlockVariant = hasGap ? 'danger' : hasCrowded ? 'warning' : 'normal';
+
+      return {
+        productionOrderId,
+        workOrderNo: items[0]?.workOrderNo ?? `WO-${productionOrderId}`,
+        outputSkuNames: [...new Set(items.map((item) => item.outputSkuName).filter(Boolean))] as string[],
+        totalHours: totalHours.toFixed(1),
+        totalQty: totalQty.toFixed(2),
+        stepCount: items.length,
+        workerCount: new Set(items.map((item) => item.workerId).filter(Boolean)).size,
+        stationCount: new Set(items.map((item) => item.workstationId).filter(Boolean)).size,
+        risk,
+        lines: items.map((item) => ({
+          source: item,
+          scheduleId: item.scheduleId,
+          stepName: item.stepName,
+          outputSkuName: item.outputSkuName ?? '未配置产出',
+          workerName: item.workerName ?? '待分配',
+          workstationName: item.workstationName ?? '待分配工位',
+          plannedQty: item.plannedQty,
+          estimatedHours: item.estimatedHours,
+          status: item.status,
+        })),
+      };
+    })
+    .sort((left, right) => right.stepCount - left.stepCount || parseNumeric(right.totalHours) - parseNumeric(left.totalHours));
+}
+
+function deriveRisks(schedules: ScheduleItem[], loadRate: number): ScheduleRisk[] {
+  const risks: ScheduleRisk[] = [];
+  const unassigned = schedules.filter((item) => !item.workerId || !item.workstationId).length;
+  const crowded = new Set(
+    schedules.filter((_, index) => index >= TIME_SLOTS.length * 2).map((item) => item.workstationName ?? '待分配工位'),
+  );
+
+  if (loadRate >= 95) {
+    risks.push({
+      level: 'danger',
+      title: '今日产能已接近满载',
+      description: `当前排产负荷 ${loadRate.toFixed(1)}%，建议主管优先确认瓶颈工位并提前锁定首班任务。`,
+    });
+  } else if (loadRate >= 80) {
+    risks.push({
+      level: 'warning',
+      title: '今日排产存在高负荷工位',
+      description: `当前排产负荷 ${loadRate.toFixed(1)}%，建议优先关注下午时段的工序堆叠。`,
     });
   }
 
-  return cards;
+  if (unassigned > 0) {
+    risks.push({
+      level: 'danger',
+      title: '存在待补排资源的工序',
+      description: `还有 ${unassigned} 条排产记录未补齐工人或工作站，确认下发前需要先完成资源指派。`,
+    });
+  }
+
+  if (crowded.size > 0) {
+    risks.push({
+      level: 'info',
+      title: '部分工位任务集中在单日内',
+      description: `建议重点查看 ${[...crowded].slice(0, 2).join('、')} 等工位，避免后半日排程拥堵。`,
+    });
+  }
+
+  return risks;
 }
 
-// ─── 页面主组件 ───────────────────────────────────────────
+function getRiskTagVariant(level: RiskLevel): 'info' | 'warning' | 'error' {
+  if (level === 'danger') return 'error';
+  if (level === 'warning') return 'warning';
+  return 'info';
+}
+
+function getOrderRiskLabel(variant: TaskBlockVariant): string {
+  if (variant === 'danger') return '需优先处理';
+  if (variant === 'warning') return '注意时段堆叠';
+  return '按计划推进';
+}
 
 export default function SchedulePage() {
   const { setPageTitle, showToast } = useAppStore();
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [scheduleView, setScheduleView] = useState<ScheduleView>('station');
-  const [hasPendingChanges, setHasPendingChanges] = useState(true);
-  const [confirmModal, setConfirmModal] = useState(false);
+  const today = formatInputDate(new Date());
+  const initialDate = isValidDateString(searchParams.get('date')) ? searchParams.get('date')! : today;
+  const focusWorkOrderNo = searchParams.get('workOrderNo') ?? searchParams.get('workOrderId') ?? '';
 
-  useEffect(() => { setPageTitle('排产计划'); }, [setPageTitle]);
+  const [selectedDate, setSelectedDate] = useState(initialDate);
+  const [scheduleView, setScheduleView] = useState<ScheduleView>(focusWorkOrderNo ? 'order' : 'station');
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<ScheduleItem | null>(null);
+  const [manualGenerate, setManualGenerate] = useState(false);
+  const [riskDismissed, setRiskDismissed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.sessionStorage.getItem(ALERT_STORAGE_KEY) === '1';
+  });
+  const [adjustForm, setAdjustForm] = useState({
+    workerId: '',
+    workstationId: '',
+    plannedQty: '',
+  });
 
-  // 当日日期字符串，用于 API 调用
-  const todayDate = new Date().toISOString().slice(0, 10);
+  useEffect(() => {
+    setPageTitle('排产计划');
+  }, [setPageTitle]);
 
-  // ── 排产计划数据（真实接口） ──────────────────────────────
-  const {
-    data: scheduleResult,
-    isLoading: scheduleLoading,
-    isError: scheduleError,
-  } = useSchedule(todayDate);
+  useEffect(() => {
+    if (searchParams.get('date') === selectedDate) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('date', selectedDate);
+    setSearchParams(next, { replace: true });
+  }, [selectedDate, searchParams, setSearchParams]);
 
-  // ── 适配层：将 ScheduleResult.schedules[] 转换为展示结构 ──
-  const stations = useMemo(
-    () => adaptScheduleToStations(scheduleResult?.schedules ?? []),
-    [scheduleResult],
-  );
+  useEffect(() => {
+    setManualGenerate(false);
+  }, [selectedDate]);
 
-  const workers = useMemo(
-    () => adaptScheduleToWorkers(scheduleResult?.schedules ?? []),
-    [scheduleResult],
-  );
+  const now = new Date();
+  const isBeforeAutoWindow =
+    selectedDate === today &&
+    now.getHours() * 60 + now.getMinutes() < 7 * 60 + 30 &&
+    !manualGenerate;
 
-  // ── 确认排产（已接入真实接口） ───────────────────────────
+  const scheduleDate = isBeforeAutoWindow ? null : selectedDate;
+  const scheduleQuery = useSchedule(scheduleDate);
   const confirmMutation = useConfirmSchedule();
+  const adjustMutation = useAdjustSchedule();
+  const workersQuery = useProductionWorkers();
+  const workstationsQuery = useProductionWorkstations();
+
+  const schedules = scheduleQuery.data?.schedules ?? EMPTY_SCHEDULES;
+  const loadRate = parseLoadRate(scheduleQuery.data?.summary.capacityLoadRate);
+
+  const filteredSchedules = useMemo(() => {
+    if (!focusWorkOrderNo) return schedules;
+    return schedules.filter((item) => item.workOrderNo === focusWorkOrderNo);
+  }, [focusWorkOrderNo, schedules]);
+
+  const stationRows = useMemo(
+    () => buildStationRows(filteredSchedules, loadRate),
+    [filteredSchedules, loadRate],
+  );
+  const workerCards = useMemo(() => buildWorkerCards(filteredSchedules), [filteredSchedules]);
+  const orderCards = useMemo(() => buildOrderCards(filteredSchedules), [filteredSchedules]);
+  const risks = useMemo(() => deriveRisks(filteredSchedules, loadRate), [filteredSchedules, loadRate]);
+
+  const metrics = useMemo(() => {
+    const totalOrders = new Set(filteredSchedules.map((item) => item.productionOrderId)).size;
+    const assignedWorkers = new Set(filteredSchedules.map((item) => item.workerId).filter(Boolean)).size;
+    const assignedStations = new Set(filteredSchedules.map((item) => item.workstationId).filter(Boolean)).size;
+    const unassignedCount = filteredSchedules.filter((item) => !item.workerId || !item.workstationId).length;
+    const totalHours = filteredSchedules.reduce((sum, item) => sum + parseNumeric(item.estimatedHours), 0);
+    return {
+      totalOrders,
+      totalSteps: filteredSchedules.length,
+      assignedWorkers,
+      assignedStations,
+      unassignedCount,
+      totalHours: totalHours.toFixed(1),
+    };
+  }, [filteredSchedules]);
+
+  const hasSchedule = filteredSchedules.length > 0;
+  const confirmed = Boolean(scheduleQuery.data?.summary.confirmed);
+  const confirmedAt = scheduleQuery.data?.summary.confirmedAt ?? null;
+  const alertVisible = !riskDismissed && risks.length > 0;
+
+  const canAdjust = !confirmed && hasSchedule;
+  const hasAdjustChanges =
+    selectedTask !== null &&
+    (adjustForm.workerId !== String(selectedTask.workerId ?? '') ||
+      adjustForm.workstationId !== String(selectedTask.workstationId ?? '') ||
+      adjustForm.plannedQty !== selectedTask.plannedQty);
+
+  const confirmationStats = useMemo(
+    () => ({
+      workerCount: metrics.assignedWorkers,
+      taskCount: metrics.totalSteps,
+    }),
+    [metrics],
+  );
+
+  const openAdjustModal = (task: ScheduleItem) => {
+    if (confirmed) return;
+    setSelectedTask(task);
+    setAdjustForm({
+      workerId: task.workerId ? String(task.workerId) : '',
+      workstationId: task.workstationId ? String(task.workstationId) : '',
+      plannedQty: task.plannedQty,
+    });
+  };
+
+  const closeAdjustModal = () => {
+    setSelectedTask(null);
+  };
+
+  const handleRegenerate = async () => {
+    try {
+      const nextResult = await productionApi.generateSchedule(selectedDate, true);
+      queryClient.setQueryData(productionKeys.schedule(selectedDate), nextResult);
+      closeAdjustModal();
+      showToast({ type: 'success', message: '已重新生成当日排产方案' });
+    } catch {
+      showToast({ type: 'error', message: '重新生成失败，请稍后重试' });
+    }
+  };
+
+  const handleAdjustSave = async () => {
+    if (!selectedTask || !hasAdjustChanges) return;
+    const scheduleId = parseOptionalId(selectedTask.scheduleId);
+    if (!scheduleId) {
+      showToast({ type: 'error', message: '排产任务标识无效，请刷新后重试' });
+      return;
+    }
+    try {
+      const adjustment = {
+        scheduleId,
+        workerId: parseOptionalId(adjustForm.workerId) ?? undefined,
+        workstationId: parseOptionalId(adjustForm.workstationId) ?? undefined,
+        plannedQty: adjustForm.plannedQty,
+      };
+      await adjustMutation.mutateAsync({
+        date: selectedDate,
+        adjustments: [
+          {
+            ...adjustment,
+            expectedUpdatedAt: selectedTask.updatedAt,
+          },
+        ],
+      });
+      queryClient.setQueryData<ScheduleResult | undefined>(
+        productionKeys.schedule(selectedDate),
+        (current) =>
+          patchAdjustedScheduleResult(
+            current,
+            selectedTask,
+            adjustment,
+            workersQuery.data ?? [],
+            workstationsQuery.data ?? [],
+          ),
+      );
+      showToast({ type: 'success', message: '排产任务已更新' });
+      closeAdjustModal();
+    } catch (error) {
+      if (error instanceof ApiError && error.code === ApiCode.CONFLICT) {
+        await queryClient.invalidateQueries({ queryKey: productionKeys.schedule(selectedDate) });
+        closeAdjustModal();
+        showToast({ type: 'warning', message: error.message || '排产已被他人修改，已刷新后请重试' });
+        return;
+      }
+      showToast({ type: 'error', message: '排产调整失败，请稍后重试' });
+    }
+  };
 
   const handleConfirmSchedule = async () => {
     try {
-      await confirmMutation.mutateAsync(todayDate);
-      showToast({ type: 'success', message: '排产方案已下发给工人' });
-      setHasPendingChanges(false);
-      setConfirmModal(false);
+      await confirmMutation.mutateAsync(selectedDate);
+      showToast({
+        type: 'success',
+        message: `计划已下发，${confirmationStats.workerCount} 名工人将收到今日任务`,
+      });
+      setConfirmModalOpen(false);
+      closeAdjustModal();
     } catch {
       showToast({ type: 'error', message: '下发失败，请稍后重试' });
     }
   };
 
-  // ── 加载 / 错误状态 ──────────────────────────────────────
-  if (scheduleLoading) {
+  const handleDismissRisk = () => {
+    setRiskDismissed(true);
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(ALERT_STORAGE_KEY, '1');
+    }
+  };
+
+  const handleRestoreRisk = () => {
+    setRiskDismissed(false);
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem(ALERT_STORAGE_KEY);
+    }
+  };
+
+  const handleDateChange = (value: string) => {
+    startTransition(() => {
+      setSelectedDate(value);
+      closeAdjustModal();
+    });
+  };
+
+  if (isBeforeAutoWindow) {
     return (
       <div className={styles.page}>
-        <div className={styles.loading_state} role="status" aria-live="polite">
-          <span className={styles.loading_spinner} aria-hidden="true" />
-          AI 正在生成今日排产计划，通常需要 3—10 秒……
+        <PageHeader
+          selectedDate={selectedDate}
+          onDateChange={handleDateChange}
+          onJumpToday={() => handleDateChange(today)}
+          onJumpNextWorkday={() => handleDateChange(getNextWorkday(new Date()))}
+          onRefresh={() => setManualGenerate(true)}
+          onHistory={() => showToast({ type: 'info', message: '历史排产记录即将上线' })}
+        />
+        <div className={styles.pre_generate_state}>
+          <div className={styles.empty_emoji}>🗓</div>
+          <h2>今日排产计划将于 07:30 自动生成</h2>
+          <p>当前还未到自动生成时段。如需提前查看，可手动触发一次今日排产计算。</p>
+          <div className={styles.empty_actions}>
+            <Button variant="ghost" onClick={() => handleDateChange(getNextWorkday(new Date()))}>查看下一工作日</Button>
+            <Button variant="ai" onClick={() => setManualGenerate(true)}>立即生成今日计划</Button>
+          </div>
         </div>
       </div>
     );
   }
-
-  if (scheduleError) {
-    return (
-      <div className={styles.page}>
-        <div className={styles.error_state} role="alert">
-          排产计划加载失败，请刷新页面重试
-        </div>
-      </div>
-    );
-  }
-
-  // ── 摘要数据（来自后端 summary 字段） ────────────────────
-  const summary = scheduleResult?.summary;
 
   return (
-    <div className={`${styles.page} ${hasPendingChanges ? styles['page--has-action-bar'] : ''}`}>
-
-      {/* ── 页面头部 ── */}
-      <div className={styles.page_header}>
-        <div>
-          <h1 className={styles.page_title}>每日排产计划</h1>
-          <p className={styles.page_subtitle}>{scheduleResult?.date ?? todayDate}</p>
-        </div>
-      </div>
-
-      {/* ── Status Bar ── */}
-      <StatusBar
-        totalOrders={summary?.totalOrders}
-        totalSteps={summary?.totalSteps}
-        workerCount={workers.length}
-        stationCount={stations.length}
-        scheduleDate={scheduleResult?.date}
+    <div className={`${styles.page} ${canAdjust ? styles['page--has-action-bar'] : ''}`}>
+      <PageHeader
+        selectedDate={selectedDate}
+        onDateChange={handleDateChange}
+        onJumpToday={() => handleDateChange(today)}
+        onJumpNextWorkday={() => handleDateChange(getNextWorkday(new Date()))}
+        onRefresh={() => void handleRegenerate()}
+        onHistory={() => showToast({ type: 'info', message: '历史排产记录即将上线' })}
       />
 
-      {/* ── AI 风险提示 ── */}
-      <AiRiskAlert
-        onViewDetail={() => showToast({ type: 'info', message: '详细分析面板即将上线' })}
-      />
-
-      {/* ── 视图切换 ── */}
-      <ViewToggle value={scheduleView} onChange={setScheduleView} />
-
-      {/* ── 甘特图（工作站视图） ── */}
-      {scheduleView === 'station' && (
-        <GanttChart stations={stations} timeSlots={TIME_SLOTS} />
-      )}
-
-      {/* ── 订单视图（占位） ── */}
-      {scheduleView === 'order' && (
-        <div className={styles.view_placeholder}>订单视图即将上线</div>
-      )}
-
-      {/* ── 人员视图（工人卡片） ── */}
-      {scheduleView === 'worker' && (
-        <WorkerSection workers={workers} />
-      )}
-
-      {/* ── 工人任务分配（工作站视图下始终显示） ── */}
-      {scheduleView === 'station' && (
-        <WorkerSection workers={workers} />
-      )}
-
-      {/* ── 底部固定操作栏 ── */}
-      {hasPendingChanges && (
-        <StickyActionBar
-          onCancel={() => {
-            setHasPendingChanges(false);
-            showToast({ type: 'info', message: '已取消调整，恢复 AI 初始排产' });
-          }}
-          onConfirm={() => setConfirmModal(true)}
-          confirmLoading={confirmMutation.isPending}
-        />
-      )}
-
-      {/* ── 确认下发 Modal（保留逻辑，不阻断设计） ── */}
-      {confirmModal && (
-        <div className={styles.modal_overlay} onClick={() => setConfirmModal(false)}>
-          <div className={styles.modal_panel} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modal_title}>确认并下发排产方案</div>
-            <p className={styles.modal_body}>
-              确认执行当前排产方案并下发给工人？确认后将自动推送今日任务至所有相关工人小程序，相关工单状态更新为"已排产"。此操作不可撤销。
-            </p>
-            <div className={styles.modal_actions}>
-              <Button variant="ghost" size="md" onClick={() => setConfirmModal(false)}>取消</Button>
-              <Button
-                variant="success"
-                size="md"
-                loading={confirmMutation.isPending}
-                onClick={() => void handleConfirmSchedule()}
-              >
-                确认并下发
-              </Button>
-            </div>
+      {scheduleQuery.isLoading && (
+        <div className={styles.loading_state} role="status" aria-live="polite">
+          <span className={styles.loading_spinner} aria-hidden="true" />
+          <div>
+            <strong>AI 正在分析今日可执行排产</strong>
+            <p>正在读取工单优先级、产能和资源占用，通常需要 3-10 秒。</p>
           </div>
         </div>
       )}
-    </div>
-  );
-}
 
-// ─────────────────────────────────────────────────────────
-// StatusBar — AI 已生成计划状态摘要栏
-// ─────────────────────────────────────────────────────────
+      {scheduleQuery.isError && (
+        <div className={styles.error_state} role="alert">
+          <div>
+            <strong>排产计划加载失败</strong>
+            <p>可能是排产缓存失效或当前计划生成异常，请重新拉取当日计划。</p>
+          </div>
+          <Button variant="danger" onClick={() => void handleRegenerate()}>
+            重新生成
+          </Button>
+        </div>
+      )}
 
-interface StatusBarProps {
-  /** 后端 summary.totalOrders，undefined 时显示占位符 */
-  totalOrders?: number;
-  /** 后端 summary.totalSteps */
-  totalSteps?: number;
-  /** 工人数量（由 schedules[] 按 workerId 去重后计算） */
-  workerCount?: number;
-  /** 工作站数量（由 schedules[] 按 workstationId 去重后计算） */
-  stationCount?: number;
-  /** 排产日期，格式 YYYY-MM-DD */
-  scheduleDate?: string;
-}
-
-function StatusBar({ totalOrders, stationCount, workerCount }: StatusBarProps) {
-  return (
-    <div className={styles.status_bar} role="status" aria-label="计划状态">
-      <div className={styles.status_bar__item}>
-        <span>状态：</span>
-        <strong>✓ AI已生成今日计划</strong>
-      </div>
-      <div className={styles.status_bar__divider} aria-hidden="true" />
-      <div className={styles.status_bar__item}>
-        覆盖 <strong>{totalOrders ?? '—'}</strong> 个在产订单
-        · <strong>{stationCount ?? '—'}</strong> 个工作站
-        · <strong>{workerCount ?? '—'}</strong> 名工人
-      </div>
-      <div className={styles.status_bar__divider} aria-hidden="true" />
-      <Tag variant="warning">未下发</Tag>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────
-// AiRiskAlert — AI 风险提示（橙色左边框）
-// ─────────────────────────────────────────────────────────
-
-interface AiRiskAlertProps {
-  onViewDetail: () => void;
-}
-
-function AiRiskAlert({ onViewDetail }: AiRiskAlertProps) {
-  return (
-    <div className={styles.alert_ai} role="alert" aria-label="AI风险提示">
-      <span className={styles.alert__icon} aria-hidden="true">⚠️</span>
-      <div className={styles.alert__content}>
-        <div className={styles.alert__title}>AI 风险提示</div>
-        今日订单B19存在延误风险。建议优先安排工序3（装配），可节省约0.5天，交期风险从"中等"降为"低"。
-        此外，封边区封边条库存待确认（今日入库中），建议先排开料和钻孔，等待封边条到货后再安排封边。
-        <br />
-        <button className={styles.alert__action} onClick={onViewDetail}>
-          查看详细分析
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────
-// ViewToggle — 视图切换（工作站 / 订单 / 人员）
-// ─────────────────────────────────────────────────────────
-
-interface ViewToggleProps {
-  value: ScheduleView;
-  onChange: (v: ScheduleView) => void;
-}
-
-function ViewToggle({ value, onChange }: ViewToggleProps) {
-  const options: { key: ScheduleView; label: string }[] = [
-    { key: 'station', label: '工作站视图' },
-    { key: 'order',   label: '订单视图' },
-    { key: 'worker',  label: '人员视图' },
-  ];
-
-  return (
-    <div className={styles.view_toggle} role="radiogroup" aria-label="排产视图切换">
-      {options.map((opt) => (
-        <label key={opt.key} className={styles.view_toggle__label}>
-          <input
-            type="radio"
-            name="schedule-view"
-            value={opt.key}
-            checked={value === opt.key}
-            onChange={() => onChange(opt.key)}
-            className={styles.view_toggle__radio}
+      {!scheduleQuery.isLoading && !scheduleQuery.isError && (
+        <>
+          <StatusBar
+            dateLabel={formatScheduleDate(selectedDate)}
+            totalOrders={metrics.totalOrders}
+            stationCount={metrics.assignedStations}
+            workerCount={metrics.assignedWorkers}
+            confirmed={confirmed}
+            confirmedAt={confirmedAt}
+            focusWorkOrderNo={focusWorkOrderNo}
           />
-          {opt.label}
-        </label>
+
+          <StatsGrid
+            loadRate={loadRate}
+            totalSteps={metrics.totalSteps}
+            assignedStations={metrics.assignedStations}
+            assignedWorkers={metrics.assignedWorkers}
+            totalHours={metrics.totalHours}
+            unassignedCount={metrics.unassignedCount}
+          />
+
+          {alertVisible && <RiskPanel risks={risks} onDismiss={handleDismissRisk} />}
+          {!alertVisible && risks.length > 0 && (
+            <button type="button" className={styles.restore_alert} onClick={handleRestoreRisk}>
+              重新显示 AI 风险提示
+            </button>
+          )}
+
+          {hasSchedule ? (
+            <>
+              <ViewToggle value={scheduleView} onChange={setScheduleView} />
+
+              {scheduleView === 'station' && (
+                <StationView rows={stationRows} onTaskClick={openAdjustModal} />
+              )}
+
+              {scheduleView === 'order' && (
+                <OrderView
+                  cards={orderCards}
+                  focusWorkOrderNo={focusWorkOrderNo}
+                  onTaskClick={openAdjustModal}
+                />
+              )}
+
+              {scheduleView === 'worker' && (
+                <WorkerView cards={workerCards} onTaskClick={openAdjustModal} />
+              )}
+            </>
+          ) : (
+            <div className={styles.empty_state}>
+              <div className={styles.empty_emoji}>🧩</div>
+              <h2>今日暂无待排产工单</h2>
+              <p>当前所有生产工单可能已全部下发，或还没有达到可排产状态。</p>
+              <div className={styles.empty_actions}>
+                <Button variant="ghost" onClick={() => handleDateChange(getNextWorkday(new Date()))}>查看下一工作日</Button>
+                <Button variant="primary" onClick={() => void handleRegenerate()}>重新拉取计划</Button>
+              </div>
+            </div>
+          )}
+
+          {canAdjust && (
+            <StickyActionBar
+              onReset={() => void handleRegenerate()}
+              onConfirm={() => setConfirmModalOpen(true)}
+              loading={confirmMutation.isPending}
+            />
+          )}
+        </>
+      )}
+
+      {confirmModalOpen && (
+        <ConfirmModal
+          workerCount={confirmationStats.workerCount}
+          taskCount={confirmationStats.taskCount}
+          dateLabel={formatScheduleDate(selectedDate)}
+          loading={confirmMutation.isPending}
+          onClose={() => setConfirmModalOpen(false)}
+          onConfirm={() => void handleConfirmSchedule()}
+        />
+      )}
+
+      {selectedTask && (
+        <TaskAdjustModal
+          task={selectedTask}
+          workers={workersQuery.data ?? []}
+          workstations={workstationsQuery.data ?? []}
+          form={adjustForm}
+          loading={adjustMutation.isPending}
+          canSave={hasAdjustChanges}
+          onChange={setAdjustForm}
+          onClose={closeAdjustModal}
+          onSave={() => void handleAdjustSave()}
+        />
+      )}
+    </div>
+  );
+}
+
+function PageHeader(props: {
+  selectedDate: string;
+  onDateChange: (value: string) => void;
+  onJumpToday: () => void;
+  onJumpNextWorkday: () => void;
+  onRefresh: () => void;
+  onHistory: () => void;
+}) {
+  return (
+    <div className={styles.page_header}>
+      <div>
+        <p className={styles.page_eyebrow}>PRODUCTION SCHEDULING</p>
+        <h1 className={styles.page_title}>每日排产计划</h1>
+        <p className={styles.page_subtitle}>基于现有生产工单、人员和工作站数据，生成主管可确认的正式排产。</p>
+      </div>
+      <div className={styles.page_actions}>
+        <div className={styles.date_control}>
+          <span>排产日期</span>
+          <input type="date" value={props.selectedDate} onChange={(event) => props.onDateChange(event.target.value)} />
+        </div>
+        <Button variant="ghost" onClick={props.onJumpToday}>今天</Button>
+        <Button variant="ghost" onClick={props.onJumpNextWorkday}>下一工作日</Button>
+        <Button variant="ghost" onClick={props.onHistory}>查看历史</Button>
+        <Button variant="ai" onClick={props.onRefresh}>重新生成</Button>
+      </div>
+    </div>
+  );
+}
+
+function StatusBar(props: {
+  dateLabel: string;
+  totalOrders: number;
+  stationCount: number;
+  workerCount: number;
+  confirmed: boolean;
+  confirmedAt: string | null;
+  focusWorkOrderNo: string;
+}) {
+  return (
+    <div className={styles.status_bar}>
+      <div className={styles.status_primary}>
+        <span>状态：</span>
+        <strong>{props.confirmed ? '✓ 已确认并下发今日计划' : '✓ AI 已生成今日计划'}</strong>
+      </div>
+      <div className={styles.status_divider} />
+      <div className={styles.status_secondary}>
+        {props.dateLabel} · 覆盖 <strong>{props.totalOrders}</strong> 个工单 · <strong>{props.stationCount}</strong> 个工作站 · <strong>{props.workerCount}</strong> 名工人
+      </div>
+      {props.focusWorkOrderNo ? (
+        <Tag variant="info">当前聚焦 {props.focusWorkOrderNo}</Tag>
+      ) : null}
+      <Tag variant={props.confirmed ? 'success' : 'warning'}>
+        {props.confirmed ? `已下发${props.confirmedAt ? ` · ${props.confirmedAt}` : ''}` : '待主管确认'}
+      </Tag>
+    </div>
+  );
+}
+
+function StatsGrid(props: {
+  loadRate: number;
+  totalSteps: number;
+  assignedStations: number;
+  assignedWorkers: number;
+  totalHours: string;
+  unassignedCount: number;
+}) {
+  const cards = [
+    { label: '产能负荷率', value: `${props.loadRate.toFixed(1)}%`, hint: '以 8 小时工时为基准', accent: props.loadRate >= 90 ? 'danger' : props.loadRate >= 75 ? 'warning' : 'normal' },
+    { label: '排产工序', value: `${props.totalSteps}`, hint: '今日已纳入正式排产的工序数', accent: 'normal' },
+    { label: '排产工位', value: `${props.assignedStations}`, hint: '已占用的工作站数量', accent: 'normal' },
+    { label: '排产工人', value: `${props.assignedWorkers}`, hint: '已分配任务的工人数量', accent: 'normal' },
+    { label: '总工时', value: `${props.totalHours}h`, hint: '按标准工时折算', accent: 'normal' },
+    { label: '待补排资源', value: `${props.unassignedCount}`, hint: '需在确认下发前先补齐', accent: props.unassignedCount > 0 ? 'warning' : 'normal' },
+  ] as const;
+
+  return (
+    <div className={styles.stats_grid}>
+      {cards.map((card) => (
+        <article
+          key={card.label}
+          className={`${styles.stat_card} ${card.accent === 'warning' ? styles['stat_card--warning'] : ''} ${card.accent === 'danger' ? styles['stat_card--danger'] : ''}`}
+        >
+          <span className={styles.stat_label}>{card.label}</span>
+          <strong className={styles.stat_value}>{card.value}</strong>
+          <span className={styles.stat_hint}>{card.hint}</span>
+        </article>
       ))}
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────
-// GanttChart — 工作站行 × 时间槽列 HTML table 甘特图
-// ─────────────────────────────────────────────────────────
-
-interface GanttChartProps {
-  stations: StationRow[];
-  timeSlots: TimeSlotLabel[];
+function RiskPanel({ risks, onDismiss }: { risks: ScheduleRisk[]; onDismiss: () => void }) {
+  return (
+    <div className={styles.risk_panel}>
+      <div className={styles.risk_header}>
+        <div>
+          <p className={styles.risk_eyebrow}>AI RISK SIGNAL</p>
+          <h2>今日排产风险提示</h2>
+        </div>
+        <button type="button" className={styles.risk_close} onClick={onDismiss}>收起</button>
+      </div>
+      <div className={styles.risk_list}>
+        {risks.map((risk) => (
+          <article key={`${risk.level}-${risk.title}`} className={`${styles.risk_item} ${styles[`risk_item--${risk.level}`]}`}>
+            <Tag variant={getRiskTagVariant(risk.level)}>
+              {risk.level === 'danger' ? '高优先级' : risk.level === 'warning' ? '需重点关注' : '建议跟进'}
+            </Tag>
+            <div>
+              <h3>{risk.title}</h3>
+              <p>{risk.description}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-function GanttChart({ stations, timeSlots }: GanttChartProps) {
-  return (
-    <div className={styles.gantt_wrap} role="region" aria-label="甘特图排产视图">
-      {/* 拖拽操作提示 */}
-      <div className={styles.gantt_hint} role="note">
-        <span aria-hidden="true">↔</span>
-        拖拽任务块可调整排程，拖至其他工作站可换线。调整后需点击底部"确认下发"
-      </div>
+function ViewToggle({ value, onChange }: { value: ScheduleView; onChange: (view: ScheduleView) => void }) {
+  const options: Array<{ key: ScheduleView; label: string; hint: string }> = [
+    { key: 'station', label: '工作站视图', hint: '看工位和时段占用' },
+    { key: 'order', label: '工单视图', hint: '看工单拆解结果' },
+    { key: 'worker', label: '人员视图', hint: '看工人今日任务' },
+  ];
 
-      {/* 甘特表格 */}
+  return (
+    <div className={styles.view_toggle}>
+      {options.map((option) => (
+        <button
+          key={option.key}
+          type="button"
+          className={`${styles.view_toggle_item} ${value === option.key ? styles['view_toggle_item--active'] : ''}`}
+          onClick={() => onChange(option.key)}
+        >
+          <span>{option.label}</span>
+          <small>{option.hint}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function StationView({ rows, onTaskClick }: { rows: StationRow[]; onTaskClick: (task: ScheduleItem) => void }) {
+  return (
+    <div className={styles.gantt_wrap}>
+      <div className={styles.gantt_hint}>点击任务块可微调工人、工位或计划数量；确认后统一下发给工人。</div>
       <div className={styles.gantt_scroll}>
-        <table className={styles.gantt_table} aria-label="工作站时间甘特图">
+        <table className={styles.gantt_table}>
           <thead>
             <tr>
-              <th className={`${styles.gantt_th} ${styles['gantt_th--label']}`} scope="col">
-                工作站
-              </th>
-              {timeSlots.map((slot) => (
-                <th key={slot} className={styles.gantt_th} scope="col">
-                  {slot}
-                </th>
+              <th>工作站</th>
+              {TIME_SLOTS.map((slot) => (
+                <th key={slot}>{slot}</th>
               ))}
-              <th className={`${styles.gantt_th} ${styles['gantt_th--material']}`} scope="col">
-                备料状态
-              </th>
+              <th>备料状态</th>
             </tr>
           </thead>
           <tbody>
-            {stations.map((station) => (
-              <tr key={station.stationId}>
-                {/* 工作站标签列 */}
-                <td className={styles.gantt_station_cell}>
-                  <div className={styles.gantt_station_name}>{station.stationName}</div>
-                  <div className={styles.gantt_station_worker}>{station.workerInCharge}</div>
+            {rows.map((row) => (
+              <tr key={row.stationId}>
+                <td className={styles.station_cell}>
+                  <strong>{row.stationName}</strong>
+                  <span>{row.workerInCharge}</span>
+                  <small>{row.totalTasks} 项任务</small>
                 </td>
-
-                {/* 时间槽列 */}
-                {timeSlots.map((slot) => {
-                  const task = station.slots[slot];
+                {TIME_SLOTS.map((slot) => {
+                  const task = row.slots[slot];
                   return (
-                    <td
-                      key={slot}
-                      className={`${styles.gantt_td} ${!task ? styles['gantt_td--empty'] : ''}`}
-                    >
-                      {task && <TaskBlock task={task} />}
+                    <td key={slot} className={styles.gantt_slot}>
+                      {task ? <TaskBlock task={task} onClick={() => onTaskClick(task.source)} /> : <div className={styles.empty_slot}>空档</div>}
                     </td>
                   );
                 })}
-
-                {/* 备料状态列 */}
-                <td className={styles.gantt_td}>
-                  <MaterialStatusCell status={station.materialStatus} label={station.materialLabel} />
+                <td className={styles.material_cell}>
+                  <span className={`${styles.material_badge} ${styles[`material_badge--${row.materialStatus}`]}`}>{row.materialLabel}</span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-
-      {/* 图例 */}
-      <GanttLegend />
+      <div className={styles.legend}>
+        <span><i className={`${styles.legend_block} ${styles['legend_block--normal']}`} /> 正常</span>
+        <span><i className={`${styles.legend_block} ${styles['legend_block--warning']}`} /> 有风险</span>
+        <span><i className={`${styles.legend_block} ${styles['legend_block--danger']}`} /> 待优先处理</span>
+      </div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────
-// TaskBlock — 甘特图任务块（3 态：normal / warning / danger）
-// ─────────────────────────────────────────────────────────
-
-interface TaskBlockProps {
-  task: GanttTask;
-}
-
-function TaskBlock({ task }: TaskBlockProps) {
+function TaskBlock({ task, onClick }: { task: GanttTask; onClick: () => void }) {
   return (
-    <div
+    <button
+      type="button"
       className={`${styles.task_block} ${styles[`task_block--${task.variant}`]}`}
-      draggable
-      tabIndex={0}
-      role="button"
-      aria-label={task.ariaLabel}
+      onClick={onClick}
     >
-      <span className={`${styles.task_block__order} ${styles[`task_block__order--${task.variant}`]}`}>
-        {task.orderLabel}
-      </span>
-      <span className={styles.task_block__op}>{task.operation}</span>
-      <span className={styles.task_block__worker}>{task.workerInfo}</span>
-      <span
-        className={`${styles.task_block__icon} ${
-          task.materialIcon.startsWith('⚠') ? styles['task_block__icon--warn'] : ''
-        }`}
-      >
-        {task.materialIcon}
-      </span>
-    </div>
+      <span className={styles.task_order}>{task.orderLabel}</span>
+      <strong className={styles.task_operation}>{task.operation}</strong>
+      <span className={styles.task_output}>{task.outputSkuName}</span>
+      <span className={styles.task_worker}>{task.workerInfo}</span>
+      <span className={styles.task_material}>{task.materialIcon}</span>
+    </button>
   );
 }
 
-// ─────────────────────────────────────────────────────────
-// MaterialStatusCell — 备料状态列单元格
-// ─────────────────────────────────────────────────────────
-
-function MaterialStatusCell({ status, label }: { status: MaterialStatus; label: string }) {
+function OrderView(props: {
+  cards: OrderCard[];
+  focusWorkOrderNo: string;
+  onTaskClick: (task: ScheduleItem) => void;
+}) {
   return (
-    <div className={`${styles.material_status} ${styles[`material_status--${status}`]}`}>
-      {status === 'ok'   && <span aria-hidden="true">✓</span>}
-      {status === 'warn' && <span aria-hidden="true">⚠</span>}
-      {status === 'err'  && <span aria-hidden="true">✕</span>}
-      {label}
+    <div className={styles.order_grid}>
+      {props.cards.map((card) => (
+        <article
+          key={card.productionOrderId}
+          className={`${styles.order_card} ${props.focusWorkOrderNo === card.workOrderNo ? styles['order_card--focused'] : ''}`}
+        >
+          <header className={styles.order_card_header}>
+            <div>
+              <strong>{card.workOrderNo}</strong>
+              <p>{getOrderRiskLabel(card.risk)}</p>
+            </div>
+            <Tag variant={card.risk === 'danger' ? 'error' : card.risk === 'warning' ? 'warning' : 'success'}>
+              {card.risk === 'danger' ? '存在缺口' : card.risk === 'warning' ? '工序集中' : '排产平稳'}
+            </Tag>
+          </header>
+          <div className={styles.order_metrics}>
+            <span>工序 {card.stepCount}</span>
+            <span>工位 {card.stationCount}</span>
+            <span>工人 {card.workerCount}</span>
+            <span>工时 {card.totalHours}h</span>
+            <span>计划量 {formatQty(card.totalQty)}套</span>
+          </div>
+          <div className={styles.order_outputs}>
+            {card.outputSkuNames.slice(0, 4).map((outputSkuName) => (
+              <span key={outputSkuName} className={styles.order_output_chip}>{outputSkuName}</span>
+            ))}
+          </div>
+          <div className={styles.order_lines}>
+            {card.lines.map((line) => (
+              <button
+                key={line.scheduleId}
+                type="button"
+                className={styles.order_line}
+                onClick={() => props.onTaskClick(line.source)}
+              >
+                <div>
+                  <strong>{line.stepName}</strong>
+                  <span>{line.outputSkuName} · {line.workstationName} · {line.workerName}</span>
+                </div>
+                <div className={styles.order_line_meta}>
+                  <span>{formatQty(line.plannedQty)}套</span>
+                  <span>{formatHours(line.estimatedHours)}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </article>
+      ))}
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────
-// GanttLegend — 甘特图图例说明
-// ─────────────────────────────────────────────────────────
-
-function GanttLegend() {
-  return (
-    <div className={styles.gantt_legend} role="note" aria-label="图例说明">
-      <div className={styles.legend__item}>
-        <div
-          className={styles.legend__block}
-          style={{ background: 'var(--color-primary-100)', border: '1px solid #93C5FD' }}
-          aria-hidden="true"
-        />
-        正常进行
-      </div>
-      <div className={styles.legend__item}>
-        <div
-          className={styles.legend__block}
-          style={{ background: 'var(--color-warning-100)', border: '1px solid #FCD34D' }}
-          aria-hidden="true"
-        />
-        有风险（可接受）
-      </div>
-      <div className={styles.legend__item}>
-        <div
-          className={styles.legend__block}
-          style={{ background: 'var(--color-error-100)', border: '1px solid #FCA5A5' }}
-          aria-hidden="true"
-        />
-        延误风险
-      </div>
-      <div className={styles.legend__item} style={{ marginLeft: 'auto' }}>
-        <span aria-hidden="true">✓</span> 备料就绪
-        &nbsp;&nbsp;
-        <span style={{ color: 'var(--color-warning-600)' }} aria-hidden="true">⚠</span> 物料待确认
-        &nbsp;&nbsp;
-        <span style={{ color: 'var(--color-error-600)' }} aria-hidden="true">✕</span> 缺料
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────
-// WorkerSection — 工人任务分配区域
-// ─────────────────────────────────────────────────────────
-
-interface WorkerSectionProps {
-  workers: WorkerCard[];
-}
-
-function WorkerSection({ workers }: WorkerSectionProps) {
+function WorkerView({ cards, onTaskClick }: { cards: WorkerCard[]; onTaskClick: (task: ScheduleItem) => void }) {
   return (
     <div className={styles.worker_section}>
-      <h2 className={styles.worker_section__title}>工人任务分配（今日）</h2>
-      <div className={styles.worker_cards} role="list" aria-label="工人任务卡片">
-        {workers.map((worker) => (
-          <WorkerCardItem key={worker.workerId} worker={worker} />
+      <div className={styles.worker_section_head}>
+        <h2>工人任务分配</h2>
+        <p>主管可快速核对每位工人的今日任务负荷，并对异常分配做微调。</p>
+      </div>
+      <div className={styles.worker_grid}>
+        {cards.map((card) => (
+          <article key={card.workerId} className={styles.worker_card}>
+            <header className={styles.worker_card_header}>
+              <div className={styles.worker_avatar}>{card.initial}</div>
+              <div>
+                <strong>{card.name}</strong>
+                <p>{card.roleLine}</p>
+              </div>
+              <Tag variant="info">{card.totalHours}h</Tag>
+            </header>
+            <div className={styles.worker_tasks}>
+              {card.tasks.map((task) => (
+                <button
+                  key={task.scheduleId}
+                  type="button"
+                  className={styles.worker_task}
+                  onClick={() => onTaskClick(task.source)}
+                >
+                  <div>
+                    <strong>{task.workOrderNo}</strong>
+                    <span>{task.stepName} · {task.outputSkuName}</span>
+                    <span>{task.stationName}</span>
+                  </div>
+                  <div className={styles.worker_task_meta}>
+                    <span>{task.time}</span>
+                    <span>{formatQty(task.plannedQty)}套</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </article>
         ))}
       </div>
     </div>
   );
 }
 
-interface WorkerCardItemProps {
-  worker: WorkerCard;
+function StickyActionBar(props: { onReset: () => void; onConfirm: () => void; loading: boolean }) {
+  return (
+    <div className={styles.action_bar}>
+      <div>
+        <strong>今日计划尚未正式下发</strong>
+        <p>确认后将创建工人任务并同步更新工单排产状态。</p>
+      </div>
+      <div className={styles.action_buttons}>
+        <Button variant="ghost" onClick={props.onReset}>恢复 AI 初始方案</Button>
+        <Button variant="success" loading={props.loading} onClick={props.onConfirm}>确认并下发给工人</Button>
+      </div>
+    </div>
+  );
 }
 
-function WorkerCardItem({ worker }: WorkerCardItemProps) {
+function ConfirmModal(props: {
+  workerCount: number;
+  taskCount: number;
+  dateLabel: string;
+  loading: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
   return (
-    <div className={styles.worker_card} role="listitem">
-      <div className={styles.worker_card__header}>
-        <div className={styles.worker_card__avatar} aria-hidden="true">{worker.initial}</div>
-        <div>
-          <div className={styles.worker_card__name}>{worker.name}</div>
-          <div className={styles.worker_card__role}>{worker.roleLine}</div>
+    <div className={styles.modal_overlay} onClick={props.onClose}>
+      <div className={styles.modal_panel} onClick={(event) => event.stopPropagation()}>
+        <div className={styles.modal_header}>
+          <div>
+            <strong>确认并下发排产计划</strong>
+            <p>{props.dateLabel}</p>
+          </div>
+          <button type="button" className={styles.modal_close} onClick={props.onClose}>×</button>
+        </div>
+        <div className={styles.modal_summary}>
+          <div>
+            <span>涉及工人</span>
+            <strong>{props.workerCount}</strong>
+          </div>
+          <div>
+            <span>任务条数</span>
+            <strong>{props.taskCount}</strong>
+          </div>
+        </div>
+        <p className={styles.modal_text}>确认后将把当前排产方案写入正式任务，并同步到工人端。已下发计划不会再被重新生成覆盖。</p>
+        <div className={styles.modal_actions}>
+          <Button variant="ghost" onClick={props.onClose}>取消</Button>
+          <Button variant="success" loading={props.loading} onClick={props.onConfirm}>确认下发</Button>
         </div>
       </div>
-      <div className={styles.worker_card__tasks}>
-        {worker.tasks.map((task, idx) => (
-          <div
-            key={idx}
-            className={`${styles.worker_task_item} ${task.highlight ? styles['worker_task_item--highlight'] : ''}`}
-          >
-            <div
-              className={`${styles.worker_task_item__priority} ${styles[`worker_task_item__priority--${task.priority}`]}`}
-              aria-hidden="true"
-            />
-            <div
-              className={`${styles.worker_task_item__text} ${task.highlight ? styles['worker_task_item__text--danger'] : ''}`}
-            >
-              {task.text}
-            </div>
-            <div className={styles.worker_task_item__time}>{task.time}</div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────
-// StickyActionBar — 底部固定确认操作栏
-// ─────────────────────────────────────────────────────────
-
-interface StickyActionBarProps {
-  onCancel: () => void;
-  onConfirm: () => void;
-  confirmLoading: boolean;
-}
-
-function StickyActionBar({ onCancel, onConfirm, confirmLoading }: StickyActionBarProps) {
+function TaskAdjustModal(props: {
+  task: ScheduleItem;
+  workers: ProductionWorkerOption[];
+  workstations: WorkstationOption[];
+  form: { workerId: string; workstationId: string; plannedQty: string };
+  loading: boolean;
+  canSave: boolean;
+  onChange: Dispatch<SetStateAction<{ workerId: string; workstationId: string; plannedQty: string }>>;
+  onClose: () => void;
+  onSave: () => void;
+}) {
   return (
-    <div className={styles.action_bar} role="toolbar" aria-label="排产操作区">
-      <div className={styles.action_bar__hint}>
-        <span aria-hidden="true">↔</span>
-        拖拽调整后请点击右侧确认下发，调整记录将自动保存
-      </div>
-      <div className={styles.action_bar__buttons}>
-        <Button variant="ghost" size="md" onClick={onCancel}>
-          取消调整
-        </Button>
-        <Button
-          variant="success"
-          size="lg"
-          loading={confirmLoading}
-          onClick={onConfirm}
-          aria-label="确认排产计划并下发给所有工人"
-          icon={
-            <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-              <path
-                fillRule="evenodd"
-                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                clipRule="evenodd"
-              />
-            </svg>
-          }
-        >
-          确认并下发给工人
-        </Button>
+    <div className={styles.modal_overlay} onClick={props.onClose}>
+      <div className={`${styles.modal_panel} ${styles['modal_panel--wide']}`} onClick={(event) => event.stopPropagation()}>
+        <div className={styles.modal_header}>
+          <div>
+            <strong>调整排产任务</strong>
+            <p>{props.task.workOrderNo} · {props.task.stepName}</p>
+          </div>
+          <button type="button" className={styles.modal_close} onClick={props.onClose}>×</button>
+        </div>
+
+        <div className={styles.adjust_grid}>
+          <label className={styles.form_field}>
+            <span>工单号</span>
+            <input value={props.task.workOrderNo} disabled />
+          </label>
+          <label className={styles.form_field}>
+            <span>工序</span>
+            <input value={props.task.stepName} disabled />
+          </label>
+          <label className={styles.form_field}>
+            <span>分配工人</span>
+            <select
+              value={props.form.workerId}
+              onChange={(event) => props.onChange((current) => ({ ...current, workerId: event.target.value }))}
+            >
+              <option value="">待分配</option>
+              {props.workers.map((worker) => (
+                <option key={worker.id} value={worker.id}>{worker.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.form_field}>
+            <span>工作站</span>
+            <select
+              value={props.form.workstationId}
+              onChange={(event) => props.onChange((current) => ({ ...current, workstationId: event.target.value }))}
+            >
+              <option value="">待分配</option>
+              {props.workstations.map((station) => (
+                <option key={station.id} value={station.id}>{station.name} / 产能 {station.capacity}</option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.form_field}>
+            <span>计划数量</span>
+            <input
+              value={props.form.plannedQty}
+              onChange={(event) => props.onChange((current) => ({ ...current, plannedQty: event.target.value }))}
+            />
+          </label>
+          <div className={styles.adjust_note}>
+            <span>当前工时</span>
+            <strong>{formatHours(props.task.estimatedHours)}</strong>
+            <small>当前调整直接写入排产计划，确认下发前仍可继续修改。</small>
+          </div>
+        </div>
+
+        <div className={styles.modal_actions}>
+          <Button variant="ghost" onClick={props.onClose}>取消</Button>
+          <Button variant="primary" loading={props.loading} disabled={!props.canSave} onClick={props.onSave}>保存调整</Button>
+        </div>
       </div>
     </div>
   );

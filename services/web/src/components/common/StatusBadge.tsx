@@ -32,8 +32,8 @@ const VARIANT_MAP: Record<string, TagVariant> = {
   archived:         'neutral',
   // 采购订单
   confirmed:        'info',
-  partial:          'warning',
-  completed:        'success',
+  partial_received: 'warning',
+  received:         'success',
   cancelled:        'neutral',
   // 销售订单
   in_production:    'info',

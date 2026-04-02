@@ -5,7 +5,7 @@
  * 所有测试租户 ID 统一使用 9999，避免与生产数据冲突
  */
 
-import { v4 as uuid } from 'uuid';
+import { randomUUID } from 'crypto';
 
 export const TEST_TENANT_ID = 9999;
 export const TEST_USER_ID = 99001;
@@ -267,5 +267,5 @@ export function genDyeLotNo(): string {
 
 /** 生成唯一的字符串 ID */
 export function genId(): string {
-  return uuid().replace(/-/g, '').slice(0, 16).toUpperCase();
+  return randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase();
 }

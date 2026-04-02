@@ -18,7 +18,7 @@
  *   - orderCount：后端无关联订单统计字段，显示 `—`
  */
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useUpdateBom, useCopyBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem, useUpdateBomItem, useMaterialRequirements, useCostBreakdown } from '@/api/bom';
 import { useQuery } from '@tanstack/react-query';
@@ -29,6 +29,7 @@ import request from '@/utils/request';
 import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
 import BomTree from '@/components/common/BomTree';
+import type { BomTreeRef } from '@/components/common/BomTree';
 import styles from './BomPage.module.css';
 
 /* ──────────────────────────────────────────────────────────────
@@ -88,10 +89,6 @@ function mapBomHeaderToRow(h: BomHeader): BomListRow {
 /* 品类成本占比 — 色板（按品类索引循环使用） */
 const COST_COLORS = ['#7C3AED', '#C2774A', '#059669', '#94A3B8', '#CBD5E1', '#2563EB', '#D97706', '#DC2626'];
 
-/* AI BOM建议行
- * TODO: 后端 GET /api/bom/ai-suggestion/:skuId 可返回真实数据，
- *       但当前展示格式不同（后端返回 suggestedItems），保留静态 mock 用于编辑器面板展示。
- */
 /* AI_BOM_ROWS mock 已替换为 useAiBomSuggestion 真实接口 */
 
 /* ──────────────────────────────────────────────────────────────
@@ -969,6 +966,7 @@ interface EditorViewProps {
 
 function EditorView({ row, onBack }: EditorViewProps) {
   const { showToast } = useAppStore();
+  const bomTreeRef = useRef<BomTreeRef>(null);
 
   // 树形数据：通过真实 API 获取展开 BOM（id 用 row.id）
   const { data: detailData, isLoading: detailLoading } = useBomExpanded(row.id);
@@ -1018,6 +1016,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
   const [editQtyOpen, setEditQtyOpen] = useState(false);
   const [editQtyValue, setEditQtyValue] = useState('');
   const [editUnitValue, setEditUnitValue] = useState('');
+  const [editScrapRateValue, setEditScrapRateValue] = useState('');
 
   // BOM-REM-001: 编辑信息弹框状态（版本号 / 描述，接入 useUpdateBom）
   const [editInfoOpen, setEditInfoOpen] = useState(false);
@@ -1036,6 +1035,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
 
   // TASK-BOM-04: AI 批量导入状态
   const [batchImporting, setBatchImporting] = useState(false);
+  const [dismissedAiPanel, setDismissedAiPanel] = useState(false);
 
   // TASK-BOM-04: 提取为命名函数
   const handleBatchImport = async () => {
@@ -1071,6 +1071,21 @@ function EditorView({ row, onBack }: EditorViewProps) {
       setBatchImporting(false);
     }
   };
+
+  useEffect(() => {
+    setDismissedAiPanel(false);
+  }, [row.id, row.skuId]);
+
+  const aiSuggestionSummary = useMemo(() => {
+    if (!aiSuggestion || aiSuggestion.suggestedItems.length === 0) return null;
+    const highConfidenceCount = aiSuggestion.suggestedItems.filter((item) => item.confidence >= 70).length;
+    const avgConfidence = aiSuggestion.suggestedItems.reduce((sum, item) => sum + item.confidence, 0) / aiSuggestion.suggestedItems.length;
+    return {
+      total: aiSuggestion.suggestedItems.length,
+      highConfidenceCount,
+      avgConfidence: avgConfidence.toFixed(0),
+    };
+  }, [aiSuggestion]);
 
   const handleOpenEditInfo = () => {
     setEditVersion(detailData?.version ?? '');
@@ -1235,10 +1250,16 @@ function EditorView({ row, onBack }: EditorViewProps) {
             return;
           }
           try {
+            const scrapRateDecimal = editScrapRateValue !== '' ? (Number(editScrapRateValue) / 100).toFixed(4) : undefined;
+            const isValidScrapRate = scrapRateDecimal !== undefined && Number(scrapRateDecimal) < 1;
             await updateBomItem.mutateAsync({
               bomId: row.id,
               itemId: selectedItem.bomItemId,
-              data: { quantity: editQtyValue.trim(), unit: editUnitValue.trim() },
+              data: {
+                quantity: editQtyValue.trim(),
+                unit: editUnitValue.trim(),
+                ...(isValidScrapRate ? { scrapRate: scrapRateDecimal } : {}),
+              },
             });
             showToast({ type: 'success', message: '用量已更新' });
             setEditQtyOpen(false);
@@ -1272,6 +1293,21 @@ function EditorView({ row, onBack }: EditorViewProps) {
               value={editUnitValue}
               onChange={(e) => setEditUnitValue(e.target.value)}
               placeholder="请输入单位"
+              style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+              损耗率（%）
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={editScrapRateValue}
+              onChange={(e) => setEditScrapRateValue(e.target.value)}
+              placeholder="0"
               style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', boxSizing: 'border-box' }}
             />
           </div>
@@ -1538,6 +1574,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
               </div>
             ) : detailData && detailData.items.length > 0 ? (
               <BomTree
+                ref={bomTreeRef}
                 items={detailData.items}
                 selectedId={selectedItem?.bomItemId}
                 onSelect={handleSelectItem}
@@ -1551,8 +1588,8 @@ function EditorView({ row, onBack }: EditorViewProps) {
             )}
           </div>
           <div className={styles.tree_panel__actions}>
-            <Button variant="ghost" size="sm">展开全部</Button>
-            <Button variant="ghost" size="sm">折叠全部</Button>
+            <Button variant="ghost" size="sm" onClick={() => bomTreeRef.current?.expandAll()}>展开全部</Button>
+            <Button variant="ghost" size="sm" onClick={() => bomTreeRef.current?.collapseAll()}>折叠全部</Button>
           </div>
         </div>
 
@@ -1592,6 +1629,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
                     if (selectedItem) {
                       setEditQtyValue(selectedItem.quantity);
                       setEditUnitValue(selectedItem.unit);
+                      setEditScrapRateValue(selectedItem.scrapRate ? (parseFloat(selectedItem.scrapRate) * 100).toFixed(2) : '');
                       setEditQtyOpen(true);
                     }
                   }}>
@@ -1629,10 +1667,17 @@ function EditorView({ row, onBack }: EditorViewProps) {
               </div>
               {aiLoading ? (
                 <p className={styles.ai_panel__sub}>AI 正在分析同品类BOM，请稍候...</p>
-              ) : aiSuggestion && aiSuggestion.suggestedItems.length > 0 ? (
+              ) : aiSuggestion && aiSuggestion.suggestedItems.length > 0 && !dismissedAiPanel ? (
                 <>
                   <p className={styles.ai_panel__sub}>
-                    基于同品类已有BOM的物料使用频次，推荐以下物料构成：
+                    基于同品类已有 BOM 的物料使用频次，推荐以下物料构成。
+                    {aiSuggestionSummary && (
+                      <>
+                        {' '}当前共识别 {aiSuggestionSummary.total} 条候选物料，
+                        其中 {aiSuggestionSummary.highConfidenceCount} 条为高置信建议，
+                        平均置信度 {aiSuggestionSummary.avgConfidence}%。
+                      </>
+                    )}
                   </p>
                   <table className={styles.ai_bom_table}>
                     <thead>
@@ -1640,6 +1685,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
                         <th>物料名称</th>
                         <th>建议用量</th>
                         <th>置信度</th>
+                        <th>推荐依据</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1656,6 +1702,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
                                 {confLabel}
                               </span>
                             </td>
+                            <td>{r.reason}</td>
                           </tr>
                         );
                       })}
@@ -1672,9 +1719,31 @@ function EditorView({ row, onBack }: EditorViewProps) {
                     >
                       {batchImporting ? '导入中...' : '一键复用此BOM结构'}
                     </Button>
-                    <Button variant="ghost" size="sm">忽略建议</Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setDismissedAiPanel(true);
+                        showToast({ type: 'info', message: '已忽略当前 AI 建议，可随时恢复查看' });
+                      }}
+                    >
+                      忽略建议
+                    </Button>
                   </div>
                 </>
+              ) : dismissedAiPanel ? (
+                <div className={styles.ai_panel__dismissed}>
+                  <p className={styles.ai_panel__sub} style={{ marginBottom: 0 }}>
+                    当前 AI 建议已被忽略。你仍可继续手工维护 BOM，或随时恢复查看推荐结果。
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDismissedAiPanel(false)}
+                  >
+                    恢复建议
+                  </Button>
+                </div>
               ) : (
                 <p className={styles.ai_panel__sub} style={{ padding: '1rem 0' }}>
                   暂无AI建议（同品类下没有已激活的BOM可供参考）
@@ -1991,10 +2060,10 @@ export default function BomPage() {
   }) => {
     try {
       const result = await createBom.mutateAsync({
-        skuId: data.skuId,
+        skuId: Number(data.skuId),
         version: data.version,
         description: '',
-        items: data.items,
+        items: data.items.map(it => ({ ...it, componentSkuId: Number(it.componentSkuId) })),
       });
       if (!result?.id) {
         showToast({ type: 'error', message: '创建BOM失败：服务端未返回ID' });

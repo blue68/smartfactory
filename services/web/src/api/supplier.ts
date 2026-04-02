@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import request from '@/utils/request';
+import request, { getAccessToken } from '@/utils/request';
 import type { PaginatedData } from '@/types/api';
 
 // ─────────────────────────────────────────────
@@ -49,6 +49,28 @@ export interface SupplierPerformance {
   avgLeadDays: string;
   totalOrders: number;
   recentDeliveries: SupplierDeliveryRecord[];
+}
+
+export interface SupplierPerfSnapshot {
+  supplierId: number;
+  supplierName: string;
+  /** e.g. "96.0%" */
+  onTimeRate: string;
+  totalOrders: number;
+  recentAmounts: Array<{ month: string; amount: string }>;
+  /** e.g. "95.0%" */
+  qualityRate: string;
+  /** 0–100 */
+  priceScore: number;
+  /** avg response hours */
+  responseHours: number;
+  /** e.g. "88.5%" */
+  completionRate: string;
+  /** 0–100 */
+  satisfactionScore: number;
+  cooperationYears: number;
+  totalPurchaseAmount: string;
+  avgLeadDays: number;
 }
 
 // ─────────────────────────────────────────────
@@ -145,6 +167,9 @@ export const supplierApi = {
 
   getPerformance: (id: number) =>
     request.get<SupplierPerformance>(`/api/suppliers/${id}/performance`),
+
+  comparePerformance: (supplierIds: number[], months?: number) =>
+    request.post<SupplierPerfSnapshot[]>('/api/suppliers/compare', { supplierIds, months }),
 };
 
 // ─────────────────────────────────────────────
@@ -234,7 +259,10 @@ export function useSupplierPerformance(id: number | null) {
  * 因为 request 工具只处理 JSON 响应。
  */
 export async function exportSuppliers(): Promise<void> {
-  const response = await fetch('/api/suppliers/export');
+  const token = getAccessToken();
+  const response = await fetch('/api/suppliers/export', {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
   if (!response.ok) throw new Error('导出失败');
   const blob = await response.blob();
   const url = window.URL.createObjectURL(blob);

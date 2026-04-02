@@ -37,9 +37,13 @@ const PERMISSION_MAP = {
   'purchase:suggestion:approve': [UserRole.BOSS],
 
   // 采购订单
-  'purchase:order:view': [UserRole.BOSS, UserRole.PURCHASER],
+  'purchase:order:view': [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR],
   'purchase:order:create': [UserRole.BOSS, UserRole.PURCHASER],
   'purchase:order:delivery': [UserRole.PURCHASER],
+  'purchase:order:close': [UserRole.BOSS, UserRole.SUPERVISOR],
+  'purchase:delivery:view': [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+  'purchase:receipt:view': [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+  'purchase:receipt:edit': [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
 
   // 三单匹配
   'purchase:match:execute': [UserRole.PURCHASER],

@@ -5,20 +5,23 @@
  * 功能：
  *   - Stats Strip：有效协议 / 即将到期 / 价格预警
  *   - Alert Banner + 可折叠 Alert Panel（价格异常预警详情）
- *   - View Toggle：按供应商（Accordion）/ 按物料（占位符）
+ *   - View Toggle：按供应商（Accordion）/ 按物料（Accordion）
  *   - 按供应商视图：可折叠分组 + 等级徽章 + 价格表 + 价格涨跌 pill + 行选中
  *   - 价格趋势 Chart Panel（点击行展开，SVG 折线图 + 供应商对比表）
  *   - 右侧 Drawer：新增 / 编辑价格协议（含 price warning modal）
  */
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/appStore';
+import { getAccessToken } from '@/utils/request';
 import {
   usePriceList,
   useCreatePrice,
   useUpdatePrice,
   usePriceHistory,
   uploadPriceFile,
+  importPrices,
+  downloadImportTemplate,
 } from '@/api/price';
 import type { Price, PriceHistoryItem, CreatePricePayload } from '@/api/price';
 import { useSupplierOptions } from '@/api/supplier';
@@ -49,6 +52,7 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
 
 // 供应商等级
 type SupplierGrade = 'A' | 'B' | 'C' | 'D';
+const EMPTY_SUPPLIERS: Supplier[] = [];
 
 // 扩展 Price 类型，携带额外展示字段
 type PriceRow = Price & {
@@ -75,6 +79,9 @@ type MaterialGroup = {
   skuName: string;
   skuCode: string;
   prices: PriceRow[];
+  bestActivePrice: PriceRow | null;
+  activeCount: number;
+  expiringCount: number;
 };
 
 // Alert item 类型
@@ -439,6 +446,85 @@ function PriceTrendSvg({ history }: { history: PriceHistoryItem[] }) {
 }
 
 // ─────────────────────────────────────────────
+// 工具：带认证的文件 URL（将 /uploads/xxx 转为 blob URL）
+// ─────────────────────────────────────────────
+
+function useAuthBlobUrl(url: string | undefined | null): string | null {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const prevUrl = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!url) { setBlobUrl(null); return; }
+    if (url === prevUrl.current) return;
+    prevUrl.current = url;
+
+    const token = getAccessToken();
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.blob(); })
+      .then((blob) => setBlobUrl(URL.createObjectURL(blob)))
+      .catch(() => setBlobUrl(null));
+
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url]);
+
+  return blobUrl;
+}
+
+function openAuthFile(url: string) {
+  const token = getAccessToken();
+  fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.blob(); })
+    .then((blob) => {
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+      // 延迟释放，让新标签页有时间加载
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    })
+    .catch(() => { /* silently fail */ });
+}
+
+/** 带认证的协议文件展示（图片缩略图 + 查看原图 / 非图片查看文件） */
+function AuthAttachment({ url }: { url: string }) {
+  const isImage = /\.(jpg|jpeg|png)$/i.test(url);
+  const blobUrl = useAuthBlobUrl(isImage ? url : null);
+
+  if (isImage) {
+    return (
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+        {blobUrl ? (
+          <img
+            src={blobUrl}
+            alt="协议文件"
+            style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 6, border: '1px solid var(--border-primary)', objectFit: 'contain', cursor: 'pointer' }}
+            onClick={() => openAuthFile(url)}
+          />
+        ) : (
+          <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>加载中…</span>
+        )}
+        <a
+          href="#"
+          className={styles.agreement_detail__link}
+          onClick={(e) => { e.preventDefault(); openAuthFile(url); }}
+        >
+          查看原图
+        </a>
+      </span>
+    );
+  }
+
+  return (
+    <a
+      href="#"
+      className={styles.agreement_detail__link}
+      onClick={(e) => { e.preventDefault(); openAuthFile(url); }}
+    >
+      查看文件
+    </a>
+  );
+}
+
+// ─────────────────────────────────────────────
 // 组件：Chart Panel (使用真实历史数据)
 // ─────────────────────────────────────────────
 function ChartPanel({
@@ -597,19 +683,7 @@ function ChartPanel({
               <span className={styles.agreement_detail__label}>关联协议文件</span>
               <span className={styles.agreement_detail__value}>
                 {price.attachmentUrl ? (
-                  /\.(jpg|jpeg|png)$/i.test(price.attachmentUrl) ? (
-                    <span style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                      <img
-                        src={price.attachmentUrl}
-                        alt="协议文件"
-                        style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 6, border: '1px solid var(--border-primary)', objectFit: 'contain', cursor: 'pointer' }}
-                        onClick={() => window.open(price.attachmentUrl!, '_blank')}
-                      />
-                      <a href={price.attachmentUrl} target="_blank" rel="noreferrer" className={styles.agreement_detail__link}>查看原图</a>
-                    </span>
-                  ) : (
-                    <a href={price.attachmentUrl} target="_blank" rel="noreferrer" className={styles.agreement_detail__link}>查看文件</a>
-                  )
+                  <AuthAttachment url={price.attachmentUrl} />
                 ) : '暂无协议文件'}
               </span>
             </div>
@@ -776,8 +850,18 @@ function MaterialGroupAccordion({
           {group.skuCode}
         </span>
         <div className={styles.supplier_group__actions}>
+          {group.bestActivePrice && (
+            <span className={styles.supplier_group__count}>
+              最优有效价：{group.bestActivePrice.supplierName} {formatCNY(group.bestActivePrice.unitPrice)}
+            </span>
+          )}
+          {group.expiringCount > 0 && (
+            <span className={`${styles.supplier_group__count} ${styles['supplier_group__count--warn']}`}>
+              {group.expiringCount} 条即将到期
+            </span>
+          )}
           <span className={styles.supplier_group__count}>
-            共 {group.prices.length} 家供应商报价
+            共 {group.prices.length} 家报价 / {group.activeCount} 家当前有效
           </span>
         </div>
       </button>
@@ -1248,7 +1332,7 @@ export default function PricePage() {
   });
 
   const { data: supplierData } = useSupplierOptions();
-  const suppliers: Supplier[] = supplierData ?? [];
+  const suppliers: Supplier[] = supplierData ?? EMPTY_SUPPLIERS;
 
   // SKU search for drawer
   const { data: skuData } = useSkuList({
@@ -1353,9 +1437,17 @@ export default function PricePage() {
     for (const [skuId, prices] of groupMap) {
       const skuName = prices[0]?.skuName ?? `物料#${skuId}`;
       const skuCode = prices[0]?.skuCode ?? '';
-      // Sort prices within group: lowest price first
-      prices.sort((a, b) => parseFloat(a.unitPrice) - parseFloat(b.unitPrice));
-      groups.push({ skuId, skuName, skuCode, prices });
+      const sortedPrices = [...prices].sort((a, b) => parseFloat(a.unitPrice) - parseFloat(b.unitPrice));
+      const activePrices = sortedPrices.filter((price) => price.isActive);
+      groups.push({
+        skuId,
+        skuName,
+        skuCode,
+        prices: sortedPrices,
+        bestActivePrice: activePrices[0] ?? null,
+        activeCount: activePrices.length,
+        expiringCount: sortedPrices.filter((price) => price.isExpiring).length,
+      });
     }
 
     // Sort groups by skuName
@@ -1532,16 +1624,18 @@ export default function PricePage() {
     }
     setImporting(true);
     try {
-      const formData = new FormData();
-      formData.append('file', importFile);
-      formData.append('errorStrategy', importErrorStrategy);
-      await uploadPriceFile(importFile);
-      showToast({ type: 'success', message: '导入成功，数据已更新' });
+      const result = await importPrices(importFile, importErrorStrategy);
+      const msg = `导入完成：成功 ${result.successCount} 条` +
+        (result.failCount > 0 ? `，失败 ${result.failCount} 条` : '') +
+        (result.skipCount > 0 ? `，跳过 ${result.skipCount} 条` : '');
+      showToast({ type: result.failCount > 0 ? 'warning' : 'success', message: msg });
       setImportModalOpen(false);
       setImportFile(null);
       setImportErrorStrategy('skip');
     } catch (e) {
-      showToast({ type: 'error', message: (e as Error).message || '导入失败，请检查文件格式' });
+      const errMsg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message
+        || (e as Error).message || '导入失败，请检查文件格式';
+      showToast({ type: 'error', message: errMsg });
     } finally {
       setImporting(false);
     }
@@ -1613,7 +1707,7 @@ export default function PricePage() {
       <div className={styles.view_toggle_bar}>
         <div className={styles.view_toggle}>
           <span className={styles.view_toggle__label}>查看方式：</span>
-          <div className={styles.radio_group}>
+            <div className={styles.radio_group}>
             <label className={styles.radio_option}>
               <input
                 type="radio"
@@ -1644,7 +1738,7 @@ export default function PricePage() {
           <input
             className={styles.search_box__input}
             type="text"
-            placeholder="搜索供应商 / 物料名称..."
+            placeholder={viewMode === 'supplier' ? '搜索供应商 / 物料名称...' : '搜索物料名称 / SKU 编码...'}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
@@ -1787,9 +1881,14 @@ export default function PricePage() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* 模板下载 */}
-          <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0' }}>
-            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>下载导入模板</div>
-            <div style={{ fontSize: 12, color: '#64748B' }}>约 28 KB · 含示例数据</div>
+          <div
+            style={{ padding: 12, background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0', cursor: 'pointer' }}
+            onClick={() => downloadImportTemplate()}
+            role="button"
+            tabIndex={0}
+          >
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>📥 下载导入模板</div>
+            <div style={{ fontSize: 12, color: '#64748B' }}>点击下载 · .xlsx 格式 · 含示例数据</div>
           </div>
 
           {/* 文件上传 */}

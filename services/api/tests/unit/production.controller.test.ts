@@ -101,6 +101,62 @@ describe('GET /api/production/tasks', () => {
   });
 });
 
+// ── PUT /api/production/schedule/:date/adjust ─────────────────────────────
+
+describe('PUT /api/production/schedule/:date/adjust', () => {
+  it('accepts expectedUpdatedAt and passes adjustment payload to service', async () => {
+    MockService.prototype.adjustSchedule = jest.fn().mockResolvedValue({ updated: 1 });
+
+    const res = await request(app)
+      .put('/api/production/schedule/2026-04-02/adjust')
+      .set('Authorization', authHeader({ roles: ['supervisor'] }))
+      .send({
+        adjustments: [
+          {
+            scheduleId: 101,
+            workerId: 201,
+            plannedQty: '12.50',
+            expectedUpdatedAt: '2026-04-02 09:30:00',
+          },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    expect(MockService.prototype.adjustSchedule).toHaveBeenCalledWith(
+      '2026-04-02',
+      [
+        {
+          scheduleId: 101,
+          workerId: 201,
+          workstationId: undefined,
+          plannedQty: '12.50',
+          expectedUpdatedAt: '2026-04-02 09:30:00',
+        },
+      ],
+    );
+  });
+
+  it('rejects invalid expectedUpdatedAt format', async () => {
+    MockService.prototype.adjustSchedule = jest.fn();
+
+    const res = await request(app)
+      .put('/api/production/schedule/2026-04-02/adjust')
+      .set('Authorization', authHeader({ roles: ['supervisor'] }))
+      .send({
+        adjustments: [
+          {
+            scheduleId: 101,
+            plannedQty: '12.50',
+            expectedUpdatedAt: '2026/04/02 09:30:00',
+          },
+        ],
+      });
+
+    expect(res.status).toBe(400);
+    expect(MockService.prototype.adjustSchedule).not.toHaveBeenCalled();
+  });
+});
+
 // ── POST /api/production/tasks/:id/exception ──────────────────────────────
 
 describe('POST /api/production/tasks/:id/exception', () => {
@@ -171,6 +227,15 @@ describe('POST /api/production/tasks/:id/exception', () => {
 
       expect(res.status).toBe(200);
     }
+  });
+
+  it('非 worker/supervisor/boss 角色返回 403', async () => {
+    const res = await request(app)
+      .post('/api/production/tasks/1/exception')
+      .set('Authorization', authHeader({ roles: ['sales'] }))
+      .send(validPayload);
+
+    expect(res.status).toBe(403);
   });
 });
 

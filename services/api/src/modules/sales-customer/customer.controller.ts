@@ -21,12 +21,16 @@ const ExportQuerySchema = z.object({
 });
 
 const CreateSchema = z.object({
-  code: z.string().min(1).max(50),
+  code: z.string().min(1).max(50).optional(),
   name: z.string().min(1).max(200),
   grade: z.enum(['VIP', 'A', 'B', 'C']).optional(),
   contact: z.string().max(100).optional(),
   phone: z.string().max(30).optional(),
-  email: z.string().email().max(200).optional(),
+  email: z.string().max(200).optional().nullable()
+    .transform((v): string | undefined => (v == null || v === '' ? undefined : v))
+    .refine((v) => v == null || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), {
+      message: 'Invalid email',
+    }),
   address: z.string().max(300).optional(),
   region: z.string().max(100).optional(),
   creditLimit: z.string().regex(/^\d+(\.\d{1,2})?$/).optional().nullable(),

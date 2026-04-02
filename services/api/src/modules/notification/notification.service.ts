@@ -1,3 +1,4 @@
+import { Response } from 'express';
 import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
@@ -6,6 +7,79 @@ import { NotificationEntity } from './notification.entity';
 
 export type NotificationType = NotificationEntity['type'];
 
+type NotificationStreamPayload =
+  | {
+    type: 'notification.created';
+    data: {
+      notification: {
+        id: number;
+        type: NotificationType;
+        title: string;
+        content: string;
+        isRead: boolean;
+        relatedType?: string;
+        relatedId?: number;
+        createdAt: string;
+      };
+      unreadCount: number;
+    };
+  }
+  | {
+    type: 'notification.read';
+    data: {
+      id: number;
+      unreadCount: number;
+    };
+  }
+  | {
+    type: 'notification.all_read';
+    data: {
+      unreadCount: number;
+    };
+  }
+  | {
+    type: 'heartbeat';
+    data: {
+      ts: string;
+    };
+  };
+
+class NotificationStreamRegistry {
+  private readonly clients = new Map<string, Set<Response>>();
+
+  subscribe(tenantId: number, userId: number, res: Response): () => void {
+    const key = this.getKey(tenantId, userId);
+    const bucket = this.clients.get(key) ?? new Set<Response>();
+    bucket.add(res);
+    this.clients.set(key, bucket);
+
+    return () => {
+      const current = this.clients.get(key);
+      if (!current) return;
+      current.delete(res);
+      if (current.size === 0) {
+        this.clients.delete(key);
+      }
+    };
+  }
+
+  emit(tenantId: number, userId: number, payload: NotificationStreamPayload): void {
+    const bucket = this.clients.get(this.getKey(tenantId, userId));
+    if (!bucket?.size) return;
+
+    const frame = `event: ${payload.type}\ndata: ${JSON.stringify(payload)}\n\n`;
+    for (const res of bucket) {
+      res.write(frame);
+    }
+  }
+
+  private getKey(tenantId: number, userId: number): string {
+    return `${tenantId}:${userId}`;
+  }
+}
+
+const streamRegistry = new NotificationStreamRegistry();
+
 export class NotificationService {
   private readonly tenantId: number;
   private readonly userId: number;
@@ -13,6 +87,44 @@ export class NotificationService {
   constructor(ctx: TenantContext) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+  }
+
+  private toStreamNotification(notification: NotificationEntity) {
+    return {
+      id: notification.id,
+      type: notification.type,
+      title: notification.title,
+      content: notification.content,
+      isRead: Boolean(notification.is_read),
+      relatedType: notification.related_type,
+      relatedId: notification.related_id,
+      createdAt: new Date(notification.created_at).toISOString(),
+    };
+  }
+
+  private async getNotificationById(
+    id: number,
+    userId = this.userId,
+  ): Promise<NotificationEntity | null> {
+    const rows = await AppDataSource.query<NotificationEntity[]>(
+      `SELECT id, tenant_id, user_id, type, title, content, is_read,
+              related_type, related_id, created_at
+       FROM notifications
+       WHERE id = ? AND tenant_id = ? AND user_id = ?
+       LIMIT 1`,
+      [id, this.tenantId, userId],
+    );
+    return rows[0] ?? null;
+  }
+
+  private async getUnreadCountForUser(userId = this.userId): Promise<number> {
+    const rows = await AppDataSource.query<Array<{ count: number }>>(
+      `SELECT COUNT(*) AS count
+       FROM notifications
+       WHERE tenant_id = ? AND user_id = ? AND is_read = 0`,
+      [this.tenantId, userId],
+    );
+    return Number(rows[0]?.count ?? 0);
   }
 
   /**
@@ -41,7 +153,24 @@ export class NotificationService {
         relatedId ?? null,
       ],
     );
-    return { id: Number(result.insertId) };
+
+    const id = Number(result.insertId);
+    const [notification, unreadCount] = await Promise.all([
+      this.getNotificationById(id, targetUserId),
+      this.getUnreadCountForUser(targetUserId),
+    ]);
+
+    if (notification) {
+      streamRegistry.emit(this.tenantId, targetUserId, {
+        type: 'notification.created',
+        data: {
+          notification: this.toStreamNotification(notification),
+          unreadCount,
+        },
+      });
+    }
+
+    return { id };
   }
 
   /**
@@ -50,24 +179,34 @@ export class NotificationService {
   async listForUser(
     page: number,
     pageSize: number,
+    isRead?: boolean,
   ): Promise<{ list: NotificationEntity[]; total: number }> {
     const offset = (page - 1) * pageSize;
+    const conditions = ['tenant_id = ?', 'user_id = ?'];
+    const params: Array<number | boolean> = [this.tenantId, this.userId];
+
+    if (isRead !== undefined) {
+      conditions.push('is_read = ?');
+      params.push(isRead);
+    }
+
+    const where = conditions.join(' AND ');
 
     const [list, countRows] = await Promise.all([
       AppDataSource.query<NotificationEntity[]>(
         `SELECT id, tenant_id, user_id, type, title, content, is_read,
                 related_type, related_id, created_at
          FROM notifications
-         WHERE tenant_id = ? AND user_id = ?
+         WHERE ${where}
          ORDER BY created_at DESC
          LIMIT ? OFFSET ?`,
-        [this.tenantId, this.userId, pageSize, offset],
+        [...params, pageSize, offset],
       ),
       AppDataSource.query<Array<{ total: number }>>(
         `SELECT COUNT(*) AS total
          FROM notifications
-         WHERE tenant_id = ? AND user_id = ?`,
-        [this.tenantId, this.userId],
+         WHERE ${where}`,
+        params,
       ),
     ]);
 
@@ -82,8 +221,8 @@ export class NotificationService {
    * 确保该通知属于当前租户且当前用户，防止越权修改。
    */
   async markAsRead(id: number): Promise<void> {
-    const rows = await AppDataSource.query<Array<{ id: number }>>(
-      `SELECT id FROM notifications
+    const rows = await AppDataSource.query<Array<{ id: number; is_read: number }>>(
+      `SELECT id, is_read FROM notifications
        WHERE id = ? AND tenant_id = ? AND user_id = ?
        LIMIT 1`,
       [id, this.tenantId, this.userId],
@@ -98,29 +237,55 @@ export class NotificationService {
        WHERE id = ? AND tenant_id = ? AND user_id = ?`,
       [id, this.tenantId, this.userId],
     );
+
+    if (!rows[0]?.is_read) {
+      streamRegistry.emit(this.tenantId, this.userId, {
+        type: 'notification.read',
+        data: {
+          id,
+          unreadCount: await this.getUnreadCountForUser(),
+        },
+      });
+    }
   }
 
   /**
    * 将当前用户所有未读通知批量标记为已读。
    */
   async markAllAsRead(): Promise<void> {
-    await AppDataSource.query(
+    const result = await AppDataSource.query<{ affectedRows?: number }>(
       `UPDATE notifications SET is_read = 1
        WHERE tenant_id = ? AND user_id = ? AND is_read = 0`,
       [this.tenantId, this.userId],
     );
+
+    if (Number(result.affectedRows ?? 0) > 0) {
+      streamRegistry.emit(this.tenantId, this.userId, {
+        type: 'notification.all_read',
+        data: {
+          unreadCount: await this.getUnreadCountForUser(),
+        },
+      });
+    }
   }
 
   /**
    * 获取当前用户未读通知数量。
    */
   async getUnreadCount(): Promise<number> {
-    const rows = await AppDataSource.query<Array<{ count: number }>>(
-      `SELECT COUNT(*) AS count
-       FROM notifications
-       WHERE tenant_id = ? AND user_id = ? AND is_read = 0`,
-      [this.tenantId, this.userId],
-    );
-    return Number(rows[0]?.count ?? 0);
+    return this.getUnreadCountForUser();
+  }
+
+  subscribe(res: Response): () => void {
+    return streamRegistry.subscribe(this.tenantId, this.userId, res);
+  }
+
+  emitHeartbeat(): void {
+    streamRegistry.emit(this.tenantId, this.userId, {
+      type: 'heartbeat',
+      data: {
+        ts: new Date().toISOString(),
+      },
+    });
   }
 }

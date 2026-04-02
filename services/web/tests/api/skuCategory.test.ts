@@ -4,7 +4,7 @@
  * 覆盖范围：
  *   useSkuCategoryList  — GET /api/sku-categories
  *   useCreateCategory   — POST /api/sku-categories
- *   useUpdateCategory   — PUT /api/sku-categories/:id
+ *   useUpdateCategory   — PATCH /api/sku-categories/:id
  *   useDeleteCategory   — DELETE /api/sku-categories/:id
  */
 
@@ -17,7 +17,7 @@ vi.mock('@/utils/request', () => ({
   default: {
     get: vi.fn(),
     post: vi.fn(),
-    put: vi.fn(),
+    patch: vi.fn(),
     delete: vi.fn(),
   },
 }));
@@ -60,7 +60,7 @@ const mockChildCategory: SkuCategoryFull = {
 
 const mockGet = request.get as ReturnType<typeof vi.fn>;
 const mockPost = request.post as ReturnType<typeof vi.fn>;
-const mockPut = request.put as ReturnType<typeof vi.fn>;
+const mockPatch = request.patch as ReturnType<typeof vi.fn>;
 const mockDelete = request.delete as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -207,9 +207,9 @@ describe('useCreateCategory', () => {
 describe('useUpdateCategory', () => {
   const updateArgs = { id: 1, payload: { name: '面料（改）', sortOrder: 10 } satisfies UpdateCategoryPayload };
 
-  it('调用 PUT /api/sku-categories/:id 并返回更新后类目', async () => {
+  it('调用 PATCH /api/sku-categories/:id 并返回更新后类目', async () => {
     const updated: SkuCategoryFull = { ...mockCategory, name: '面料（改）', sortOrder: 10 };
-    mockPut.mockResolvedValueOnce(updated);
+    mockPatch.mockResolvedValueOnce(updated);
 
     const { result } = renderHook(() => useUpdateCategory(), {
       wrapper: createWrapper(),
@@ -219,14 +219,14 @@ describe('useUpdateCategory', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockPut).toHaveBeenCalledTimes(1);
-    expect(mockPut).toHaveBeenCalledWith('/api/sku-categories/1', updateArgs.payload);
+    expect(mockPatch).toHaveBeenCalledTimes(1);
+    expect(mockPatch).toHaveBeenCalledWith('/api/sku-categories/1', updateArgs.payload);
     expect(result.current.data).toEqual(updated);
   });
 
   it('只更新 name 时 sortOrder 不传也应正常', async () => {
     const nameOnlyPayload: UpdateCategoryPayload = { name: '仅改名' };
-    mockPut.mockResolvedValueOnce({ ...mockCategory, name: '仅改名' });
+    mockPatch.mockResolvedValueOnce({ ...mockCategory, name: '仅改名' });
 
     const { result } = renderHook(() => useUpdateCategory(), {
       wrapper: createWrapper(),
@@ -235,11 +235,11 @@ describe('useUpdateCategory', () => {
     result.current.mutate({ id: 1, payload: nameOnlyPayload });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockPut).toHaveBeenCalledWith('/api/sku-categories/1', nameOnlyPayload);
+    expect(mockPatch).toHaveBeenCalledWith('/api/sku-categories/1', nameOnlyPayload);
   });
 
   it('更新系统预置类目时服务端返回 403 则 isError 为 true', async () => {
-    mockPut.mockRejectedValueOnce(new Error('禁止修改系统预置类目'));
+    mockPatch.mockRejectedValueOnce(new Error('禁止修改系统预置类目'));
 
     const { result } = renderHook(() => useUpdateCategory(), {
       wrapper: createWrapper(),
@@ -251,7 +251,7 @@ describe('useUpdateCategory', () => {
   });
 
   it('更新成功后触发列表缓存失效', async () => {
-    mockPut.mockResolvedValueOnce({ ...mockCategory, name: '更新后' });
+    mockPatch.mockResolvedValueOnce({ ...mockCategory, name: '更新后' });
 
     const { result } = renderHook(() => useUpdateCategory(), {
       wrapper: createWrapper(),
@@ -342,9 +342,9 @@ describe('skuCategoryApi 原始请求函数', () => {
 
   it('update 正确拼接 id 到路径并透传 payload', async () => {
     const payload: UpdateCategoryPayload = { name: '新名称' };
-    mockPut.mockResolvedValueOnce({ ...mockCategory, ...payload });
+    mockPatch.mockResolvedValueOnce({ ...mockCategory, ...payload });
     await skuCategoryApi.update(42, payload);
-    expect(mockPut).toHaveBeenCalledWith('/api/sku-categories/42', payload);
+    expect(mockPatch).toHaveBeenCalledWith('/api/sku-categories/42', payload);
   });
 
   it('delete 正确拼接 id 到路径', async () => {

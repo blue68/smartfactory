@@ -9,6 +9,10 @@ import { ResponseCode } from '../../shared/ApiResponse';
 export interface MatchDiffItem {
   skuId: number;
   skuName: string;
+  hasDyeLot?: boolean;
+  deliveryDyeLots?: string[];
+  receiptDyeLots?: string[];
+  isDyeLotMismatch?: boolean;
   poQty: string;
   poUnit: string;
   poPrice: string;
@@ -35,9 +39,10 @@ export interface ThreeWayMatchResult {
   diffItems: MatchDiffItem[];
   createdAt: Date;
   confirmedAt: Date | null;
-  confirmedBy: number | null;
+  confirmedBy: string | null;
   diffReason: string | null;
   diffNotes: string | null;
+  supplierName?: string | null;
 }
 
 // ─── Three-Way Match Service ────────────────────────────────────
@@ -45,6 +50,11 @@ export interface ThreeWayMatchResult {
 export class ThreeWayMatchService {
   private readonly tenantId: number;
   private readonly userId: number;
+  private static purchaseReceiptDeliveryColumn: 'delivery_note_id' | 'dn_id' | null = null;
+  private static purchaseReceiptItemsTableSupported: boolean | null = null;
+  private static deliveryNoteItemDyeLotSupported: boolean | null = null;
+  private static purchaseReceiptItemDyeLotSupported: boolean | null = null;
+  private static incomingInspectionItemDyeLotSupported: boolean | null = null;
 
   constructor(ctx: TenantContext) {
     this.tenantId = ctx.tenantId;
@@ -71,6 +81,9 @@ export class ThreeWayMatchService {
       this.getDNItems(deliveryNoteId),
       this.getReceiptItems(receiptId),
     ]);
+    const normalizedPoItems = poItems.map((item) => ({ ...item, sku_id: Number(item.sku_id) }));
+    const normalizedDnItems = dnItems.map((item) => ({ ...item, sku_id: Number(item.sku_id) }));
+    const normalizedReceiptItems = receiptItems.map((item) => ({ ...item, sku_id: Number(item.sku_id) }));
 
     // 3. 逐行比对
     const diffItems: MatchDiffItem[] = [];
@@ -79,15 +92,15 @@ export class ThreeWayMatchService {
     let hasPriceWarning = false;
 
     const allSkuIds = new Set([
-      ...poItems.map((i) => i.sku_id),
-      ...dnItems.map((i) => i.sku_id),
-      ...receiptItems.map((i) => i.sku_id),
+      ...normalizedPoItems.map((i) => i.sku_id),
+      ...normalizedDnItems.map((i) => i.sku_id),
+      ...normalizedReceiptItems.map((i) => i.sku_id),
     ]);
 
     for (const skuId of allSkuIds) {
-      const po = poItems.find((i) => i.sku_id === skuId);
-      const dn = dnItems.find((i) => i.sku_id === skuId);
-      const receipt = receiptItems.find((i) => i.sku_id === skuId);
+      const po = normalizedPoItems.find((i) => i.sku_id === skuId);
+      const dn = normalizedDnItems.find((i) => i.sku_id === skuId);
+      const receipt = normalizedReceiptItems.find((i) => i.sku_id === skuId);
 
       const poQty = new Decimal(po?.qty_ordered ?? 0);
       const dnQty = new Decimal(dn?.qty_delivered ?? 0);
@@ -97,6 +110,11 @@ export class ThreeWayMatchService {
 
       const qtyDiff = receiptQty.minus(poQty);
       const priceDiff = dnPrice.minus(poPrice);
+      const deliveryDyeLots = Array.isArray(dn?.dye_lot_nos) ? dn.dye_lot_nos : [];
+      const receiptDyeLots = Array.isArray(receipt?.dye_lot_nos) ? receipt.dye_lot_nos : [];
+      const hasDyeLot = Boolean(Number(po?.has_dye_lot ?? dn?.has_dye_lot ?? 0));
+      const isDyeLotMismatch = hasDyeLot
+        && deliveryDyeLots.join('|') !== receiptDyeLots.join('|');
 
       // 价格异常检测：超历史均价 20%
       const historicalAvgPrice = await this.getHistoricalAvgPrice(skuId);
@@ -106,10 +124,15 @@ export class ThreeWayMatchService {
       if (!qtyDiff.isZero()) hasQtyDiff = true;
       if (!priceDiff.isZero()) hasPriceDiff = true;
       if (isPriceAnomaly) hasPriceWarning = true;
+      if (isDyeLotMismatch) hasQtyDiff = true;
 
       diffItems.push({
         skuId,
         skuName: po?.sku_name ?? dn?.sku_name ?? `SKU#${skuId}`,
+        hasDyeLot,
+        deliveryDyeLots,
+        receiptDyeLots,
+        isDyeLotMismatch,
         poQty: poQty.toFixed(4),
         poUnit: po?.purchase_unit ?? '',
         poPrice: poPrice.toFixed(2),
@@ -160,40 +183,96 @@ export class ThreeWayMatchService {
    * 列出三单匹配记录（待处理/已匹配）
    */
   async listMatchRecords(params: {
-    status?: string; supplierId?: number; page: number; pageSize: number;
+    status?: string; supplierId?: number; poId?: number; receiptId?: number; page: number; pageSize: number;
   }): Promise<{ list: any[]; total: number }> {
     const conds = ['m.tenant_id = ?'];
     const p: unknown[] = [this.tenantId];
 
     if (params.status) { conds.push('m.match_status = ?'); p.push(params.status); }
     if (params.supplierId) { conds.push('po.supplier_id = ?'); p.push(params.supplierId); }
+    if (params.poId) { conds.push('m.po_id = ?'); p.push(params.poId); }
+    if (params.receiptId) { conds.push('m.receipt_id = ?'); p.push(params.receiptId); }
 
     const where = conds.join(' AND ');
     const offset = (params.page - 1) * params.pageSize;
 
     const [list, countRows] = await Promise.all([
-      AppDataSource.query(
-        `SELECT m.*, po.po_no, po.supplier_id,
-                sup.name AS supplierName,
-                dn.delivery_no, r.receipt_no
+      AppDataSource.query<Array<Record<string, unknown>>>(
+        `SELECT
+           m.id AS matchId,
+           m.po_id AS poId,
+           po.po_no AS poNo,
+           m.delivery_note_id AS deliveryNoteId,
+           dn.delivery_no AS deliveryNo,
+           m.receipt_id AS receiptId,
+           r.receipt_no AS receiptNo,
+           m.match_status AS matchStatus,
+           m.qty_diff_detail AS diffItemsJson,
+           m.created_at AS createdAt,
+           m.confirmed_at AS confirmedAt,
+           confirmer.username AS confirmedBy,
+           m.diff_reason AS diffReason,
+           m.diff_notes AS diffNotes,
+           po.supplier_id AS supplierId,
+           sup.name AS supplierName
          FROM three_way_match_records m
-         INNER JOIN purchase_orders po ON po.id = m.po_id
-         INNER JOIN suppliers sup ON sup.id = po.supplier_id
-         INNER JOIN delivery_notes dn ON dn.id = m.delivery_note_id
-         INNER JOIN purchase_receipts r ON r.id = m.receipt_id
+         INNER JOIN purchase_orders po ON po.id = m.po_id AND po.tenant_id = m.tenant_id
+         INNER JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
+         INNER JOIN delivery_notes dn ON dn.id = m.delivery_note_id AND dn.tenant_id = m.tenant_id
+         INNER JOIN purchase_receipts r ON r.id = m.receipt_id AND r.tenant_id = m.tenant_id
+         LEFT JOIN users confirmer ON confirmer.id = m.confirmed_by AND confirmer.tenant_id = m.tenant_id
          WHERE ${where}
          ORDER BY m.id DESC LIMIT ? OFFSET ?`,
         [...p, params.pageSize, offset],
       ),
       AppDataSource.query<Array<{ total: number }>>(
         `SELECT COUNT(*) AS total FROM three_way_match_records m
-         INNER JOIN purchase_orders po ON po.id = m.po_id
+         INNER JOIN purchase_orders po ON po.id = m.po_id AND po.tenant_id = m.tenant_id
          WHERE ${where}`,
         p,
       ),
     ]);
 
-    return { list, total: Number(countRows[0]?.total ?? 0) };
+    return {
+      list: list.map((row) => this.mapMatchRow(row)),
+      total: Number(countRows[0]?.total ?? 0),
+    };
+  }
+
+  async getMatchById(matchId: number): Promise<ThreeWayMatchResult> {
+    const [row] = await AppDataSource.query<Array<Record<string, unknown>>>(
+      `SELECT
+         m.id AS matchId,
+         m.po_id AS poId,
+         po.po_no AS poNo,
+         m.delivery_note_id AS deliveryNoteId,
+         dn.delivery_no AS deliveryNo,
+         m.receipt_id AS receiptId,
+         r.receipt_no AS receiptNo,
+         m.match_status AS matchStatus,
+         m.qty_diff_detail AS diffItemsJson,
+         m.created_at AS createdAt,
+         m.confirmed_at AS confirmedAt,
+         confirmer.username AS confirmedBy,
+         m.diff_reason AS diffReason,
+         m.diff_notes AS diffNotes,
+         sup.name AS supplierName
+       FROM three_way_match_records m
+       INNER JOIN purchase_orders po ON po.id = m.po_id AND po.tenant_id = m.tenant_id
+       INNER JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
+       INNER JOIN delivery_notes dn ON dn.id = m.delivery_note_id AND dn.tenant_id = m.tenant_id
+       INNER JOIN purchase_receipts r ON r.id = m.receipt_id AND r.tenant_id = m.tenant_id
+       LEFT JOIN users confirmer ON confirmer.id = m.confirmed_by AND confirmer.tenant_id = m.tenant_id
+       WHERE m.id = ? AND m.tenant_id = ?
+       LIMIT 1`,
+      [matchId, this.tenantId],
+    );
+
+    if (!row) {
+      throw AppError.notFound('三单匹配记录不存在', ResponseCode.NOT_FOUND);
+    }
+
+    return this.mapMatchRow(row);
   }
 
   /**
@@ -229,14 +308,14 @@ export class ThreeWayMatchService {
       'SELECT po_id FROM delivery_notes WHERE id = ? AND tenant_id = ? LIMIT 1',
       [dnId, this.tenantId],
     );
-    if (!dn || dn.po_id !== poId) {
+    if (!dn || Number(dn.po_id) !== poId) {
       throw AppError.badRequest('送货单与采购订单不匹配', ResponseCode.THREE_WAY_MATCH_DIFF);
     }
     const [receipt] = await AppDataSource.query<Array<{ po_id: number }>>(
       'SELECT po_id FROM purchase_receipts WHERE id = ? AND tenant_id = ? LIMIT 1',
       [receiptId, this.tenantId],
     );
-    if (!receipt || receipt.po_id !== poId) {
+    if (!receipt || Number(receipt.po_id) !== poId) {
       throw AppError.badRequest('入库单与采购订单不匹配', ResponseCode.THREE_WAY_MATCH_DIFF);
     }
   }
@@ -244,9 +323,10 @@ export class ThreeWayMatchService {
   private async getPOItems(poId: number) {
     return AppDataSource.query<Array<{
       sku_id: number; sku_name: string; qty_ordered: string;
+      has_dye_lot: number;
       purchase_unit: string; unit_price: string;
     }>>(
-      `SELECT poi.sku_id, s.name AS sku_name, poi.qty_ordered,
+      `SELECT poi.sku_id, s.name AS sku_name, s.has_dye_lot, poi.qty_ordered,
               poi.purchase_unit, poi.unit_price
        FROM purchase_order_items poi
        INNER JOIN skus s ON s.id = poi.sku_id
@@ -256,27 +336,125 @@ export class ThreeWayMatchService {
   }
 
   private async getDNItems(dnId: number) {
-    return AppDataSource.query<Array<{
-      sku_id: number; sku_name: string; qty_delivered: string;
-      unit_price: string;
+    const supportsDeliveryItemDyeLot = await this.hasDeliveryNoteItemDyeLotColumn();
+    const rows = await AppDataSource.query<Array<{
+      sku_id: number; sku_name: string; has_dye_lot: number; qty_delivered: string;
+      unit_price: string; dye_lot_no?: string | null;
     }>>(
-      `SELECT dni.sku_id, s.name AS sku_name, dni.qty_delivered, dni.unit_price
+      `SELECT
+         dni.sku_id,
+         s.name AS sku_name,
+         s.has_dye_lot,
+         dni.qty_delivered,
+         dni.unit_price,
+         ${supportsDeliveryItemDyeLot ? 'dni.dye_lot_no AS dye_lot_no' : 'NULL AS dye_lot_no'}
        FROM delivery_note_items dni
        INNER JOIN skus s ON s.id = dni.sku_id
        WHERE dni.delivery_note_id = ? AND dni.tenant_id = ?`,
       [dnId, this.tenantId],
     );
+
+    const grouped = new Map<number, {
+      sku_id: number;
+      sku_name: string;
+      has_dye_lot: number;
+      qty_delivered: Decimal;
+      unit_price: string;
+      dye_lot_nos: Set<string>;
+    }>();
+    for (const row of rows) {
+      const skuId = Number(row.sku_id);
+      const existing = grouped.get(skuId) ?? {
+        sku_id: skuId,
+        sku_name: row.sku_name,
+        has_dye_lot: Number(row.has_dye_lot ?? 0),
+        qty_delivered: new Decimal(0),
+        unit_price: String(row.unit_price ?? '0'),
+        dye_lot_nos: new Set<string>(),
+      };
+      existing.qty_delivered = existing.qty_delivered.plus(String(row.qty_delivered ?? '0'));
+      const dyeLotNo = String(row.dye_lot_no ?? '').trim();
+      if (dyeLotNo) existing.dye_lot_nos.add(dyeLotNo);
+      grouped.set(skuId, existing);
+    }
+
+    return Array.from(grouped.values()).map((row) => ({
+      ...row,
+      qty_delivered: row.qty_delivered.toFixed(4),
+      dye_lot_nos: Array.from(row.dye_lot_nos).sort(),
+    }));
   }
 
   private async getReceiptItems(receiptId: number) {
-    // 入库单明细从 inventory_transactions 中取（关联 reference_id = receipt）
-    return AppDataSource.query<Array<{ sku_id: number; qty_received: string }>>(
-      `SELECT sku_id, SUM(qty_stock_unit) AS qty_received
-       FROM inventory_transactions
-       WHERE reference_type = 'purchase_receipt' AND reference_id = ? AND tenant_id = ?
-       GROUP BY sku_id`,
+    if (await this.hasPurchaseReceiptItemsTable()) {
+      const supportsReceiptItemDyeLot = await this.hasPurchaseReceiptItemDyeLotColumn();
+      const rows = await AppDataSource.query<Array<{
+        sku_id: number;
+        qty_received: string;
+        dye_lot_no?: string | null;
+      }>>(
+        `SELECT
+           sku_id,
+           qty_received,
+           ${supportsReceiptItemDyeLot ? 'dye_lot_no' : 'NULL AS dye_lot_no'}
+         FROM purchase_receipt_items
+         WHERE receipt_id = ? AND tenant_id = ?`,
+        [receiptId, this.tenantId],
+      );
+      // Some historical receipts were created without receipt-item rows.
+      // Fall back to inspection-pass aggregation so three-way match stays compatible.
+      if (rows.length > 0) {
+        return this.aggregateReceiptRows(rows);
+      }
+    }
+
+    const receiptDeliveryColumn = await this.getPurchaseReceiptDeliveryColumn();
+    const supportsInspectionItemDyeLot = await this.hasIncomingInspectionItemDyeLotColumn();
+    const rows = await AppDataSource.query<Array<{
+      sku_id: number;
+      qty_received: string;
+      dye_lot_no?: string | null;
+    }>>(
+      `SELECT
+         ii.sku_id,
+         ${supportsInspectionItemDyeLot ? 'ii.dye_lot_no' : 'NULL AS dye_lot_no'},
+         SUM(ii.qty_passed) AS qty_received
+       FROM purchase_receipts pr
+       INNER JOIN incoming_inspection_records ir
+         ON ir.delivery_note_id = pr.${receiptDeliveryColumn} AND ir.tenant_id = pr.tenant_id
+       INNER JOIN incoming_inspection_items ii
+         ON ii.inspection_id = ir.id AND ii.tenant_id = pr.tenant_id
+       WHERE pr.id = ? AND pr.tenant_id = ?
+         AND CAST(ii.qty_passed AS DECIMAL(16,4)) > 0
+       GROUP BY ii.sku_id, ii.dye_lot_no`,
       [receiptId, this.tenantId],
     );
+    return this.aggregateReceiptRows(rows);
+  }
+
+  private aggregateReceiptRows(rows: Array<{ sku_id: number; qty_received: string; dye_lot_no?: string | null }>) {
+    const grouped = new Map<number, {
+      sku_id: number;
+      qty_received: Decimal;
+      dye_lot_nos: Set<string>;
+    }>();
+    for (const row of rows) {
+      const skuId = Number(row.sku_id);
+      const current = grouped.get(skuId) ?? {
+        sku_id: skuId,
+        qty_received: new Decimal(0),
+        dye_lot_nos: new Set<string>(),
+      };
+      current.qty_received = current.qty_received.plus(String(row.qty_received ?? '0'));
+      const dyeLotNo = String(row.dye_lot_no ?? '').trim();
+      if (dyeLotNo) current.dye_lot_nos.add(dyeLotNo);
+      grouped.set(skuId, current);
+    }
+    return Array.from(grouped.values()).map((row) => ({
+      sku_id: row.sku_id,
+      qty_received: row.qty_received.toFixed(4),
+      dye_lot_nos: Array.from(row.dye_lot_nos).sort(),
+    }));
   }
 
   private async getHistoricalAvgPrice(skuId: number): Promise<Decimal | null> {
@@ -346,5 +524,124 @@ export class ThreeWayMatchService {
       'SELECT receipt_no FROM purchase_receipts WHERE id = ? LIMIT 1', [receiptId],
     );
     return r ?? { receipt_no: '' };
+  }
+
+  private mapMatchRow(row: Record<string, unknown>): ThreeWayMatchResult {
+    const rawDiffItems = row.diffItemsJson;
+    let diffItems: MatchDiffItem[] = [];
+    if (typeof rawDiffItems === 'string' && rawDiffItems.trim()) {
+      try {
+        diffItems = JSON.parse(rawDiffItems) as MatchDiffItem[];
+      } catch {
+        diffItems = [];
+      }
+    } else if (Array.isArray(rawDiffItems)) {
+      diffItems = rawDiffItems as MatchDiffItem[];
+    }
+
+    return {
+      matchId: Number(row.matchId),
+      poId: Number(row.poId),
+      poNo: String(row.poNo ?? ''),
+      deliveryNoteId: Number(row.deliveryNoteId),
+      deliveryNo: String(row.deliveryNo ?? ''),
+      receiptId: Number(row.receiptId),
+      receiptNo: String(row.receiptNo ?? ''),
+      matchStatus: String(row.matchStatus ?? 'pending') as MatchStatus,
+      diffItems,
+      createdAt: new Date(String(row.createdAt ?? '')),
+      confirmedAt: row.confirmedAt ? new Date(String(row.confirmedAt)) : null,
+      confirmedBy: row.confirmedBy ? String(row.confirmedBy) : null,
+      diffReason: row.diffReason ? String(row.diffReason) : null,
+      diffNotes: row.diffNotes ? String(row.diffNotes) : null,
+      supplierName: row.supplierName ? String(row.supplierName) : null,
+    };
+  }
+
+  private async getPurchaseReceiptDeliveryColumn(): Promise<'delivery_note_id' | 'dn_id'> {
+    if (ThreeWayMatchService.purchaseReceiptDeliveryColumn) {
+      return ThreeWayMatchService.purchaseReceiptDeliveryColumn;
+    }
+
+    const rows = await AppDataSource.query<Array<{ column_name: string }>>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = DATABASE()
+         AND table_name = 'purchase_receipts'
+         AND column_name IN ('delivery_note_id', 'dn_id')`,
+    );
+
+    const columns = new Set(rows.map((row) => String(row.column_name)));
+    ThreeWayMatchService.purchaseReceiptDeliveryColumn = columns.has('delivery_note_id')
+      ? 'delivery_note_id'
+      : 'dn_id';
+    return ThreeWayMatchService.purchaseReceiptDeliveryColumn;
+  }
+
+  private async hasPurchaseReceiptItemsTable(): Promise<boolean> {
+    if (ThreeWayMatchService.purchaseReceiptItemsTableSupported !== null) {
+      return ThreeWayMatchService.purchaseReceiptItemsTableSupported;
+    }
+
+    const rows = await AppDataSource.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(*) AS cnt
+       FROM information_schema.tables
+       WHERE table_schema = DATABASE()
+         AND table_name = 'purchase_receipt_items'`,
+    );
+
+    ThreeWayMatchService.purchaseReceiptItemsTableSupported = Number(rows[0]?.cnt ?? 0) > 0;
+    return ThreeWayMatchService.purchaseReceiptItemsTableSupported;
+  }
+
+  private async hasDeliveryNoteItemDyeLotColumn(): Promise<boolean> {
+    if (ThreeWayMatchService.deliveryNoteItemDyeLotSupported !== null) {
+      return ThreeWayMatchService.deliveryNoteItemDyeLotSupported;
+    }
+
+    const rows = await AppDataSource.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(*) AS cnt
+         FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'delivery_note_items'
+          AND column_name = 'dye_lot_no'`,
+    );
+
+    ThreeWayMatchService.deliveryNoteItemDyeLotSupported = Number(rows[0]?.cnt ?? 0) > 0;
+    return ThreeWayMatchService.deliveryNoteItemDyeLotSupported;
+  }
+
+  private async hasPurchaseReceiptItemDyeLotColumn(): Promise<boolean> {
+    if (ThreeWayMatchService.purchaseReceiptItemDyeLotSupported !== null) {
+      return ThreeWayMatchService.purchaseReceiptItemDyeLotSupported;
+    }
+
+    const rows = await AppDataSource.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(*) AS cnt
+         FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'purchase_receipt_items'
+          AND column_name = 'dye_lot_no'`,
+    );
+
+    ThreeWayMatchService.purchaseReceiptItemDyeLotSupported = Number(rows[0]?.cnt ?? 0) > 0;
+    return ThreeWayMatchService.purchaseReceiptItemDyeLotSupported;
+  }
+
+  private async hasIncomingInspectionItemDyeLotColumn(): Promise<boolean> {
+    if (ThreeWayMatchService.incomingInspectionItemDyeLotSupported !== null) {
+      return ThreeWayMatchService.incomingInspectionItemDyeLotSupported;
+    }
+
+    const rows = await AppDataSource.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(*) AS cnt
+         FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'incoming_inspection_items'
+          AND column_name = 'dye_lot_no'`,
+    );
+
+    ThreeWayMatchService.incomingInspectionItemDyeLotSupported = Number(rows[0]?.cnt ?? 0) > 0;
+    return ThreeWayMatchService.incomingInspectionItemDyeLotSupported;
   }
 }

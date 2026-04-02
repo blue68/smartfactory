@@ -541,7 +541,7 @@ export class AiService {
          ON sp.sku_id = bi.material_sku_id AND sp.tenant_id = bh.tenant_id AND sp.is_current = 1
        WHERE bh.tenant_id = ?
          AND s.name LIKE ?
-         AND bh.is_active = 1
+         AND bh.status = 'active'
        ORDER BY amount DESC
        LIMIT 30`,
       [this.tenantId, `%${searchName}%`],
@@ -604,7 +604,7 @@ export class AiService {
     if (orderEntity) {
       rows = await AppDataSource.query(
         `SELECT so.order_no, c.name AS customer_name, s.name AS sku_name,
-                soi.qty, s.stock_unit AS unit, so.status, so.expected_delivery
+                soi.qty_ordered AS qty, s.stock_unit AS unit, so.status, so.expected_delivery
          FROM sales_orders so
          INNER JOIN customers c ON c.id = so.customer_id
          INNER JOIN sales_order_items soi ON soi.order_id = so.id AND soi.tenant_id = so.tenant_id
@@ -616,7 +616,7 @@ export class AiService {
     } else if (isOverdueQuery) {
       rows = await AppDataSource.query(
         `SELECT so.order_no, c.name AS customer_name, s.name AS sku_name,
-                soi.qty, s.stock_unit AS unit, so.status, so.expected_delivery
+                soi.qty_ordered AS qty, s.stock_unit AS unit, so.status, so.expected_delivery
          FROM sales_orders so
          INNER JOIN customers c ON c.id = so.customer_id
          INNER JOIN sales_order_items soi ON soi.order_id = so.id AND soi.tenant_id = so.tenant_id
@@ -631,7 +631,7 @@ export class AiService {
     } else {
       rows = await AppDataSource.query(
         `SELECT so.order_no, c.name AS customer_name, s.name AS sku_name,
-                soi.qty, s.stock_unit AS unit, so.status, so.expected_delivery
+                soi.qty_ordered AS qty, s.stock_unit AS unit, so.status, so.expected_delivery
          FROM sales_orders so
          INNER JOIN customers c ON c.id = so.customer_id
          INNER JOIN sales_order_items soi ON soi.order_id = so.id AND soi.tenant_id = so.tenant_id

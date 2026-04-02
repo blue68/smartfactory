@@ -16,7 +16,10 @@ export default async function globalSetup(): Promise<void> {
   process.env.DB_USER = process.env.TEST_DB_USER ?? 'root';
   process.env.DB_PASSWORD = process.env.TEST_DB_PASSWORD ?? 'test123';
   process.env.REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://localhost:6379/1';
-  process.env.JWT_SECRET = 'test-jwt-secret-32chars-for-testing!!';
+  process.env.JWT_SECRET =
+    process.env.TEST_JWT_SECRET
+    ?? process.env.JWT_SECRET
+    ?? 'local-test-jwt-secret-key-2026-smartfactory-at-least-32-chars';
 
   console.info('[Test Setup] 测试环境初始化完成');
   console.info(`[Test Setup] DB: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`);

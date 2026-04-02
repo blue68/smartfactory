@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-03-18T06:14:04.051Z",
+  "checks": 93,
+  "pass": 90,
+  "fail": 3,
+  "issues": [
+    {
+      "name": "页面最小高度",
+      "actual": "900px",
+      "expected": "100vh"
+    },
+    {
+      "name": "输入框边框颜色(#E2E8F0)",
+      "actual": "#3B82F6",
+      "expected": "#E2E8F0"
+    },
+    {
+      "name": "375px卡片全高(100vh)",
+      "actual": "812px",
+      "expected": "100vh"
+    }
+  ]
+}

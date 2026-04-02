@@ -23,6 +23,12 @@ router.get(
   asyncHandler(notificationController.unreadCount.bind(notificationController)),
 );
 
+// GET /api/notifications/stream — SSE 实时通知流
+router.get(
+  '/stream',
+  asyncHandler(notificationController.stream.bind(notificationController)),
+);
+
 // PUT /api/notifications/read-all — 全部标记已读（固定路由，必须在 /:id/read 之前）
 router.put(
   '/read-all',

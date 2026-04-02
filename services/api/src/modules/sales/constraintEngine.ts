@@ -421,13 +421,48 @@ export class ConstraintEngine {
   // ── 加载租户阈值配置 ──────────────────────────────────────
 
   private async loadThresholds(): Promise<void> {
-    const [tenant] = await AppDataSource.query<Array<{ settings: string | null }>>(
+    const [tenant] = await AppDataSource.query<Array<{ settings: string | Record<string, unknown> | null }>>(
       'SELECT settings FROM tenants WHERE id = ? LIMIT 1',
       [this.tenantId],
     );
-    if (tenant?.settings) {
-      const cfg = JSON.parse(tenant.settings) as Partial<ConstraintThresholds>;
-      this.thresholds = { ...DEFAULT_THRESHOLDS, ...cfg };
+    if (!tenant?.settings) return;
+
+    const toFiniteNumber = (value: unknown, fallback: number): number => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : fallback;
+    };
+
+    try {
+      const rawCfg = typeof tenant.settings === 'string'
+        ? JSON.parse(tenant.settings)
+        : tenant.settings;
+
+      if (!rawCfg || typeof rawCfg !== 'object') return;
+
+      const cfg = rawCfg as Partial<Record<keyof ConstraintThresholds, unknown>>;
+      this.thresholds = {
+        maxInventoryTurnoverDays: toFiniteNumber(
+          cfg.maxInventoryTurnoverDays,
+          DEFAULT_THRESHOLDS.maxInventoryTurnoverDays,
+        ),
+        maxCapitalOccupation: toFiniteNumber(
+          cfg.maxCapitalOccupation,
+          DEFAULT_THRESHOLDS.maxCapitalOccupation,
+        ),
+        maxCapitalBudgetRatio: toFiniteNumber(
+          cfg.maxCapitalBudgetRatio,
+          DEFAULT_THRESHOLDS.maxCapitalBudgetRatio,
+        ),
+        maxCapacityLoadRatio: toFiniteNumber(
+          cfg.maxCapacityLoadRatio,
+          DEFAULT_THRESHOLDS.maxCapacityLoadRatio,
+        ),
+      };
+    } catch (err) {
+      console.warn(
+        `[ConstraintEngine] 解析 tenant.settings 失败，使用默认阈值 tenantId=${this.tenantId}:`,
+        (err as Error).message,
+      );
     }
   }
 }

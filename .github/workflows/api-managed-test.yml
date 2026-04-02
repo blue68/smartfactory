@@ -1,0 +1,75 @@
+name: API Managed Test
+
+on:
+  workflow_call:
+    inputs:
+      job_name:
+        required: true
+        type: string
+      test_command:
+        required: true
+        type: string
+
+jobs:
+  api-managed-test:
+    name: ${{ inputs.job_name }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: smart_factory_test
+          MYSQL_USER: sfuser
+          MYSQL_PASSWORD: sfpass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=30s
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+
+    env:
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: smart_factory_test
+      DB_USER: sfuser
+      DB_PASS: sfpass
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      JWT_SECRET: ci-test-secret-do-not-use-in-prod-32c
+      JWT_REFRESH_SECRET: ci-test-refresh-secret-32chars
+      JWT_EXPIRES_IN: 1h
+      CORS_ORIGINS: http://localhost
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: services/api/package-lock.json
+
+      - uses: ./.github/actions/setup-api-managed-test-ci
+
+      - name: Run managed API test
+        run: ${{ inputs.test_command }}

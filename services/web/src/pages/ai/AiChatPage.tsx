@@ -20,6 +20,7 @@ import {
   useRef,
   useEffect,
   useCallback,
+  useMemo,
   type KeyboardEvent,
   type ChangeEvent,
 } from 'react';
@@ -59,6 +60,8 @@ interface Message {
   /** AI 回复置信度 */
   confidence?: Confidence;
 }
+
+const EMPTY_MESSAGES: Message[] = [];
 
 interface Conversation {
   id: string;
@@ -122,8 +125,7 @@ function loadConversations(): Conversation[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parsed: any[] = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as Array<Record<string, unknown>>;
     return parsed.map((conv) => ({
       ...conv,
       createdAt: new Date(conv.createdAt as string),
@@ -300,7 +302,7 @@ export default function AiChatPage() {
 
   // ── 当前活动会话 ──
   const activeConv = conversations.find((c) => c.id === activeConvId) ?? conversations[0];
-  const messages = activeConv?.messages ?? [];
+  const messages = useMemo(() => activeConv?.messages ?? EMPTY_MESSAGES, [activeConv?.messages]);
 
   // ── 持久化 ──
   useEffect(() => {

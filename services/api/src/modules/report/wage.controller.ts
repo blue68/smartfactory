@@ -20,6 +20,11 @@ const WageExportQuerySchema = z.object({
   workerGrade: z.enum(['skilled', 'apprentice']).optional(),
 });
 
+const WageTaskFilterSchema = WageFilterSchema.extend({
+  productionOrderId: z.coerce.number().int().positive().optional(),
+  taskId: z.coerce.number().int().positive().optional(),
+});
+
 export class WageController {
   private svc(req: Request): WageService {
     return new WageService({ tenantId: req.tenantId, userId: req.userId });
@@ -35,6 +40,22 @@ export class WageController {
       dateTo: q.dateTo,
       userId: q.userId,
       workerGrade: q.workerGrade,
+    });
+    success(res, buildPaginated(list, total, q.page, q.pageSize));
+  }
+
+  /** GET /api/reports/wages/tasks — 管理员查看任务维度报工工资明细 */
+  async getTaskWageReport(req: Request, res: Response): Promise<void> {
+    const q = WageTaskFilterSchema.parse(req.query);
+    const [list, total] = await this.svc(req).getTaskWageReport({
+      page: q.page,
+      pageSize: q.pageSize,
+      dateFrom: q.dateFrom,
+      dateTo: q.dateTo,
+      userId: q.userId,
+      workerGrade: q.workerGrade,
+      productionOrderId: q.productionOrderId,
+      taskId: q.taskId,
     });
     success(res, buildPaginated(list, total, q.page, q.pageSize));
   }

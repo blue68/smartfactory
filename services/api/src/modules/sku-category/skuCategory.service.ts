@@ -312,24 +312,23 @@ export class SkuCategoryService {
         );
       }
 
-      // 3. 关联 SKU 的 category 字段置 NULL（P0-R01-01 修正项）
-      // category1_id 置 NULL（当删除的是一级类目）
-      // category2_id 置 NULL（当删除的是任意类目 ID）
+      // 3. 关联 SKU 的 category 字段置 0（未分类）（P0-R01-01 修正项）
+      // category1_id / category2_id 列为 NOT NULL，使用 0 表示未分类
       if (category.level === 1) {
         await manager.query(
           `UPDATE skus
-           SET category1_id = NULL, updated_by = ?, updated_at = CURRENT_TIMESTAMP(3)
+           SET category1_id = 0, updated_by = ?, updated_at = CURRENT_TIMESTAMP(3)
            WHERE tenant_id = ? AND category1_id = ?`,
           [updatedBy, this.tenantId, id],
         );
       }
 
-      // 无论一级还是二级，将 category2_id 引用的全部 deleteIds 置 NULL
+      // 无论一级还是二级，将 category2_id 引用的全部 deleteIds 置 0
       if (deleteIds.length > 0) {
         const placeholders = deleteIds.map(() => '?').join(',');
         await manager.query(
           `UPDATE skus
-           SET category2_id = NULL, updated_by = ?, updated_at = CURRENT_TIMESTAMP(3)
+           SET category2_id = 0, updated_by = ?, updated_at = CURRENT_TIMESTAMP(3)
            WHERE tenant_id = ? AND category2_id IN (${placeholders})`,
           [updatedBy, this.tenantId, ...deleteIds],
         );
@@ -352,34 +351,35 @@ export class SkuCategoryService {
     to?: string;
   }): Promise<Array<{
     id: number;
-    type: 'add' | 'edit' | 'delete';
+    type: 'create' | 'update' | 'delete';
+    categoryId: number;
     categoryName: string;
-    operator: number;
-    timestamp: string;
-    detail: string;
+    operatorName: string;
+    operatedAt: string;
+    diff?: Array<{ field: string; oldValue: string; newValue: string }>;
   }>> {
     const conditions: string[] = [
-      '(tenant_id = 0 OR tenant_id = ?)',
+      '(c.tenant_id = 0 OR c.tenant_id = ?)',
     ];
     const params: unknown[] = [this.tenantId];
 
     // 日期范围过滤（以 updated_at 为基准）
     if (filter.from) {
-      conditions.push('updated_at >= ?');
+      conditions.push('c.updated_at >= ?');
       params.push(`${filter.from} 00:00:00`);
     }
     if (filter.to) {
-      conditions.push('updated_at <= ?');
+      conditions.push('c.updated_at <= ?');
       params.push(`${filter.to} 23:59:59`);
     }
 
     // 操作类型过滤（转换为 SQL 条件）
     if (filter.type === 'add') {
-      conditions.push('(ABS(TIMESTAMPDIFF(SECOND, created_at, updated_at)) <= 1)');
+      conditions.push('(ABS(TIMESTAMPDIFF(SECOND, c.created_at, c.updated_at)) <= 1)');
     } else if (filter.type === 'edit') {
-      conditions.push('(TIMESTAMPDIFF(SECOND, created_at, updated_at) > 1 AND is_active = 1)');
+      conditions.push('(TIMESTAMPDIFF(SECOND, c.created_at, c.updated_at) > 1 AND c.is_active = 1)');
     } else if (filter.type === 'delete') {
-      conditions.push('is_active = 0');
+      conditions.push('c.is_active = 0');
     }
 
     const rows = await AppDataSource.query<Array<{
@@ -389,42 +389,46 @@ export class SkuCategoryService {
       updated_by: number;
       created_at: string;
       updated_at: string;
+      operator_name: string | null;
     }>>(
-      `SELECT id, name, is_active, updated_by, created_at, updated_at
-       FROM sku_categories
+      `SELECT c.id, c.name, c.is_active, c.updated_by, c.created_at, c.updated_at,
+              u.real_name AS operator_name
+       FROM sku_categories c
+       LEFT JOIN users u ON u.id = c.updated_by
        WHERE ${conditions.join(' AND ')}
-       ORDER BY updated_at DESC
+       ORDER BY c.updated_at DESC
        LIMIT 200`,
       params,
     );
 
+    // Map internal type to frontend type values
+    const typeMap: Record<string, 'create' | 'update' | 'delete'> = {
+      add: 'create',
+      edit: 'update',
+      delete: 'delete',
+    };
+
     return rows.map((r) => {
-      let type: 'add' | 'edit' | 'delete';
+      let internalType: 'add' | 'edit' | 'delete';
       const diffSeconds = Math.abs(
         new Date(r.updated_at).getTime() - new Date(r.created_at).getTime(),
       ) / 1000;
 
       if (Number(r.is_active) === 0) {
-        type = 'delete';
+        internalType = 'delete';
       } else if (diffSeconds <= 1) {
-        type = 'add';
+        internalType = 'add';
       } else {
-        type = 'edit';
+        internalType = 'edit';
       }
-
-      const typeLabel: Record<string, string> = {
-        add: '新增类目',
-        edit: '修改类目',
-        delete: '删除类目',
-      };
 
       return {
         id: Number(r.id),
-        type,
+        type: typeMap[internalType],
+        categoryId: Number(r.id),
         categoryName: r.name,
-        operator: Number(r.updated_by),
-        timestamp: r.updated_at,
-        detail: `${typeLabel[type]}：${r.name}`,
+        operatorName: r.operator_name || '系统',
+        operatedAt: r.updated_at,
       };
     });
   }
@@ -483,26 +487,49 @@ export class SkuCategoryService {
    * 对系统预置类目抛 403。
    */
   private async findTenantOwnedById(id: number): Promise<SkuCategoryEntity> {
-    const rows = await AppDataSource.query<SkuCategoryEntity[]>(
+    const rows = await AppDataSource.query<Array<Record<string, unknown>>>(
       `SELECT * FROM sku_categories
        WHERE id = ? AND is_active = 1
        LIMIT 1`,
       [id],
     );
-    const category = rows[0];
+    const row = rows[0];
 
-    if (!category) {
+    if (!row) {
       throw AppError.notFound('类目不存在');
     }
 
+    // raw query 返回 snake_case 列名，兼容两种格式
+    const tenantId = Number(row.tenant_id ?? row.tenantId ?? -1);
+    const isSystem = Number(row.is_system ?? row.isSystem ?? 0);
+
     // 系统预置：tenant_id = 0
-    if (Number(category.tenantId) === 0) {
+    if (tenantId === 0) {
       throw AppError.forbidden('系统预置类目不允许修改或删除');
     }
 
-    // 跨租户保护
-    if (Number(category.tenantId) !== this.tenantId) {
+    // 跨租户保护（tenantId 可能来自 JWT string，需统一为 number 比较）
+    if (tenantId !== Number(this.tenantId)) {
       throw AppError.forbidden('无权操作该类目');
+    }
+
+    // 将 row 映射到 entity 格式（兼容下游代码使用 camelCase 属性）
+    const category = row as unknown as SkuCategoryEntity;
+    const cat = category as unknown as Record<string, unknown>;
+    if (cat.tenantId === undefined && row.tenant_id !== undefined) {
+      cat.tenantId = tenantId;
+    }
+    if (cat.parentId === undefined && row.parent_id !== undefined) {
+      cat.parentId = row.parent_id ? Number(row.parent_id) : null;
+    }
+    if (cat.isSystem === undefined && row.is_system !== undefined) {
+      cat.isSystem = Boolean(isSystem);
+    }
+    if (cat.sortOrder === undefined && row.sort_order !== undefined) {
+      cat.sortOrder = Number(row.sort_order ?? 0);
+    }
+    if (cat.isActive === undefined && row.is_active !== undefined) {
+      cat.isActive = Boolean(Number(row.is_active));
     }
 
     return category;

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { ProductionOrderService } from './production-order.service';
+import { ProductionPhase1Service } from './production-phase1.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
 
@@ -11,6 +12,10 @@ import { PaginationSchema } from '../../middleware/validator';
 export class ProductionOrderController {
   private svc(req: Request): ProductionOrderService {
     return new ProductionOrderService({ tenantId: req.tenantId, userId: req.userId });
+  }
+
+  private phase1(req: Request): ProductionPhase1Service {
+    return new ProductionPhase1Service({ tenantId: req.tenantId, userId: req.userId });
   }
 
   /**
@@ -78,6 +83,24 @@ export class ProductionOrderController {
     const id = z.coerce.number().int().positive().parse(req.params.id);
     await this.svc(req).cancel(id);
     success(res, null, '工单已取消');
+  }
+
+  async releaseOrder(req: Request, res: Response): Promise<void> {
+    const id = z.coerce.number().int().positive().parse(req.params.id);
+    const data = await this.phase1(req).releaseOrder(id);
+    success(res, data, data.reused ? '工单 release 结果已复用' : '工单 release 已完成');
+  }
+
+  async getComponents(req: Request, res: Response): Promise<void> {
+    const id = z.coerce.number().int().positive().parse(req.params.id);
+    const data = await this.phase1(req).listComponents(id);
+    success(res, data);
+  }
+
+  async getOperations(req: Request, res: Response): Promise<void> {
+    const id = z.coerce.number().int().positive().parse(req.params.id);
+    const data = await this.phase1(req).listOperations(id);
+    success(res, data);
   }
 }
 

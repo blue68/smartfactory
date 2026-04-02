@@ -14,15 +14,26 @@ const CreateInspectionSchema = z.object({
 });
 
 const InspectionItemSchema = z.object({
-  id: z.number().int().positive(),
+  id: z.number().int().positive().optional(),
+  sourceItemIds: z.array(z.number().int().positive()).min(1).optional(),
+  qtyDelivered: z.string().regex(/^\d+(\.\d{1,4})?$/, '数量格式不合法').optional(),
   qtysampled: z.string().regex(/^\d+(\.\d{1,4})?$/, '数量格式不合法'),
   qtyPassed: z.string().regex(/^\d+(\.\d{1,4})?$/, '数量格式不合法'),
   qtyFailed: z.string().regex(/^\d+(\.\d{1,4})?$/, '数量格式不合法'),
+  dyeLotNo: z.string().trim().max(100).optional(),
   result: z.enum(['pass', 'fail', 'conditional_pass']),
   defectTypes: z.array(z.unknown()).optional(),
   defectImages: z.array(z.string()).optional(),
   disposition: z.enum(['accept', 'return', 'rework', 'scrap']),
   notes: z.string().max(1000).optional(),
+}).superRefine((value, ctx) => {
+  if (!value.id && !(value.sourceItemIds && value.sourceItemIds.length > 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: '质检明细必须包含 id 或 sourceItemIds',
+      path: ['id'],
+    });
+  }
 });
 
 const UpdateItemsSchema = z.object({

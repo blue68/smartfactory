@@ -3,7 +3,7 @@
  * 功能：统计卡片 / 筛选 / 表格 / 新增编辑 Modal / 详情 Drawer（含联系人）
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Modal from '@/components/common/Modal';
 import Drawer from '@/components/common/Drawer';
 import Button from '@/components/common/Button';
@@ -34,7 +34,12 @@ function GradeTag({ grade }: { grade: CustomerGrade }) {
     : grade === 'A' ? styles.gradeA
     : grade === 'B' ? styles.gradeB
     : styles.gradeC;
-  return <span className={`${styles.grade} ${cls}`}>{grade}</span>;
+  const label =
+    grade === 'VIP' ? '★ VIP'
+    : grade === 'A' ? 'A 级'
+    : grade === 'B' ? 'B 级'
+    : 'C 级';
+  return <span className={`${styles.grade} ${cls}`}>{label}</span>;
 }
 
 // ─────────────────────────────────────────────
@@ -69,6 +74,7 @@ const EMPTY_FORM: CreateCustomerPayload = {
   phone: '',
   email: '',
   address: '',
+  region: '',
   creditLimit: undefined,
   paymentDays: undefined,
   notes: '',
@@ -89,6 +95,7 @@ function CustomerModal({ open, initial, onClose }: CustomerModalProps) {
           phone: initial.phone ?? '',
           email: initial.email ?? '',
           address: initial.address ?? '',
+          region: initial.region ?? '',
           creditLimit: initial.creditLimit,
           paymentDays: initial.paymentDays,
           notes: initial.notes ?? '',
@@ -107,6 +114,7 @@ function CustomerModal({ open, initial, onClose }: CustomerModalProps) {
         phone: initial.phone ?? '',
         email: initial.email ?? '',
         address: initial.address ?? '',
+        region: initial.region ?? '',
         creditLimit: initial.creditLimit,
         paymentDays: initial.paymentDays,
         notes: initial.notes ?? '',
@@ -117,17 +125,25 @@ function CustomerModal({ open, initial, onClose }: CustomerModalProps) {
   }, [initial]);
 
   // 每次 open=true 时重置
-  if (open && form.code === '' && initial) handleOpen();
+  useEffect(() => {
+    if (!open) return;
+    handleOpen();
+  }, [open, handleOpen]);
 
   function set(key: keyof CreateCustomerPayload, value: unknown) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   async function handleConfirm() {
+    // 将空字符串字段清理为 undefined，避免后端校验拒绝
+    const clean = Object.fromEntries(
+      Object.entries(form).map(([k, v]) => [k, v === '' ? undefined : v]),
+    ) as CreateCustomerPayload;
+
     if (isEdit && initial) {
-      await updateMut.mutateAsync({ id: initial.id, payload: form });
+      await updateMut.mutateAsync({ id: initial.id, payload: clean });
     } else {
-      await createMut.mutateAsync(form);
+      await createMut.mutateAsync(clean);
     }
     onClose();
   }
@@ -140,109 +156,153 @@ function CustomerModal({ open, initial, onClose }: CustomerModalProps) {
       title={isEdit ? '编辑客户' : '新增客户'}
       onClose={onClose}
       onConfirm={handleConfirm}
-      confirmLabel={isEdit ? '保存' : '创建'}
+      confirmLabel={isEdit ? '保存修改' : '保存客户'}
       confirmLoading={loading}
       size="md"
     >
-      <div className={styles.formGrid}>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>客户编码</label>
-          <input
-            className={styles.formInput}
-            value={form.code}
-            onChange={(e) => !isEdit && set('code', e.target.value)}
-            placeholder="系统自动生成"
-            readOnly={isEdit}
-            style={isEdit ? { background: 'var(--color-neutral-50,#F9FAFB)', color: 'var(--color-neutral-500,#6B7280)', cursor: 'not-allowed' } : undefined}
-          />
+      <div className={styles.modalBody}>
+        {/* 基本信息 */}
+        <div className={styles.formSection}>
+          <div className={styles.formSectionTitle}>基本信息</div>
+          <div className={styles.formGrid}>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>客户名称 *</label>
+              <input
+                className={styles.formInput}
+                value={form.name}
+                onChange={(e) => set('name', e.target.value)}
+                placeholder="客户公司名称"
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>客户编码</label>
+              <input
+                className={styles.formInput}
+                value={form.code}
+                onChange={(e) => !isEdit && set('code', e.target.value)}
+                placeholder="系统自动生成"
+                readOnly={isEdit}
+                style={isEdit ? { background: '#F1F5F9', color: '#94A3B8', cursor: 'not-allowed' } : undefined}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>客户等级</label>
+              <select
+                className={styles.formSelect}
+                value={form.grade}
+                onChange={(e) => set('grade', e.target.value as CustomerGrade)}
+              >
+                <option value="VIP">VIP</option>
+                <option value="A">A 级</option>
+                <option value="B">B 级</option>
+                <option value="C">C 级</option>
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>所在地区</label>
+              <input
+                className={styles.formInput}
+                value={form.region ?? ''}
+                onChange={(e) => set('region', e.target.value)}
+                placeholder="省 / 市 / 区"
+              />
+            </div>
+            <div className={`${styles.formGroup} ${styles.formGridFull}`}>
+              <label className={styles.formLabel}>详细地址</label>
+              <input
+                className={styles.formInput}
+                value={form.address ?? ''}
+                onChange={(e) => set('address', e.target.value)}
+                placeholder="客户详细地址"
+              />
+            </div>
+          </div>
         </div>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>客户名称 *</label>
-          <input
-            className={styles.formInput}
-            value={form.name}
-            onChange={(e) => set('name', e.target.value)}
-            placeholder="客户公司名称"
-          />
+
+        {/* 主要联系人 */}
+        <div className={styles.formSection}>
+          <div className={styles.formSectionTitle}>主要联系人</div>
+          <div className={`${styles.formGrid} ${styles.formGrid3}`}>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>姓名</label>
+              <input
+                className={styles.formInput}
+                value={form.contact ?? ''}
+                onChange={(e) => set('contact', e.target.value)}
+                placeholder="联系人姓名"
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>职位</label>
+              <input
+                className={styles.formInput}
+                placeholder="在详情页联系人中设置"
+                readOnly
+                style={{ background: '#F1F5F9', color: '#94A3B8', cursor: 'not-allowed' }}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>联系电话</label>
+              <input
+                className={styles.formInput}
+                value={form.phone ?? ''}
+                onChange={(e) => set('phone', e.target.value)}
+                placeholder="联系电话"
+              />
+            </div>
+            <div className={`${styles.formGroup} ${styles.formGridFull}`}>
+              <label className={styles.formLabel}>邮箱</label>
+              <input
+                className={styles.formInput}
+                type="email"
+                value={form.email ?? ''}
+                onChange={(e) => set('email', e.target.value)}
+                placeholder="电子邮箱"
+              />
+            </div>
+          </div>
         </div>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>客户等级</label>
-          <select
-            className={styles.formSelect}
-            value={form.grade}
-            onChange={(e) => set('grade', e.target.value as CustomerGrade)}
-          >
-            <option value="VIP">VIP</option>
-            <option value="A">A 级</option>
-            <option value="B">B 级</option>
-            <option value="C">C 级</option>
-          </select>
+
+        {/* 财务信息 */}
+        <div className={styles.formSection}>
+          <div className={styles.formSectionTitle}>财务信息</div>
+          <div className={styles.formGrid}>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>信用额度（元）</label>
+              <input
+                className={styles.formInput}
+                type="number"
+                value={form.creditLimit ?? ''}
+                onChange={(e) => set('creditLimit', e.target.value || undefined)}
+                placeholder="0"
+              />
+              <span className={styles.formHint}>客户最大允许赊账金额</span>
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>账期（天）</label>
+              <input
+                className={styles.formInput}
+                type="number"
+                value={form.paymentDays ?? ''}
+                onChange={(e) => set('paymentDays', e.target.value ? Number(e.target.value) : undefined)}
+                placeholder="30"
+              />
+              <span className={styles.formHint}>发票开具后允许付款天数</span>
+            </div>
+          </div>
         </div>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>主要联系人</label>
-          <input
-            className={styles.formInput}
-            value={form.contact ?? ''}
-            onChange={(e) => set('contact', e.target.value)}
-            placeholder="联系人姓名"
-          />
-        </div>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>电话</label>
-          <input
-            className={styles.formInput}
-            value={form.phone ?? ''}
-            onChange={(e) => set('phone', e.target.value)}
-            placeholder="联系电话"
-          />
-        </div>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>邮箱</label>
-          <input
-            className={styles.formInput}
-            type="email"
-            value={form.email ?? ''}
-            onChange={(e) => set('email', e.target.value)}
-            placeholder="电子邮箱"
-          />
-        </div>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>信用额度（元）</label>
-          <input
-            className={styles.formInput}
-            type="number"
-            value={form.creditLimit ?? ''}
-            onChange={(e) => set('creditLimit', e.target.value || undefined)}
-            placeholder="0"
-          />
-        </div>
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>账期（天）</label>
-          <input
-            className={styles.formInput}
-            type="number"
-            value={form.paymentDays ?? ''}
-            onChange={(e) => set('paymentDays', e.target.value ? Number(e.target.value) : undefined)}
-            placeholder="30"
-          />
-        </div>
-        <div className={`${styles.formGroup} ${styles.formGridFull}`}>
-          <label className={styles.formLabel}>地址</label>
-          <input
-            className={styles.formInput}
-            value={form.address ?? ''}
-            onChange={(e) => set('address', e.target.value)}
-            placeholder="客户地址"
-          />
-        </div>
-        <div className={`${styles.formGroup} ${styles.formGridFull}`}>
-          <label className={styles.formLabel}>备注</label>
-          <textarea
-            className={styles.formTextarea}
-            value={form.notes ?? ''}
-            onChange={(e) => set('notes', e.target.value)}
-            placeholder="备注信息"
-          />
+
+        {/* 备注 */}
+        <div className={`${styles.formSection} ${styles.formSectionLast}`}>
+          <div className={styles.formSectionTitle}>备注</div>
+          <div className={styles.formGroup}>
+            <textarea
+              className={styles.formTextarea}
+              value={form.notes ?? ''}
+              onChange={(e) => set('notes', e.target.value)}
+              placeholder="备注信息"
+            />
+          </div>
         </div>
       </div>
     </Modal>
@@ -313,20 +373,28 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
   return (
     <Drawer
       open={customerId !== null}
-      title={customer ? `${customer.name} — 客户详情` : '客户详情'}
+      title="客户详情"
       onClose={onClose}
-      width={480}
+      width={560}
     >
       {customer && (
         <>
+          {/* Drawer 头部：客户名称 + 等级 + 编码 */}
+          <div className={styles.drawerHead}>
+            <div className={styles.drawerHeadTitle}>
+              <span className={styles.drawerCustomerName}>{customer.name}</span>
+              <GradeTag grade={customer.grade} />
+            </div>
+            <div className={styles.drawerHeadSub}>
+              编码：{customer.code}
+              {customer.createdAt && ` · 创建于 ${customer.createdAt.slice(0, 10)}`}
+            </div>
+          </div>
+
           {/* 基本信息 */}
           <div className={styles.drawerSection}>
             <p className={styles.drawerSectionTitle}>基本信息</p>
             <div className={styles.infoGrid}>
-              <div className={styles.infoItem}>
-                <span className={styles.infoKey}>客户编码</span>
-                <span className={styles.infoVal}>{customer.code}</span>
-              </div>
               <div className={styles.infoItem}>
                 <span className={styles.infoKey}>等级</span>
                 <span className={styles.infoVal}><GradeTag grade={customer.grade} /></span>
@@ -353,6 +421,12 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
                 <span className={styles.infoKey}>邮箱</span>
                 <span className={styles.infoVal}>{customer.email || '—'}</span>
               </div>
+              {customer.region && (
+                <div className={styles.infoItem}>
+                  <span className={styles.infoKey}>区域</span>
+                  <span className={styles.infoVal}>{customer.region}</span>
+                </div>
+              )}
               {customer.address && (
                 <div className={styles.infoItem} style={{ gridColumn: '1/-1' }}>
                   <span className={styles.infoKey}>地址</span>
@@ -367,16 +441,6 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
               )}
             </div>
           </div>
-
-          {/* 区域信息（补充） */}
-          {customer.region && (
-            <div className={styles.drawerSection}>
-              <div className={styles.infoItem} style={{ gridColumn: '1/-1' }}>
-                <span className={styles.infoKey}>区域</span>
-                <span className={styles.infoVal}>{customer.region}</span>
-              </div>
-            </div>
-          )}
 
           {/* 联系人列表 */}
           <div className={styles.drawerSection}>
@@ -417,7 +481,7 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
                         onChange={(e) => setEditContactForm((p) => ({ ...p, email: e.target.value }))}
                         placeholder="邮箱"
                       />
-                      <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <label className={styles.contactPrimaryToggle}>
                         <input
                           type="checkbox"
                           checked={editContactForm.isPrimary}
@@ -425,7 +489,7 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
                         />
                         主要联系人
                       </label>
-                      <div style={{ display: 'flex', gap: 4 }}>
+                      <div className={`${styles.contactActions} ${styles.contactActionsEdit}`}>
                         <Button variant="primary" size="sm" onClick={saveEditContact} loading={updateContact.isPending}>
                           保存
                         </Button>
@@ -435,8 +499,9 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
                       </div>
                     </div>
                   ) : (
-                    /* 展示模式 */
+                    /* 展示模式：头像 + 信息 + 操作按钮 */
                     <>
+                      <div className={styles.contactAvatar}>{c.name.charAt(0)}</div>
                       <div className={styles.contactInfo}>
                         <span className={styles.contactName}>
                           {c.name}
@@ -446,7 +511,7 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
                           {[c.title, c.phone, c.email].filter(Boolean).join(' · ')}
                         </span>
                       </div>
-                      <div style={{ display: 'flex', gap: 4 }}>
+                      <div className={styles.contactActions}>
                         <button
                           className={styles.editBtn}
                           onClick={() => startEditContact(c)}
@@ -498,6 +563,7 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
               <Button
                 variant="primary"
                 size="sm"
+                className={styles.addContactSubmit}
                 onClick={handleAddContact}
                 loading={createContact.isPending}
                 disabled={!newContact.name}
@@ -506,6 +572,7 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
               </Button>
             </div>
           </div>
+
           {/* 历史订单 */}
           <div className={styles.drawerSection}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -626,95 +693,121 @@ export default function CustomerPage() {
     try {
       await patchStatus.mutateAsync({ id: confirmTarget.id, status: 'inactive' });
       setConfirmTarget(null);
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || '操作失败，请稍后重试';
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } }; message?: string };
+      const msg = e?.response?.data?.message || e?.message || '操作失败，请稍后重试';
       setConfirmTarget(null);
       setErrorMsg(msg);
     }
   }
 
+  // 列定义：编码 | 客户名称 | 等级 | 主要联系人 | 联系电话 | 信用额度 | 账期 | 状态 | 操作
   const columns: Column<Customer>[] = [
     {
       key: 'code',
       title: '编码',
-      width: 100,
+      width: 120,
       render: (v) => (
-        <span style={{ fontFamily: 'monospace', color: 'var(--color-neutral-600,#4B5563)', fontSize: 13 }}>
+        <span className={styles.codeCell}>
           {v as string}
         </span>
       ),
     },
     {
       key: 'name',
+      width: 240,
       title: '客户名称',
-      render: (v, row) => (
-        <div>
-          <div style={{ fontWeight: 500, fontSize: 14, color: 'var(--color-neutral-900,#111827)' }}>{v as string}</div>
-          {row.contact && (
-            <div style={{ fontSize: 12, color: 'var(--color-neutral-500,#6B7280)' }}>{row.contact}</div>
-          )}
-        </div>
+      render: (v) => (
+        <div className={styles.nameCell}>{v as string}</div>
       ),
     },
     {
       key: 'grade',
       title: '等级',
-      width: 80,
+      width: 96,
+      align: 'center',
       render: (v) => <GradeTag grade={v as CustomerGrade} />,
     },
-    { key: 'contact', title: '联系人', width: 100 },
-    { key: 'phone', title: '电话', width: 130 },
     {
-      key: 'region',
-      title: '区域',
-      width: 100,
+      key: 'contact',
+      title: '主要联系人',
+      width: 136,
       render: (v) => (
-        <span style={{ color: v ? 'var(--color-neutral-700,#374151)' : 'var(--color-neutral-400,#9CA3AF)' }}>
+        <span className={v ? styles.textCell : styles.placeholderCell}>
           {(v as string) || '—'}
         </span>
       ),
     },
     {
-      key: 'paymentDays',
-      title: '付款条件',
-      width: 110,
-      render: (v) => {
-        const days = v as number | null | undefined;
-        if (days == null) return <span style={{ color: 'var(--color-neutral-400,#9CA3AF)' }}>—</span>;
-        return <span>{days === 0 ? '即时付款' : `${days}天账期`}</span>;
-      },
+      key: 'phone',
+      title: '联系电话',
+      width: 156,
+      render: (v) => (
+        <span className={v ? styles.phoneCell : styles.placeholderCell}>
+          {(v as string) || '—'}
+        </span>
+      ),
     },
     {
       key: 'creditLimit',
-      title: '信用额度',
-      width: 120,
+      title: '信用额度（元）',
+      width: 150,
+      align: 'right',
       render: (v) =>
         v != null ? (
-          <span style={{ fontWeight: 500 }}>¥{Number(v).toLocaleString()}</span>
+          <span className={styles.amountCell}>¥{Number(v).toLocaleString()}</span>
         ) : (
-          <span style={{ color: 'var(--color-neutral-400,#9CA3AF)' }}>—</span>
+          <span className={styles.placeholderCell}>—</span>
         ),
+    },
+    {
+      key: 'paymentDays',
+      title: '账期（天）',
+      width: 100,
+      align: 'center',
+      render: (v) => {
+        const days = v as number | null | undefined;
+        return days != null ? (
+          <span className={styles.daysCell}>{days}</span>
+        ) : (
+          <span className={styles.placeholderCell}>—</span>
+        );
+      },
     },
     {
       key: 'status',
       title: '状态',
-      width: 80,
-      render: (v) => <StatusTag status={v as CustomerStatus} />,
+      width: 112,
+      align: 'center',
+      render: (v) => (
+        <div className={styles.statusCell}>
+          <StatusTag status={v as CustomerStatus} />
+        </div>
+      ),
     },
     {
       key: 'id',
       title: '操作',
-      width: 160,
+      width: 196,
+      align: 'center',
       render: (_, row) => (
         <div className={styles.actions}>
-          <button className={`${styles.actionBtn} ${styles.actionBtnEdit}`} onClick={() => handleEdit(row)}>
-            编辑
-          </button>
-          <button className={`${styles.actionBtn} ${styles.actionBtnView}`} onClick={() => setDrawerCustomerId(row.id)}>
+          <button
+            className={`${styles.actionBtn} ${styles.actionBtnView}`}
+            onClick={() => setDrawerCustomerId(row.id)}
+          >
             详情
           </button>
+          {row.status === 'active' && (
+            <button
+              className={`${styles.actionBtn} ${styles.actionBtnEdit}`}
+              onClick={() => handleEdit(row)}
+            >
+              编辑
+            </button>
+          )}
           <button
-            className={`${styles.actionBtn} ${row.status === 'active' ? styles.actionBtnDelete : styles.actionBtnEdit}`}
+            className={`${styles.actionBtn} ${row.status === 'active' ? styles.actionBtnDisable : styles.actionBtnEnable}`}
             onClick={() => handleToggleStatus(row)}
           >
             {row.status === 'active' ? '停用' : '启用'}
@@ -758,6 +851,7 @@ export default function CustomerPage() {
           </button>
         </div>
       )}
+
       {/* 页头 */}
       <div className={styles.pageHeader}>
         <h1 className={styles.pageTitle}>客户管理</h1>
@@ -772,46 +866,56 @@ export default function CustomerPage() {
           className={`${styles.statCard} ${statFilter === 'all' ? styles.active : ''}`}
           onClick={() => setStatFilter('all')}
         >
-          <div className={`${styles.statIcon} ${styles.statIconAll}`}>🏢</div>
           <div className={styles.statInfo}>
-            <span className={styles.statLabel}>全部客户</span>
-            <span className={styles.statValue}>{allCount}</span>
+            <span className={styles.statLabel}>
+              <span className={`${styles.statDot} ${styles.statDotAll}`} />
+              全部客户
+            </span>
+            <span className={`${styles.statValue} ${styles.statValueAll}`}>{allCount}</span>
           </div>
         </div>
         <div
           className={`${styles.statCard} ${statFilter === 'active' ? styles.active : ''}`}
           onClick={() => setStatFilter('active')}
         >
-          <div className={`${styles.statIcon} ${styles.statIconActive}`}>✅</div>
           <div className={styles.statInfo}>
-            <span className={styles.statLabel}>活跃客户</span>
-            <span className={styles.statValue}>{activeCount}</span>
+            <span className={styles.statLabel}>
+              <span className={`${styles.statDot} ${styles.statDotActive}`} />
+              活跃客户
+            </span>
+            <span className={`${styles.statValue} ${styles.statValueActive}`}>{activeCount}</span>
           </div>
         </div>
         <div
           className={`${styles.statCard} ${statFilter === 'vip' ? styles.active : ''}`}
           onClick={() => setStatFilter('vip')}
         >
-          <div className={`${styles.statIcon} ${styles.statIconVip}`}>⭐</div>
           <div className={styles.statInfo}>
-            <span className={styles.statLabel}>VIP 客户</span>
-            <span className={styles.statValue}>{vipCount}</span>
+            <span className={styles.statLabel}>
+              <span className={`${styles.statDot} ${styles.statDotVip}`} />
+              VIP 客户
+            </span>
+            <span className={`${styles.statValue} ${styles.statValueVip}`}>{vipCount}</span>
           </div>
         </div>
       </div>
 
       {/* 筛选栏 */}
       <div className={styles.filterBar}>
-        <input
-          className={styles.searchInput}
-          placeholder="搜索客户名称 / 编码 / 联系人..."
-          value={keyword}
-          onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
-        />
-        {/* R07-G06: total count display */}
-        <span style={{ fontSize: 13, color: 'var(--color-neutral-500,#6B7280)', whiteSpace: 'nowrap', alignSelf: 'center' }}>
-          共 {data?.total ?? 0} 条
-        </span>
+        <div className={styles.searchField}>
+          <span className={styles.searchFieldIcon}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="7" cy="7" r="4.5" stroke="#94A3B8" strokeWidth="1.5"/>
+              <path d="M10.5 10.5L13 13" stroke="#94A3B8" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </span>
+          <input
+            className={styles.searchInput}
+            placeholder="搜索客户名称 / 编码 / 联系人..."
+            value={keyword}
+            onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
+          />
+        </div>
         <select
           className={styles.select}
           value={grade}
@@ -832,6 +936,10 @@ export default function CustomerPage() {
           <option value="active">活跃</option>
           <option value="inactive">停用</option>
         </select>
+        <span className={styles.toolbarSpacer} />
+        <span style={{ fontSize: 13, color: '#64748B', whiteSpace: 'nowrap', alignSelf: 'center' }}>
+          共 {data?.total ?? 0} 条
+        </span>
       </div>
 
       {/* 表格 */}
@@ -843,38 +951,44 @@ export default function CustomerPage() {
           loading={isLoading}
           emptyText="暂无客户数据"
         />
-        {/* 分页 */}
-        {totalPages > 1 && (
-          <div className={styles.pagination}>
-            <span>共 {data?.total ?? 0} 条</span>
-            <button
-              className={styles.pageBtn}
-              onClick={() => setPage((p) => p - 1)}
-              disabled={page <= 1}
-            >
-              «
-            </button>
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              const p = i + 1;
-              return (
-                <button
-                  key={p}
-                  className={`${styles.pageBtn} ${p === page ? styles.pageBtnActive : ''}`}
-                  onClick={() => setPage(p)}
-                >
-                  {p}
-                </button>
-              );
-            })}
-            <button
-              className={styles.pageBtn}
-              onClick={() => setPage((p) => p + 1)}
-              disabled={page >= totalPages}
-            >
-              »
-            </button>
-          </div>
-        )}
+        {/* 分页底栏：始终显示，totalPages > 1 才显示翻页按钮 */}
+        <div className={styles.tableFooter}>
+          <span className={styles.tableFooterInfo}>
+            {data && data.total > 0
+              ? `显示 ${(page - 1) * 15 + 1}–${Math.min(page * 15, data.total)} / 共 ${data.total} 条`
+              : `共 ${data?.total ?? 0} 条`}
+          </span>
+          {totalPages > 1 && (
+            <div className={styles.pagination}>
+              <button
+                className={styles.pageBtn}
+                onClick={() => setPage((p) => p - 1)}
+                disabled={page <= 1}
+              >
+                «
+              </button>
+              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                const p = i + 1;
+                return (
+                  <button
+                    key={p}
+                    className={`${styles.pageBtn} ${p === page ? styles.pageBtnActive : ''}`}
+                    onClick={() => setPage(p)}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+              <button
+                className={styles.pageBtn}
+                onClick={() => setPage((p) => p + 1)}
+                disabled={page >= totalPages}
+              >
+                »
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 新增/编辑 Modal */}

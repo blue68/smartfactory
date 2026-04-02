@@ -29,6 +29,16 @@ const ListReturnOrderQuerySchema = PaginationSchema.extend({
   supplierId: z.coerce.number().int().positive().optional(),
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  keyword: z.string().trim().max(100).optional(),
+});
+
+const ShipReturnOrderSchema = z.object({
+  trackingNo: z.string().trim().max(100).optional(),
+  notes: z.string().trim().max(500).optional(),
+});
+
+const CompleteReturnOrderSchema = z.object({
+  notes: z.string().trim().max(500).optional(),
 });
 
 // ─── Controller ──────────────────────────────────────────────────
@@ -67,13 +77,15 @@ class ReturnOrderController {
 
   async ship(req: Request, res: Response): Promise<void> {
     const id = Number(req.params.id);
-    await this.svc(req).ship(id);
+    const body = ShipReturnOrderSchema.parse(req.body ?? {});
+    await this.svc(req).ship(id, body);
     success(res, null, '退货已标记为发出');
   }
 
   async complete(req: Request, res: Response): Promise<void> {
     const id = Number(req.params.id);
-    await this.svc(req).complete(id);
+    const body = CompleteReturnOrderSchema.parse(req.body ?? {});
+    await this.svc(req).complete(id, body);
     success(res, null, '退货已完成');
   }
 }

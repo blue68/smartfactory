@@ -205,16 +205,16 @@ export const ConfidenceLabel: Record<Confidence, string> = {
 export enum PurchaseOrderStatus {
   DRAFT = 'draft',
   CONFIRMED = 'confirmed',
-  PARTIAL = 'partial',
-  COMPLETED = 'completed',
+  PARTIAL_RECEIVED = 'partial_received',
+  RECEIVED = 'received',
   CANCELLED = 'cancelled',
 }
 
 export const PurchaseOrderStatusLabel: Record<PurchaseOrderStatus, string> = {
   [PurchaseOrderStatus.DRAFT]: '草稿',
   [PurchaseOrderStatus.CONFIRMED]: '已确认',
-  [PurchaseOrderStatus.PARTIAL]: '部分到货',
-  [PurchaseOrderStatus.COMPLETED]: '已完成',
+  [PurchaseOrderStatus.PARTIAL_RECEIVED]: '部分到货',
+  [PurchaseOrderStatus.RECEIVED]: '已收货',
   [PurchaseOrderStatus.CANCELLED]: '已取消',
 };
 

@@ -25,6 +25,11 @@ export interface WageReportFilter {
   workerGrade?: WorkerGrade | '';
 }
 
+export interface WageTaskReportFilter extends WageReportFilter {
+  productionOrderId?: number;
+  taskId?: number;
+}
+
 export interface MyWagesFilter {
   page?: number;
   pageSize?: number;
@@ -59,6 +64,28 @@ export interface WageReportData {
   unconfiguredCount: number;
 }
 
+export interface WageTaskReportRow {
+  reportId: number;
+  reportNo: string;
+  reportDate: string;
+  productionOrderId: number | null;
+  orderNo: string | null;
+  taskId: number | null;
+  taskNo: string | null;
+  taskStatus: string | null;
+  userId: number;
+  userName: string;
+  workerGrade: WorkerGrade | '';
+  processStepId: number | null;
+  stepName: string;
+  qtyCompleted: string;
+  qtyQualified: string;
+  qtyDefective: string;
+  workHours: string;
+  unitPrice: string;
+  subtotal: string;
+}
+
 // ─────────────────────────────────────────────
 // Query Keys
 // ─────────────────────────────────────────────
@@ -67,6 +94,8 @@ export const wageReportKeys = {
   all: ['wage-reports'] as const,
   reports: () => [...wageReportKeys.all, 'report'] as const,
   report: (filter: WageReportFilter) => [...wageReportKeys.reports(), filter] as const,
+  taskReports: () => [...wageReportKeys.all, 'task-report'] as const,
+  taskReport: (filter: WageTaskReportFilter) => [...wageReportKeys.taskReports(), filter] as const,
   myWages: () => [...wageReportKeys.all, 'my-wages'] as const,
   myWage: (filter: MyWagesFilter) => [...wageReportKeys.myWages(), filter] as const,
 };
@@ -86,6 +115,19 @@ export const wageReportApi = {
     if (filter.userId)      params.userId = filter.userId;
     if (filter.workerGrade) params.workerGrade = filter.workerGrade;
     return request.get<WageReportData>('/api/reports/wages', params);
+  },
+
+  getTaskReport: (filter: WageTaskReportFilter) => {
+    const params: Record<string, unknown> = {};
+    if (filter.page) params.page = filter.page;
+    if (filter.pageSize) params.pageSize = filter.pageSize;
+    if (filter.dateFrom) params.dateFrom = filter.dateFrom;
+    if (filter.dateTo) params.dateTo = filter.dateTo;
+    if (filter.userId) params.userId = filter.userId;
+    if (filter.workerGrade) params.workerGrade = filter.workerGrade;
+    if (filter.productionOrderId) params.productionOrderId = filter.productionOrderId;
+    if (filter.taskId) params.taskId = filter.taskId;
+    return request.get<PaginatedData<WageTaskReportRow>>('/api/reports/wages/tasks', params);
   },
 
   getMyWages: (filter: MyWagesFilter) => {
@@ -113,6 +155,15 @@ export function useWageReport(filter: WageReportFilter, enabled = true) {
     queryFn: () => wageReportApi.getReport(filter),
     enabled,
     // 保留上一次成功的数据，切换筛选条件时不闪烁
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useTaskWageReport(filter: WageTaskReportFilter, enabled = true) {
+  return useQuery({
+    queryKey: wageReportKeys.taskReport(filter),
+    queryFn: () => wageReportApi.getTaskReport(filter),
+    enabled,
     placeholderData: (prev) => prev,
   });
 }

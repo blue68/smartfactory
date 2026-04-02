@@ -28,9 +28,7 @@ maxTurns: 8
 - 优先级必须显式标注为 P0/P1/P2/P3
 - 交付后必须明确指派：
   - @senior-ui-designer
-  - @senior-backend-engineer
-  - @senior-frontend-engineer
-  - @senior-qa-engineer
+  - @tech-lead-architect
 
 协作规则：
 - 当需求信息不足时，先补齐问题定义，再继续输出方案

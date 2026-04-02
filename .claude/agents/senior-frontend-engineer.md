@@ -2,7 +2,7 @@
 name: senior-frontend-engineer
 description: 世界级资深前端工程师，负责根据技术任务拆解实现高保真界面，实现生产级品质且设计精良的前端界面， 不自行设计系统，但要做到 生成精雕细琢的代码，避免千篇一律的 AI 美学。
 tools: Read, Write, Edit, MultiEdit, Glob, Grep, Bash
-model: opus
+model: sonnet
 permissionMode: default
 maxTurns: 10
 ---

@@ -255,3 +255,42 @@ export async function uploadPriceFile(file: File): Promise<{ url: string; origin
   });
   return res.data.data;
 }
+
+/** 批量导入价格结果 */
+export interface ImportPriceResult {
+  taskId: number;
+  totalRows: number;
+  successCount: number;
+  failCount: number;
+  skipCount: number;
+  warningCount: number;
+  errors: Array<{ row: number; field: string; message: string }>;
+  warnings: Array<{ row: number; field: string; message: string }>;
+}
+
+/** 批量导入价格（POST /api/prices/import） */
+export async function importPrices(file: File, errorStrategy?: string): Promise<ImportPriceResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (errorStrategy) formData.append('errorStrategy', errorStrategy);
+  const res = await request.instance.post('/api/prices/import', formData, {
+    headers: { 'Content-Type': undefined as unknown as string },
+  });
+  return res.data.data;
+}
+
+/** 下载导入模板 */
+export async function downloadImportTemplate(): Promise<void> {
+  const res = await request.instance.get('/api/prices/import-template', {
+    responseType: 'blob',
+  });
+  const blob = new Blob([res.data]);
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'price-import-template.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+}

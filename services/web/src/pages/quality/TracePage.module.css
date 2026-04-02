@@ -422,6 +422,12 @@
   gap: var(--space-4);
 }
 
+.issueFormGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
 .formField {
   display: flex;
   flex-direction: column;
@@ -455,6 +461,143 @@
   border-color: var(--color-primary-500);
 }
 
+.issueTypeGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.issueTypeChip {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: 9999px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.issueTypeChipActive {
+  border-color: var(--color-primary-500);
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+}
+
+.issueSeverityGroup {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.issueSeverityOption {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.issueTextarea {
+  min-height: 112px;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  resize: vertical;
+  outline: none;
+  width: 100%;
+  font-family: var(--font-family-base);
+  transition: border-color var(--transition-fast);
+}
+
+.issueTextarea:focus {
+  border-color: var(--color-primary-500);
+}
+
+.issueUploadPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-page);
+}
+
+.issueUploadButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-600);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.issueUploadInput {
+  display: none;
+}
+
+.issueUploadHint {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.issueImageList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.issueImageItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.issueImageMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.issueImageName {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.issueImageSize {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.issueImageRemove {
+  border: none;
+  background: transparent;
+  color: var(--color-error-600);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  padding: 0;
+}
+
 /* ─── 响应式 ────────────────────────────────── */
 @media (max-width: 1199px) {
   .statsRow {
@@ -482,6 +625,10 @@
 
   .dateSelect {
     width: 100%;
+  }
+
+  .issueFormGrid {
+    grid-template-columns: 1fr;
   }
 
   .traceSectionHeader {

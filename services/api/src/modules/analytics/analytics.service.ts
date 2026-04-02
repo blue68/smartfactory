@@ -321,12 +321,12 @@ export class AnalyticsService {
     // 按一级品类聚合采购订单行金额与去重订单数
     const rows = await AppDataSource.query(
       `SELECT
-         sc.name                                    AS category_name,
-         COUNT(DISTINCT poi.purchase_order_id)      AS order_count,
-         COALESCE(SUM(poi.qty * poi.unit_price), 0) AS total_amount
+         sc.name                                              AS category_name,
+         COUNT(DISTINCT poi.po_id)                            AS order_count,
+         COALESCE(SUM(poi.qty_ordered * poi.unit_price), 0)   AS total_amount
        FROM purchase_order_items poi
        INNER JOIN purchase_orders po
-          ON po.id = poi.purchase_order_id
+          ON po.id = poi.po_id
          AND po.tenant_id = poi.tenant_id
        INNER JOIN skus s
           ON s.id = poi.sku_id

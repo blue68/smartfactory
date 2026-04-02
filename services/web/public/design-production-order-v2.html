@@ -1,0 +1,1836 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>生产工单 — 优化版效果图 v2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ═══════════════════════════════════════════════
+       DESIGN TOKENS
+    ═══════════════════════════════════════════════ */
+    :root {
+      /* Color — Primary */
+      --c-primary-50:  #EFF6FF;
+      --c-primary-100: #DBEAFE;
+      --c-primary-200: #BFDBFE;
+      --c-primary-500: #3B82F6;
+      --c-primary-600: #2563EB;
+      --c-primary-700: #1D4ED8;
+
+      /* Color — Success */
+      --c-success-50:  #F0FDF4;
+      --c-success-100: #D1FAE5;
+      --c-success-500: #22C55E;
+      --c-success-600: #16A34A;
+      --c-success-700: #15803D;
+
+      /* Color — Warning */
+      --c-warning-50:  #FFFBEB;
+      --c-warning-100: #FEF3C7;
+      --c-warning-500: #F59E0B;
+      --c-warning-600: #D97706;
+      --c-warning-700: #B45309;
+
+      /* Color — Danger */
+      --c-danger-50:  #FEF2F2;
+      --c-danger-100: #FEE2E2;
+      --c-danger-400: #F87171;
+      --c-danger-500: #EF4444;
+      --c-danger-600: #DC2626;
+
+      /* Color — Neutral */
+      --c-slate-50:  #F8FAFC;
+      --c-slate-100: #F1F5F9;
+      --c-slate-200: #E2E8F0;
+      --c-slate-300: #CBD5E1;
+      --c-slate-400: #94A3B8;
+      --c-slate-500: #64748B;
+      --c-slate-600: #475569;
+      --c-slate-700: #334155;
+      --c-slate-800: #1E293B;
+      --c-slate-900: #0F172A;
+
+      /* Semantic */
+      --bg-page:    var(--c-slate-50);
+      --bg-card:    #ffffff;
+      --bg-sidebar: var(--c-slate-900);
+      --border:     var(--c-slate-200);
+      --border-subtle: var(--c-slate-100);
+      --text-primary:   var(--c-slate-800);
+      --text-secondary: var(--c-slate-500);
+      --text-muted:     var(--c-slate-400);
+
+      /* Typography */
+      --font-base:   "DM Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono:   "DM Mono", "JetBrains Mono", "SF Mono", monospace;
+
+      /* Spacing */
+      --sp-1: 0.25rem;
+      --sp-2: 0.5rem;
+      --sp-3: 0.75rem;
+      --sp-4: 1rem;
+      --sp-5: 1.25rem;
+      --sp-6: 1.5rem;
+
+      /* Radius */
+      --r-sm:  6px;
+      --r-md:  8px;
+      --r-lg:  12px;
+      --r-xl:  16px;
+      --r-pill: 9999px;
+
+      /* Shadow */
+      --shadow-xs: 0 1px 2px rgba(15,23,42,.04);
+      --shadow-sm: 0 1px 3px rgba(15,23,42,.08), 0 1px 2px rgba(15,23,42,.04);
+      --shadow-md: 0 4px 6px -1px rgba(15,23,42,.08), 0 2px 4px -2px rgba(15,23,42,.04);
+      --shadow-lg: 0 10px 15px -3px rgba(15,23,42,.08), 0 4px 6px -4px rgba(15,23,42,.04);
+      --shadow-xl: 0 20px 25px -5px rgba(15,23,42,.10), 0 8px 10px -6px rgba(15,23,42,.06);
+
+      /* Transition */
+      --t-fast: 120ms ease;
+      --t-base: 180ms ease;
+    }
+
+    /* ═══════════════════════════════════════════════
+       RESET & BASE
+    ═══════════════════════════════════════════════ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: var(--font-base);
+      background: var(--bg-page);
+      color: var(--text-primary);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; }
+    ::-webkit-scrollbar        { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track  { background: transparent; }
+    ::-webkit-scrollbar-thumb  { background: var(--c-slate-300); border-radius: var(--r-pill); }
+
+    /* ═══════════════════════════════════════════════
+       LAYOUT SHELL (Sidebar + Content)
+    ═══════════════════════════════════════════════ */
+    .shell {
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ─── Sidebar ─── */
+    .sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      background: var(--bg-sidebar);
+      display: flex;
+      flex-direction: column;
+      padding: var(--sp-5) 0;
+      gap: var(--sp-1);
+    }
+    .sidebar__logo {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+      padding: 0 var(--sp-5) var(--sp-4);
+      border-bottom: 1px solid rgba(255,255,255,.07);
+      margin-bottom: var(--sp-2);
+    }
+    .sidebar__logo-mark {
+      width: 28px; height: 28px;
+      background: var(--c-primary-600);
+      border-radius: var(--r-md);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; color: #fff; font-weight: 700;
+    }
+    .sidebar__logo-text {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: -0.01em;
+    }
+    .sidebar__nav-label {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: rgba(255,255,255,.3);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: var(--sp-3) var(--sp-5) var(--sp-1);
+    }
+    .sidebar__nav-item {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+      padding: 0.4375rem var(--sp-5);
+      font-size: 0.8125rem;
+      color: rgba(255,255,255,.55);
+      cursor: pointer;
+      transition: all var(--t-fast);
+      border-radius: 0;
+      position: relative;
+    }
+    .sidebar__nav-item:hover { color: rgba(255,255,255,.9); background: rgba(255,255,255,.05); }
+    .sidebar__nav-item--active {
+      color: #fff;
+      background: rgba(59,130,246,.25);
+    }
+    .sidebar__nav-item--active::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      background: var(--c-primary-500);
+      border-radius: 0 2px 2px 0;
+    }
+    .sidebar__nav-icon { width: 16px; flex-shrink: 0; opacity: 0.8; }
+    .sidebar__nav-badge {
+      margin-left: auto;
+      background: var(--c-danger-600);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: var(--r-pill);
+    }
+
+    /* ─── Main Area ─── */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    /* Top Bar */
+    .topbar {
+      height: 52px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 var(--sp-6);
+      gap: var(--sp-4);
+      flex-shrink: 0;
+      box-shadow: var(--shadow-xs);
+    }
+    .topbar__breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+    }
+    .topbar__breadcrumb span:last-child { color: var(--text-primary); font-weight: 500; }
+    .topbar__sep { color: var(--c-slate-300); }
+    .topbar__spacer { flex: 1; }
+    .topbar__avatar {
+      width: 30px; height: 30px;
+      border-radius: var(--r-pill);
+      background: linear-gradient(135deg, var(--c-primary-500), var(--c-primary-700));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; color: #fff;
+    }
+
+    /* Content Scroll Area */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--sp-5) var(--sp-6);
+    }
+
+    /* ═══════════════════════════════════════════════
+       PAGE HEADER
+    ═══════════════════════════════════════════════ */
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--sp-4);
+      gap: var(--sp-4);
+    }
+    .page-header__left {}
+    .page-header__title {
+      font-size: 1.1875rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+    .page-header__title-icon {
+      width: 22px; height: 22px;
+      background: linear-gradient(135deg, #3B82F6, #2563EB);
+      border-radius: var(--r-sm);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 11px;
+    }
+    .page-header__subtitle {
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+    .page-header__subtitle strong { color: var(--c-primary-600); }
+    .page-header__subtitle .danger { color: var(--c-danger-600); }
+    .page-header__actions {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+
+    /* ═══════════════════════════════════════════════
+       BUTTONS
+    ═══════════════════════════════════════════════ */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--sp-2);
+      padding: 0.4375rem 0.875rem;
+      border-radius: var(--r-md);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      white-space: nowrap;
+      transition: all var(--t-fast);
+      font-family: inherit;
+      line-height: 1;
+    }
+    .btn--primary {
+      background: var(--c-primary-600);
+      color: #fff;
+      box-shadow: 0 1px 2px rgba(37,99,235,.3);
+    }
+    .btn--primary:hover { background: var(--c-primary-700); box-shadow: 0 2px 4px rgba(37,99,235,.35); }
+    .btn--secondary {
+      background: var(--bg-card);
+      color: var(--text-primary);
+      border-color: var(--border);
+    }
+    .btn--secondary:hover { background: var(--c-slate-50); border-color: var(--c-slate-300); }
+    .btn--ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      padding: 0.4375rem var(--sp-3);
+    }
+    .btn--ghost:hover { background: var(--c-slate-100); color: var(--text-primary); }
+    .btn--danger-ghost {
+      background: transparent;
+      color: var(--c-danger-600);
+      border-color: var(--c-danger-100);
+    }
+    .btn--danger-ghost:hover { background: var(--c-danger-50); border-color: var(--c-danger-400); }
+    .btn--xs {
+      padding: 0.1875rem 0.5rem;
+      font-size: 0.6875rem;
+      border-radius: var(--r-sm);
+    }
+    .btn--sm {
+      padding: 0.3125rem 0.625rem;
+      font-size: 0.75rem;
+    }
+    .btn__icon { display: flex; align-items: center; }
+
+    /* ═══════════════════════════════════════════════
+       STAT STRIP  (紧凑横向)
+    ═══════════════════════════════════════════════ */
+
+    /*
+     * BEM Block: stat-strip
+     * 横向 5 等分，高度 ~72px，左彩色边条，hover lift
+     */
+    .stat-strip {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.625rem;
+      margin-bottom: var(--sp-4);
+    }
+
+    .stat-strip__card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--c-slate-300);
+      border-radius: var(--r-lg);
+      padding: 0.625rem var(--sp-4);
+      box-shadow: var(--shadow-xs);
+      cursor: pointer;
+      transition: all var(--t-base);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 2px;
+      min-height: 0;
+    }
+    .stat-strip__card:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-1px);
+      border-color: var(--c-slate-200);
+    }
+    .stat-strip__card--primary { border-left-color: var(--c-primary-500); }
+    .stat-strip__card--success { border-left-color: var(--c-success-600); }
+    .stat-strip__card--warning { border-left-color: var(--c-warning-500); }
+    .stat-strip__card--danger  { border-left-color: var(--c-danger-600); cursor: default; }
+    .stat-strip__card--active {
+      background: var(--c-primary-50);
+      border-color: var(--c-primary-200);
+      border-left-color: var(--c-primary-600);
+    }
+
+    .stat-strip__top {
+      display: flex;
+      align-items: baseline;
+      gap: var(--sp-2);
+    }
+    .stat-strip__value {
+      font-size: 1.375rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      letter-spacing: -0.02em;
+    }
+    .stat-strip__card--primary .stat-strip__value { color: var(--c-primary-600); }
+    .stat-strip__card--success .stat-strip__value { color: var(--c-success-600); }
+    .stat-strip__card--danger  .stat-strip__value { color: var(--c-danger-600); }
+
+    .stat-strip__delta {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 1px 5px;
+      border-radius: var(--r-pill);
+    }
+    .stat-strip__delta--up   { background: var(--c-success-100); color: var(--c-success-700); }
+    .stat-strip__delta--down { background: var(--c-danger-100);  color: var(--c-danger-600); }
+
+    .stat-strip__bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .stat-strip__label {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+    .stat-strip__sub {
+      font-size: 0.6875rem;
+      color: var(--text-muted);
+    }
+
+    /* ═══════════════════════════════════════════════
+       FILTER BAR  (紧凑单行)
+    ═══════════════════════════════════════════════ */
+
+    /*
+     * BEM Block: filter-bar
+     */
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      margin-bottom: var(--sp-3);
+      flex-wrap: nowrap;
+    }
+
+    .filter-bar__search {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: 0 var(--sp-3);
+      height: 34px;
+      flex: 1;
+      min-width: 180px;
+      max-width: 260px;
+      transition: border-color var(--t-fast), box-shadow var(--t-fast);
+    }
+    .filter-bar__search:focus-within {
+      border-color: var(--c-primary-400);
+      box-shadow: 0 0 0 3px rgba(59,130,246,.1);
+    }
+    .filter-bar__search-icon { color: var(--c-slate-400); display: flex; align-items: center; flex-shrink: 0; }
+    .filter-bar__search input {
+      border: none;
+      background: none;
+      font-size: 0.8125rem;
+      width: 100%;
+      outline: none;
+      color: var(--text-primary);
+    }
+    .filter-bar__search input::placeholder { color: var(--c-slate-400); }
+
+    .filter-bar__select {
+      height: 34px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: 0 var(--sp-3);
+      font-size: 0.8125rem;
+      font-family: inherit;
+      cursor: pointer;
+      outline: none;
+      color: var(--text-primary);
+      transition: border-color var(--t-fast);
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 20 20' fill='none' stroke='%2394A3B8' stroke-width='1.75' stroke-linecap='round'%3E%3Cpath d='M5 7.5l5 5 5-5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.625rem center;
+      padding-right: 1.75rem;
+    }
+    .filter-bar__select:focus { border-color: var(--c-primary-400); }
+
+    .filter-bar__divider {
+      width: 1px;
+      height: 20px;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    .filter-bar__count {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      margin-left: auto;
+    }
+    .filter-bar__count strong { color: var(--text-secondary); font-weight: 600; }
+
+    /* ═══════════════════════════════════════════════
+       ORDER LIST
+    ═══════════════════════════════════════════════ */
+    .order-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: var(--sp-5);
+    }
+
+    /* ═══════════════════════════════════════════════
+       ORDER CARD  (紧凑重排版)
+    ═══════════════════════════════════════════════ */
+
+    /*
+     * BEM Block: order-card
+     * 左侧彩色边框 4px，整体 3-row 布局
+     *   Row-1: header  —— 工单号 + 产品名 + badges
+     *   Row-2: data    —— 5-col 数值 + inline progress pill
+     *   Row-3: footer  —— 状态文字 + 操作按钮
+     * (Row-2.5): bom-bar (仅缺料时出现)
+     */
+    .order-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--c-slate-300);
+      border-radius: var(--r-lg);
+      box-shadow: var(--shadow-xs);
+      overflow: hidden;
+      transition: box-shadow var(--t-base), transform var(--t-base), border-color var(--t-base);
+    }
+    .order-card:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-1px);
+    }
+    /* 左边框状态色 */
+    .order-card--in-progress { border-left-color: var(--c-success-500); }
+    .order-card--scheduled   { border-left-color: var(--c-warning-500); }
+    .order-card--pending     { border-left-color: var(--c-slate-300); }
+    .order-card--completed   { border-left-color: var(--c-success-600); }
+    .order-card--cancelled   { border-left-color: var(--c-slate-400); }
+
+    /* ─ Row 1: Header ─ */
+    .order-card__header {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+      padding: 0.625rem var(--sp-4);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .order-card__header-left {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+      flex: 1;
+      min-width: 0;
+    }
+    .order-card__no {
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .order-card__sep {
+      width: 1px;
+      height: 12px;
+      background: var(--c-slate-200);
+      flex-shrink: 0;
+    }
+    .order-card__title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: -0.01em;
+    }
+    .order-card__so {
+      font-size: 0.6875rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .order-card__badges {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      flex-shrink: 0;
+    }
+
+    /* ─ Row 2: Data Grid ─ */
+    .order-card__data {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      padding: 0.5rem var(--sp-4);
+    }
+    /* 5 等宽数据列 + 进度 pill */
+    .order-card__metrics {
+      display: flex;
+      align-items: center;
+      flex: 1;
+      min-width: 0;
+      gap: 0;
+    }
+    .order-card__metric {
+      flex: 1;
+      min-width: 0;
+      padding: 0 0.75rem 0 0;
+    }
+    .order-card__metric + .order-card__metric {
+      padding-left: 0.75rem;
+      border-left: 1px solid var(--border-subtle);
+    }
+    .order-card__metric-label {
+      font-size: 0.625rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      line-height: 1;
+      margin-bottom: 3px;
+    }
+    .order-card__metric-value {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .order-card__metric-value--muted { color: var(--text-secondary); font-weight: 500; }
+    .order-card__metric-value--primary { color: var(--c-primary-600); }
+    .order-card__metric-value--danger  { color: var(--c-danger-600); }
+
+    /* Progress Pill (内联进度胶囊) */
+    .order-card__progress-pill {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      padding: 0 0 0 var(--sp-3);
+      border-left: 1px solid var(--border-subtle);
+      width: 160px;
+    }
+    .progress-pill {
+      flex: 1;
+      min-width: 0;
+    }
+    .progress-pill__track {
+      height: 5px;
+      background: var(--c-slate-100);
+      border-radius: var(--r-pill);
+      overflow: hidden;
+      margin-bottom: 2px;
+    }
+    .progress-pill__fill {
+      height: 100%;
+      border-radius: var(--r-pill);
+      transition: width 300ms ease;
+    }
+    .progress-pill__fill--high    { background: linear-gradient(90deg, #22C55E, #16A34A); }
+    .progress-pill__fill--medium  { background: linear-gradient(90deg, #F59E0B, #D97706); }
+    .progress-pill__fill--low     { background: linear-gradient(90deg, #EF4444, #DC2626); }
+    .progress-pill__label {
+      font-size: 0.625rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .progress-pill__pct {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      min-width: 2.25rem;
+      text-align: right;
+    }
+    .progress-pill__pct--high    { color: var(--c-success-600); }
+    .progress-pill__pct--medium  { color: var(--c-warning-700); }
+    .progress-pill__pct--low     { color: var(--c-danger-600); }
+
+    /* ─ Row 2.5: BOM Status Bar (仅缺料显示) ─ */
+    .order-card__bom-bar {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      padding: 0.3125rem var(--sp-4);
+      font-size: 0.75rem;
+      font-weight: 500;
+      border-top: 1px solid;
+    }
+    .order-card__bom-bar--ready {
+      background: var(--c-success-50);
+      border-color: rgba(34,197,94,.15);
+      color: var(--c-success-600);
+    }
+    .order-card__bom-bar--partial {
+      background: var(--c-warning-50);
+      border-color: rgba(245,158,11,.2);
+      color: var(--c-warning-700);
+    }
+    .order-card__bom-bar--shortage {
+      background: var(--c-danger-50);
+      border-color: rgba(239,68,68,.2);
+      color: var(--c-danger-600);
+    }
+    .order-card__bom-bar-dot {
+      width: 6px; height: 6px;
+      border-radius: var(--r-pill);
+      flex-shrink: 0;
+    }
+    .order-card__bom-bar--ready    .order-card__bom-bar-dot { background: var(--c-success-500); }
+    .order-card__bom-bar--partial  .order-card__bom-bar-dot { background: var(--c-warning-500); }
+    .order-card__bom-bar--shortage .order-card__bom-bar-dot { background: var(--c-danger-500); animation: pulse-dot 1.4s infinite; }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.6; transform: scale(0.75); }
+    }
+    .order-card__bom-bar-text { flex: 1; }
+    .order-card__bom-bar-link {
+      font-size: 0.6875rem;
+      color: inherit;
+      opacity: 0.8;
+      text-decoration: underline;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* ─ Row 3: Footer ─ */
+    .order-card__footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.375rem var(--sp-4);
+      background: var(--c-slate-50);
+      border-top: 1px solid var(--border-subtle);
+      gap: var(--sp-3);
+    }
+    .order-card__footer-text {
+      font-size: 0.6875rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+    .order-card__footer-text strong { color: var(--text-secondary); }
+    .order-card__footer-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      flex-shrink: 0;
+    }
+
+    /* ═══════════════════════════════════════════════
+       BADGES
+    ═══════════════════════════════════════════════ */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 0.125rem 0.4375rem;
+      border-radius: var(--r-pill);
+      font-size: 0.6875rem;
+      font-weight: 500;
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+    .badge__dot {
+      width: 5px; height: 5px;
+      border-radius: var(--r-pill);
+      flex-shrink: 0;
+    }
+    /* Status variants */
+    .badge--pending   { background: var(--c-slate-100); color: var(--c-slate-500); }
+    .badge--scheduled { background: var(--c-primary-50); color: var(--c-primary-700); border: 1px solid var(--c-primary-100); }
+    .badge--in-progress {
+      background: var(--c-warning-50);
+      color: var(--c-warning-700);
+      border: 1px solid var(--c-warning-100);
+    }
+    .badge--in-progress .badge__dot { background: var(--c-warning-500); animation: pulse-dot 1.4s infinite; }
+    .badge--completed { background: var(--c-success-100); color: var(--c-success-700); }
+    .badge--cancelled { background: var(--c-danger-50); color: var(--c-danger-600); }
+    /* Material variants */
+    .badge--mat-ready   { background: var(--c-success-100); color: var(--c-success-700); }
+    .badge--mat-partial { background: var(--c-warning-100); color: var(--c-warning-700); }
+    .badge--mat-shortage {
+      background: var(--c-danger-100);
+      color: var(--c-danger-600);
+      animation: badge-flash 2s infinite;
+    }
+    @keyframes badge-flash {
+      0%, 100% { background: var(--c-danger-100); }
+      50%       { background: #fecaca; }
+    }
+    .badge--purchased { background: #D1FAE5; color: #065F46; }
+
+    /* ═══════════════════════════════════════════════
+       PAGINATION
+    ═══════════════════════════════════════════════ */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--sp-3);
+      padding: var(--sp-4) 0;
+    }
+    .pagination__btn {
+      width: 30px; height: 30px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: var(--r-md);
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      cursor: pointer;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      transition: all var(--t-fast);
+    }
+    .pagination__btn:hover { background: var(--c-primary-50); border-color: var(--c-primary-200); color: var(--c-primary-600); }
+    .pagination__btn:disabled { opacity: 0.38; cursor: not-allowed; }
+    .pagination__info {
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+    }
+
+    /* ═══════════════════════════════════════════════
+       DRAWER OVERLAY
+    ═══════════════════════════════════════════════ */
+    .drawer-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,.35);
+      z-index: 100;
+      display: flex;
+      justify-content: flex-end;
+      backdrop-filter: blur(2px);
+    }
+    .drawer {
+      width: 560px;
+      max-width: 100vw;
+      height: 100%;
+      background: var(--bg-card);
+      box-shadow: var(--shadow-xl);
+      display: flex;
+      flex-direction: column;
+      animation: slide-in-drawer 220ms ease;
+    }
+    @keyframes slide-in-drawer {
+      from { transform: translateX(100%); opacity: 0; }
+      to   { transform: translateX(0);   opacity: 1; }
+    }
+    .drawer__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--sp-4) var(--sp-5);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .drawer__title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex; align-items: center; gap: var(--sp-2);
+    }
+    .drawer__title-sub { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
+    .drawer__close {
+      width: 28px; height: 28px;
+      border-radius: var(--r-md);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--t-fast);
+    }
+    .drawer__close:hover { background: var(--c-slate-100); color: var(--text-primary); }
+
+    .drawer__summary {
+      padding: var(--sp-4) var(--sp-5);
+      background: var(--c-slate-50);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .drawer__summary-row1 {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+      margin-bottom: var(--sp-3);
+    }
+    .drawer__sku-name {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .drawer__summary-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: var(--sp-3);
+      margin-bottom: var(--sp-3);
+    }
+    .drawer__metric-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .drawer__metric-label {
+      font-size: 0.625rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .drawer__metric-value {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+    }
+    .drawer__progress-row {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+    }
+    .drawer__progress-label { font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; }
+    .drawer__progress-track {
+      flex: 1;
+      height: 6px;
+      background: var(--c-slate-200);
+      border-radius: var(--r-pill);
+      overflow: hidden;
+    }
+    .drawer__progress-fill {
+      height: 100%;
+      border-radius: var(--r-pill);
+    }
+    .drawer__progress-pct {
+      font-size: 0.75rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--c-primary-600);
+      white-space: nowrap;
+    }
+
+    /* Drawer Tabs */
+    .drawer__tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      padding: 0 var(--sp-5);
+    }
+    .drawer__tab {
+      padding: 0.625rem var(--sp-4);
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all var(--t-fast);
+      white-space: nowrap;
+    }
+    .drawer__tab:hover { color: var(--c-primary-600); }
+    .drawer__tab--active {
+      color: var(--c-primary-600);
+      border-bottom-color: var(--c-primary-600);
+      font-weight: 600;
+    }
+
+    /* Drawer Body */
+    .drawer__body {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--sp-5);
+    }
+
+    /* ═══════════════════════════════════════════════
+       MATERIAL TABLE  (抽屉内表格优化版)
+    ═══════════════════════════════════════════════ */
+    .mat-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      box-shadow: var(--shadow-xs);
+    }
+
+    /*
+     * BEM Block: mat-table
+     * 列宽策略：SKU编码 min 80px, SKU名称 flex, 数字列 fixed 右对齐, 状态 fixed
+     */
+    .mat-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8125rem;
+      white-space: nowrap;
+    }
+    .mat-table thead tr {
+      background: var(--c-slate-50);
+      border-bottom: 1px solid var(--border);
+    }
+    .mat-table th {
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+    .mat-table th.align-right { text-align: right; }
+    .mat-table td {
+      padding: 0.5625rem 0.75rem;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      vertical-align: middle;
+    }
+    .mat-table tr:last-child td { border-bottom: none; }
+    .mat-table tr:hover td { background: var(--c-slate-50); }
+
+    /* Column widths */
+    .mat-table .col-code  { width: 100px; }
+    .mat-table .col-name  { min-width: 120px; white-space: normal; word-break: break-all; }
+    .mat-table .col-num   { width: 80px; text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 0.75rem; }
+    .mat-table .col-status { width: 72px; }
+
+    .mat-table__code { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary); }
+    .mat-table__name { font-weight: 500; font-size: 0.8125rem; color: var(--text-primary); }
+
+    /* 缺口列红色高亮 */
+    .mat-table__shortage-positive {
+      color: var(--c-danger-600);
+      font-weight: 700;
+      background: var(--c-danger-50);
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: var(--r-sm);
+    }
+    .mat-table__shortage-zero {
+      color: var(--c-success-600);
+      font-weight: 600;
+    }
+
+    /* 状态 badge 小号 */
+    .badge--table-fulfilled { background: var(--c-success-50); color: var(--c-success-700); font-size: 0.625rem; padding: 1px 6px; border-radius: var(--r-sm); font-weight: 600; }
+    .badge--table-partial   { background: var(--c-warning-50); color: var(--c-warning-700); font-size: 0.625rem; padding: 1px 6px; border-radius: var(--r-sm); font-weight: 600; }
+    .badge--table-shortage  { background: var(--c-danger-50);  color: var(--c-danger-600);  font-size: 0.625rem; padding: 1px 6px; border-radius: var(--r-sm); font-weight: 600; }
+
+    /* ═══════════════════════════════════════════════
+       INFO GRID (Drawer info tab)
+    ═══════════════════════════════════════════════ */
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+    }
+    .info-grid__row {
+      display: contents;
+    }
+    .info-grid__label {
+      padding: 0.5625rem var(--sp-4);
+      background: var(--c-slate-50);
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+    }
+    .info-grid__value {
+      padding: 0.5625rem var(--sp-4);
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8125rem;
+      color: var(--text-primary);
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+    }
+    .info-grid__label:last-of-type,
+    .info-grid__value:last-of-type {
+      border-bottom: none;
+    }
+    /* last two items have no border-bottom */
+    .info-grid > *:nth-last-child(-n+2) { border-bottom: none; }
+
+    /* ═══════════════════════════════════════════════
+       UTILITIES
+    ═══════════════════════════════════════════════ */
+    .text-mono { font-family: var(--font-mono); }
+    .text-right { text-align: right; }
+    .flex { display: flex; }
+    .flex-center { display: flex; align-items: center; }
+    .gap-2 { gap: var(--sp-2); }
+    .ml-auto { margin-left: auto; }
+
+    /* Section title */
+    .section-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: var(--sp-3);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ══════════════════════════════════
+       SIDEBAR
+  ══════════════════════════════════ -->
+  <aside class="sidebar">
+    <div class="sidebar__logo">
+      <div class="sidebar__logo-mark">SF</div>
+      <div class="sidebar__logo-text">智造云 ERP</div>
+    </div>
+
+    <div class="sidebar__nav-label">概览</div>
+    <div class="sidebar__nav-item">
+      <svg class="sidebar__nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="1" y="1" width="5.5" height="5.5" rx="1.5"/>
+        <rect x="9.5" y="1" width="5.5" height="5.5" rx="1.5"/>
+        <rect x="1" y="9.5" width="5.5" height="5.5" rx="1.5"/>
+        <rect x="9.5" y="9.5" width="5.5" height="5.5" rx="1.5"/>
+      </svg>
+      仪表盘
+    </div>
+
+    <div class="sidebar__nav-label">生产</div>
+    <div class="sidebar__nav-item sidebar__nav-item--active">
+      <svg class="sidebar__nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="1" y="3" width="14" height="10" rx="2"/>
+        <path d="M5 3V2M11 3V2"/>
+        <path d="M1 7h14"/>
+      </svg>
+      生产工单
+      <span class="sidebar__nav-badge">3</span>
+    </div>
+    <div class="sidebar__nav-item">
+      <svg class="sidebar__nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 1v14M1 8h14" stroke-linecap="round"/>
+      </svg>
+      排产计划
+    </div>
+    <div class="sidebar__nav-item">
+      <svg class="sidebar__nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8" cy="8" r="6.5"/>
+        <path d="M8 4.5V8l2.5 2" stroke-linecap="round"/>
+      </svg>
+      工序任务
+    </div>
+
+    <div class="sidebar__nav-label">采购</div>
+    <div class="sidebar__nav-item">
+      <svg class="sidebar__nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M2 4h12l-1.5 6H3.5L2 4z"/>
+        <circle cx="5.5" cy="13" r="1"/><circle cx="10.5" cy="13" r="1"/>
+      </svg>
+      采购订单
+    </div>
+
+    <div class="sidebar__nav-label">库存</div>
+    <div class="sidebar__nav-item">
+      <svg class="sidebar__nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="1" y="5" width="14" height="9" rx="1.5"/>
+        <path d="M5 5V3.5a3 3 0 016 0V5"/>
+      </svg>
+      库存管理
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════
+       MAIN
+  ══════════════════════════════════ -->
+  <main class="main">
+
+    <!-- Top Bar -->
+    <div class="topbar">
+      <div class="topbar__breadcrumb">
+        <span>生产</span>
+        <span class="topbar__sep">›</span>
+        <span>生产工单</span>
+      </div>
+      <div class="topbar__spacer"></div>
+      <!-- notification bell -->
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="#94A3B8" stroke-width="1.5" stroke-linecap="round">
+        <path d="M10 2a6 6 0 00-6 6c0 3-1.5 4-1.5 4h15s-1.5-1-1.5-4a6 6 0 00-6-6z"/>
+        <path d="M11.73 17a2 2 0 01-3.46 0"/>
+      </svg>
+      <div class="topbar__avatar">KW</div>
+    </div>
+
+    <!-- Scrollable Content -->
+    <div class="content">
+
+      <!-- ── Page Header ── -->
+      <div class="page-header">
+        <div class="page-header__left">
+          <div class="page-header__title">
+            <span class="page-header__title-icon">🏭</span>
+            生产工单
+          </div>
+          <div class="page-header__subtitle">
+            <strong>8</strong> 个在产工单 · 共 23 条 ·
+            <span class="danger">3 个物料缺口待处理</span>
+          </div>
+        </div>
+        <div class="page-header__actions">
+          <button class="btn btn--secondary">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
+            筛选
+          </button>
+          <button class="btn btn--secondary">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 10l5 5 5-5"/></svg>
+            导出报表
+          </button>
+          <button class="btn btn--primary">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+            手动创建工单
+          </button>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════
+           STAT STRIP  (紧凑横向，高度 ~72px)
+      ══════════════════════════════════ -->
+      <div class="stat-strip">
+
+        <!-- 全部工单 -->
+        <div class="stat-strip__card">
+          <div class="stat-strip__top">
+            <span class="stat-strip__value">23</span>
+          </div>
+          <div class="stat-strip__bottom">
+            <span class="stat-strip__label">全部工单</span>
+            <span class="stat-strip__sub">所有状态</span>
+          </div>
+        </div>
+
+        <!-- 进行中 -->
+        <div class="stat-strip__card stat-strip__card--primary stat-strip__card--active">
+          <div class="stat-strip__top">
+            <span class="stat-strip__value">8</span>
+            <span class="stat-strip__delta stat-strip__delta--up">+2 今日</span>
+          </div>
+          <div class="stat-strip__bottom">
+            <span class="stat-strip__label">进行中</span>
+            <span class="stat-strip__sub">正在生产</span>
+          </div>
+        </div>
+
+        <!-- 待开始 -->
+        <div class="stat-strip__card stat-strip__card--warning">
+          <div class="stat-strip__top">
+            <span class="stat-strip__value">7</span>
+          </div>
+          <div class="stat-strip__bottom">
+            <span class="stat-strip__label">待开始</span>
+            <span class="stat-strip__sub">排产 / 待排</span>
+          </div>
+        </div>
+
+        <!-- 已完成 -->
+        <div class="stat-strip__card stat-strip__card--success">
+          <div class="stat-strip__top">
+            <span class="stat-strip__value">5</span>
+            <span class="stat-strip__delta stat-strip__delta--up">+1 本月</span>
+          </div>
+          <div class="stat-strip__bottom">
+            <span class="stat-strip__label">已完成</span>
+            <span class="stat-strip__sub">本月累计</span>
+          </div>
+        </div>
+
+        <!-- 物料缺口 -->
+        <div class="stat-strip__card stat-strip__card--danger">
+          <div class="stat-strip__top">
+            <span class="stat-strip__value">3</span>
+            <span class="stat-strip__delta stat-strip__delta--down">需处理</span>
+          </div>
+          <div class="stat-strip__bottom">
+            <span class="stat-strip__label">物料缺口</span>
+            <span class="stat-strip__sub">缺料待采购</span>
+          </div>
+        </div>
+
+      </div><!-- /stat-strip -->
+
+      <!-- ══════════════════════════════════
+           FILTER BAR
+      ══════════════════════════════════ -->
+      <div class="filter-bar">
+
+        <!-- Search -->
+        <div class="filter-bar__search">
+          <span class="filter-bar__search-icon">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+              <circle cx="8.5" cy="8.5" r="5.5"/>
+              <path d="M14.5 14.5l3.5 3.5"/>
+            </svg>
+          </span>
+          <input type="text" placeholder="工单号 / 产品 / 销售单…" />
+        </div>
+
+        <div class="filter-bar__divider"></div>
+
+        <!-- Status -->
+        <select class="filter-bar__select">
+          <option selected>全部状态</option>
+          <option>生产中</option>
+          <option>已排产</option>
+          <option>待排产</option>
+          <option>已完工</option>
+          <option>已取消</option>
+        </select>
+
+        <!-- Priority -->
+        <select class="filter-bar__select">
+          <option selected>全部优先级</option>
+          <option>紧急</option>
+          <option>高</option>
+          <option>普通</option>
+        </select>
+
+        <!-- Material -->
+        <select class="filter-bar__select">
+          <option selected>物料状态</option>
+          <option>全部齐套</option>
+          <option>部分缺料</option>
+          <option>严重缺料</option>
+        </select>
+
+        <span class="filter-bar__count">共 <strong>23</strong> 条工单</span>
+
+      </div><!-- /filter-bar -->
+
+      <!-- ══════════════════════════════════
+           ORDER LIST
+      ══════════════════════════════════ -->
+      <div class="order-list">
+
+        <!-- ── Card 1: 生产中 + 缺料 (最紧急) ── -->
+        <div class="order-card order-card--in-progress">
+          <!-- Header Row -->
+          <div class="order-card__header">
+            <div class="order-card__header-left">
+              <span class="order-card__no">WO-2024-0087</span>
+              <span class="order-card__sep"></span>
+              <span class="order-card__title">精密铝合金外壳 A-7 型</span>
+              <span class="order-card__so">· 关联 SO-2024-0210</span>
+            </div>
+            <div class="order-card__badges">
+              <span class="badge badge--mat-shortage">
+                <span class="badge__dot" style="width:5px;height:5px;border-radius:9999px;background:#DC2626;animation:pulse-dot 1.4s infinite;"></span>
+                严重缺料
+              </span>
+              <span class="badge badge--in-progress">
+                <span class="badge__dot"></span>
+                生产中
+              </span>
+            </div>
+          </div>
+
+          <!-- Data Row -->
+          <div class="order-card__data">
+            <div class="order-card__metrics">
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划量</div>
+                <div class="order-card__metric-value">500</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">已完成</div>
+                <div class="order-card__metric-value order-card__metric-value--primary">210</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划开始</div>
+                <div class="order-card__metric-value order-card__metric-value--muted">2024-03-15</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划完工</div>
+                <div class="order-card__metric-value order-card__metric-value--danger">2024-03-28</div>
+              </div>
+            </div>
+            <!-- Progress Pill -->
+            <div class="order-card__progress-pill">
+              <div class="progress-pill">
+                <div class="progress-pill__track">
+                  <div class="progress-pill__fill progress-pill__fill--medium" style="width:42%"></div>
+                </div>
+                <div class="progress-pill__label">整体进度</div>
+              </div>
+              <span class="progress-pill__pct progress-pill__pct--medium">42%</span>
+            </div>
+          </div>
+
+          <!-- BOM Status Bar: 缺料 -->
+          <div class="order-card__bom-bar order-card__bom-bar--shortage">
+            <span class="order-card__bom-bar-dot"></span>
+            <span class="order-card__bom-bar-text">严重缺料 — 当前工序因 3 种物料缺失已暂停，需立即发起采购</span>
+            <span class="order-card__bom-bar-link">查看详情 →</span>
+          </div>
+
+          <!-- Footer Row -->
+          <div class="order-card__footer">
+            <div class="order-card__footer-text">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#EF4444" stroke-width="1.75" stroke-linecap="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5"/><circle cx="8" cy="11.5" r=".75" fill="#EF4444"/></svg>
+              <span>当前工序暂停 · 最晚采购节点：</span>
+              <strong>2024-03-20</strong>
+            </div>
+            <div class="order-card__footer-actions">
+              <button class="btn btn--secondary btn--sm">查看详情</button>
+              <button class="btn btn--primary btn--sm">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+                发起采购
+              </button>
+            </div>
+          </div>
+        </div><!-- /card 1 -->
+
+        <!-- ── Card 2: 生产中 + 齐套 ── -->
+        <div class="order-card order-card--in-progress">
+          <div class="order-card__header">
+            <div class="order-card__header-left">
+              <span class="order-card__no">WO-2024-0085</span>
+              <span class="order-card__sep"></span>
+              <span class="order-card__title">不锈钢紧固件套装 M6×30</span>
+              <span class="order-card__so">· 关联 SO-2024-0198</span>
+            </div>
+            <div class="order-card__badges">
+              <span class="badge badge--mat-ready">✓ 物料齐套</span>
+              <span class="badge badge--in-progress">
+                <span class="badge__dot"></span>
+                生产中
+              </span>
+            </div>
+          </div>
+          <div class="order-card__data">
+            <div class="order-card__metrics">
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划量</div>
+                <div class="order-card__metric-value">2,000</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">已完成</div>
+                <div class="order-card__metric-value order-card__metric-value--primary">1,740</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划开始</div>
+                <div class="order-card__metric-value order-card__metric-value--muted">2024-03-10</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划完工</div>
+                <div class="order-card__metric-value order-card__metric-value--muted">2024-03-25</div>
+              </div>
+            </div>
+            <div class="order-card__progress-pill">
+              <div class="progress-pill">
+                <div class="progress-pill__track">
+                  <div class="progress-pill__fill progress-pill__fill--high" style="width:87%"></div>
+                </div>
+                <div class="progress-pill__label">整体进度</div>
+              </div>
+              <span class="progress-pill__pct progress-pill__pct--high">87%</span>
+            </div>
+          </div>
+          <div class="order-card__footer">
+            <div class="order-card__footer-text">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#16A34A" stroke-width="1.75"><circle cx="8" cy="8" r="6.5"/><path d="M5 8l2.5 2.5L11 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>进展顺利 · 预计</span><strong>明日完工</strong>
+            </div>
+            <div class="order-card__footer-actions">
+              <button class="btn btn--secondary btn--sm">查看详情</button>
+            </div>
+          </div>
+        </div><!-- /card 2 -->
+
+        <!-- ── Card 3: 已排产 + 部分缺料 ── -->
+        <div class="order-card order-card--scheduled">
+          <div class="order-card__header">
+            <div class="order-card__header-left">
+              <span class="order-card__no">WO-2024-0089</span>
+              <span class="order-card__sep"></span>
+              <span class="order-card__title">碳钢法兰盘 DN100 PN16</span>
+            </div>
+            <div class="order-card__badges">
+              <span class="badge badge--mat-partial">
+                <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v5l3 3"/><circle cx="8" cy="8" r="6.5"/></svg>
+                部分缺料
+              </span>
+              <span class="badge badge--scheduled">已排产</span>
+            </div>
+          </div>
+          <div class="order-card__data">
+            <div class="order-card__metrics">
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划量</div>
+                <div class="order-card__metric-value">800</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">已完成</div>
+                <div class="order-card__metric-value order-card__metric-value--muted">0</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划开始</div>
+                <div class="order-card__metric-value order-card__metric-value--muted">2024-03-22</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划完工</div>
+                <div class="order-card__metric-value order-card__metric-value--muted">2024-04-05</div>
+              </div>
+            </div>
+            <div class="order-card__progress-pill">
+              <div class="progress-pill">
+                <div class="progress-pill__track">
+                  <div class="progress-pill__fill progress-pill__fill--low" style="width:0%"></div>
+                </div>
+                <div class="progress-pill__label">整体进度</div>
+              </div>
+              <span class="progress-pill__pct progress-pill__pct--low">0%</span>
+            </div>
+          </div>
+          <!-- BOM Bar: 部分缺料 -->
+          <div class="order-card__bom-bar order-card__bom-bar--partial">
+            <span class="order-card__bom-bar-dot"></span>
+            <span class="order-card__bom-bar-text">部分缺料 — 1 种辅料缺口待补，预计 2024-03-21 到货，不影响开工</span>
+            <span class="order-card__bom-bar-link">采购跟进 →</span>
+          </div>
+          <div class="order-card__footer">
+            <div class="order-card__footer-text">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#D97706" stroke-width="1.75" stroke-linecap="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5"/><circle cx="8" cy="11.5" r=".75" fill="#D97706"/></svg>
+              <span>计划 3 天后开工 · 请关注采购进度</span>
+            </div>
+            <div class="order-card__footer-actions">
+              <button class="btn btn--secondary btn--sm">查看详情</button>
+              <button class="btn btn--secondary btn--sm btn--danger-ghost">发起采购</button>
+            </div>
+          </div>
+        </div><!-- /card 3 -->
+
+        <!-- ── Card 4: 待排产 + 未检测 ── -->
+        <div class="order-card order-card--pending">
+          <div class="order-card__header">
+            <div class="order-card__header-left">
+              <span class="order-card__no">WO-2024-0091</span>
+              <span class="order-card__sep"></span>
+              <span class="order-card__title">高强度螺栓 M12×60 8.8级</span>
+              <span class="order-card__so">· 关联 SO-2024-0215</span>
+            </div>
+            <div class="order-card__badges">
+              <span class="badge badge--pending">物料待检</span>
+              <span class="badge badge--pending">待排产</span>
+            </div>
+          </div>
+          <div class="order-card__data">
+            <div class="order-card__metrics">
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划量</div>
+                <div class="order-card__metric-value">5,000</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">已完成</div>
+                <div class="order-card__metric-value order-card__metric-value--muted">—</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划开始</div>
+                <div class="order-card__metric-value order-card__metric-value--muted">待定</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划完工</div>
+                <div class="order-card__metric-value order-card__metric-value--muted">待定</div>
+              </div>
+            </div>
+            <div class="order-card__progress-pill">
+              <div class="progress-pill">
+                <div class="progress-pill__track">
+                  <div class="progress-pill__fill progress-pill__fill--low" style="width:0%"></div>
+                </div>
+                <div class="progress-pill__label">整体进度</div>
+              </div>
+              <span class="progress-pill__pct progress-pill__pct--low">—</span>
+            </div>
+          </div>
+          <div class="order-card__footer">
+            <div class="order-card__footer-text">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-linecap="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v4"/><circle cx="8" cy="11.5" r=".75" fill="#94A3B8"/></svg>
+              <span>等待排产 · 已创建 2 天</span>
+            </div>
+            <div class="order-card__footer-actions">
+              <button class="btn btn--secondary btn--sm">查看详情</button>
+              <button class="btn btn--primary btn--sm">立即排产</button>
+            </div>
+          </div>
+        </div><!-- /card 4 -->
+
+        <!-- ── Card 5: 已完成 ── -->
+        <div class="order-card order-card--completed">
+          <div class="order-card__header">
+            <div class="order-card__header-left">
+              <span class="order-card__no">WO-2024-0079</span>
+              <span class="order-card__sep"></span>
+              <span class="order-card__title">铸铁阀门 DN50 PN10</span>
+              <span class="order-card__so">· 关联 SO-2024-0185</span>
+            </div>
+            <div class="order-card__badges">
+              <span class="badge badge--purchased">✓ 采购已发起</span>
+              <span class="badge badge--completed">✓ 已完工</span>
+            </div>
+          </div>
+          <div class="order-card__data">
+            <div class="order-card__metrics">
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">计划量</div>
+                <div class="order-card__metric-value">300</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">已完成</div>
+                <div class="order-card__metric-value" style="color:var(--c-success-600)">300</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">实际开始</div>
+                <div class="order-card__metric-value order-card__metric-value--muted">2024-03-01</div>
+              </div>
+              <div class="order-card__metric">
+                <div class="order-card__metric-label">完工时间</div>
+                <div class="order-card__metric-value order-card__metric-value--muted">2024-03-14</div>
+              </div>
+            </div>
+            <div class="order-card__progress-pill">
+              <div class="progress-pill">
+                <div class="progress-pill__track">
+                  <div class="progress-pill__fill progress-pill__fill--high" style="width:100%"></div>
+                </div>
+                <div class="progress-pill__label">整体进度</div>
+              </div>
+              <span class="progress-pill__pct progress-pill__pct--high">100%</span>
+            </div>
+          </div>
+          <div class="order-card__footer">
+            <div class="order-card__footer-text">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#16A34A" stroke-width="1.75"><circle cx="8" cy="8" r="6.5"/><path d="M5 8l2.5 2.5L11 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>工单已完成 · 提前 2 天交付</span>
+            </div>
+            <div class="order-card__footer-actions">
+              <button class="btn btn--secondary btn--sm">查看详情</button>
+            </div>
+          </div>
+        </div><!-- /card 5 -->
+
+      </div><!-- /order-list -->
+
+      <!-- Pagination -->
+      <div class="pagination">
+        <button class="pagination__btn" disabled>‹</button>
+        <span class="pagination__info">第 1 页 / 共 2 页</span>
+        <button class="pagination__btn">›</button>
+      </div>
+
+    </div><!-- /content -->
+  </main><!-- /main -->
+
+</div><!-- /shell -->
+
+
+<!-- ══════════════════════════════════
+     DRAWER OVERLAY (物料需求 tab 示例)
+══════════════════════════════════ -->
+<div class="drawer-overlay" style="position:fixed;z-index:200;">
+  <div class="drawer">
+
+    <!-- Drawer Header -->
+    <div class="drawer__header">
+      <div class="drawer__title">
+        工单详情
+        <span class="drawer__title-sub">WO-2024-0087</span>
+      </div>
+      <div class="drawer__close">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M3 3l10 10M13 3L3 13"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Drawer Summary -->
+    <div class="drawer__summary">
+      <div class="drawer__summary-row1">
+        <span class="badge badge--mat-shortage">
+          <span style="width:5px;height:5px;border-radius:9999px;background:#DC2626;display:inline-block;animation:pulse-dot 1.4s infinite;"></span>
+          严重缺料
+        </span>
+        <span class="badge badge--in-progress">
+          <span class="badge__dot"></span>生产中
+        </span>
+        <span class="drawer__sku-name" style="margin-left:4px;">精密铝合金外壳 A-7 型</span>
+      </div>
+      <div class="drawer__summary-metrics">
+        <div class="drawer__metric-cell">
+          <span class="drawer__metric-label">计划量</span>
+          <span class="drawer__metric-value">500</span>
+        </div>
+        <div class="drawer__metric-cell">
+          <span class="drawer__metric-label">已完成</span>
+          <span class="drawer__metric-value" style="color:var(--c-primary-600)">210</span>
+        </div>
+        <div class="drawer__metric-cell">
+          <span class="drawer__metric-label">计划完工</span>
+          <span class="drawer__metric-value" style="color:var(--c-danger-600)">2024-03-28</span>
+        </div>
+        <div class="drawer__metric-cell">
+          <span class="drawer__metric-label">关联销售单</span>
+          <span class="drawer__metric-value" style="font-size:0.75rem;font-family:var(--font-mono)">SO-2024-0210</span>
+        </div>
+      </div>
+      <div class="drawer__progress-row">
+        <span class="drawer__progress-label">整体进度</span>
+        <div class="drawer__progress-track">
+          <div class="drawer__progress-fill progress-pill__fill--medium" style="width:42%"></div>
+        </div>
+        <span class="drawer__progress-pct">42%</span>
+      </div>
+    </div>
+
+    <!-- Drawer Tabs -->
+    <div class="drawer__tabs">
+      <div class="drawer__tab">基本信息</div>
+      <div class="drawer__tab drawer__tab--active">物料需求</div>
+      <div class="drawer__tab">工艺快照</div>
+    </div>
+
+    <!-- Drawer Body: 物料需求 tab -->
+    <div class="drawer__body">
+
+      <div class="section-title">原材料需求明细</div>
+
+      <!-- Optimized Material Table -->
+      <div class="mat-table-wrap">
+        <table class="mat-table">
+          <thead>
+            <tr>
+              <th class="col-code">SKU 编码</th>
+              <th class="col-name">物料名称</th>
+              <th class="col-num align-right">需求量</th>
+              <th class="col-num align-right">可用库存</th>
+              <th class="col-num align-right">在途</th>
+              <th class="col-num align-right">缺口</th>
+              <th class="col-status">状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="col-code"><span class="mat-table__code">AL-6061-T6</span></td>
+              <td class="col-name"><span class="mat-table__name">6061-T6 铝合金棒材 Ø20</span></td>
+              <td class="col-num">1,200</td>
+              <td class="col-num">348</td>
+              <td class="col-num">0</td>
+              <td class="col-num"><span class="mat-table__shortage-positive">852</span></td>
+              <td class="col-status"><span class="badge badge--table-shortage">缺料</span></td>
+            </tr>
+            <tr>
+              <td class="col-code"><span class="mat-table__code">SC-M4-ST</span></td>
+              <td class="col-name"><span class="mat-table__name">M4×8 内六角螺钉 不锈钢</span></td>
+              <td class="col-num">2,400</td>
+              <td class="col-num">950</td>
+              <td class="col-num">800</td>
+              <td class="col-num"><span class="mat-table__shortage-positive">650</span></td>
+              <td class="col-status"><span class="badge badge--table-partial">部分</span></td>
+            </tr>
+            <tr>
+              <td class="col-code"><span class="mat-table__code">SE-AL-3M</span></td>
+              <td class="col-name"><span class="mat-table__name">3M VHB 双面胶带 12mm</span></td>
+              <td class="col-num">50</td>
+              <td class="col-num">8</td>
+              <td class="col-num">0</td>
+              <td class="col-num"><span class="mat-table__shortage-positive">42</span></td>
+              <td class="col-status"><span class="badge badge--table-shortage">缺料</span></td>
+            </tr>
+            <tr>
+              <td class="col-code"><span class="mat-table__code">PK-BOX-A7</span></td>
+              <td class="col-name"><span class="mat-table__name">A-7 型专用包装盒</span></td>
+              <td class="col-num">500</td>
+              <td class="col-num">620</td>
+              <td class="col-num">0</td>
+              <td class="col-num"><span class="mat-table__shortage-zero">0</span></td>
+              <td class="col-status"><span class="badge badge--table-fulfilled">充足</span></td>
+            </tr>
+            <tr>
+              <td class="col-code"><span class="mat-table__code">LB-SILK-A</span></td>
+              <td class="col-name"><span class="mat-table__name">产品合格证标签 A 型</span></td>
+              <td class="col-num">500</td>
+              <td class="col-num">1,200</td>
+              <td class="col-num">0</td>
+              <td class="col-num"><span class="mat-table__shortage-zero">0</span></td>
+              <td class="col-status"><span class="badge badge--table-fulfilled">充足</span></td>
+            </tr>
+            <tr>
+              <td class="col-code"><span class="mat-table__code">GR-EP-40</span></td>
+              <td class="col-name"><span class="mat-table__name">环氧树脂密封胶 40g/支</span></td>
+              <td class="col-num">100</td>
+              <td class="col-num">35</td>
+              <td class="col-num">60</td>
+              <td class="col-num"><span class="mat-table__shortage-zero">0</span></td>
+              <td class="col-status"><span class="badge badge--table-partial">部分</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div><!-- /mat-table-wrap -->
+
+      <!-- Action -->
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1rem;">
+        <button class="btn btn--secondary btn--sm">导出清单</button>
+        <button class="btn btn--primary btn--sm">一键发起采购</button>
+      </div>
+
+    </div><!-- /drawer__body -->
+
+  </div><!-- /drawer -->
+</div><!-- /drawer-overlay -->
+
+</body>
+</html>

@@ -17,11 +17,11 @@ import { useProductionOrderList } from '@/api/production';
 import { useInventoryList } from '@/api/inventory';
 import { useSuggestionList, useApproveSuggestion } from '@/api/purchase';
 import { useDashboardKpi } from '@/api/analytics';
+import { useNotificationStream } from '@/api/notification';
 import { useLatestSuggestion } from '@/hooks/useScheduleSuggestion';
 import {
   ProductionOrderStatus,
   SuggestionStatus,
-  Confidence,
 } from '@/types/enums';
 import KpiCard from '@/components/common/KpiCard';
 import Tag from '@/components/common/Tag';
@@ -32,68 +32,6 @@ import type { PurchaseSuggestion } from '@/types/models';
 import { usePermission } from '@/hooks/usePermission';
 import type { SuggestionBatch } from '@/api/scheduleSuggestion';
 import styles from './DashboardPage.module.css';
-
-// ─────────────────────────────────────────────
-// Mock / fallback data for fields not yet in API
-// ─────────────────────────────────────────────
-
-/** 设计稿固定显示的3条在产订单进度（API不带 delta/状态标签语义时用此兜底） */
-const MOCK_PRODUCTION_ORDERS = [
-  {
-    id: 'A23',
-    name: '订单A23 — 红橡实木书柜 × 2套',
-    progressPct: 75,
-    status: 'success' as const,
-    statusLabel: '正常',
-    plannedEnd: '3/12 完工',
-    dateColor: undefined,
-  },
-  {
-    id: 'B19',
-    name: '订单B19 — 白色烤漆衣柜 × 1套',
-    progressPct: 50,
-    status: 'warning' as const,
-    statusLabel: '延误风险',
-    plannedEnd: '3/15 完工',
-    dateColor: 'var(--color-warning-600)',
-  },
-  {
-    id: 'C31',
-    name: '订单C31 — 红橡实木餐桌 × 1套',
-    progressPct: 25,
-    status: 'success' as const,
-    statusLabel: '正常',
-    plannedEnd: '3/18 完工',
-    dateColor: undefined,
-  },
-];
-
-/** 设计稿固定的库存预警（API belowSafety 列表兜底） */
-const MOCK_INVENTORY_WARNINGS = [
-  {
-    id: 'w1',
-    level: 'red' as const,
-    name: '红橡木板 200×2400',
-    detail: '库存：8张 / 安全线：20张 /',
-    gap: '缺口：12张',
-  },
-  {
-    id: 'w2',
-    level: 'yellow' as const,
-    name: '白色烤漆板 1220×2440',
-    detail: '库存：15张 / 安全线：20张 /',
-    gap: '临近预警',
-    gapColor: 'var(--color-warning-600)',
-  },
-  {
-    id: 'w3',
-    level: 'red' as const,
-    name: '牛皮 棕色 1.2mm（面料）',
-    detail: 'DY-2025-088：',
-    gap: '5平方米（即将耗尽）',
-    suffix: ' / 其余缸号：50平方米',
-  },
-];
 
 // ─────────────────────────────────────────────
 // 工具：获取当前日期描述
@@ -116,6 +54,14 @@ function getSyncTime(): string {
   return `${h}:${min}`;
 }
 
+function formatSyncTime(value: number): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return getSyncTime();
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${h}:${min}`;
+}
+
 // ─────────────────────────────────────────────
 // 进度条颜色映射
 // ─────────────────────────────────────────────
@@ -132,11 +78,19 @@ interface SuggestionItemProps {
   suggestion: PurchaseSuggestion;
   onApprove: (id: number) => void;
   onReject: (id: number) => void;
+  onFeedback: () => void;
   approving: boolean;
   canApprove: boolean;
 }
 
-function SuggestionItem({ suggestion, onApprove, onReject, approving, canApprove }: SuggestionItemProps) {
+function SuggestionItem({
+  suggestion,
+  onApprove,
+  onReject,
+  onFeedback,
+  approving,
+  canApprove,
+}: SuggestionItemProps) {
   const [expanded, setExpanded] = useState(false);
 
   const isUrgent = parseFloat(suggestion.shortageQty) > 0;
@@ -210,7 +164,7 @@ function SuggestionItem({ suggestion, onApprove, onReject, approving, canApprove
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => {}}
+            onClick={onFeedback}
           >
             采购员反馈
           </Button>
@@ -393,33 +347,42 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { can } = usePermission();
   const canApproveSuggestion = can('purchase:suggestion:approve');
+  useNotificationStream();
 
   useEffect(() => { setPageTitle('老板驾驶舱'); }, [setPageTitle]);
 
   const todayLabel = getTodayLabel();
-  const syncTime = getSyncTime();
 
   // ── API hooks ──
-  const { data: kpiData, isLoading: kpiLoading } = useDashboardKpi();
-  const kpi = kpiData ?? {
-    monthlyRevenue: '86400',
-    inventoryValue: '142000',
-    inProgressOrders: 12,
-    pendingApproval: 3,
-    belowSafetyCount: 0,
-    capacityLoadRate: '0',
-  };
+  const {
+    data: kpiData,
+    isLoading: kpiLoading,
+    dataUpdatedAt: kpiUpdatedAt,
+  } = useDashboardKpi();
 
-  const { data: productionData } = useProductionOrderList(
+  const {
+    data: productionData,
+    dataUpdatedAt: productionUpdatedAt,
+  } = useProductionOrderList(
     { status: ProductionOrderStatus.IN_PROGRESS }, 1, 5,
   );
-  const { data: inventoryData } = useInventoryList({ belowSafety: true, pageSize: 5 });
-  const { data: suggestionsData } = useSuggestionList(SuggestionStatus.PENDING, 1, 5);
+  const {
+    data: inventoryData,
+    dataUpdatedAt: inventoryUpdatedAt,
+  } = useInventoryList({ belowSafety: true, pageSize: 5 });
+  const {
+    data: suggestionsData,
+    dataUpdatedAt: suggestionsUpdatedAt,
+  } = useSuggestionList(SuggestionStatus.PENDING, 1, 5);
 
   const { mutate: approveMutate, isPending: approving } = useApproveSuggestion();
 
   // ── 调度建议摘要 ──
-  const { data: scheduleBatch, isLoading: scheduleLoading } = useLatestSuggestion();
+  const {
+    data: scheduleBatch,
+    isLoading: scheduleLoading,
+    dataUpdatedAt: scheduleUpdatedAt,
+  } = useLatestSuggestion();
 
   const handleApprove = (id: number) => {
     approveMutate({ id, payload: { approved: true } });
@@ -428,7 +391,21 @@ export default function DashboardPage() {
     approveMutate({ id, payload: { approved: false } });
   };
 
-  // Resolve production orders: use real API data if available, else mock
+  const handleSuggestionFeedback = () => {
+    navigate('/purchase/suggestions');
+  };
+
+  const lastSyncTimestamp = Math.max(
+    kpiUpdatedAt,
+    productionUpdatedAt,
+    inventoryUpdatedAt,
+    suggestionsUpdatedAt,
+    scheduleUpdatedAt,
+  );
+  const syncTime = lastSyncTimestamp > 0 ? formatSyncTime(lastSyncTimestamp) : '等待同步';
+  const syncDateTime = lastSyncTimestamp > 0 ? new Date(lastSyncTimestamp).toISOString() : undefined;
+
+  // Resolve production orders: render only live data, fall back to explicit empty state
   const productionOrders = productionData?.list && productionData.list.length > 0
     ? productionData.list.slice(0, 3).map(o => ({
         id: o.workOrderNo,
@@ -439,9 +416,9 @@ export default function DashboardPage() {
         plannedEnd: formatDate(o.plannedEnd),
         dateColor: o.progressPct < 60 ? 'var(--color-warning-600)' : undefined,
       }))
-    : MOCK_PRODUCTION_ORDERS;
+    : [];
 
-  // Resolve inventory warnings: use real API data if available, else mock
+  // Resolve inventory warnings: render only live data, fall back to explicit empty state
   const inventoryWarnings = inventoryData?.list && inventoryData.list.length > 0
     ? inventoryData.list.slice(0, 3).map(item => {
         const gap = parseFloat(item.safetyStock) - parseFloat(item.qtyAvailable);
@@ -456,16 +433,16 @@ export default function DashboardPage() {
           suffix: undefined,
         };
       })
-    : MOCK_INVENTORY_WARNINGS;
+    : [];
 
-  // Resolve AI suggestions: use real API data if available, else mock
+  // Resolve AI suggestions: render only live data, fall back to explicit empty state
   const suggestions = suggestionsData?.list ?? [];
 
   // KPI values
-  const inProductionCount = kpiLoading ? 12 : (productionData?.total ?? kpi.inProgressOrders);
-  const pendingApprovalCount = kpiLoading ? 3 : kpi.pendingApproval;
-  const monthlyRevenue = kpiLoading ? 86400 : Number(kpi.monthlyRevenue);
-  const inventoryValue = kpiLoading ? 142000 : Number(kpi.inventoryValue);
+  const inProductionCount = productionData?.total ?? kpiData?.inProgressOrders ?? 0;
+  const pendingApprovalCount = kpiData?.pendingApproval ?? 0;
+  const monthlyRevenue = Number(kpiData?.monthlyRevenue ?? 0);
+  const inventoryValue = Number(kpiData?.inventoryValue ?? 0);
 
   return (
     <div className={styles.page}>
@@ -478,7 +455,11 @@ export default function DashboardPage() {
         </div>
         <div className={styles.page_meta}>
           <span className={styles.page_meta_dot} aria-hidden="true" />
-          <span>数据已同步 <time dateTime={syncTime}>{syncTime}</time></span>
+          <span>
+            最近同步
+            {' '}
+            <time dateTime={syncDateTime}>{syncTime}</time>
+          </span>
         </div>
       </div>
 
@@ -544,39 +525,43 @@ export default function DashboardPage() {
               </a>
             </div>
 
-            <ul className={styles.progress_list} role="list">
-              {productionOrders.map(order => (
-                <li key={order.id} className={styles.progress_item}>
-                  <div className={styles.progress_item_info}>
-                    <div className={styles.progress_item_name}>{order.name}</div>
-                    <div className={styles.progress_item_bar_row}>
-                      <div className={styles.progress_item_bar}>
-                        <div
-                          className={`${styles.progress_item_bar_fill} ${getProgressBarClass(order.status)}`}
-                          style={{ width: `${order.progressPct}%` }}
-                          role="progressbar"
-                          aria-valuenow={order.progressPct}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                        />
+            {productionOrders.length === 0 ? (
+              <div className={styles.empty_state}>当前没有可展示的在产工单进度。</div>
+            ) : (
+              <ul className={styles.progress_list} role="list">
+                {productionOrders.map(order => (
+                  <li key={order.id} className={styles.progress_item}>
+                    <div className={styles.progress_item_info}>
+                      <div className={styles.progress_item_name}>{order.name}</div>
+                      <div className={styles.progress_item_bar_row}>
+                        <div className={styles.progress_item_bar}>
+                          <div
+                            className={`${styles.progress_item_bar_fill} ${getProgressBarClass(order.status)}`}
+                            style={{ width: `${order.progressPct}%` }}
+                            role="progressbar"
+                            aria-valuenow={order.progressPct}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                          />
+                        </div>
+                        <span className={styles.progress_item_pct}>{order.progressPct}%</span>
                       </div>
-                      <span className={styles.progress_item_pct}>{order.progressPct}%</span>
                     </div>
-                  </div>
-                  <div className={styles.progress_item_status}>
-                    <Tag variant={order.status === 'success' ? 'success' : 'warning'}>
-                      {order.statusLabel}
-                    </Tag>
-                    <span
-                      className={styles.progress_item_date}
-                      style={order.dateColor ? { color: order.dateColor } : undefined}
-                    >
-                      预计 {order.plannedEnd}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    <div className={styles.progress_item_status}>
+                      <Tag variant={order.status === 'success' ? 'success' : 'warning'}>
+                        {order.statusLabel}
+                      </Tag>
+                      <span
+                        className={styles.progress_item_date}
+                        style={order.dateColor ? { color: order.dateColor } : undefined}
+                      >
+                        预计 {order.plannedEnd}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
 
@@ -594,31 +579,35 @@ export default function DashboardPage() {
               </a>
             </div>
 
-            <ul className={styles.warning_list} role="list">
-              {inventoryWarnings.map(item => (
-                <li
-                  key={item.id}
-                  className={`${styles.warning_item} ${item.level === 'red' ? styles.warning_item_red : styles.warning_item_yellow}`}
-                >
-                  <span
-                    className={`${styles.warning_dot} ${item.level === 'red' ? styles.warning_dot_red : styles.warning_dot_yellow}`}
-                    aria-label={item.level === 'red' ? '严重预警' : '临近预警'}
-                    role="img"
-                  />
-                  <div>
-                    <div className={styles.warning_name}>{item.name}</div>
-                    <div className={styles.warning_detail}>
-                      {item.detail}
-                      {' '}
-                      <strong style={item.gapColor ? { color: item.gapColor } : undefined}>
-                        {item.gap}
-                      </strong>
-                      {item.suffix}
+            {inventoryWarnings.length === 0 ? (
+              <div className={styles.empty_state}>当前没有安全库存预警。</div>
+            ) : (
+              <ul className={styles.warning_list} role="list">
+                {inventoryWarnings.map(item => (
+                  <li
+                    key={item.id}
+                    className={`${styles.warning_item} ${item.level === 'red' ? styles.warning_item_red : styles.warning_item_yellow}`}
+                  >
+                    <span
+                      className={`${styles.warning_dot} ${item.level === 'red' ? styles.warning_dot_red : styles.warning_dot_yellow}`}
+                      aria-label={item.level === 'red' ? '严重预警' : '临近预警'}
+                      role="img"
+                    />
+                    <div>
+                      <div className={styles.warning_name}>{item.name}</div>
+                      <div className={styles.warning_detail}>
+                        {item.detail}
+                        {' '}
+                        <strong style={item.gapColor ? { color: item.gapColor } : undefined}>
+                          {item.gap}
+                        </strong>
+                        {item.suffix}
+                      </div>
                     </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
       </div>
@@ -651,95 +640,16 @@ export default function DashboardPage() {
           <div className={styles.ai_alert} role="note">
             <span className={styles.ai_alert_icon} aria-hidden="true">✨</span>
             <div className={styles.ai_alert_content}>
-              AI 已基于 {inProductionCount} 个在产订单 + 当前库存数据生成采购建议。
-              上次分析：今日 07:30
+              {suggestions.length > 0
+                ? `AI 已基于 ${inProductionCount} 个在产订单与当前库存生成 ${suggestions.length} 条待审批建议，最近同步：${syncTime}。`
+                : '当前没有待审批的 AI 采购建议，可前往采购建议管理页查看全量结果。'}
             </div>
           </div>
 
           {/* 建议列表 */}
           {suggestions.length === 0 ? (
-            /* 无真实数据时展示设计稿 mock 数据 */
-            <div className={styles.suggestion_list}>
-              {/* Mock suggestion 1 */}
-              <article className={styles.suggestion_item} aria-label="AI采购建议：红橡木板">
-                <div className={styles.suggestion_item__header}>
-                  <div>
-                    <div className={styles.suggestion_item__title}>红橡木板 200×2400</div>
-                    <div className={styles.suggestion_item__meta}>
-                      <Tag variant="priority-urgent">紧急</Tag>
-                      <ConfidenceTag confidence={Confidence.HIGH} />
-                    </div>
-                  </div>
-                </div>
-                <div className={styles.suggestion_item__info}>
-                  <div className={styles.suggestion_item__info_kv}>
-                    <div className={styles.suggestion_item__info_key}>建议采购数量</div>
-                    <div className={styles.suggestion_item__info_val}>12 张</div>
-                  </div>
-                  <div className={styles.suggestion_item__info_kv}>
-                    <div className={styles.suggestion_item__info_key}>推荐供应商</div>
-                    <div className={styles.suggestion_item__info_val}>华森木业</div>
-                  </div>
-                  <div className={styles.suggestion_item__info_kv}>
-                    <div className={styles.suggestion_item__info_key}>预估金额</div>
-                    <div className={`${styles.suggestion_item__info_val} ${styles.suggestion_item__info_val_money}`}>¥2,160</div>
-                  </div>
-                </div>
-                <MockExpandableReason
-                  lines={[
-                    '· 订单A23需要8张（3/12交货），订单C31需要4张（3/18交货）',
-                    '· 当前库存8张，已被订单A23占用，可用量：0张',
-                    '· 华森木业历史准时率：92%，交货周期：2-3天 → 建议今日下单',
-                  ]}
-                />
-                <div className={styles.suggestion_item__actions}>
-                  <div className={styles.suggestion_item__status}>
-                    <Tag variant="neutral">待老板审批</Tag>
-                  </div>
-                  <div className={styles.suggestion_item__btns}>
-                    <Button variant="ghost" size="sm">采购员反馈</Button>
-                    {canApproveSuggestion && <Button variant="success" size="md" aria-label="批准红橡木板采购建议，金额2160元">批准</Button>}
-                    {canApproveSuggestion && <Button variant="danger" size="md" aria-label="驳回红橡木板采购建议">驳回</Button>}
-                  </div>
-                </div>
-              </article>
-
-              {/* Mock suggestion 2 */}
-              <article className={styles.suggestion_item} aria-label="AI采购建议：五金铰链">
-                <div className={styles.suggestion_item__header}>
-                  <div>
-                    <div className={styles.suggestion_item__title}>五金铰链 全盖 一批</div>
-                    <div className={styles.suggestion_item__meta}>
-                      <Tag variant="neutral">正常</Tag>
-                      <ConfidenceTag confidence={Confidence.MEDIUM} />
-                    </div>
-                  </div>
-                </div>
-                <div className={styles.suggestion_item__info}>
-                  <div className={styles.suggestion_item__info_kv}>
-                    <div className={styles.suggestion_item__info_key}>建议采购数量</div>
-                    <div className={styles.suggestion_item__info_val}>200 个</div>
-                  </div>
-                  <div className={styles.suggestion_item__info_kv}>
-                    <div className={styles.suggestion_item__info_key}>推荐供应商</div>
-                    <div className={styles.suggestion_item__info_val}>明辉五金</div>
-                  </div>
-                  <div className={styles.suggestion_item__info_kv}>
-                    <div className={styles.suggestion_item__info_key}>预估金额</div>
-                    <div className={`${styles.suggestion_item__info_val} ${styles.suggestion_item__info_val_money}`}>¥640</div>
-                  </div>
-                </div>
-                <div className={styles.suggestion_item__actions}>
-                  <div className={styles.suggestion_item__status}>
-                    <Tag variant="neutral">待老板审批</Tag>
-                  </div>
-                  <div className={styles.suggestion_item__btns}>
-                    <Button variant="ghost" size="sm">查看详情</Button>
-                    {canApproveSuggestion && <Button variant="success" size="md" aria-label="批准五金铰链采购建议">批准</Button>}
-                    {canApproveSuggestion && <Button variant="danger" size="md" aria-label="驳回五金铰链采购建议">驳回</Button>}
-                  </div>
-                </div>
-              </article>
+            <div className={styles.empty_state}>
+              暂无待审批采购建议。前往采购建议管理页查看历史结果或手动触发处理。
             </div>
           ) : (
             <div className={styles.suggestion_list}>
@@ -749,6 +659,7 @@ export default function DashboardPage() {
                   suggestion={s}
                   onApprove={handleApprove}
                   onReject={handleReject}
+                  onFeedback={handleSuggestionFeedback}
                   approving={approving}
                   canApprove={canApproveSuggestion}
                 />
@@ -758,29 +669,6 @@ export default function DashboardPage() {
         </div>
       </section>
 
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// 内部辅助：可展开推理依据（mock 用）
-// ─────────────────────────────────────────────
-function MockExpandableReason({ lines }: { lines: string[] }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className={styles.suggestion_item__reason_wrap}>
-      <button
-        className={styles.suggestion_item__reason_toggle}
-        onClick={() => setExpanded(v => !v)}
-        aria-expanded={expanded}
-      >
-        {expanded ? '▲' : '▼'} 查看AI推理依据
-      </button>
-      {expanded && (
-        <div className={styles.suggestion_item__reason_body}>
-          {lines.map((line, i) => <p key={i}>{line}</p>)}
-        </div>
-      )}
     </div>
   );
 }

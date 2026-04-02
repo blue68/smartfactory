@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { processConfigController } from './processConfig.controller';
+import { processConfigController, workstationTypeController } from './processConfig.controller';
 import { authMiddleware, requireRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
@@ -7,8 +7,44 @@ const router = Router();
 
 router.use(authMiddleware);
 
+// ── 工种类型 CRUD（固定路由段，必须在 /:id 之前注册）────────────────────────
+router.get(
+  '/workstation-types',
+  asyncHandler(workstationTypeController.list.bind(workstationTypeController)),
+);
+router.post(
+  '/workstation-types',
+  requireRoles('boss', 'manager'),
+  asyncHandler(workstationTypeController.create.bind(workstationTypeController)),
+);
+router.patch(
+  '/workstation-types/:id',
+  requireRoles('boss', 'manager'),
+  asyncHandler(workstationTypeController.update.bind(workstationTypeController)),
+);
+router.delete(
+  '/workstation-types/:id',
+  requireRoles('boss', 'manager'),
+  asyncHandler(workstationTypeController.remove.bind(workstationTypeController)),
+);
+
 // ── 工序模板 CRUD ──────────────────────────────────────────────────────────
 router.get('/',       asyncHandler(processConfigController.list.bind(processConfigController)));
+router.get(
+  '/templates/:templateId/step-materials',
+  asyncHandler(processConfigController.getStepMaterials.bind(processConfigController)),
+);
+router.put(
+  '/templates/:templateId/step-materials',
+  requireRoles('boss', 'manager'),
+  asyncHandler(processConfigController.putStepMaterials.bind(processConfigController)),
+);
+// T-02: 设为默认（固定路由段，必须在 /:id 之前）
+router.patch(
+  '/:id/set-default',
+  requireRoles('boss', 'manager'),
+  asyncHandler(processConfigController.setDefault.bind(processConfigController)),
+);
 router.get('/:id',    asyncHandler(processConfigController.getOne.bind(processConfigController)));
 router.post('/',      asyncHandler(processConfigController.create.bind(processConfigController)));
 router.put('/:id',    asyncHandler(processConfigController.update.bind(processConfigController)));

@@ -4,12 +4,18 @@
  * 功能：统计卡片、状态筛选、三单匹配列表、差异处理弹窗
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import {
   useMatchList,
+  useMatchDetail,
   useExecuteThreeWayMatch,
   useConfirmMatch,
+  useCreatePurchaseSettlement,
+  usePurchaseOrderDetail,
+  usePurchaseDeliveryDetail,
+  usePurchaseReceiptDetail,
 } from '@/api/purchase';
 import { MatchStatus, DiffReason } from '@/types/enums';
 import type { ThreeWayMatch, ThreeWayMatchDiffItem } from '@/types/models';
@@ -59,6 +65,7 @@ function getDiffBadgeLabel(record: ThreeWayMatch): string {
   if (matchStatus === MatchStatus.PRICE_DIFF) return '↑ 价格差异';
   if (matchStatus === MatchStatus.QTY_DIFF) {
     const item = diffItems?.[0];
+    if (item?.isDyeLotMismatch) return '缸号不一致';
     const diff = item ? formatQtyStr(item.qtyDiff) : '';
     return `▼ 数量差 ${diff}`;
   }
@@ -164,6 +171,16 @@ function buildCompareRows(record: ThreeWayMatch): CompareRow[] {
     },
   ];
 
+  if (item.hasDyeLot) {
+    rows.splice(1, 0, {
+      dim: '缸号',
+      po: '到货后确认',
+      delivery: item.deliveryDyeLots?.join('、') || '—',
+      inbound: item.receiptDyeLots?.join('、') || '—',
+      diffCol: item.isDyeLotMismatch ? 'all' : null,
+    });
+  }
+
   if (item.historicalAvgPrice) {
     rows.splice(3, 0, {
       dim: '历史均价',
@@ -180,6 +197,9 @@ function buildCompareRows(record: ThreeWayMatch): CompareRow[] {
 /** Build a human-readable warning message for a diff record */
 function buildWarningText(record: ThreeWayMatch): string {
   const item = record.diffItems?.[0];
+  if (record.matchStatus === MatchStatus.MATCHED || record.matchStatus === MatchStatus.CONFIRMED) {
+    return '三单数据已完成核对，可直接作为后续结算与追溯依据。';
+  }
   if (!item) return '该记录存在差异，请确认后方可进入结算流程。';
 
   if (record.matchStatus === MatchStatus.PRICE_WARNING) {
@@ -187,6 +207,10 @@ function buildWarningText(record: ThreeWayMatch): string {
     const actual = parseFloat(item.dnPrice || '0');
     const pct = avg > 0 ? Math.round(((actual - avg) / avg) * 100) : 0;
     return `实际结算单价（${formatCNY(item.dnPrice)}）超出历史均价（${formatCNY(item.historicalAvgPrice)}）${pct}%，超出系统预警阈值 20%。请核实价格变动原因。`;
+  }
+
+  if (item.isDyeLotMismatch) {
+    return `送货单缸号（${item.deliveryDyeLots?.join('、') || '—'}）与入库单缸号（${item.receiptDyeLots?.join('、') || '—'}）不一致，请先核实面料缸号再进入结算。`;
   }
 
   const qtyDiff = parseFloat(item.qtyDiff);
@@ -202,12 +226,26 @@ function buildWarningText(record: ThreeWayMatch): string {
    Component
 ---------------------------------------------------------------- */
 export default function MatchPage() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { setPageTitle, showToast } = useAppStore();
 
   // Filter state
-  const [statusFilter, setStatusFilter] = useState<MatchStatus | ''>('');
+  const statusParam = (searchParams.get('status') || '') as MatchStatus | '';
+  const poIdParam = Number(searchParams.get('poId') ?? '') || undefined;
+  const deliveryNoteIdParam = Number(searchParams.get('deliveryNoteId') ?? '') || undefined;
+  const receiptIdParam = Number(searchParams.get('receiptId') ?? '') || undefined;
+  const matchIdParam = Number(searchParams.get('matchId') ?? '') || null;
+  const executeParam = searchParams.get('execute') === '1';
+  const implicitDiffContextKey = `${poIdParam ?? ''}:${deliveryNoteIdParam ?? ''}:${receiptIdParam ?? ''}`;
+  const [statusFilter, setStatusFilter] = useState<MatchStatus | ''>(statusParam);
+  const [poIdFilter, setPoIdFilter] = useState<number | undefined>(poIdParam);
+  const [receiptIdFilter, setReceiptIdFilter] = useState<number | undefined>(receiptIdParam);
   const [timeRange, setTimeRange] = useState<TimeRange>('month');
   const [page, setPage] = useState(1);
+  const [activeMatchId, setActiveMatchId] = useState<number | null>(matchIdParam);
+  const [activeMatchAllowConfirm, setActiveMatchAllowConfirm] = useState(false);
+  const [dismissedImplicitDiffContext, setDismissedImplicitDiffContext] = useState<string | null>(null);
 
   // Execute match modal
   const [executeModal, setExecuteModal] = useState(false);
@@ -217,12 +255,6 @@ export default function MatchPage() {
     receiptId: '',
   });
 
-  // Diff / confirm modal
-  const [diffModal, setDiffModal] = useState<{
-    open: boolean;
-    record: ThreeWayMatch | null;
-  }>({ open: false, record: null });
-
   const [selectedReason, setSelectedReason] = useState<DiffReason>(
     DiffReason.RECEIPT_MISS,
   );
@@ -231,13 +263,103 @@ export default function MatchPage() {
   useEffect(() => { setPageTitle('三单匹配'); }, [setPageTitle]);
 
   // API hooks
-  const { data, isLoading, error } = useMatchList(
-    statusFilter as MatchStatus || undefined,
+  const { data, isLoading, error } = useMatchList({
+    status: statusFilter || undefined,
+    poId: poIdFilter,
+    receiptId: receiptIdFilter,
     page,
-    10,
-  );
+    pageSize: 10,
+  });
+  const { data: activeMatchDetail, isLoading: activeMatchLoading } = useMatchDetail(activeMatchId);
+  const executePoId = Number(executeForm.poId) || null;
+  const executeDeliveryId = Number(executeForm.deliveryNoteId) || null;
+  const executeReceiptId = Number(executeForm.receiptId) || null;
+  const { data: executeOrder } = usePurchaseOrderDetail(executeModal ? executePoId : null);
+  const { data: executeDelivery } = usePurchaseDeliveryDetail(executeModal ? executeDeliveryId : null);
+  const { data: executeReceipt } = usePurchaseReceiptDetail(executeModal ? executeReceiptId : null);
   const executeMutation = useExecuteThreeWayMatch();
   const confirmMutation = useConfirmMatch();
+  const createSettlementMutation = useCreatePurchaseSettlement();
+
+  useEffect(() => {
+    setStatusFilter(statusParam);
+  }, [statusParam]);
+
+  useEffect(() => {
+    setPoIdFilter(poIdParam);
+  }, [poIdParam]);
+
+  useEffect(() => {
+    setReceiptIdFilter(receiptIdParam);
+  }, [receiptIdParam]);
+
+  useEffect(() => {
+    if (!matchIdParam) {
+      setActiveMatchId(null);
+      setActiveMatchAllowConfirm(false);
+      return;
+    }
+    setActiveMatchId((current) => (current === matchIdParam ? current : matchIdParam));
+  }, [matchIdParam]);
+
+  useEffect(() => {
+    if (!matchIdParam || !data?.list?.length) return;
+    const current = data.list.find((item) => item.matchId === matchIdParam);
+    if (!current) return;
+    const nextAllowConfirm = [
+      MatchStatus.QTY_DIFF,
+      MatchStatus.PRICE_DIFF,
+      MatchStatus.PRICE_WARNING,
+    ].includes(current.matchStatus);
+    setActiveMatchAllowConfirm((prev) => (prev === nextAllowConfirm ? prev : nextAllowConfirm));
+  }, [data?.list, matchIdParam]);
+
+  useEffect(() => {
+    if (dismissedImplicitDiffContext === implicitDiffContextKey) return;
+    if (matchIdParam || activeMatchId || !data?.list?.length) return;
+    if ((receiptIdParam || poIdParam) && data.list.length === 1) {
+      const only = data.list[0];
+      const needsConfirm = [
+        MatchStatus.QTY_DIFF,
+        MatchStatus.PRICE_DIFF,
+        MatchStatus.PRICE_WARNING,
+      ].includes(only.matchStatus);
+      if (!needsConfirm) return;
+      setActiveMatchId(only.matchId);
+      setActiveMatchAllowConfirm(true);
+    }
+  }, [activeMatchId, data?.list, dismissedImplicitDiffContext, implicitDiffContextKey, matchIdParam, poIdParam, receiptIdParam]);
+
+  useEffect(() => {
+    if (!executeParam) return;
+    setExecuteForm({
+      poId: poIdParam ? String(poIdParam) : '',
+      deliveryNoteId: deliveryNoteIdParam ? String(deliveryNoteIdParam) : '',
+      receiptId: receiptIdParam ? String(receiptIdParam) : '',
+    });
+    setExecuteModal(true);
+  }, [deliveryNoteIdParam, executeParam, poIdParam, receiptIdParam]);
+
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (statusFilter) next.set('status', statusFilter);
+    else next.delete('status');
+    if (poIdFilter) next.set('poId', String(poIdFilter));
+    else next.delete('poId');
+    if (deliveryNoteIdParam) next.set('deliveryNoteId', String(deliveryNoteIdParam));
+    else next.delete('deliveryNoteId');
+    if (receiptIdFilter) next.set('receiptId', String(receiptIdFilter));
+    else next.delete('receiptId');
+    if (activeMatchId) next.set('matchId', String(activeMatchId));
+    else next.delete('matchId');
+    if (executeModal) next.set('execute', '1');
+    else next.delete('execute');
+
+    const nextQuery = next.toString();
+    if (nextQuery !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [activeMatchId, deliveryNoteIdParam, executeModal, poIdFilter, receiptIdFilter, searchParams, setSearchParams, statusFilter]);
 
   /* ---- handlers -------------------------------------------- */
   const handleExecute = async () => {
@@ -254,9 +376,18 @@ export default function MatchPage() {
       });
       setExecuteModal(false);
       setExecuteForm({ poId: '', deliveryNoteId: '', receiptId: '' });
+      setPoIdFilter(result.poId);
+      setReceiptIdFilter(result.receiptId);
       if (result.matchStatus === MatchStatus.MATCHED) {
+        setActiveMatchId(null);
+        setActiveMatchAllowConfirm(false);
         showToast({ type: 'success', message: '三单完全匹配，已自动完成' });
       } else {
+        setDismissedImplicitDiffContext(null);
+        setActiveMatchId(result.matchId);
+        setActiveMatchAllowConfirm(
+          [MatchStatus.QTY_DIFF, MatchStatus.PRICE_DIFF, MatchStatus.PRICE_WARNING].includes(result.matchStatus),
+        );
         showToast({
           type: 'warning',
           message: `发现差异：${STATUS_LABEL[result.matchStatus]}，请确认`,
@@ -267,21 +398,36 @@ export default function MatchPage() {
     }
   };
 
-  const openDiffModal = (record: ThreeWayMatch) => {
-    setDiffModal({ open: true, record });
+  const openMatchModal = (record: ThreeWayMatch, allowConfirm: boolean) => {
+    setDismissedImplicitDiffContext(null);
+    setActiveMatchId(record.matchId);
+    setActiveMatchAllowConfirm(allowConfirm);
     setSelectedReason(DiffReason.RECEIPT_MISS);
     setDiffRemark('');
   };
 
   const handleConfirmDiff = async () => {
-    if (!diffModal.record) return;
+    if (!activeMatchDetail) return;
     try {
       await confirmMutation.mutateAsync({
-        id: diffModal.record.matchId,
+        id: activeMatchDetail.matchId,
         payload: { diffReason: selectedReason, diffNotes: diffRemark },
       });
       showToast({ type: 'success', message: '✓ 差异已确认，采购单已进入结算流程' });
-      setDiffModal({ open: false, record: null });
+      setActiveMatchId(null);
+      setActiveMatchAllowConfirm(false);
+    } catch (e) {
+      showToast({ type: 'error', message: (e as Error).message });
+    }
+  };
+
+  const handleCreateSettlement = async (record: ThreeWayMatch) => {
+    try {
+      const settlement = await createSettlementMutation.mutateAsync({
+        matchId: record.matchId,
+      });
+      showToast({ type: 'success', message: '采购结算单已生成，正在打开' });
+      navigate(`/purchase/settlements?poId=${settlement.poId}`);
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
     }
@@ -398,7 +544,7 @@ export default function MatchPage() {
     {
       key: 'actions',
       title: '操作',
-      width: 140,
+      width: 220,
       render: (_, r) => {
         const m = r as unknown as ThreeWayMatch;
         const needsAction = [
@@ -406,6 +552,7 @@ export default function MatchPage() {
           MatchStatus.PRICE_DIFF,
           MatchStatus.PRICE_WARNING,
         ].includes(m.matchStatus);
+        const canSettle = m.matchStatus === MatchStatus.MATCHED || m.matchStatus === MatchStatus.CONFIRMED;
 
         return (
           <div className={styles.table_actions}>
@@ -413,7 +560,7 @@ export default function MatchPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => openDiffModal(m)}
+                onClick={() => openMatchModal(m, true)}
               >
                 处理差异
               </Button>
@@ -421,11 +568,19 @@ export default function MatchPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() =>
-                  showToast({ type: 'info', message: `查看 ${m.poNo} 三单详情` })
-                }
+                onClick={() => openMatchModal(m, false)}
               >
-                查看
+                详情
+              </Button>
+            )}
+            {canSettle && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleCreateSettlement(m)}
+                loading={createSettlementMutation.isPending}
+              >
+                采购结算
               </Button>
             )}
           </div>
@@ -435,14 +590,25 @@ export default function MatchPage() {
   ];
 
   /* ---- diff modal data -------------------------------------- */
-  const diffRecord = diffModal.record;
+  const diffRecord = activeMatchDetail;
   const compareRows = diffRecord ? buildCompareRows(diffRecord) : [];
   const warningText = diffRecord ? buildWarningText(diffRecord) : '';
   const modalSubTitle = diffRecord
-    ? `${(diffRecord as ThreeWayMatch & { supplierName?: string }).supplierName ?? ''} · ${
-        diffRecord.diffItems?.[0]?.skuName ?? ''
-      } · 需要人工确认`
+    ? `${diffRecord.supplierName ?? ''} · ${diffRecord.diffItems?.[0]?.skuName ?? ''}`
     : '';
+  const showConfirmButton = Boolean(
+    diffRecord && activeMatchAllowConfirm &&
+    [MatchStatus.QTY_DIFF, MatchStatus.PRICE_DIFF, MatchStatus.PRICE_WARNING].includes(diffRecord.matchStatus),
+  );
+  const activeFilters = useMemo(
+    () =>
+      [
+        poIdFilter ? { key: 'poId', label: `采购单 #${poIdFilter}`, onClear: () => setPoIdFilter(undefined) } : null,
+        receiptIdFilter ? { key: 'receiptId', label: `入库单 #${receiptIdFilter}`, onClear: () => setReceiptIdFilter(undefined) } : null,
+      ].filter(Boolean) as Array<{ key: string; label: string; onClear: () => void }>,
+    [poIdFilter, receiptIdFilter],
+  );
+  const hasPrefilledExecuteContext = Boolean(executePoId || executeDeliveryId || executeReceiptId);
 
   /* ---- render ---------------------------------------------- */
   return (
@@ -543,6 +709,16 @@ export default function MatchPage() {
 
         {/* Right side: time range selector */}
         <div className={styles.filter_right}>
+          {activeFilters.map((filter) => (
+            <button
+              key={filter.key}
+              type="button"
+              className={styles.filter_chip}
+              onClick={filter.onClear}
+            >
+              {filter.label} ×
+            </button>
+          ))}
           <label htmlFor="timeRange" className="sr-only">时间范围</label>
           <select
             id="timeRange"
@@ -599,24 +775,54 @@ export default function MatchPage() {
         <div className={styles.exec_form}>
           {(
             [
-              { field: 'poId' as const,           label: '采购订单 ID' },
-              { field: 'deliveryNoteId' as const,  label: '送货单 ID' },
-              { field: 'receiptId' as const,       label: '入库单 ID' },
+              {
+                field: 'poId' as const,
+                idLabel: '采购订单 ID',
+                noLabel: '采购订单号',
+                displayValue: executeOrder?.poNo ?? '',
+                loadingText: executePoId ? '正在加载采购订单号...' : '',
+              },
+              {
+                field: 'deliveryNoteId' as const,
+                idLabel: '送货单 ID',
+                noLabel: '送货单号',
+                displayValue: executeDelivery?.deliveryNo ?? '',
+                loadingText: executeDeliveryId ? '正在加载送货单号...' : '',
+              },
+              {
+                field: 'receiptId' as const,
+                idLabel: '入库单 ID',
+                noLabel: '入库单号',
+                displayValue: executeReceipt?.receiptNo ?? '',
+                loadingText: executeReceiptId ? '正在加载入库单号...' : '',
+              },
             ]
-          ).map(({ field, label }) => (
+          ).map(({ field, idLabel, noLabel, displayValue, loadingText }) => (
             <div key={field} className={styles.exec_field}>
-              <label htmlFor={field} className={styles.exec_label}>{label}</label>
-              <input
-                id={field}
-                type="number"
-                className={styles.exec_input}
-                value={executeForm[field]}
-                onChange={(e) =>
-                  setExecuteForm((f) => ({ ...f, [field]: e.target.value }))
-                }
-                placeholder="请输入 ID"
-                min="1"
-              />
+              <label htmlFor={field} className={styles.exec_label}>
+                {hasPrefilledExecuteContext && executeForm[field] ? noLabel : idLabel}
+              </label>
+              {hasPrefilledExecuteContext && executeForm[field] ? (
+                <input
+                  id={field}
+                  className={styles.exec_input}
+                  value={displayValue || loadingText}
+                  placeholder={loadingText}
+                  readOnly
+                />
+              ) : (
+                <input
+                  id={field}
+                  type="number"
+                  className={styles.exec_input}
+                  value={executeForm[field]}
+                  onChange={(e) =>
+                    setExecuteForm((f) => ({ ...f, [field]: e.target.value }))
+                  }
+                  placeholder="请输入 ID"
+                  min="1"
+                />
+              )}
             </div>
           ))}
         </div>
@@ -626,16 +832,22 @@ export default function MatchPage() {
           Diff / Confirm Modal — design: 差异处理弹窗
       ================================================================ */}
       <Modal
-        open={diffModal.open}
+        open={activeMatchId !== null}
         title={diffRecord ? `三单差异详情 — ${diffRecord.poNo}` : '三单差异详情'}
-        onClose={() => setDiffModal({ open: false, record: null })}
-        onConfirm={() => void handleConfirmDiff()}
+        onClose={() => {
+          setDismissedImplicitDiffContext(implicitDiffContextKey);
+          setActiveMatchId(null);
+          setActiveMatchAllowConfirm(false);
+        }}
+        onConfirm={showConfirmButton ? () => void handleConfirmDiff() : undefined}
         confirmLabel="✓ 确认差异，完成结算"
         confirmVariant="success"
         confirmLoading={confirmMutation.isPending}
         size="md"
       >
-        {diffRecord && (
+        {activeMatchLoading || !diffRecord ? (
+          <div className={styles.detailLoading}>加载中...</div>
+        ) : (
           <>
             {/* Sub-title shown inside body (header from Modal component) */}
             <p
@@ -647,6 +859,30 @@ export default function MatchPage() {
             >
               {modalSubTitle}
             </p>
+
+            <div className={styles.detail_links}>
+              <Button
+                variant="text"
+                size="sm"
+                onClick={() => navigate(`/purchase/deliveries?deliveryId=${diffRecord.deliveryNoteId}&poId=${diffRecord.poId}`)}
+              >
+                查看送货单
+              </Button>
+              <Button
+                variant="text"
+                size="sm"
+                onClick={() => navigate(`/purchase/orders?orderId=${diffRecord.poId}`)}
+              >
+                查看采购订单
+              </Button>
+              <Button
+                variant="text"
+                size="sm"
+                onClick={() => navigate(`/purchase/receipts?receiptId=${diffRecord.receiptId}&poId=${diffRecord.poId}`)}
+              >
+                查看入库单
+              </Button>
+            </div>
 
             {/* Warning strip */}
             <div className={styles.modal_warning_strip}>
@@ -697,48 +933,62 @@ export default function MatchPage() {
               </tbody>
             </table>
 
-            {/* Diff reason — radio card grid */}
-            <div className={styles.modal_form_group}>
-              <div className={styles.section_label}>差异说明（必填）</div>
-              <div
-                className={styles.radio_group_grid}
-                role="radiogroup"
-                aria-label="差异原因"
-              >
-                {DIFF_REASON_OPTIONS.map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`${styles.radio_card} ${
-                      selectedReason === opt.value
-                        ? styles['radio_card--selected']
-                        : ''
-                    }`}
-                    onClick={() => setSelectedReason(opt.value)}
+            {showConfirmButton ? (
+              <>
+                <div className={styles.modal_form_group}>
+                  <div className={styles.section_label}>差异说明（必填）</div>
+                  <div
+                    className={styles.radio_group_grid}
+                    role="radiogroup"
+                    aria-label="差异原因"
                   >
-                    <div className={styles.radio_circle} />
-                    <div>
-                      <div className={styles.radio_card__label}>{opt.label}</div>
-                      <div className={styles.radio_card__desc}>{opt.desc}</div>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            </div>
+                    {DIFF_REASON_OPTIONS.map((opt) => (
+                      <label
+                        key={opt.value}
+                        className={`${styles.radio_card} ${
+                          selectedReason === opt.value
+                            ? styles['radio_card--selected']
+                            : ''
+                        }`}
+                        onClick={() => setSelectedReason(opt.value)}
+                      >
+                        <div className={styles.radio_circle} />
+                        <div>
+                          <div className={styles.radio_card__label}>{opt.label}</div>
+                          <div className={styles.radio_card__desc}>{opt.desc}</div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
 
-            {/* Remark */}
-            <div className={styles.modal_form_group}>
-              <label htmlFor="diffRemark" className={styles.modal_form_label}>
-                备注
-              </label>
-              <textarea
-                id="diffRemark"
-                className={styles.modal_textarea}
-                value={diffRemark}
-                onChange={(e) => setDiffRemark(e.target.value)}
-                placeholder="补充说明差异详情，如联系供应商结果、盘点记录编号等…"
-                rows={3}
-              />
-            </div>
+                <div className={styles.modal_form_group}>
+                  <label htmlFor="diffRemark" className={styles.modal_form_label}>
+                    备注
+                  </label>
+                  <textarea
+                    id="diffRemark"
+                    className={styles.modal_textarea}
+                    value={diffRemark}
+                    onChange={(e) => setDiffRemark(e.target.value)}
+                    placeholder="补充说明差异详情，如联系供应商结果、盘点记录编号等…"
+                    rows={3}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className={styles.readonly_group}>
+                <div className={styles.section_label}>确认记录</div>
+                <div className={styles.readonly_meta}>
+                  <span>确认人：{diffRecord.confirmedBy ?? '系统自动匹配'}</span>
+                  <span>确认时间：{diffRecord.confirmedAt ? String(diffRecord.confirmedAt).replace('T', ' ').slice(0, 19) : '—'}</span>
+                  <span>差异原因：{diffRecord.diffReason ?? '—'}</span>
+                </div>
+                {diffRecord.diffNotes ? (
+                  <div className={styles.readonly_notes}>{diffRecord.diffNotes}</div>
+                ) : null}
+              </div>
+            )}
           </>
         )}
       </Modal>

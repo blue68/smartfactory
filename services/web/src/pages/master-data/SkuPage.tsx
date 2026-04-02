@@ -919,40 +919,25 @@ function SkuFormDrawerContent({
         />
       </div>
 
-      {/* 物料分类（一级） Radio */}
+      {/* 物料分类（一级） 下拉列表 */}
       <div className={styles.form_field}>
         <label className={styles.form_label}>
           物料分类（一级） <span className={styles.required}>*</span>
         </label>
-        <div className={styles.radio_group}>
+        <select
+          className={styles.form_input}
+          value={form.category1Code}
+          onChange={handleCat1Change}
+          disabled={!isNew}
+        >
+          <option value="">请选择一级分类</option>
           {cat1Options.map((c) => (
-            <label key={c.id} className={styles.radio_item}>
-              <input
-                type="radio"
-                name="category1"
-                value={c.code}
-                checked={form.category1Code === c.code}
-                onChange={handleCat1Change}
-                disabled={!isNew}
-              />
-              {c.name}
-            </label>
+            <option key={c.id} value={c.code}>{c.name}</option>
           ))}
-          {/* 若 catData 还未加载，兜底展示枚举 */}
           {cat1Options.length === 0 && Object.entries(Category1Label).map(([code, label]) => (
-            <label key={code} className={styles.radio_item}>
-              <input
-                type="radio"
-                name="category1"
-                value={code}
-                checked={form.category1Code === code}
-                onChange={handleCat1Change}
-                disabled={!isNew}
-              />
-              {label}
-            </label>
+            <option key={code} value={code}>{label}</option>
           ))}
-        </div>
+        </select>
       </div>
 
       {/* 二级品类 */}

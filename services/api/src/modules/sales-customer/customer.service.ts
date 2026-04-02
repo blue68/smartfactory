@@ -23,7 +23,7 @@ export interface CustomerListFilter {
 }
 
 export interface CreateCustomerParams {
-  code: string;
+  code?: string;
   name: string;
   grade?: CustomerGrade;
   contact?: string;
@@ -63,8 +63,8 @@ export class CustomerService {
     const params: unknown[] = [this.tenantId];
 
     if (filter.keyword) {
-      conds.push('(c.name LIKE ? OR c.code LIKE ?)');
-      params.push(`%${filter.keyword}%`, `%${filter.keyword}%`);
+      conds.push('(c.name LIKE ? OR c.code LIKE ? OR c.contact LIKE ?)');
+      params.push(`%${filter.keyword}%`, `%${filter.keyword}%`, `%${filter.keyword}%`);
     }
     if (filter.grade) {
       conds.push('c.grade = ?');
@@ -114,6 +114,18 @@ export class CustomerService {
   async create(params: CreateCustomerParams): Promise<CustomerEntity> {
     const repo = AppDataSource.getRepository(CustomerEntity);
 
+    // 若未提供 code，自动生成 CUS-YYYY-XXX 格式
+    if (!params.code) {
+      const year = new Date().getFullYear();
+      const [row] = await AppDataSource.query<Array<{ maxSeq: string | null }>>(
+        `SELECT MAX(CAST(SUBSTRING_INDEX(code, '-', -1) AS UNSIGNED)) AS maxSeq
+         FROM customers WHERE tenant_id = ? AND code LIKE ?`,
+        [this.tenantId, `CUS-${year}-%`],
+      );
+      const nextSeq = (Number(row?.maxSeq ?? 0) + 1).toString().padStart(3, '0');
+      params.code = `CUS-${year}-${nextSeq}`;
+    }
+
     const exists = await repo.findOne({
       where: { tenantId: this.tenantId, code: params.code },
     });
@@ -126,7 +138,7 @@ export class CustomerService {
 
     const entity = repo.create({
       tenantId: this.tenantId,
-      code: params.code,
+      code: params.code!,
       name: params.name,
       grade: params.grade ?? 'B',
       contact: params.contact ?? null,
@@ -332,8 +344,8 @@ export class CustomerService {
     const params: unknown[] = [this.tenantId];
 
     if (filter.keyword) {
-      conds.push('(c.name LIKE ? OR c.code LIKE ?)');
-      params.push(`%${filter.keyword}%`, `%${filter.keyword}%`);
+      conds.push('(c.name LIKE ? OR c.code LIKE ? OR c.contact LIKE ?)');
+      params.push(`%${filter.keyword}%`, `%${filter.keyword}%`, `%${filter.keyword}%`);
     }
     if (filter.grade) {
       conds.push('c.grade = ?');
@@ -364,8 +376,8 @@ export class CustomerService {
     const [list, countRows] = await Promise.all([
       AppDataSource.query(
         `SELECT id, order_no AS orderNo, status, total_amount AS totalAmount,
-                order_date AS orderDate, delivery_date AS deliveryDate,
-                is_urgent AS isUrgent, created_at AS createdAt
+                DATE(created_at) AS orderDate, expected_delivery AS deliveryDate,
+                (order_type = 'urgent') AS isUrgent, created_at AS createdAt
          FROM sales_orders
          WHERE tenant_id = ? AND customer_id = ?
          ORDER BY id DESC LIMIT ? OFFSET ?`,

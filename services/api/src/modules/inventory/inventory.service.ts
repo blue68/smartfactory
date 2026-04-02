@@ -64,6 +64,70 @@ export interface InventorySnapshot {
   dyeLots?: DyeLotDetail[];
 }
 
+export interface DailyInventorySnapshotRow {
+  snapshotDate: string;
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  stockUnit: string;
+  qtyOnHand: string;
+  qtyReserved: string;
+  qtyAvailable: string;
+}
+
+export interface RebuildInventorySnapshotParams {
+  snapshotDate?: string;
+  skuId?: number;
+  skuIds?: number[];
+  dryRun?: boolean;
+}
+
+export interface ReconcileInventoryParams {
+  skuId?: number;
+  skuIds?: number[];
+  dryRun?: boolean;
+  includeReserved?: boolean;
+  includeInTransit?: boolean;
+}
+
+export interface RepairInventoryParams extends ReconcileInventoryParams {
+  snapshotDate?: string;
+}
+
+export interface DailyInventorySnapshotFilter {
+  snapshotDate?: string;
+  skuId?: number;
+  keyword?: string;
+  page: number;
+  pageSize: number;
+}
+
+export interface InventoryReconcileItem {
+  skuId: number;
+  currentQtyOnHand: string;
+  expectedQtyOnHand: string;
+  deltaQtyOnHand: string;
+  currentQtyReserved: string;
+  expectedQtyReserved: string | null;
+  deltaQtyReserved: string | null;
+  currentQtyInTransit: string;
+  expectedQtyInTransit: string | null;
+  deltaQtyInTransit: string | null;
+}
+
+type InventoryQueryRunner = { query: typeof AppDataSource.query };
+
+interface InventoryScope {
+  targetSkuIds: number[];
+  hasSkuFilter: boolean;
+  whereSql: string;
+  whereParams: unknown[];
+}
+
+type InventoryTrackedQueryRunner = InventoryQueryRunner & {
+  __inventorySnapshotSkuIds?: Set<number>;
+};
+
 // ─── Inventory Service ─────────────────────────────────────────
 
 export class InventoryService {
@@ -75,6 +139,40 @@ export class InventoryService {
     this.tenantId = ctx.tenantId;
     this.userId   = ctx.userId;
     this.roles    = ctx.roles ?? [];
+  }
+
+  private buildInventoryScope(params: { skuId?: number; skuIds?: number[] }): InventoryScope {
+    const normalizedSkuIds = params.skuIds
+      ? Array.from(new Set(params.skuIds)).sort((a, b) => a - b)
+      : [];
+
+    if (params.skuId && normalizedSkuIds.length > 0) {
+      throw AppError.badRequest('skuId 和 skuIds 不能同时传入');
+    }
+
+    const targetSkuIds = params.skuId
+      ? [params.skuId]
+      : normalizedSkuIds;
+    const hasSkuFilter = targetSkuIds.length > 0;
+    const singleSku = targetSkuIds.length === 1;
+    const skuPlaceholders = targetSkuIds.map(() => '?').join(', ');
+    const whereSql = !hasSkuFilter
+      ? 'tenant_id = ?'
+      : singleSku
+        ? 'tenant_id = ? AND sku_id = ?'
+        : `tenant_id = ? AND sku_id IN (${skuPlaceholders})`;
+    const whereParams = !hasSkuFilter
+      ? [this.tenantId]
+      : singleSku
+        ? [this.tenantId, targetSkuIds[0]]
+        : [this.tenantId, ...targetSkuIds];
+
+    return {
+      targetSkuIds,
+      hasSkuFilter,
+      whereSql,
+      whereParams,
+    };
   }
 
   // ── 库存总览（支持分类、关键字筛选） ─────────────────────
@@ -113,7 +211,9 @@ export class InventoryService {
          FROM skus s
          LEFT JOIN inventory inv ON inv.sku_id = s.id AND inv.tenant_id = s.tenant_id
          WHERE ${where}
-         ORDER BY s.id
+         ORDER BY
+           (COALESCE(inv.qty_on_hand, 0) + COALESCE(inv.qty_reserved, 0) + COALESCE(inv.qty_in_transit, 0)) DESC,
+           s.id ASC
          LIMIT ? OFFSET ?`,
         [...qParams, params.pageSize, offset],
       ),
@@ -133,6 +233,208 @@ export class InventoryService {
     }));
 
     return { list, total: Number(countRows[0]?.total ?? 0) };
+  }
+
+  async listDailySnapshots(params: DailyInventorySnapshotFilter): Promise<{
+    list: DailyInventorySnapshotRow[];
+    total: number;
+    snapshotDate: string;
+  }> {
+    const snapshotDate = params.snapshotDate ?? new Date().toISOString().slice(0, 10);
+    const conditions = ['ids.tenant_id = ?', 'ids.snapshot_date = ?'];
+    const qParams: unknown[] = [this.tenantId, snapshotDate];
+
+    if (params.skuId) {
+      conditions.push('ids.sku_id = ?');
+      qParams.push(params.skuId);
+    }
+    if (params.keyword) {
+      conditions.push('(s.name LIKE ? OR s.sku_code LIKE ?)');
+      qParams.push(`%${params.keyword}%`, `%${params.keyword}%`);
+    }
+
+    const where = conditions.join(' AND ');
+    const offset = (params.page - 1) * params.pageSize;
+
+    const [rows, countRows] = await Promise.all([
+      AppDataSource.query<DailyInventorySnapshotRow[]>(
+        `SELECT
+           DATE_FORMAT(ids.snapshot_date, '%Y-%m-%d') AS snapshotDate,
+           ids.sku_id AS skuId,
+           s.sku_code AS skuCode,
+           s.name AS skuName,
+           s.stock_unit AS stockUnit,
+           ids.qty_on_hand AS qtyOnHand,
+           ids.qty_reserved AS qtyReserved,
+           ids.qty_available AS qtyAvailable
+         FROM inventory_daily_snapshots ids
+         INNER JOIN skus s
+           ON s.id = ids.sku_id
+          AND s.tenant_id = ids.tenant_id
+         WHERE ${where}
+         ORDER BY ids.sku_id ASC
+         LIMIT ? OFFSET ?`,
+        [...qParams, params.pageSize, offset],
+      ),
+      AppDataSource.query<Array<{ total: string }>>(
+        `SELECT COUNT(*) AS total
+         FROM inventory_daily_snapshots ids
+         INNER JOIN skus s
+           ON s.id = ids.sku_id
+          AND s.tenant_id = ids.tenant_id
+         WHERE ${where}`,
+        qParams,
+      ),
+    ]);
+
+    return {
+      list: rows,
+      total: Number(countRows[0]?.total ?? 0),
+      snapshotDate,
+    };
+  }
+
+  async listTransactions(
+    skuId: number,
+    params: {
+      page: number;
+      pageSize: number;
+      dateFrom?: string;
+      dateTo?: string;
+      keyword?: string;
+    },
+  ): Promise<{
+    skuId: number;
+    skuCode: string;
+    skuName: string;
+    stockUnit: string;
+    list: Array<{
+      transactionId: number;
+      transactionNo: string;
+      transactionType: string;
+      direction: 'IN' | 'OUT';
+      qtyChange: string;
+      createdAt: string;
+      referenceType: string | null;
+      referenceId: number | null;
+      referenceNo: string | null;
+      taskId: number | null;
+      workOrderNo: string | null;
+      processStepName: string | null;
+      workerName: string | null;
+      notes: string | null;
+    }>;
+    total: number;
+  }> {
+    const [sku] = await AppDataSource.query<Array<{
+      id: number;
+      skuCode: string;
+      skuName: string;
+      stockUnit: string;
+    }>>(
+      `SELECT id, sku_code AS skuCode, name AS skuName, stock_unit AS stockUnit
+       FROM skus
+       WHERE tenant_id = ? AND id = ?
+       LIMIT 1`,
+      [this.tenantId, skuId],
+    );
+
+    if (!sku) {
+      throw AppError.notFound('SKU 不存在', ResponseCode.SKU_NOT_FOUND);
+    }
+
+    const conditions = ['it.tenant_id = ?', 'it.sku_id = ?'];
+    const queryParams: unknown[] = [this.tenantId, skuId];
+
+    if (params.dateFrom) {
+      conditions.push('DATE(it.created_at) >= ?');
+      queryParams.push(params.dateFrom);
+    }
+    if (params.dateTo) {
+      conditions.push('DATE(it.created_at) <= ?');
+      queryParams.push(params.dateTo);
+    }
+    if (params.keyword) {
+      conditions.push(`(
+        it.transaction_no LIKE ?
+        OR COALESCE(it.reference_no, '') LIKE ?
+        OR COALESCE(po.work_order_no, '') LIKE ?
+        OR COALESCE(pt.task_no, '') LIKE ?
+      )`);
+      queryParams.push(
+        `%${params.keyword}%`,
+        `%${params.keyword}%`,
+        `%${params.keyword}%`,
+        `%${params.keyword}%`,
+      );
+    }
+
+    const where = conditions.join(' AND ');
+    const offset = (params.page - 1) * params.pageSize;
+
+    const listSql = `
+      SELECT
+        it.id AS transactionId,
+        it.transaction_no AS transactionNo,
+        it.transaction_type AS transactionType,
+        it.direction AS direction,
+        CAST(it.qty_stock_unit AS CHAR) AS qtyChange,
+        DATE_FORMAT(it.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+        it.reference_type AS referenceType,
+        it.reference_id AS referenceId,
+        it.reference_no AS referenceNo,
+        pt.id AS taskId,
+        po.work_order_no AS workOrderNo,
+        ps.step_name AS processStepName,
+        u.real_name AS workerName,
+        it.notes AS notes
+      FROM inventory_transactions it
+      LEFT JOIN task_material_transactions tmt
+        ON tmt.inventory_tx_id = it.id
+       AND tmt.tenant_id = it.tenant_id
+      LEFT JOIN production_tasks pt
+        ON pt.id = tmt.task_id
+       AND pt.tenant_id = it.tenant_id
+      LEFT JOIN production_orders po
+        ON po.id = COALESCE(pt.production_order_id, it.production_order_id)
+       AND po.tenant_id = it.tenant_id
+      LEFT JOIN process_steps ps
+        ON ps.id = pt.process_step_id
+      LEFT JOIN users u
+        ON u.id = pt.worker_id
+      WHERE ${where}
+      ORDER BY it.created_at DESC, it.id DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const countSql = `
+      SELECT COUNT(DISTINCT it.id) AS total
+      FROM inventory_transactions it
+      LEFT JOIN task_material_transactions tmt
+        ON tmt.inventory_tx_id = it.id
+       AND tmt.tenant_id = it.tenant_id
+      LEFT JOIN production_tasks pt
+        ON pt.id = tmt.task_id
+       AND pt.tenant_id = it.tenant_id
+      LEFT JOIN production_orders po
+        ON po.id = COALESCE(pt.production_order_id, it.production_order_id)
+       AND po.tenant_id = it.tenant_id
+      WHERE ${where}
+    `;
+
+    const [list, countRows] = await Promise.all([
+      AppDataSource.query(listSql, [...queryParams, params.pageSize, offset]),
+      AppDataSource.query<Array<{ total: string }>>(countSql, queryParams),
+    ]);
+
+    return {
+      skuId: sku.id,
+      skuCode: sku.skuCode,
+      skuName: sku.skuName,
+      stockUnit: sku.stockUnit,
+      list,
+      total: Number(countRows[0]?.total ?? 0),
+    };
   }
 
   // ── 缸号批次详情 ──────────────────────────────────────────
@@ -208,10 +510,373 @@ export class InventoryService {
     return { qtyOnHand, qtyReserved, qtyAvailable, stockUnit: row.stockUnit };
   }
 
+  async rebuildDailySnapshots(params: RebuildInventorySnapshotParams): Promise<{
+    snapshotDate: string;
+    rebuiltCount: number;
+    skuId: number | null;
+    skuIds: number[] | null;
+    dryRun: boolean;
+  }> {
+    let trackedInventoryManager: InventoryTrackedQueryRunner | null = null;
+    const result = await AppDataSource.transaction(async (manager) => {
+      trackedInventoryManager = manager as InventoryTrackedQueryRunner;
+      return this.rebuildDailySnapshotsInTx(manager, params);
+    });
+    await this.invalidateInventorySnapshotCaches(
+      this.consumeTrackedInventorySnapshotSkuIds(trackedInventoryManager),
+    );
+    return result;
+  }
+
+  private async rebuildDailySnapshotsInTx(
+    manager: InventoryQueryRunner,
+    params: RebuildInventorySnapshotParams,
+  ): Promise<{
+    snapshotDate: string;
+    rebuiltCount: number;
+    skuId: number | null;
+    skuIds: number[] | null;
+    dryRun: boolean;
+  }> {
+    const snapshotDate = params.snapshotDate ?? new Date().toISOString().slice(0, 10);
+    const { hasSkuFilter, whereSql, whereParams } = this.buildInventoryScope(params);
+
+    const [countRow] = await manager.query<Array<{ cnt: string }>>(
+      `SELECT COUNT(*) AS cnt
+       FROM inventory
+       WHERE ${whereSql}`,
+      whereParams,
+    );
+    const inventoryRows = await manager.query<Array<{ sku_id: number }>>(
+      `SELECT sku_id
+       FROM inventory
+       WHERE ${whereSql}
+       ORDER BY sku_id ASC`,
+      whereParams,
+    );
+    const affectedSkuIds = inventoryRows.map((row) => Number(row.sku_id));
+
+    if (!params.dryRun) {
+      await manager.query(
+        `INSERT INTO inventory_daily_snapshots
+           (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
+         SELECT
+           tenant_id,
+           ?,
+           sku_id,
+           qty_on_hand,
+           qty_reserved,
+           qty_on_hand - qty_reserved
+         FROM inventory
+         WHERE ${whereSql}
+         ON DUPLICATE KEY UPDATE
+           qty_on_hand = VALUES(qty_on_hand),
+           qty_reserved = VALUES(qty_reserved),
+           qty_available = VALUES(qty_available)`,
+        [snapshotDate, ...whereParams],
+      );
+      this.trackInventorySnapshotCacheInvalidation(manager, affectedSkuIds);
+    }
+
+    return {
+      snapshotDate,
+      rebuiltCount: Number(countRow?.cnt ?? 0),
+      skuId: affectedSkuIds.length === 1 ? affectedSkuIds[0] : null,
+      skuIds: hasSkuFilter ? affectedSkuIds : null,
+      dryRun: Boolean(params.dryRun),
+    };
+  }
+
+  async reconcileInventoryBalances(params: ReconcileInventoryParams): Promise<{
+    checkedCount: number;
+    changedCount: number;
+    dryRun: boolean;
+    skuId: number | null;
+    skuIds: number[] | null;
+    items: InventoryReconcileItem[];
+  }> {
+    let trackedInventoryManager: InventoryTrackedQueryRunner | null = null;
+    const result = await AppDataSource.transaction(async (manager) => {
+      trackedInventoryManager = manager as InventoryTrackedQueryRunner;
+      return this.reconcileInventoryBalancesInTx(manager, params);
+    });
+    await this.invalidateInventorySnapshotCaches(
+      this.consumeTrackedInventorySnapshotSkuIds(trackedInventoryManager),
+    );
+    return result;
+  }
+
+  private async reconcileInventoryBalancesInTx(
+    manager: InventoryQueryRunner,
+    params: ReconcileInventoryParams,
+  ): Promise<{
+    checkedCount: number;
+    changedCount: number;
+    dryRun: boolean;
+    skuId: number | null;
+    skuIds: number[] | null;
+    items: InventoryReconcileItem[];
+  }> {
+    const { targetSkuIds, hasSkuFilter, whereSql, whereParams } = this.buildInventoryScope(params);
+    const singleSku = targetSkuIds.length === 1;
+    const skuPlaceholders = targetSkuIds.map(() => '?').join(', ');
+
+    const inventoryRows = await manager.query<Array<{
+      sku_id: number;
+      qty_on_hand: string;
+      qty_reserved: string;
+      qty_in_transit: string;
+    }>>(
+      `SELECT sku_id, qty_on_hand, qty_reserved, qty_in_transit
+       FROM inventory
+       WHERE ${whereSql}`,
+      whereParams,
+    );
+
+    const ledgerRows = await manager.query<Array<{
+      sku_id: number;
+      expected_qty_on_hand: string;
+    }>>(
+      `SELECT
+         sku_id,
+         COALESCE(SUM(
+           CASE WHEN direction = 'IN' THEN qty_stock_unit ELSE -qty_stock_unit END
+         ), 0) AS expected_qty_on_hand
+       FROM inventory_transactions
+       WHERE ${whereSql}
+       GROUP BY sku_id`,
+      whereParams,
+    );
+
+    const reservedRows = params.includeReserved
+      ? await manager.query<Array<{
+        sku_id: number;
+        expected_qty_reserved: string;
+      }>>(
+        `SELECT
+           mr.sku_id,
+           COALESCE(SUM(mr.qty_reserved), 0) AS expected_qty_reserved
+         FROM material_requirements mr
+         INNER JOIN production_orders po
+           ON po.id = mr.production_order_id
+          AND po.tenant_id = mr.tenant_id
+         WHERE mr.tenant_id = ?
+           ${hasSkuFilter
+  ? singleSku
+    ? 'AND mr.sku_id = ?'
+    : `AND mr.sku_id IN (${skuPlaceholders})`
+  : ''}
+           AND po.status IN ('pending', 'scheduled', 'in_progress')
+         GROUP BY mr.sku_id`,
+        whereParams,
+      )
+      : [];
+
+    const inTransitRows = params.includeInTransit
+      ? await manager.query<Array<{
+        sku_id: number;
+        expected_qty_in_transit: string;
+      }>>(
+        `SELECT
+           poi.sku_id,
+           COALESCE(SUM(
+             GREATEST(poi.qty_ordered - poi.qty_received, 0) *
+             COALESCE(uc.conversion_rate, 1)
+           ), 0) AS expected_qty_in_transit
+         FROM purchase_order_items poi
+         INNER JOIN purchase_orders po
+           ON po.id = poi.po_id
+          AND po.tenant_id = poi.tenant_id
+         LEFT JOIN sku_unit_conversions uc
+           ON uc.sku_id = poi.sku_id
+          AND uc.from_unit = poi.purchase_unit
+          AND uc.tenant_id = poi.tenant_id
+         WHERE poi.tenant_id = ?
+           ${hasSkuFilter
+  ? singleSku
+    ? 'AND poi.sku_id = ?'
+    : `AND poi.sku_id IN (${skuPlaceholders})`
+  : ''}
+           AND po.status IN ('confirmed', 'partial_received')
+         GROUP BY poi.sku_id`,
+        whereParams,
+      )
+      : [];
+
+    const inventoryMap = new Map(
+      inventoryRows.map((row) => [Number(row.sku_id), row]),
+    );
+    const ledgerMap = new Map(
+      ledgerRows.map((row) => [Number(row.sku_id), row]),
+    );
+    const reservedMap = new Map(
+      reservedRows.map((row) => [Number(row.sku_id), row]),
+    );
+    const inTransitMap = new Map(
+      inTransitRows.map((row) => [Number(row.sku_id), row]),
+    );
+    const skuIds = Array.from(new Set([
+      ...inventoryMap.keys(),
+      ...ledgerMap.keys(),
+      ...reservedMap.keys(),
+      ...inTransitMap.keys(),
+    ])).sort((a, b) => a - b);
+
+    const items: InventoryReconcileItem[] = [];
+    const updatedSkuIds: number[] = [];
+
+    for (const skuId of skuIds) {
+      const inventoryRow = inventoryMap.get(skuId);
+      const ledgerRow = ledgerMap.get(skuId);
+      const currentQtyOnHand = new Decimal(inventoryRow?.qty_on_hand ?? '0');
+      const currentQtyReserved = new Decimal(inventoryRow?.qty_reserved ?? '0');
+      const currentQtyInTransit = new Decimal(inventoryRow?.qty_in_transit ?? '0');
+      const expectedQtyOnHand = new Decimal(ledgerRow?.expected_qty_on_hand ?? '0');
+      const deltaQtyOnHand = expectedQtyOnHand.minus(currentQtyOnHand);
+      const expectedQtyReserved = params.includeReserved
+        ? new Decimal(reservedMap.get(skuId)?.expected_qty_reserved ?? '0')
+        : null;
+      const deltaQtyReserved = expectedQtyReserved
+        ? expectedQtyReserved.minus(currentQtyReserved)
+        : null;
+      const expectedQtyInTransit = params.includeInTransit
+        ? new Decimal(inTransitMap.get(skuId)?.expected_qty_in_transit ?? '0')
+        : null;
+      const deltaQtyInTransit = expectedQtyInTransit
+        ? expectedQtyInTransit.minus(currentQtyInTransit)
+        : null;
+      const hasOnHandDrift = !deltaQtyOnHand.eq(0);
+      const hasReservedDrift = deltaQtyReserved ? !deltaQtyReserved.eq(0) : false;
+      const hasInTransitDrift = deltaQtyInTransit ? !deltaQtyInTransit.eq(0) : false;
+
+      if (!hasOnHandDrift && !hasReservedDrift && !hasInTransitDrift) continue;
+
+      items.push({
+        skuId,
+        currentQtyOnHand: currentQtyOnHand.toFixed(4),
+        expectedQtyOnHand: expectedQtyOnHand.toFixed(4),
+        deltaQtyOnHand: deltaQtyOnHand.toFixed(4),
+        currentQtyReserved: currentQtyReserved.toFixed(4),
+        expectedQtyReserved: expectedQtyReserved?.toFixed(4) ?? null,
+        deltaQtyReserved: deltaQtyReserved?.toFixed(4) ?? null,
+        currentQtyInTransit: currentQtyInTransit.toFixed(4),
+        expectedQtyInTransit: expectedQtyInTransit?.toFixed(4) ?? null,
+        deltaQtyInTransit: deltaQtyInTransit?.toFixed(4) ?? null,
+      });
+
+      if (!params.dryRun) {
+        await manager.query(
+          `INSERT INTO inventory
+             (tenant_id, sku_id, qty_on_hand, qty_reserved, qty_in_transit, last_in_at)
+           VALUES (?, ?, ?, ?, ?, NOW())
+           ON DUPLICATE KEY UPDATE
+             qty_on_hand = VALUES(qty_on_hand),
+             qty_reserved = VALUES(qty_reserved),
+             qty_in_transit = VALUES(qty_in_transit)`,
+          [
+            this.tenantId,
+            skuId,
+            expectedQtyOnHand.toFixed(4),
+            (expectedQtyReserved ?? currentQtyReserved).toFixed(4),
+            (expectedQtyInTransit ?? currentQtyInTransit).toFixed(4),
+          ],
+        );
+
+        await this.syncDailySnapshot(manager, skuId);
+        updatedSkuIds.push(skuId);
+      }
+    }
+
+    if (!params.dryRun) {
+      this.trackInventorySnapshotCacheInvalidation(manager, updatedSkuIds);
+    }
+
+    return {
+      checkedCount: skuIds.length,
+      changedCount: items.length,
+      dryRun: params.dryRun ?? true,
+      skuId: targetSkuIds.length === 1 ? targetSkuIds[0] : null,
+      skuIds: hasSkuFilter ? targetSkuIds : null,
+      items,
+    };
+  }
+
+  async repairInventoryState(params: RepairInventoryParams): Promise<{
+    dryRun: boolean;
+    reconcile: Awaited<ReturnType<InventoryService['reconcileInventoryBalances']>>;
+    snapshots: Awaited<ReturnType<InventoryService['rebuildDailySnapshots']>>;
+  }> {
+    let trackedInventoryManager: InventoryTrackedQueryRunner | null = null;
+    const result = await AppDataSource.transaction(async (manager) => {
+      trackedInventoryManager = manager as InventoryTrackedQueryRunner;
+      const dryRun = params.dryRun ?? true;
+      const reconcile = await this.reconcileInventoryBalancesInTx(manager, {
+        skuId: params.skuId,
+        skuIds: params.skuIds,
+        dryRun,
+        includeReserved: params.includeReserved ?? true,
+        includeInTransit: params.includeInTransit ?? true,
+      });
+      const snapshots = await this.rebuildDailySnapshotsInTx(manager, {
+        snapshotDate: params.snapshotDate,
+        skuId: params.skuId,
+        skuIds: params.skuIds,
+        dryRun,
+      });
+
+      return {
+        dryRun,
+        reconcile,
+        snapshots,
+      };
+    });
+    await this.invalidateInventorySnapshotCaches(
+      this.consumeTrackedInventorySnapshotSkuIds(trackedInventoryManager),
+    );
+    return result;
+  }
+
+  private trackInventorySnapshotCacheInvalidation(
+    manager: InventoryQueryRunner,
+    skuIds: number[],
+  ): void {
+    if (skuIds.length === 0) return;
+    const trackedManager = manager as InventoryTrackedQueryRunner;
+    const tracked = (trackedManager.__inventorySnapshotSkuIds ??= new Set<number>());
+    for (const skuId of skuIds) {
+      tracked.add(Number(skuId));
+    }
+  }
+
+  private consumeTrackedInventorySnapshotSkuIds(
+    manager: InventoryTrackedQueryRunner | null,
+  ): number[] {
+    const skuIds = Array.from(manager?.__inventorySnapshotSkuIds ?? []);
+    if (manager) {
+      delete manager.__inventorySnapshotSkuIds;
+    }
+    return skuIds;
+  }
+
+  private async invalidateInventorySnapshotCaches(skuIds: number[]): Promise<void> {
+    if (skuIds.length === 0) return;
+    try {
+      const redis = getRedisClient();
+      await Promise.all(
+        Array.from(new Set(skuIds)).map((skuId) =>
+          redis.del(RedisKeys.inventorySnapshot(this.tenantId, skuId)),
+        ),
+      );
+    } catch (err) {
+      console.warn('[InventoryService] 库存修复后的缓存失效失败，已忽略:', (err as Error).message);
+    }
+  }
+
   // ── 采购入库 ──────────────────────────────────────────────
 
   async inbound(params: InboundParams): Promise<{ transactionNo: string; newQtyOnHand: string }> {
     const sku = await this.getSkuInfo(params.skuId);
+    let trackedInventoryManager: InventoryTrackedQueryRunner | null = null;
 
     // 1. 校验面料缸号必填
     if (sku.hasDyeLot && !params.dyeLotNo) {
@@ -245,8 +910,10 @@ export class InventoryService {
       console.warn('[InventoryService] Redis 分布式锁不可用，降级到 DB 行锁（入库）:', (err as Error).message);
     }
 
+    let result: { transactionNo: string; newQtyOnHand: string };
     try {
-      return await AppDataSource.transaction(async (manager) => {
+      result = await AppDataSource.transaction(async (manager) => {
+        trackedInventoryManager = manager as InventoryTrackedQueryRunner;
         // 4. DB 行锁（入库时锁定 inventory 行）
         //    - Redis 锁可用时：提供跨进程互斥的第一层防护
         //    - Redis 降级时：DB 行锁作为唯一并发控制手段
@@ -285,6 +952,9 @@ export class InventoryService {
           [this.tenantId, params.skuId, converted.qty.toFixed(4)],
         );
 
+        await this.syncDailySnapshot(manager, params.skuId);
+        this.trackInventorySnapshotCacheInvalidation(manager, [params.skuId]);
+
         // 7. 更新缸号批次库存（面料类）
         if (params.dyeLotNo) {
           await manager.query(
@@ -311,21 +981,20 @@ export class InventoryService {
       if (redisLockAcquired && lockVal) {
         await releaseLock(lockKey, lockVal);
       }
-      // 失效缓存（失败只打警告）
-      try {
-        await getRedisClient().del(RedisKeys.inventorySnapshot(this.tenantId, params.skuId));
-      } catch (err) {
-        console.warn('[InventoryService] 缓存失效失败（入库），下次查询将穿透到 DB:', (err as Error).message);
-      }
-      // 异步检查安全库存预警
-      this.checkSafetyStockAlert(params.skuId, sku).catch(console.error);
     }
+
+    await this.invalidateInventorySnapshotCaches(
+      this.consumeTrackedInventorySnapshotSkuIds(trackedInventoryManager),
+    );
+    this.checkSafetyStockAlert(params.skuId, sku).catch(console.error);
+    return result;
   }
 
   // ── 出库 ──────────────────────────────────────────────────
 
   async outbound(params: OutboundParams): Promise<{ transactionNo: string; newQtyOnHand: string }> {
     const sku = await this.getSkuInfo(params.skuId);
+    let trackedInventoryManager: InventoryTrackedQueryRunner | null = null;
 
     // 1. 面料缸号必填
     if (sku.hasDyeLot && !params.dyeLotNo) {
@@ -402,8 +1071,10 @@ export class InventoryService {
       console.warn('[InventoryService] Redis 分布式锁不可用，降级到 DB 行锁（出库）:', (err as Error).message);
     }
 
+    let result: { transactionNo: string; newQtyOnHand: string };
     try {
-      return await AppDataSource.transaction(async (manager) => {
+      result = await AppDataSource.transaction(async (manager) => {
+        trackedInventoryManager = manager as InventoryTrackedQueryRunner;
         // 5. 检查库存充足性，使用 SELECT ... FOR UPDATE 行锁防止超卖
         //    这是防超卖的最终安全线，无论 Redis 锁是否可用均必须执行
         const [inv] = await manager.query<Array<{ qty_on_hand: string; qty_reserved: string }>>(
@@ -471,6 +1142,9 @@ export class InventoryService {
           [converted.qty.toFixed(4), this.tenantId, params.skuId],
         );
 
+        await this.syncDailySnapshot(manager, params.skuId);
+        this.trackInventorySnapshotCacheInvalidation(manager, [params.skuId]);
+
         const [updated] = await manager.query<Array<{ qty: string }>>(
           'SELECT qty_on_hand AS qty FROM inventory WHERE tenant_id = ? AND sku_id = ? LIMIT 1',
           [this.tenantId, params.skuId],
@@ -492,12 +1166,12 @@ export class InventoryService {
       if (redisLockAcquired && lockVal) {
         await releaseLock(lockKey, lockVal);
       }
-      try {
-        await getRedisClient().del(RedisKeys.inventorySnapshot(this.tenantId, params.skuId));
-      } catch (err) {
-        console.warn('[InventoryService] 缓存失效失败（出库），下次查询将穿透到 DB:', (err as Error).message);
-      }
     }
+
+    await this.invalidateInventorySnapshotCaches(
+      this.consumeTrackedInventorySnapshotSkuIds(trackedInventoryManager),
+    );
+    return result;
   }
 
   // ── 先进先出出库推荐（面料类） ────────────────────────────
@@ -577,6 +1251,30 @@ export class InventoryService {
     return binding.dye_lot_no !== dyeLotNo;
   }
 
+  private async syncDailySnapshot(
+    manager: { query: typeof AppDataSource.query },
+    skuId: number,
+  ): Promise<void> {
+    await manager.query(
+      `INSERT INTO inventory_daily_snapshots
+         (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
+       SELECT
+         tenant_id,
+         CURDATE(),
+         sku_id,
+         qty_on_hand,
+         qty_reserved,
+         qty_on_hand - qty_reserved
+       FROM inventory
+       WHERE tenant_id = ? AND sku_id = ?
+       ON DUPLICATE KEY UPDATE
+         qty_on_hand = VALUES(qty_on_hand),
+         qty_reserved = VALUES(qty_reserved),
+         qty_available = VALUES(qty_available)`,
+      [this.tenantId, skuId],
+    );
+  }
+
   private generateTxNo(direction: 'IN' | 'OUT'): string {
     const now = new Date();
     const ts = [
@@ -627,6 +1325,7 @@ export class InventoryService {
     notes?: string;
   }): Promise<{ transactionNo: string; newQtyOnHand: string }> {
     const sku = await this.getSkuInfo(params.skuId);
+    let trackedInventoryManager: InventoryTrackedQueryRunner | null = null;
 
     // 尝试获取 Redis 分布式锁（与入库/出库保持一致策略）
     const lockKey = RedisKeys.inventoryLock(this.tenantId, params.skuId);
@@ -646,8 +1345,10 @@ export class InventoryService {
 
     const wasteQty = new Decimal(params.qty);
 
+    let result: { transactionNo: string; newQtyOnHand: string };
     try {
-      return await AppDataSource.transaction(async (manager) => {
+      result = await AppDataSource.transaction(async (manager) => {
+        trackedInventoryManager = manager as InventoryTrackedQueryRunner;
         // DB 行锁：防止并发超扣
         const [inv] = await manager.query<Array<{ qty_on_hand: string; qty_reserved: string }>>(
           'SELECT qty_on_hand, qty_reserved FROM inventory WHERE tenant_id = ? AND sku_id = ? LIMIT 1 FOR UPDATE',
@@ -687,6 +1388,9 @@ export class InventoryService {
           [wasteQty.toFixed(4), this.tenantId, params.skuId],
         );
 
+        await this.syncDailySnapshot(manager, params.skuId);
+        this.trackInventorySnapshotCacheInvalidation(manager, [params.skuId]);
+
         const [updated] = await manager.query<Array<{ qty: string }>>(
           'SELECT qty_on_hand AS qty FROM inventory WHERE tenant_id = ? AND sku_id = ? LIMIT 1',
           [this.tenantId, params.skuId],
@@ -698,15 +1402,13 @@ export class InventoryService {
       if (redisLockAcquired && lockVal) {
         await releaseLock(lockKey, lockVal);
       }
-      // 失效库存快照缓存
-      try {
-        await getRedisClient().del(RedisKeys.inventorySnapshot(this.tenantId, params.skuId));
-      } catch (err) {
-        console.warn('[InventoryService] 缓存失效失败（损耗录入）:', (err as Error).message);
-      }
-      // 异步安全库存预警检查
-      this.checkSafetyStockAlert(params.skuId, sku).catch(console.error);
     }
+
+    await this.invalidateInventorySnapshotCaches(
+      this.consumeTrackedInventorySnapshotSkuIds(trackedInventoryManager),
+    );
+    this.checkSafetyStockAlert(params.skuId, sku).catch(console.error);
+    return result;
   }
 
   // ── BE-P1-005: 库存汇总（按一级分类聚合） ─────────────────

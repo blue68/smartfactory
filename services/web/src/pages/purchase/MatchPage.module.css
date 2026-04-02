@@ -138,6 +138,17 @@
   gap: var(--space-3);
 }
 
+.filter_chip {
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-primary-200);
+  border-radius: var(--radius-full);
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
 .filter_select {
   height: 34px;
   padding: 0 2rem 0 var(--space-3);
@@ -285,6 +296,7 @@
 .table_actions {
   display: flex;
   gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
 /* ================================================================
@@ -483,6 +495,41 @@
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
+.detailLoading {
+  padding: var(--space-8) 0;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.detail_links {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.readonly_group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.readonly_meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.readonly_notes {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-gray-50);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
 /* ================================================================
    Execute Match Form (modal)
 ================================================================ */
@@ -519,4 +566,6 @@
   .radio_group_grid { grid-template-columns: 1fr; }
   .filter_bar { flex-wrap: wrap; }
   .filter_right { margin-left: 0; }
+  .detail_links { flex-direction: column; }
+  .readonly_meta { flex-direction: column; gap: var(--space-2); }
 }

@@ -14,6 +14,20 @@ router.get('/',                              asyncHandler(inventoryController.li
 router.get('/summary',                       asyncHandler(inventoryController.getSummary.bind(inventoryController)));
 // BE-08-08: 库存实时查询
 router.get('/check',                         asyncHandler(inventoryController.checkAvailability.bind(inventoryController)));
+router.get('/daily-snapshots',               asyncHandler(inventoryController.listDailySnapshots.bind(inventoryController)));
+router.get('/:skuId/transactions',           asyncHandler(inventoryController.listTransactions.bind(inventoryController)));
+router.post('/snapshots/rebuild',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(inventoryController.rebuildSnapshots.bind(inventoryController)),
+);
+router.post('/reconcile',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(inventoryController.reconcileInventory.bind(inventoryController)),
+);
+router.post('/repair',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(inventoryController.repairInventory.bind(inventoryController)),
+);
 router.get('/:skuId/dye-lots',              asyncHandler(inventoryController.getDyeLots.bind(inventoryController)));
 router.get('/:skuId/available',             asyncHandler(inventoryController.getAvailable.bind(inventoryController)));
 router.get('/:skuId/fifo-dye-lot',          asyncHandler(inventoryController.fifoDyeLot.bind(inventoryController)));

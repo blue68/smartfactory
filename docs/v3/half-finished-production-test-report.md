@@ -1,0 +1,453 @@
+[artifact:TestReport]
+status: PASS
+owner: senior-qa-engineer
+scope:
+- 半成品生产 Phase 1 release/结构查询
+- Phase 2 按 `production_operations` 排产
+- 工资查询口径回归
+- 前端只读切片联调回归（工资任务报工 / 日结库存快照）
+inputs:
+- [artifact:BackendCode]
+- [artifact:APIDoc]
+- `services/api/tests/unit/production-phase1.service.test.ts`
+- `services/api/tests/unit/production.routes.phase1.test.ts`
+- `services/api/tests/unit/scheduler.phase2.operations.test.ts`
+- `services/api/tests/unit/productionSchedule.regression.test.ts`
+- `services/api/tests/unit/wage.service.test.ts`
+deliverables:
+- TypeScript 编译通过
+- 5 组定向单测全部通过，覆盖 release、路由挂载、调度切换、排产回归、工资口径
+- 新增回归断言验证 `confirmSchedule` 重复调用不会重复建任务，且 `task_no` 使用稳定编号
+- 本地 API 真实链路通过：`release -> schedule -> confirm -> complete-v2`
+- 自动化 E2E 主链路通过：`from-sales-order -> release -> schedule -> confirm -> complete-v2 -> wages/inventory`
+- 自动化 E2E 主链路已补任务级 output IO 校验：首工序与最终工序完工后，`task_material_transactions` 会落对应半成品/成品产出记录
+- 自动化 E2E 主链路已补任务级 input IO 校验：首工序与最终工序完工后，`task_material_transactions` 会落对应原材料/半成品耗料记录
+- 自动化 E2E 主链路已补 start-timing input IO 校验：首工序 `start` 后，`task_material_transactions` 会先落 `consume_timing='start'` 的原材料耗料记录
+- 自动化 E2E 主链路已补 `WorkflowEngineService` 半成品入库校验：首工序完工后会新增 1 条半成品 `PRODUCTION_IN`，最终工序完工后再新增 1 条成品 `PRODUCTION_IN`
+- 自动化 E2E 主链路已补通配半成品固定 SKU 回推校验：工单级将 WIP 组件解析到替代 SKU 后，首工序 output、半成品入库与最终工序 input 会统一落到 resolved SKU
+- 自动化 E2E 主链路已补日结快照校验：半成品/成品入库后，`inventory_daily_snapshots` 会同步落当日 `qty_on_hand / qty_reserved / qty_available`
+- 已补只读查询接口：`GET /api/reports/wages/tasks` 可按任务维度分页回查报工工资明细；`GET /api/inventory/daily-snapshots` 可按日期分页回查日结库存
+- 自动化 E2E 主链路已补重复完工保护：重复 `complete-v2` 返回冲突，且报工与既有两段入库不会重复
+- 定向单测已补库存账本防重：半成品/成品生产入库账本已存在时，不会重复写 `inventory_transactions` 或重复增加库存，只会刷新日结快照
+- 定向单测已补任务维度工资查询：`GET /api/reports/wages/tasks` 对应服务层已覆盖任务字段查询与旧版表结构降级
+- 定向单测已补任务工资筛选口径回归：`wage.service` 已覆盖 `dateFrom/dateTo/userId/workerGrade/productionOrderId/taskId` 条件拼接与参数顺序，降低查询过滤条件漂移风险
+- 定向单测已补任务工资旧字段兼容回归：`wage.service` 已覆盖 `report_date/user_id/step_id` 与任务字段并存场景，确认任务工资明细查询在半迁移表结构下仍可正确筛选与分页
+- 定向单测已补任务工资接口层回归：`wage.controller` 已覆盖 `wages/tasks` 参数校验与筛选透传，`wage.routes` 已覆盖 `/export` `/tasks` `/` `/my` 的路由顺序与角色门禁
+- 定向单测已补管理员工资接口层回归：`wage.controller` 已覆盖 `GET /api/reports/wages` 的筛选参数透传与非法分页校验，任务工资与汇总工资两条查询链路均有控制器测试保护
+- 运行时鉴权回归已补：`wage.auth` 已覆盖 `/api/reports/wages` 与 `/api/reports/wages/tasks` 的 `401/403/200` 行为，以及 `/api/reports/wages/my` 的登录态可访问行为
+- 运行时鉴权回归已补：`wage.auth` 现也已覆盖 `/api/reports/wages/export` 的角色门禁（boss/manager 放行、非管理员拒绝）
+- 定向单测已补工资导出接口层回归：`wage.controller` 已覆盖 `/api/reports/wages/export` 的筛选参数校验、服务层透传与 Excel 响应头输出
+- 定向单测已补报工日期本地时区口径：`SchedulerService.insertWorkReport` 会按 `Asia/Shanghai` 本地日期写 `work_reports.work_date`，避免东八区午夜后的报工被记到前一天
+- 定向单测已补快照补偿工具：`POST /api/inventory/snapshots/rebuild` 对应服务层已覆盖“全量重建”“按单 SKU 定向重建”“按 `skuIds[]` 批量重建”和 `dryRun` 预览
+- 定向单测已补日结库存只读查询：`GET /api/inventory/daily-snapshots` 对应服务层已覆盖按日期分页以及 `skuId` / 关键字筛选口径
+- 浏览器联调已通过：`/report/wages` 可切换到“任务报工”视图，并展示日期、工单号、任务号、工人、工序、完成数、合格数、不良数、工时、单价、小计
+- 浏览器联调已通过：`/inventory` 可展示“日结库存快照”卡片，并正确发起 `snapshotDate` 查询；当前本地种子数据对 `2026-03-30` 返回空结果时可正常展示空态
+- 前端自动化回归已补 API + 页面双层校验：`wageReport/inventory` API 参数透传与 `enabled` 门禁、`WageReportPage/InventoryPage` 的筛选输入/查询分离、快照独立分页及加载/空态/错误态（`4 files / 16 tests passed`）
+- 前端页面回归已进一步补齐 Enter/清空交互：任务报工工单筛选可按 Enter 触发查询，日结快照关键词可按 Enter 查询并在清空后恢复未筛选状态（页面定向 `2 files / 10 tests passed`）
+- 前端全量 Vitest 已回归通过：修复 `skuCategory` 测试中的旧 `PUT` 断言并对齐 `PATCH` 契约后，`services/web` 全量 `7 files / 101 tests passed`
+- 前端 lint 已完成 warning 清零：补齐 `services/web/.eslintrc.cjs` 后继续收敛 hooks 依赖稳定性问题，`npm run lint` 当前为 `0 error / 0 warnings`
+- 浏览器联调已确认 `localhost` 需先重建 `web` 容器以加载最新前端 bundle；旧容器会导致只读切片不可见的假阴性
+- 评审后回归已通过：库存写操作对应前端缓存失效已扩大到 `inventoryKeys.all`，避免“日结库存快照”卡片陈旧
+- 评审后回归已通过：工资任务视图分页汇总文案已改为“本页工时 / 本页产量 / 本页工资”，避免跨页误导
+- 定向单测已补非生产库存入口自动刷新与事务边界：`InventoryService.inbound/outbound/recordWaste` 会同步 upsert `inventory_daily_snapshots`，并只在事务提交后失效 Redis `inventorySnapshot` 缓存，回滚时不会误删
+- 定向单测已补采购质检入库单位口径与快照刷新：IQC 合格入库会按 SKU `stock_unit` 将 `qty_passed` 从采购单位换算后更新 `inventory.qty_on_hand / qty_in_transit / inventory_dye_lots`，并同步 upsert `inventory_daily_snapshots`
+- 定向单测已补盘点确认快照刷新与负库存保护：`StocktakingService.confirmTask` 在每个差异 SKU 调整库存后会同步 upsert `inventory_daily_snapshots`，并会阻断按过期差异把 `qty_on_hand` 扣成负数的确认
+- 定向单测已补 `qty_reserved` 口径快照刷新：工单建单预留、工单取消释放预留、销售单取消释放预留后都会同步 upsert `inventory_daily_snapshots`
+- 定向单测已补工单建单预留锁行：`ProductionOrderService.createFromSalesOrder` 在尝试预留物料库存前会先 `FOR UPDATE` 锁定 `inventory` 行，避免并发建单基于旧 `qty_reserved` 超预留
+- 定向单测已补基础账本对账工具：`POST /api/inventory/reconcile` 对应服务层已覆盖 `dryRun` 差异预览、按 `skuIds[]` 回写 `qty_on_hand` 并同步快照，以及 `includeReserved=true` / `includeInTransit=true` 时校正 `qty_reserved` / `qty_in_transit`
+- 定向单测已补统一修复入口：`POST /api/inventory/repair` 默认串联 `reconcile + snapshots/rebuild`，并默认开启 `includeReserved/includeInTransit`
+- 定向单测已补修复后缓存失效：`snapshots/rebuild`、`reconcile`、`repair` 实际回写后会在外层事务提交后自动失效 Redis `inventorySnapshot` 缓存，`dryRun` 不会误删缓存
+- 定向单测已补库存修复入口接口层回归：`inventory.controller` 已覆盖 `reconcile/repair` 默认参数、互斥校验与返回文案；`inventory.routes` 已覆盖关键固定路由顺序与 `reconcile/repair` 角色门禁
+- 定向单测已补库存快照只读与重建入口接口层回归：`inventory.controller` 已覆盖 `daily-snapshots` 查询参数校验与 `snapshots/rebuild` 的 `dryRun` 文案分支、互斥校验
+- 运行时鉴权回归已补：`inventory.auth` 已覆盖 `daily-snapshots` 的登录态读取，以及 `snapshots/rebuild` / `reconcile` / `repair` 的 `401/403/200` 角色门禁行为
+- `inventory.api` 集成测试已补“`reconcile` dryRun 预览 -> `repair` 执行 -> `daily-snapshots` 回查”接口组合回归，并用独立修复种子隔离状态；定向复跑 `22 tests` 全部通过
+- `quality.api` 集成测试已补 `quality/issues*` 列表/详情回归，覆盖 `severity` / `issueType` 过滤、详情字段、图片 JSON 解析与 404 契约；定向复跑 `36 tests` 全部通过
+- `settlement.api` 集成测试已补销售结算最小种子，覆盖创建、列表/详情、应收汇总与 `confirm/pay/cancel` 状态流转；定向复跑 `9 tests` 全部通过
+- 销售结算链路同时补平了两个真实缺口：旧 `settlements` 表缺 `due_date` 的 schema 漂移，以及 `SettlementService.createSettlement` 误解构 INSERT 结果导致的创建 500；统一编号器也已补 `settlement -> ST` 前缀
+- `wage.api` 集成测试已补工资报表最小种子，覆盖管理员汇总、任务工资明细、Excel 导出、个人自查与角色门禁；定向复跑 `5 tests` 全部通过
+- `WageService` 现已统一把工资报表返回中的数值 ID 字段归一为数字，避免真实 MySQL 驱动把 `userId/reportId/taskId/productionOrderId` 漂成字符串
+- `stocktaking.api` 集成测试已补盘点最小种子，覆盖建任务、列表/详情、模板导出、实盘录入、差异分析与确认后库存/快照/流水回查；定向复跑 `3 tests` 全部通过
+- `StocktakingService` 同时补平了两个真实缺口：`batchUpdateItems` 误解构 UPDATE 结果导致录入 500，以及 `confirmTask` 写 `inventory_transactions` 时漏传当前 schema 强制字段导致确认 500
+- `incomingInspection.api` 集成测试已补来料质检最小种子，覆盖创建、列表/详情、明细数量校验、`fail -> accept` 业务约束拦截，以及 `submit` 后的入库单预览与 `purchase_receipts / return_orders / inventory / inventory_transactions / inventory_daily_snapshots` 回查；定向复跑 `4 tests` 全部通过
+- `returnOrder.api` 集成测试已补手工采购退货最小种子，覆盖创建、列表/详情、确认、发货、完成，以及发货时的 `inventory / inventory_transactions / inventory_daily_snapshots` 扣减回查与库存不足拦截；定向复跑 `3 tests` 全部通过
+- `purchaseSettlement.api` 集成测试已补采购结算最小种子，覆盖创建、列表/详情、CSV 导出、确认、付款、取消，以及重复创建返回既有有效结算单；定向复跑 `3 tests` 全部通过
+- `PurchaseSettlementService` 同时补平了一个真实契约缺口：`dueDate` 之前会受 MySQL `DATE -> Date` 与时区转换影响左移一天，现已统一归一为稳定 `YYYY-MM-DD`
+- 定向单测已补跨入口混合补偿：当某 SKU 的 `inventory` 主表行缺失，但 `inventory_transactions`、活跃工单预留和活跃采购在途仍有数据时，`reconcile/repair` 可一次性重建该 SKU 的实时库存与日结快照
+- 定向单测已补非生产库存入口深回滚：`InventoryService.inbound/outbound/recordWaste` 在已写库存/快照后若事务提交阶段失败触发回滚，不会提前失效 Redis `inventorySnapshot` 缓存
+- 定向单测已补修复入口深回滚：`snapshots/rebuild`、`reconcile`、`repair` 在已登记待失效 SKU 后若事务提交阶段失败触发回滚，不会提前失效 Redis `inventorySnapshot` 缓存
+- 定向单测已补采购在途库存入口：手工建采购单、采购建议转单会自动累加 `inventory.qty_in_transit`，关闭采购单会按未收数量自动释放
+- 定向单测已补销售发货库存入口：销售发货会写 `DELIVERY_OUT`、扣减 `inventory.qty_on_hand`、刷新 `inventory_daily_snapshots` 并失效缓存
+- 定向单测已补采购退货库存入口：手工采购退货发货会写 `PURCHASE_RETURN_OUT`、扣减 `inventory.qty_on_hand`、刷新 `inventory_daily_snapshots` 并失效缓存；IQC 自动退货仍保持“不入库即不扣库存”
+- 定向单测已补事务提交后缓存失效：半成品 `PRODUCTION_IN` 与 IQC `PURCHASE_IN` 路径会先登记受影响 SKU，等外层事务提交后再统一失效 Redis `inventorySnapshot` 缓存
+- 定向单测已补老完工链路单位口径：`SchedulerService.completeTask` 在整单完工成品入库时会沿用 SKU 真实 `stock_unit`，不再把非 `pcs` 成品写成 `pcs`
+- 定向单测已补 `qty_reserved` 路径缓存失效：工单建单预留、工单取消释放预留，以及销售单确认嵌套建工单提交后都会同步失效 Redis `inventorySnapshot` 缓存
+- 定向单测已补销售撤单物料预留释放与缓存时机：`SalesService.cancelOrder` 会按关联工单 `material_requirements` 释放物料级 `qty_reserved`，并在事务提交后再失效 Redis `inventorySnapshot` 缓存
+- 定向单测已补 `qty_in_transit` 路径缓存失效：手工建采购单、采购关单、采购建议转单后都会同步失效 Redis `inventorySnapshot` 缓存
+- 自动化 E2E 主链路已补重复开工保护：重复 `start` 返回冲突，避免同一任务被重复开工
+- 自动化 E2E 已补并发确认保护：两个主管同时 `confirm` 同一日期排产时，最终只会落 1 份任务集
+- 自动化 E2E 已补并发调整保护：两个主管同时调整同一日期的不同排产行时，两个调整结果都会保留，且后续 `confirm` 可正常下发
+- 自动化 E2E 已补同行并发调整保护：两个主管同时调整同一排产行时，接口保持 200，最终计划量会被串行写入并用于后续任务下发
+- 自动化 E2E 异常流通过：`start -> suspend -> resume -> exception -> resolve-exception -> continue-complete`
+- 自动化 E2E 质量链路通过：`quality inspections -> issues -> complete -> traceability`
+- 自动化 E2E 多工单排产通过：普通单与紧急单并存时，紧急高优先工单在排产结果中优先
+- 容器化 API 启动验证通过：Redis 预热超时后 API 仍可降级启动，对外 `/api` 不再因启动失败返回 502
+- 本地 MySQL 回查通过：任务状态、完工记录、工资报工记录与工单聚合数量一致
+- 本地 API 最终态通过：全部任务完成后工单完结、成品入库、库存快照回写一致
+- 采购退货 E2E 已补跑通过：`purchaseFullReturnFlow.e2e` 与 `purchasePartialReturnFlow.e2e` 均通过，覆盖整单不合格退货与部分合格退货三单匹配链路
+- 库存修复 E2E 已补跑通过：`inventoryRepairFlow.e2e` 覆盖 `inventory/repair` 的 dryRun 预览、修复回写、快照重建与缓存预热后的读取一致性
+- 库存修复 E2E 已补“主库存行缺失重建”场景：当 `inventory` 主表行与当日快照缺失，但账本/预留/在途仍在时，`inventory/repair` 仍可重建实时库存并回填快照
+- 采购完整链路 E2E 已补跑通过：`purchaseFlow.e2e` 在“建议生成入口 404”的环境差异下可回退到建议列表继续验证主流程
+- `productionFlow.e2e` 已补 `Step 11-B` 用例：异常恢复后按任务维度回查工资明细，校验 `taskStatus/qtyCompleted/workHours/unitPrice/subtotal` 与 `work_reports` 一致且无重复报工
+- `2026-04-01` 已恢复 Docker daemon、拉起 `mysql/redis/api/web`，并完成 `productionFlow.e2e` 异常流与全量复跑（含 `Step 11-B`）
+- `2026-04-01` 环境恢复后已再次复跑采购/库存修复/销售发货 5 套 E2E（`inventoryRepairFlow`、`purchaseFlow`、`purchaseFullReturnFlow`、`purchasePartialReturnFlow`、`salesShipFlow`），均通过
+- `salesShipFlow.e2e` 已新增“销售发货 -> DELIVERY_OUT -> inventory 扣减 -> daily snapshot 回写 -> available 读取一致”真实库链路断言
+- `salesShipFlow.e2e` 现已扩展覆盖“收货确认 -> 订单 completed -> 结算建单 -> 部分收款 -> 全额收款 -> 开票 -> 应收汇总移除”闭环链路
+- `dyeLotFlow.e2e` 已重构为自带种子（不依赖外部固定 SKU/BOM），并对齐当前跨色号语义：无授权返回 `4004` 阻断，且不会写入跨缸出库流水
+- `purchasePartialReturnFlow.e2e` 已补前置快照重建（`Step 0`）以消除跨轮次缓存残留导致的库存基线漂移，6 套聚合复跑稳定通过
+- `2026-04-01` 已完成 `tests/e2e` 全量复跑（`productionFlow`、`dyeLotFlow`、`salesShipFlow`、采购/库存修复），7 套 69 条全部通过
+- `sales.api` integration 现已改为自带最小种子并补齐审批链路动态建单，`25` 条用例全量通过（含结算/应收入口）
+- `purchase.api` integration 现已改为自带最小种子并补齐建议审批与三单匹配四场景，`20` 条用例全量通过
+- `ConstraintEngine.loadThresholds` 已验证兼容 `tenants.settings` 对象形态，`/api/sales/orders` 与 `/api/sales/orders/analyze-urgent` 不再因阈值解析触发 500
+- `SuggestionService.calcTotalMaterialNeeds` 已验证可跳过“工单关联 BOM/SKU 缺失”的历史脏数据，采购建议生成不再整批 404
+- `ProductionService.createProductionOrder` 已补齐 `sales_order_item_id` 与 `bom_snapshot_id` 写入，`production.api` 不再出现“创建成功但详情/排产失败”的断链
+- `SchedulerService.ensureOperationsReady` 已兼容历史 `in_progress` 脏工单（缺 operations）不阻断整批排产
+- 非生产环境本机回环地址已跳过全局限流，本地 integration 全量复跑不再因 429 误伤
+- `2026-04-01` integration 全量复跑：8 suites / 161 tests 全部通过
+risks:
+- 更广覆盖面的 integration/e2e 套件仍未补齐；当前自动化已覆盖主链路、异常流、质量检验/溯源、多工单排产、采购完整链路、采购退货链路、库存异常修复链路，以及库存外围入口、`qty_reserved/qty_in_transit` 路径、基础账本对账工具与统一修复入口的服务层回归。剩余风险主要在其他真实库 integration/e2e 场景仍需持续扩充
+- `inventory` 域除既有入库/出库/FIFO/并发外，现已补到修复工具接口组合回归；剩余覆盖缺口进一步收敛到其他业务域和更长链路组合
+- `quality` 域除既有验货创建/问题录入/完成/溯源/统计外，现已补到问题列表与详情接口；剩余缺口继续收敛到其他业务域和跨域长链路组合
+- `settlement` 域现已补到创建/列表/详情/汇总/状态流转真实集成回归；剩余缺口继续收敛到其他业务域和更长链路组合
+- `wage` 域现已补到汇总/任务明细/导出/个人自查真实集成回归；剩余缺口继续收敛到其他业务域和更长链路组合
+- `stocktaking` 域现已补到建任务/录入/差异/确认真实集成回归；剩余缺口继续收敛到其他业务域和更长链路组合
+- `incoming-inspection` 域现已补到创建/列表/详情/录入校验/提交/预览及入库退货副作用真实集成回归；剩余缺口继续收敛到其他业务域和更长链路组合
+- `return-order` 域现已补到手工采购退货创建/确认/发货/完成真实集成回归；剩余缺口继续收敛到其他业务域和更长链路组合
+- `purchase-settlement` 域现已补到创建/列表/详情/导出/确认/付款/取消真实集成回归；剩余缺口继续收敛到其他业务域和更长链路组合
+- 销售域 integration 已收敛至稳定种子与可重复执行；剩余缺口主要在其他业务域的 integration/e2e 组合场景
+- 采购域 integration 也已收敛至稳定种子与可重复执行；当前已无失败套件，后续风险转为新增场景覆盖深度
+- `productionFlow.e2e` 中的 `Step 11-B` 依赖 `Step 9~11` 先产出异常恢复后的报工数据；若仅单独匹配 `Step 11-B` 执行，会出现“用例前置数据不足”的假失败
+handoff_to:
+- code-reviewer
+- devops-engineer
+exit_criteria:
+- 已验证批准范围内的后端骨架在静态检查和关键单测层面可运行
+
+verdict: PASS
+findings:
+- [severity:low] 两份新增迁移已在本地 MySQL 成功执行并完成结构回查，且已补跑一条真实业务链路
+- [severity:low] 本轮真实链路已覆盖“首道工序完工中间态”与“全部任务完成 -> 成品入库 -> 库存增加”的最终态
+- [severity:low] 半成品生产主链路已补成自动化 E2E，可回归 `confirm` 防重、首工序中间态、最终入库与工资报表
+- [severity:low] 多工单并发排产已补成自动化 E2E，已确认紧急单在调度结果中先于普通单
+- [severity:low] 质量检验与溯源已补成自动化 E2E，已确认完工工单可创建验货单、登记缺陷、完成验货并查询溯源链
+- [severity:low] `inventoryRepairFlow.e2e` 已验证库存漂移场景下 `inventory/repair` 可在真实库一次性修复 `qty_on_hand/qty_reserved/qty_in_transit`，并同步刷新日结快照与实时库存读取
+- [severity:low] `inventoryRepairFlow.e2e` 已新增“主库存行缺失但账本/预留/在途仍在”真实库场景，确认 `inventory/repair` 能重建 `inventory` 行并回填当日快照
+- [severity:low] `purchaseFlow.e2e` 已补“建议生成入口 404”回退，环境路由差异不再阻断采购主流程自动化回归
+- [severity:low] 销售 integration 已补自带种子并全量通过，`/api/sales/orders` 与 `/api/sales/orders/analyze-urgent` 的阈值解析 500 风险已消除
+- [severity:low] 采购 integration 已补自带种子并全量通过，建议审批与三单匹配链路已从固定 seed 依赖转为可重复回归
+- [severity:low] 异常恢复链路新增任务工资明细一致性断言，覆盖 `wages/tasks` 与 `work_reports` 的字段级对齐与去重校验
+- [severity:low] 任务工资查询接口层已补 controller/routes 回归，降低 `wages/tasks` 在参数校验、权限门禁和路由装配侧的回归盲区
+- [severity:low] 管理员工资查询接口层已补 controller 回归，降低 `/api/reports/wages` 在筛选参数透传和分页校验上的回归盲区
+- [severity:low] 任务工资服务层已补筛选条件拼接与参数顺序回归，降低任务明细查询在日期/工人/工单过滤组合下的口径漂移风险
+- [severity:low] 任务工资服务层已补旧字段兼容回归，降低 `work_reports` 半迁移场景下任务明细查询退化为空或筛选失准的风险
+- [severity:low] 工资报表路由已补运行时鉴权回归，降低 `/api/reports/wages*` 在真实中间件链路下出现角色门禁回退的风险
+- [severity:low] 工资导出接口已补运行时鉴权回归，降低 `/api/reports/wages/export` 门禁回退导致越权导出的风险
+- [severity:low] 工资导出接口已补控制器回归，降低 `/api/reports/wages/export` 在筛选参数校验或导出响应头构建上的回归风险
+- [severity:low] 库存修复入口已补 controller/routes 回归，降低 `reconcile/repair` 在参数校验、门禁配置和路由装配侧的回归盲区
+- [severity:low] 库存快照只读与重建入口已补 controller 回归，降低 `daily-snapshots` / `snapshots/rebuild` 在查询参数校验和 `dryRun` 反馈语义上的回归盲区
+- [severity:low] 库存写入口已补运行时鉴权回归，降低 `snapshots/rebuild` / `reconcile` / `repair` 在真实中间件链路下出现门禁回退的风险
+- [severity:low] 来料质检域已补真实集成回归，锁定 `create -> list/detail -> update -> submit -> preview-receipt` 主链路，以及 `purchase_receipts / return_orders / inventory / inventory_daily_snapshots` 副作用不回退
+- [severity:low] 退货单域已补真实集成回归，锁定手工采购退货 `create -> confirm -> ship -> complete` 状态机，以及 `PURCHASE_RETURN_OUT` 出库流水、实时库存扣减、日结快照刷新与库存不足拦截
+- [severity:low] 采购结算域已补真实集成回归，锁定 `create -> list/detail -> export -> confirm -> pay -> cancel` 主链路，以及重复创建去重与 `dueDate` 日期格式不被时区漂移破坏
+- [severity:low] `productionFlow.e2e Step 11-B` 已在异常流完整链路与全量回归中通过；当前剩余风险不在该断言本身，而在其他业务入口 integration/e2e 覆盖深度
+- [severity:medium] `completeTask` 之前缺少幂等保护，重复提交可能导致重复报工与重复入库；现已通过事务内行锁与状态校验修正，并由单测/E2E 双重覆盖
+- [severity:medium] `suspendTask` / `resumeTask` 之前仍是无锁的“先查后改”，与完工、异常流并发时可能基于旧状态回写，覆盖掉新状态；现已改为事务内 `FOR UPDATE` 锁任务后再切换状态，并由定向单测覆盖
+- [severity:medium] `startTask` 之前对非 `pending` 状态静默返回成功，重复开工不可观测；现已通过事务内行锁与状态校验修正，并由单测/E2E 双重覆盖
+- [severity:medium] 排产确认虽已有防重建任务逻辑，但此前没有黑盒并发确认验证；现已补并发 E2E，确认双主管同时 `confirm` 不会重复造任务
+- [severity:medium] `adjustSchedule` 曾把 `AppDataSource.query(UPDATE ...)` 的真实返回误判为数组，导致接口在本地 API 上直接 500；现已修正并由单测/E2E 双重覆盖
+- [severity:medium] `adjustSchedule` 在重叠排产调整下原本没有事务锁行；现已改为按 `scheduleId` 升序 `FOR UPDATE` 串行提交，并由单测/E2E 覆盖
+- [severity:medium] `adjustSchedule` 在锁行串行后仍默认“最后写入生效”，多人编辑同一排产行时可能静默覆盖前一人的调整；现已补可选 `expectedUpdatedAt` 冲突门禁，锁行后发现快照过期会直接返回冲突，且前端排产调整入口已透传该字段并在冲突时自动刷新排产缓存后提示用户，由回归测试覆盖
+- [severity:medium] 任务级投入产出之前只停留在表结构，未进入真实报工主链路；现已先补 output 侧写入，并由 E2E 回查半成品/成品产出记录
+- [severity:medium] 任务级投入产出当前已进一步接入 `consume_timing='complete'` 的 input 耗料写入，并由 E2E 回查原材料/半成品耗料记录；但 `start` 时耗料仍未进入主链路
+- [severity:medium] `consume_timing='start'` 的 input 耗料现已进入 `startTask` 主链路，并由 E2E 回查；`WorkflowEngineService` 也已进一步接入半成品入库、下道解锁、通配半成品固定 SKU 回推与日结快照写入，当前库存侧剩余核心缺口已收敛到库存补偿与回滚策略
+- [severity:medium] 生产入库链路已增加半成品任务级与成品工单级的防重账本判断，并由定向单测锁定“已有账本时只刷新快照、不重复加库存”；当前剩余问题已收敛到跨入口补偿与人工修复工具
+- [severity:medium] 跨入口补偿现已补出批量快照修复工具，可按日期、单 SKU、`skuIds[]` 批量方式并支持 `dryRun` 从 `inventory` 回填/预览 `inventory_daily_snapshots`；当前剩余问题已收敛到库存回滚工具
+- [severity:medium] `InventoryService` 自身的 `inbound/outbound/recordWaste` 之前会在 `finally` 中无条件失效 Redis 实时库存缓存，事务回滚时也会误删缓存；现已改为事务内登记受影响 SKU，成功提交后再统一删缓存，并继续自动刷新日结快照，由定向单测覆盖。采购质检入库与盘点确认现也已接入自动快照刷新，当前剩余问题已进一步收敛到跨入口回滚与批量修复工具
+- [severity:medium] `qty_on_hand` 之外，工单建单预留和销售单取消释放预留此前不会刷新日结快照，可能导致 `qty_available` 漂移；现已补齐并由定向单测覆盖
+- [severity:medium] `ProductionOrderService.createFromSalesOrder` 之前在预留物料库存时先读 `qty_on_hand/qty_reserved` 再决定全预留或部分预留，但不会先锁 `inventory` 行；并发建单时两边可能基于同一旧快照同时预留，造成物料超预留。现已改为先 `FOR UPDATE` 锁库存行，再计算和回写预留，并由定向单测覆盖
+- [severity:medium] `ProductionOrderService.cancel` 与 `SalesService.cancelOrder` 之前在释放关联工单物料预留前都不会先锁 `production_orders` 行；工单取消与销售撤单并发时，两边可能基于同一批未锁定的 `material_requirements.qty_reserved` 重复释放库存预留。现已改为先 `FOR UPDATE` 锁定待取消工单，其中销售撤单按 `id` 升序锁整组工单后再聚合释放，并由定向回归覆盖
+- [severity:medium] `ProductionOrderService.createFromSalesOrder/cancel` 之前虽已刷新日结快照，但不会同步失效 Redis 实时库存缓存，导致 `qty_available` 在缓存窗口内可能继续读旧值；现已补齐，并覆盖到嵌套在 `SalesOrderService.confirm/approve` 的同事务建工单路径
+- [severity:medium] `SalesService.cancelOrder` 之前既按销售成品 SKU 直接释放预留，也在事务提交前直接失效 Redis 实时库存缓存，无法正确回滚关联工单的物料预留且存在旧库存被并发读回灌的窗口；现已改为按关联工单 `material_requirements` 释放物料级 `qty_reserved`，并在提交后再统一删缓存，由回归测试覆盖
+- [severity:medium] `StocktakingService.confirmTask` 之前直接按任务快照里的 `diff_qty` 回写 `inventory.qty_on_hand`，不会锁当前库存，也不会阻断把库存扣成负数的过期差异确认；现已改为先 `FOR UPDATE` 锁当前库存，若库存行已丢失或调整后会出现负库存则直接拒绝确认，并由定向单测覆盖
+- [severity:medium] 采购在途主链路此前虽已自动维护 `qty_in_transit`，但不会同步失效 Redis 实时库存缓存，导致在途量更新后实时库存接口仍可能返回旧值；现已补齐，并由采购回归单测覆盖
+- [severity:medium] `PurchaseSuggestionService.approveSuggestion/rejectSuggestion` 之前先查状态再直接更新，未先锁 `purchase_suggestions` 行；并发审批和驳回同一条建议时，终态可能互相覆盖。现已改为事务内先 `FOR UPDATE` 锁定建议，再按 `pending` 门禁串行决策，并由回归测试覆盖
+- [severity:medium] `PurchaseSuggestionService.batchCreatePOFromSuggestions` 之前在事务外先查选中建议再入事务转单；并发转同一批建议时可能基于同一旧快照同时通过状态校验并重复推进。现已改为事务内先按 `id` 顺序 `FOR UPDATE` 锁定建议，再在锁内完成“缺失/状态/审批”校验与转单，并由回归测试覆盖
+- [severity:medium] `PurchaseSettlementService.confirmSettlement/paySettlement/cancelSettlement` 之前也都是先查状态再直接更新，未先锁 `purchase_settlements` 行；并发确认、付款、取消同一张采购结算单时，终态可能互相覆盖。现已改为事务内先 `FOR UPDATE` 锁定结算单，再按状态门禁串行流转，并由回归测试覆盖
+- [severity:medium] `PurchaseSettlementService.createSettlement` 之前在事务外先查“是否已有有效采购结算单”再插入；并发基于同一三单匹配记录创建采购结算单时存在重复创建窗口。现已改为事务内先 `FOR UPDATE` 锁定匹配记录，再在锁内执行去重判定与插入，并由回归测试覆盖
+- [severity:medium] `SettlementService.confirmSettlement/paySettlement/cancelSettlement` 之前也存在“先查状态再更新”的无锁流转；并发确认、付款、取消同一张销售结算单时，终态可能互相覆盖。现已改为事务内先 `FOR UPDATE` 锁定结算单，再按状态门禁串行流转，并由回归测试覆盖
+- [severity:medium] `SettlementService.createSettlement` 与 `SalesService.createSettlement` 之前都在事务外先查“是否已有结算单”再插入；并发为同一订单建结算单时存在重复创建窗口。现已改为事务内先 `FOR UPDATE` 锁定销售订单，再在锁内做去重判定与插入，并由回归测试覆盖
+- [severity:medium] `SalesService.recordPayment` 之前在事务外读取 `sales_settlements.paid_amount` 后再写付款与回写结算，未先锁结算单；并发收款可能基于旧金额重复通过校验并互相覆盖 `paid_amount/status`。现已改为事务内先 `FOR UPDATE` 锁结算单并按锁后值重算付款结果，由回归测试覆盖
+- [severity:medium] `recalculatePurchaseOrderStatus` 之前在 IQC 入库后重算采购单状态时不会先锁 `purchase_orders` 行；若与关闭采购单并发，质检链路可能基于旧状态把已关闭采购单重新回写成 `partial_received/received`。现已改为先 `FOR UPDATE` 锁采购单，遇到 `cancelled` 直接停止回写，并由采购回归单测覆盖
+- [severity:medium] `IncomingInspectionService.handlePassedItems` 之前在生成 `purchase_receipts`、写 `PURCHASE_IN` 和扣减 `qty_in_transit` 前不会先锁采购单；若与关闭采购单并发，已关闭采购单仍可能继续完成入库写账。现已改为先 `FOR UPDATE` 锁采购单，并仅允许 `confirmed/partial_received` 状态继续入库，由回归测试覆盖
+- [severity:medium] `IncomingInspectionService.handlePassedItems` 之前直接用采购单位的 `qty_passed` 回写 `inventory.qty_on_hand / qty_in_transit / inventory_dye_lots`，与采购建单时按 `stock_unit` 累计的在途口径不一致，非同单位 SKU 会在 IQC 入库后留下错账；现已按 SKU `stock_unit` 做单位换算后再落库存，并由回归测试覆盖
+- [severity:medium] 现已补出基础账本对账工具，可基于 `inventory_transactions` 预览并修正 `inventory.qty_on_hand`，并在显式开启 `includeReserved=true` / `includeInTransit=true` 时按活跃工单、活跃采购单聚合校正 `qty_reserved` / `qty_in_transit`；但该工具仍是显式触发，不是默认事务化回滚
+- [severity:medium] 采购在途库存此前只存在于 `inventory/reconcile` 的对账口径里，手工建采购单/采购建议转单/关闭采购单不会同步维护 `inventory.qty_in_transit`；现已补回业务主链路自动维护，并由采购回归单测覆盖
+- [severity:medium] 销售发货此前只写业务发货表与 `qty_delivered`，没有同步扣减库存权威账；现已补回 `DELIVERY_OUT + inventory + inventory_daily_snapshots` 主链路，并由定向单测覆盖
+- [severity:medium] `ReturnOrderService.ship` 之前只改退货单状态，不写库存流水、不扣实时库存；现已补手工采购退货 `PURCHASE_RETURN_OUT` 出库、快照刷新与缓存失效，并显式保持 IQC 自动退货“未入库不扣库存”的分支语义
+- [severity:medium] `WorkflowEngineService` 半成品入库与 `IncomingInspectionService.handlePassedItems` 之前都在数据库事务尚未提交时直接失效 Redis 库存缓存，存在并发读把旧库存重新写回缓存的窗口；现已改为事务内只登记受影响 SKU，外层提交后再统一删缓存，并由定向单测覆盖
+- [severity:medium] `inventory/snapshots/rebuild`、`inventory/reconcile`、`inventory/repair` 之前也会在修复事务尚未提交时提前失效 Redis 库存缓存；现已改为事务内只登记受影响 SKU，提交后统一删缓存，并由定向单测覆盖
+- [severity:medium] 跨入口补偿此前虽已具备工具，但缺少“实时库存行已丢失、账本/预留/在途仍残留”的组合验证；现已补定向单测，确认 `reconcile/repair` 会重建缺失 `inventory` 行并继续回填日结快照
+- [severity:medium] `ThreeWayMatchService` 在运行态曾出现 `sku_id` 字符串/数字混用，导致同一 SKU 被拆成两行 diff（表现为部分退货链路 `qtyDiff` 从 `-8.0000` 漂移到 `-20.0000`）；现已补 `sku_id` 归一化，并在 `purchase_receipt_items` 缺失明细时回退到质检 `qty_passed` 聚合，由回归单测与采购退货 E2E 共同覆盖
+- [severity:medium] 老 `SchedulerService.completeTask` 在整单全部完工后的成品入库里曾把单位硬编码成 `pcs`，会导致非 `pcs` 成品 SKU 的库存流水单位错账；现已改为读取 SKU 真实 `stock_unit`，并由定向单测锁定
+- [severity:medium] `SchedulerService.insertWorkReport` 之前直接用 `new Date().toISOString().slice(0, 10)` 写 `work_reports.work_date`，在 `Asia/Shanghai` 午夜后会按 UTC 截断到前一天，导致工资报表和任务报工追溯出现跨日错位；现已改为显式按 `Asia/Shanghai` 本地日期落库，并由定向单测覆盖
+- [severity:medium] 现已补出 `inventory/repair` 一键修复入口，可统一串联 reconcile 与快照重建；但当前仍是运维显式触发，而不是业务入口内部的默认事务化补偿
+- [severity:low] 修复工具此前即使落库成功，也可能因 Redis 缓存未失效而短时间返回旧库存；现已补齐缓存失效并由定向单测覆盖
+- [severity:medium] `adjustSchedule` 之前在 Redis 不可用时会因缓存失效直接失败；现已修正为告警降级，并由定向单测覆盖
+- [severity:medium] API 启动阶段曾因 Redis 预热超时直接退出并导致 `/api` 返回 502，现已修正为降级启动并完成容器化验证
+- [severity:low] `docker-compose.yml` 已将 Redis healthcheck 调整为更保守参数，并通过 `docker compose config --services` 完成语法校验
+- [severity:medium] `resolveException` 曾把任务恢复到非法状态 `in_progress`，且不会清理 `affects_progress` 阻塞位；同时在任务不处于 `exception` 或缺失待处理异常记录时也会静默返回成功。现已修正为恢复到 `started` 时同时复位阻塞标记，并阻断这两类静默成功分支，由单测/E2E 双重覆盖
+- [severity:medium] `reportException` 之前不校验任务是否存在或当前状态，且路由未限制到生产角色，已完工/已取消任务和任意已登录角色都可能把任务重新打进异常流；同时 `pending` 任务也能被打进 `exception`，异常恢复后会被误推进成 `started`。现已补任务存在性/状态校验与角色门禁，只允许 `started` 任务由 `worker/supervisor/boss` 上报异常，并由控制器/服务层单测覆盖
+- [severity:medium] `quality_issues.issue_types/images` 曾因驱动返回数组对象时被错误 `JSON.parse`，现已修正并由 E2E 覆盖
+- [severity:low] `QualityService` 已补定向单测，锁定 JSON 列在数组、JSON 字符串和普通字符串三种返回形态下的兼容解析
+- [severity:low] 异常流已进一步覆盖“恢复后继续完工并最终入库”，证明异常闭环不会破坏后续任务推进
+must_fix:
+- None
+can_follow_up:
+- 可在下一阶段继续扩展 integration/e2e 到更高并发排产确认、质量返工闭环与更多跨模块补偿组合场景
+
+test_matrix:
+- `npm run typecheck`
+- `npx jest tests/unit/production-phase1.service.test.ts tests/unit/production.routes.phase1.test.ts --runInBand`
+- `npx jest tests/unit/scheduler.phase2.operations.test.ts tests/unit/productionSchedule.regression.test.ts --runInBand`
+- `npx jest tests/unit/wage.service.test.ts --runInBand`
+- `UPLOAD_DIR=/Users/kongwen/claude_wk/ai-software-company/.tmp/uploads npx jest tests/unit/wage.auth.test.ts --runInBand --forceExit`
+- `UPLOAD_DIR=/Users/kongwen/claude_wk/ai-software-company/.tmp/uploads npx jest tests/unit/inventory.auth.test.ts --runInBand --forceExit`
+- `npx jest tests/unit/wage.service.test.ts tests/unit/wage.controller.test.ts tests/unit/wage.routes.test.ts --runInBand`
+- `npx jest tests/unit/inventory.controller.test.ts tests/unit/inventory.routes.test.ts --runInBand`
+- `npx jest tests/unit/wage.service.test.ts tests/unit/inventory.daily-snapshots.test.ts tests/unit/inventory.snapshot-rebuild.test.ts --runInBand`
+- `npx jest tests/unit/scheduler.phase2.operations.test.ts --runInBand`
+- `npx jest tests/unit/wage.service.test.ts tests/unit/production.controller.complete-v2.test.ts tests/unit/production.routes.phase1.test.ts tests/unit/scheduler.phase2.operations.test.ts --runInBand`
+- `npx jest tests/unit/production.service.task-state.test.ts --runInBand`
+- `npx jest tests/unit/scheduler.complete-task.test.ts --runInBand`
+- `npx jest tests/unit/scheduler.start-task.test.ts --runInBand`
+- `npx jest tests/unit/quality.service.test.ts --runInBand`
+- `npx jest tests/unit/productionSchedule.regression.test.ts --runInBand`
+- `docker compose config --services`
+- `npx jest tests/e2e/productionFlow.e2e.test.ts --runInBand`
+- `npx jest tests/e2e/productionFlow.e2e.test.ts --runInBand --testNamePattern='^$'`
+- `npx jest tests/unit/wage.controller.test.ts tests/unit/wage.routes.test.ts tests/unit/wage.service.test.ts tests/unit/inventory.controller.test.ts tests/unit/inventory.routes.test.ts --runInBand`
+- `UPLOAD_DIR=/Users/kongwen/claude_wk/ai-software-company/.tmp/uploads npx jest tests/unit/wage.auth.test.ts tests/unit/inventory.auth.test.ts --runInBand --forceExit`
+- `npm run test:api:integration`
+- `npm run test:api:e2e`
+- `npm run test:api:e2e -- tests/e2e/productionFlow.e2e.test.ts`
+- `npm run test:api:e2e -- tests/e2e/inventoryRepairFlow.e2e.test.ts tests/e2e/purchaseFlow.e2e.test.ts tests/e2e/purchaseFullReturnFlow.e2e.test.ts tests/e2e/purchasePartialReturnFlow.e2e.test.ts`
+- `npm run test:api:e2e -- tests/e2e/salesShipFlow.e2e.test.ts`
+- `npm run test:api:e2e -- tests/e2e/dyeLotFlow.e2e.test.ts tests/e2e/inventoryRepairFlow.e2e.test.ts tests/e2e/purchaseFlow.e2e.test.ts tests/e2e/purchaseFullReturnFlow.e2e.test.ts tests/e2e/purchasePartialReturnFlow.e2e.test.ts tests/e2e/salesShipFlow.e2e.test.ts`
+- `npm run test:api:integration -- tests/integration/settlement.api.test.ts`
+- `npm run test:api:integration -- tests/integration/wage.api.test.ts`
+- `npm run test:api:integration -- tests/integration/stocktaking.api.test.ts`
+- `npm run test:api:integration -- tests/integration/incomingInspection.api.test.ts`
+- `npm run test:api:integration -- tests/integration/returnOrder.api.test.ts`
+- `npm run test:api:integration -- tests/integration/purchaseSettlement.api.test.ts`
+- `npm run typecheck`
+- `npx jest tests/unit/inventory.snapshot-rebuild.test.ts tests/unit/inventory.snapshot-sync.test.ts tests/unit/incomingInspection.regression.test.ts tests/unit/stocktaking.confirm-task.test.ts --runInBand`
+- `npx jest tests/unit/dataFlow.regression.test.ts tests/unit/inventory.snapshot-rebuild.test.ts --runInBand`
+- `npx jest tests/unit/inventory.reconcile.test.ts tests/unit/inventory.snapshot-rebuild.test.ts tests/unit/dataFlow.regression.test.ts --runInBand`
+- `npx jest tests/unit/inventory.repair.test.ts tests/unit/inventory.reconcile.test.ts tests/unit/inventory.snapshot-rebuild.test.ts --runInBand`
+- `npx jest tests/unit/purchaseOrder.regression.test.ts tests/unit/purchaseSuggestion.regression.test.ts tests/unit/purchaseReceipt.regression.test.ts --runInBand`
+- `npx jest tests/unit/sales.shipOrder.regression.test.ts tests/unit/dataFlow.regression.test.ts --runInBand`
+- `npx jest tests/unit/returnOrder.regression.test.ts tests/unit/incomingInspection.regression.test.ts --runInBand`
+- `npx jest tests/unit/scheduler.complete-task.test.ts --runInBand`
+- `npx jest tests/unit/workflow-engine.test.ts tests/unit/incomingInspection.regression.test.ts tests/unit/scheduler.complete-task.test.ts --runInBand`
+- `npx jest tests/unit/dataFlow.regression.test.ts --runInBand`
+- `npx jest tests/unit/purchaseOrder.regression.test.ts tests/unit/purchaseSuggestion.regression.test.ts --runInBand`
+- `npx jest tests/unit/dataFlow.regression.test.ts tests/unit/stocktaking.confirm-task.test.ts --runInBand`
+- `npx jest tests/unit/dataFlow.regression.test.ts tests/unit/stocktaking.confirm-task.test.ts tests/unit/scheduler.complete-task.test.ts --runInBand`
+- `npx jest tests/unit/inventory.snapshot-sync.test.ts --runInBand`
+- `npx jest tests/unit/inventory.snapshot-sync.test.ts tests/unit/dataFlow.regression.test.ts tests/unit/scheduler.complete-task.test.ts tests/unit/stocktaking.confirm-task.test.ts --runInBand`
+- `npx jest tests/unit/sales.shipOrder.regression.test.ts tests/unit/returnOrder.regression.test.ts --runInBand`
+- `npx jest tests/unit/inventory.snapshot-sync.test.ts tests/unit/dataFlow.regression.test.ts tests/unit/scheduler.complete-task.test.ts tests/unit/stocktaking.confirm-task.test.ts tests/unit/sales.shipOrder.regression.test.ts tests/unit/returnOrder.regression.test.ts --runInBand`
+- `npx jest tests/unit/purchaseOrder.regression.test.ts --runInBand`
+- `npx jest tests/unit/inventory.snapshot-sync.test.ts tests/unit/dataFlow.regression.test.ts tests/unit/scheduler.complete-task.test.ts tests/unit/stocktaking.confirm-task.test.ts tests/unit/sales.shipOrder.regression.test.ts tests/unit/returnOrder.regression.test.ts tests/unit/purchaseOrder.regression.test.ts --runInBand`
+- `npx jest tests/unit/purchaseSuggestion.regression.test.ts --runInBand`
+- `npx jest tests/unit/inventory.snapshot-sync.test.ts tests/unit/dataFlow.regression.test.ts tests/unit/scheduler.complete-task.test.ts tests/unit/stocktaking.confirm-task.test.ts tests/unit/sales.shipOrder.regression.test.ts tests/unit/returnOrder.regression.test.ts tests/unit/purchaseOrder.regression.test.ts tests/unit/purchaseSuggestion.regression.test.ts --runInBand`
+- `npx jest tests/unit/incomingInspection.regression.test.ts --runInBand`
+- `npx jest tests/unit/inventory.snapshot-sync.test.ts tests/unit/dataFlow.regression.test.ts tests/unit/scheduler.complete-task.test.ts tests/unit/stocktaking.confirm-task.test.ts tests/unit/sales.shipOrder.regression.test.ts tests/unit/returnOrder.regression.test.ts tests/unit/purchaseOrder.regression.test.ts tests/unit/purchaseSuggestion.regression.test.ts tests/unit/incomingInspection.regression.test.ts --runInBand`
+- `npm run typecheck`
+- `npx jest tests/unit/returnOrder.regression.test.ts --runInBand`
+- `npx jest tests/unit/inventory.snapshot-sync.test.ts tests/unit/dataFlow.regression.test.ts tests/unit/scheduler.complete-task.test.ts tests/unit/stocktaking.confirm-task.test.ts tests/unit/sales.shipOrder.regression.test.ts tests/unit/returnOrder.regression.test.ts tests/unit/purchaseOrder.regression.test.ts tests/unit/purchaseSuggestion.regression.test.ts tests/unit/incomingInspection.regression.test.ts --runInBand`
+- `npm run typecheck`
+- `npx jest tests/unit/sales.shipOrder.regression.test.ts --runInBand`
+- `npx jest tests/unit/inventory.snapshot-sync.test.ts tests/unit/dataFlow.regression.test.ts tests/unit/scheduler.complete-task.test.ts tests/unit/stocktaking.confirm-task.test.ts tests/unit/sales.shipOrder.regression.test.ts tests/unit/returnOrder.regression.test.ts tests/unit/purchaseOrder.regression.test.ts tests/unit/purchaseSuggestion.regression.test.ts tests/unit/incomingInspection.regression.test.ts --runInBand`
+- `npm run typecheck`
+- `npx jest tests/unit/dataFlow.regression.test.ts --runInBand`
+- `npx jest tests/unit/inventory.snapshot-sync.test.ts tests/unit/dataFlow.regression.test.ts tests/unit/scheduler.complete-task.test.ts tests/unit/stocktaking.confirm-task.test.ts tests/unit/sales.shipOrder.regression.test.ts tests/unit/returnOrder.regression.test.ts tests/unit/purchaseOrder.regression.test.ts tests/unit/purchaseSuggestion.regression.test.ts tests/unit/incomingInspection.regression.test.ts --runInBand`
+- `npm run typecheck`
+- `npx jest tests/unit/inventory.snapshot-sync.test.ts tests/unit/inventory.reconcile.test.ts tests/unit/inventory.snapshot-rebuild.test.ts tests/unit/inventory.repair.test.ts --runInBand`
+- `npx jest tests/unit/inventory.snapshot-sync.test.ts tests/unit/inventory.reconcile.test.ts tests/unit/inventory.snapshot-rebuild.test.ts tests/unit/inventory.repair.test.ts tests/unit/dataFlow.regression.test.ts tests/unit/scheduler.complete-task.test.ts tests/unit/stocktaking.confirm-task.test.ts tests/unit/sales.shipOrder.regression.test.ts tests/unit/returnOrder.regression.test.ts tests/unit/purchaseOrder.regression.test.ts tests/unit/purchaseSuggestion.regression.test.ts tests/unit/incomingInspection.regression.test.ts --runInBand`
+- `npm run typecheck`
+- `open -a Docker`
+- `docker info`
+- `docker compose up -d --build --no-deps api`
+- `npm run test:api:e2e -- tests/e2e/purchaseFullReturnFlow.e2e.test.ts tests/e2e/purchasePartialReturnFlow.e2e.test.ts`
+- `npm run test:api:e2e -- tests/e2e/purchaseFlow.e2e.test.ts`
+- `npm run test:api:e2e -- tests/e2e/inventoryRepairFlow.e2e.test.ts tests/e2e/purchaseFlow.e2e.test.ts tests/e2e/purchaseFullReturnFlow.e2e.test.ts tests/e2e/purchasePartialReturnFlow.e2e.test.ts`
+- `npx jest tests/unit/purchaseReceipt.regression.test.ts tests/unit/inventory.snapshot-sync.test.ts tests/unit/inventory.reconcile.test.ts tests/unit/inventory.snapshot-rebuild.test.ts tests/unit/inventory.repair.test.ts tests/unit/dataFlow.regression.test.ts tests/unit/scheduler.complete-task.test.ts tests/unit/stocktaking.confirm-task.test.ts tests/unit/sales.shipOrder.regression.test.ts tests/unit/returnOrder.regression.test.ts tests/unit/purchaseOrder.regression.test.ts tests/unit/purchaseSuggestion.regression.test.ts tests/unit/incomingInspection.regression.test.ts --runInBand`
+- `npm run typecheck`
+- `mysql -h 127.0.0.1 -P 3307 -u sf_app smart_factory < services/api/src/migrations/M20260329_half_finished_phase1.sql`
+- `mysql -h 127.0.0.1 -P 3307 -u sf_app smart_factory < services/api/src/migrations/M20260329_phase2_scheduler_operations.sql`
+- `information_schema` 回查：Phase 1 新表、Phase 2 新列与索引均已存在
+- 本地 API 手工验证：销售单 `#5` 创建工单 `#9` 后，成功完成 `release -> schedule -> confirm -> complete-v2`
+- MySQL 回查：`production_orders.id=9`、`production_tasks.id=68`、`work_reports.task_id=68`
+- 本地 API 手工验证：订单 `#9` 剩余任务 `70/72/74/76/78/80` 全部完成后，`production_orders.status=completed`
+- MySQL 回查：`inventory_transactions.reference_id=9` 的最终成品 `PRODUCTION_IN` 与 `inventory(sku_id=44).qty_on_hand=5.0000` 一致
+- 自动化 E2E：tenant `#9999` 销售单 `#990911` 生成工单后，成功回归 `confirm` 防重、首工序完工不提前完单、首工序半成品入库、最终成品入库与工资报表可查询
+- 自动化 E2E：tenant `#9999` 首工序完工后 `task_material_transactions(task_id=firstTaskId)` 已落 1 条半成品 output，最终工序完工后 `task_material_transactions(task_id=finalTaskId)` 已落 1 条成品 output
+- 自动化 E2E：tenant `#9999` 首工序完工后 `task_material_transactions(task_id=firstTaskId)` 已落 1 条原材料 input，最终工序完工后 `task_material_transactions(task_id=finalTaskId)` 已落 1 条半成品 input
+- 自动化 E2E：tenant `#9999` 首工序 `start` 后 `task_material_transactions(task_id=firstTaskId)` 已先落 1 条原材料 input，数量为 `10.0000`
+- 自动化 E2E：tenant `#9999` 将工单级半成品组件解析到替代 SKU `#990915` 后，首工序 output、半成品 `PRODUCTION_IN` 与最终工序 input 均按 resolved SKU 回查通过
+- 自动化 E2E：tenant `#9999` 将工单级半成品组件解析到替代 SKU `#990915` 后，`inventory_daily_snapshots` 对半成品与成品均能回查到当日 `qty_on_hand=5.0000`、`qty_available=5.0000`
+- 自动化 E2E：tenant `#9999` 对首工序重复 `start` 时收到冲突响应，任务状态不会被重复推进
+- 自动化 E2E：tenant `#9999` 对最终工序重复 `complete-v2` 时收到冲突响应，MySQL 回查 `work_reports` 仍为 2 条、半成品/成品 `PRODUCTION_IN` 总数仍为 2 条
+- 定向单测：`scheduler.complete-task` 已验证成品 `PRODUCTION_IN` 账本已存在时，不再重复写库存流水或 `inventory`，仅刷新 `inventory_daily_snapshots`
+- 定向单测：`workflow-engine` 已验证半成品任务账本已存在时，不再重复写库存流水或 `inventory`，仅刷新 `inventory_daily_snapshots`
+- 定向单测：`inventory.snapshot-rebuild` 已验证可按 `snapshotDate` 全量重建，也可按 `skuId`、`skuIds[]` 做定向/批量补偿，并支持 `dryRun` 预览
+- 定向单测：`inventory.reconcile` 已验证可按 `skuId` 做 `dryRun` 账本差异预览，也可按 `skuIds[]` 回写 `qty_on_hand` 并同步刷新 `inventory_daily_snapshots`，并支持 `includeReserved=true` / `includeInTransit=true` 校正 `qty_reserved` / `qty_in_transit`
+- 定向单测：`inventory.repair` 已验证默认 preview 行为，以及默认串联 `reconcile + rebuild` 并自动开启 `includeReserved` / `includeInTransit`
+- 定向单测：`inventory.snapshot-rebuild` / `inventory.reconcile` / `inventory.repair` 已验证实际修复后会在事务提交后自动失效 Redis `inventorySnapshot` 缓存，而 `dryRun` 不会误删缓存
+- 定向单测：`inventory.snapshot-rebuild` / `inventory.reconcile` / `inventory.repair` 已验证在“已登记待失效 SKU 后事务提交阶段失败触发回滚”分支下，不会提前失效 Redis `inventorySnapshot` 缓存
+- 定向单测：`inventory.reconcile` / `inventory.repair` 已验证当 `inventory` 主表行缺失、但账本/预留/在途仍存在时，会重建缺失库存并继续完成快照补偿
+- 定向单测：`inventory.snapshot-sync` 已验证 `inbound/outbound/recordWaste` 在更新 `inventory` 后会同步刷新 `inventory_daily_snapshots`，且只会在事务提交后失效 Redis `inventorySnapshot` 缓存，回滚时不会误删
+- 定向单测：`inventory.snapshot-sync` 已验证 `inbound` 与 `recordWaste` 在“已写库存/快照后事务失败回滚”分支下同样不会提前失效 Redis `inventorySnapshot` 缓存，非生产库存三入口回滚边界一致
+- 定向单测：`inventory.snapshot-sync` 已验证 `inbound/outbound/recordWaste` 在“已写库存/快照后事务提交阶段失败触发回滚”分支下同样不会提前失效 Redis `inventorySnapshot` 缓存
+- 定向单测：`incomingInspection.regression` 已验证 IQC 合格入库会按 `stock_unit` 换算后更新 `inventory.qty_on_hand / qty_in_transit / inventory_dye_lots`，并同步刷新 `inventory_daily_snapshots`
+- 定向单测：`incomingInspection.regression` 已验证质检单 `submit` 事务失败时不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`incomingInspection.regression` 已验证质检单 `submit` 在合格品入库已写库存/快照后，若不合格品退货明细写入失败触发回滚，同样不会提前失效 Redis `inventorySnapshot` 缓存，保证深回滚失败请求不产生缓存侧伪提交
+- 定向单测：`stocktaking.confirm-task` 已验证盘点确认会对每个差异 SKU 在库存调整后同步刷新 `inventory_daily_snapshots`，并阻断按过期差异把 `qty_on_hand` 扣成负数的确认
+- 定向单测：`stocktaking.confirm-task` 已验证盘点确认事务在更新主任务阶段失败时不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`dataFlow.regression` 已验证工单取消与销售撤单在释放关联工单物料预留前都会先 `FOR UPDATE` 锁定待取消工单，避免跨入口重复释放 `qty_reserved`
+- 定向单测：`dataFlow.regression` 已验证工单建单预留前会先 `FOR UPDATE` 锁定物料库存行，且销售撤单按关联工单物料预留释放后会同步刷新 `inventory_daily_snapshots`
+- 定向单测：`dataFlow.regression` 已验证销售撤单按关联工单物料预留释放后会在事务提交后再失效 Redis `inventorySnapshot` 缓存
+- 定向单测：`dataFlow.regression` 已验证销售撤单事务失败时不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`dataFlow.regression` 已验证销售撤单在已释放物料预留并刷新日结快照后，若重置 `material_requirements` 阶段失败触发回滚，不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`dataFlow.regression` 已验证销售撤单在已释放物料预留并刷新日结快照后，若事务提交阶段失败触发回滚，同样不会提前失效 Redis `inventorySnapshot` 缓存，保证提交失败请求不产生缓存侧伪提交
+- 定向单测：`dataFlow.regression` 已验证 `ProductionOrderService.createFromSalesOrder/cancel` 在事务失败时不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`dataFlow.regression` 已验证 `ProductionOrderService.createFromSalesOrder/cancel` 在已写库存预留释放与日结快照后若事务提交阶段失败触发回滚，同样不会提前失效 Redis `inventorySnapshot` 缓存，保证提交失败请求不产生缓存侧伪提交
+- 定向单测：`dataFlow.regression` 已验证 `SalesOrderService.confirm` 嵌套 `createFromSalesOrder` 事务失败时不会触发库存缓存失效，保证失败请求不产生缓存侧伪提交
+- 定向单测：`dataFlow.regression` 已验证 `SalesOrderService.approve` 嵌套 `createFromSalesOrder` 事务失败时不会触发库存缓存失效，保证失败请求不产生缓存侧伪提交
+- 定向单测：`dataFlow.regression` 已验证 `SalesOrderService.confirm/approve` 在嵌套建工单已登记待失效 SKU 后若外层事务提交阶段失败触发回滚，同样不会提前失效 Redis `inventorySnapshot` 缓存，保证提交失败请求不产生缓存侧伪提交
+- 定向单测：`purchaseOrder.regression` 已验证手工建采购单会按采购单位换算后累加 `qty_in_transit`，关闭采购单会按未收数量释放在途
+- 定向单测：`purchaseOrder.regression` 已验证采购建单事务失败时不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`purchaseOrder.regression` 已验证采购关闭事务失败时不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`purchaseOrder.regression` 已验证采购建单/关单在在途库存同步（`qty_in_transit` 更新/释放）完成后若事务提交阶段失败触发回滚，不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`purchaseSuggestion.regression` 已验证采购建议审批/驳回前会先 `FOR UPDATE` 锁定建议行，且会阻断对非 `pending` 建议的重复决策
+- 定向单测：`purchaseSuggestion.regression` 已验证采购建议批量转单会先 `FOR UPDATE` 锁定选中建议，并在锁内阻断非 `approved` 建议继续转单
+- 定向单测：`purchaseSuggestion.regression` 已验证采购建议批量转单事务失败时不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`purchaseSuggestion.regression` 已验证采购建议批量转单在在途库存同步（`qty_in_transit` 更新）完成后若事务提交阶段失败触发回滚，不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`purchaseSettlement.regression` 已验证采购结算确认/付款/取消前会先 `FOR UPDATE` 锁定结算单，且会阻断非允许状态的重复流转
+- 定向单测：`purchaseSettlement.regression` 已验证采购结算创建会先 `FOR UPDATE` 锁定三单匹配记录，再执行结算单去重与插入
+- 定向单测：`settlement.service.regression` 已验证销售结算确认/付款/取消前会先 `FOR UPDATE` 锁定结算单，且会阻断非允许状态的重复流转
+- 定向单测：`settlement.service.regression` 与 `dataFlow.regression` 已验证销售结算创建会先 `FOR UPDATE` 锁定销售订单，再执行结算单去重与插入
+- 定向单测：`dataFlow.regression` 已验证销售收款会在事务内先 `FOR UPDATE` 锁定 `sales_settlements`，再按锁后金额计算 `paid_amount/status`
+- 定向单测：`purchaseOrder.regression` 已验证采购单状态重算会先 `FOR UPDATE` 锁定采购单，且不会把已关闭采购单重新回写成收货中/已收货
+- 定向单测：`incomingInspection.regression` 已验证 IQC 合格入库前会先 `FOR UPDATE` 锁定采购单，且会阻断已关闭采购单继续生成入库单/库存流水
+- 定向单测：`incomingInspection.regression` 已验证质检单 `submit` 事务失败时不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`purchaseSuggestion.regression` 已验证采购建议批量转单会自动累加 `qty_in_transit`
+- 定向单测：`purchaseOrder.regression` 与 `purchaseSuggestion.regression` 已验证采购在途变更后会同步失效 Redis `inventorySnapshot` 缓存
+- 定向单测：`sales.shipOrder.regression` 已验证销售发货会写 `DELIVERY_OUT`、扣减实时库存、刷新日结快照并失效缓存；并验证发货事务失败时不会提前失效 Redis `inventorySnapshot` 缓存
+- 定向单测：`returnOrder.regression` 已验证手工采购退货发货会写 `PURCHASE_RETURN_OUT`、扣减实时库存、刷新日结快照并失效缓存；IQC 自动退货单仍保持不扣库存，且退货发货事务失败时不会提前失效 Redis `inventorySnapshot` 缓存
+- 定向单测：`sales.shipOrder.regression` 已验证销售发货已写库存/快照后若订单状态收尾失败触发回滚，不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`sales.shipOrder.regression` 已验证销售发货在已写库存/快照后若事务提交阶段失败触发回滚，不会提前失效 Redis `inventorySnapshot` 缓存，保证提交失败请求不产生缓存侧伪提交
+- 定向单测：`returnOrder.regression` 已验证多 SKU 退货发货在首个 SKU 已写库存/快照后第二个 SKU 失败触发回滚时，不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`returnOrder.regression` 已验证退货发货在已写库存/快照后若事务提交阶段失败触发回滚，不会提前失效 Redis `inventorySnapshot` 缓存，保证提交失败请求不产生缓存侧伪提交
+- 定向单测：`workflow-engine` / `incomingInspection.regression` / `scheduler.complete-task` 已验证半成品入库与 IQC 入库只会在事务提交后统一失效 Redis `inventorySnapshot` 缓存
+- 定向单测：`scheduler.complete-task` 已验证成品入库写库存/快照后若事务尾部失败触发回滚，不会提前失效 Redis `inventorySnapshot` 缓存，保证失败请求不产生缓存侧伪提交
+- 定向单测：`scheduler.complete-task` 已验证成品入库与 workflow 缓存登记在“事务提交阶段失败触发回滚”分支下同样不会提前失效 Redis `inventorySnapshot` 缓存，保证提交失败请求不产生缓存侧伪提交
+- 定向单测：`scheduler.complete-task` 已验证整单完工成品入库会沿用 SKU 真实 `stock_unit` 写库存流水，不再硬编码 `pcs`
+- 定向单测：`dataFlow.regression` 已验证工单建单预留、工单取消释放预留，以及销售单确认嵌套建工单提交后，都会同步失效 Redis `inventorySnapshot` 缓存
+- 自动化 E2E：tenant `#9999` 由 `supervisor` 与 `boss` 并发确认同一日期排产时，MySQL 回查 `production_tasks` 仅存在 2 条任务
+- 自动化 E2E：tenant `#9999` 由 `supervisor` 与 `boss` 并发调整同一日期不同 `production_schedules` 行时，任务计划量最终分别保留为 `4.50/6.50`
+- 自动化 E2E：tenant `#9999` 由 `supervisor` 与 `boss` 并发调整同一 `production_schedules` 行时，接口均返回成功，最终计划量稳定落为 `6.25/7.25` 之一，且 `confirm` 后任务计划量与排产一致
+- 自动化 E2E：tenant `#9999` 同一任务已成功回归 `suspend -> resume -> exception -> resolve-exception -> continue-complete`，异常解决后任务可继续完工，整单最终 `completed`
+- 自动化 E2E：tenant `#9999` 已成功回归 `quality inspections -> issues -> complete -> traceability`，验货单、质量问题明细/列表与溯源链均可查询
+- 定向单测：`production.service.task-state` 已验证 `suspendTask` / `resumeTask` 会先锁任务再切状态；异常上报会锁任务并阻断 `pending`、重复异常上报；异常恢复会阻断非 `exception` 状态与缺失待处理异常记录的静默成功；`production.controller` 也已验证 `/tasks/:id/exception` 仅允许 `worker/supervisor/boss`
+- 定向单测：`productionSchedule.regression` 已验证 `adjustSchedule` 传入 `expectedUpdatedAt` 时会锁行后校验时间戳，过期快照会冲突返回且不会继续更新
+- 控制器回归：`production.controller` 已验证 `adjustSchedule` 会透传合法 `expectedUpdatedAt`，并拒绝非法时间格式参数
+- 自动化 E2E：tenant `#9999` 普通单 `#990911` 与紧急单 `#990913` 同日排产时，响应中紧急单排在普通单之前
+- 容器化 API 启动回查：`docker compose up -d --build --no-deps api` 后，`sf_api` 在 Redis 预热超时场景下仍保持 `Up`
+
+result_summary:
+- TypeScript typecheck: PASS
+- `production-phase1.service`: PASS
+- `production.routes.phase1`: PASS
+- `scheduler.phase2.operations`: PASS
+- `productionSchedule.regression`: PASS
+- `wage.service`: PASS
+- `inventory.daily-snapshots`: PASS
+- `production.service.task-state`: PASS
+- `scheduler.complete-task`: PASS
+- `scheduler.start-task`: PASS
+- `quality.service`: PASS
+- `productionSchedule.regression`: PASS
+- `productionFlow.e2e`: PASS
+- `wage/inventory` 接口层回归组（5 suites / 31 tests）: PASS
+- `wage.auth` + `inventory.auth` 运行时鉴权回归（2 suites / 12 tests）: PASS
+- `productionFlow.e2e` 异常流分组（含 `Step 11-B`）: PASS
+- `productionFlow.e2e` 全量回归（19 tests）: PASS
+- 面料缸号 + 采购/库存修复/销售发货 E2E 聚合复跑（6 suites / 50 tests）: PASS
+- `tests/e2e` 全量回归（7 suites / 69 tests）: PASS
+- `productionFlow.e2e` 异常恢复后继续完工断言: PASS
+- `productionFlow.e2e` 质量检验/溯源断言: PASS
+- `productionFlow.e2e` 多工单并发排产断言: PASS
+- `productionFlow.e2e` 并发调整排产断言: PASS
+- `productionFlow.e2e` 同行并发调整排产断言: PASS
+- `incomingInspection.regression`: PASS
+- `stocktaking.confirm-task`: PASS
+- `dataFlow.regression` 预留/释放快照断言: PASS
+- `dataFlow.regression` 销售撤单物料预留释放与事务后缓存失效断言: PASS
+- `inventory.reconcile`: PASS
+- `inventory.repair`: PASS
+- `inventory.snapshot-rebuild` / `inventory.reconcile` / `inventory.repair` 事务后缓存失效断言: PASS
+- `inventory.snapshot-rebuild` / `inventory.reconcile` / `inventory.repair` 提交失败回滚缓存不提前失效断言: PASS
+- `inventory.reconcile` / `inventory.repair` 缺失库存行混合补偿断言: PASS
+- `inventory.snapshot-sync` 三入口回滚后缓存不提前失效断言: PASS
+- `inventory.snapshot-sync` 三入口提交失败回滚缓存不提前失效断言: PASS
+- `purchaseOrder.regression`: PASS
+- `purchaseSuggestion.regression`: PASS
+- 库存回滚聚合回归（12 suites / 136 tests）: PASS
+- 扩展库存回滚聚合回归（13 suites / 149 tests，含 `purchaseReceipt.regression`）: PASS
+- `purchaseOrder/purchaseSuggestion` 在途缓存失效断言: PASS
+- `purchaseOrder.regression` 在途深回滚缓存不提前失效断言: PASS
+- `purchaseSuggestion.regression` 在途深回滚缓存不提前失效断言: PASS
+- `purchaseReceipt.regression`: PASS
+- `sales.shipOrder.regression`: PASS
+- `returnOrder.regression`: PASS
+- `sales.shipOrder` / `returnOrder` 深回滚缓存不提前失效断言: PASS
+- `sales.shipOrder.regression` 发货提交失败回滚缓存不提前失效断言: PASS
+- `returnOrder.regression` 发货提交失败回滚缓存不提前失效断言: PASS
+- `workflow-engine` / `incomingInspection.regression` / `scheduler.complete-task` 事务后缓存失效断言: PASS
+- `incomingInspection.regression` 提交深回滚（已写库存/快照后失败）缓存不提前失效断言: PASS
+- `scheduler.complete-task` 回滚后缓存不提前失效断言: PASS
+- `scheduler.complete-task` 提交失败回滚缓存不提前失效断言: PASS
+- `scheduler.complete-task` 成品单位断言: PASS
+- `dataFlow.regression` 预留缓存失效断言: PASS
+- `dataFlow.regression` 销售撤单深回滚缓存不提前失效断言: PASS
+- `dataFlow.regression` 工单建单/取消提交失败深回滚缓存不提前失效断言: PASS
+- `dataFlow.regression` 销售确认/审批提交失败深回滚缓存不提前失效断言: PASS
+- `dataFlow.regression` 销售撤单提交失败深回滚缓存不提前失效断言: PASS
+- `purchaseFullReturnFlow.e2e`: PASS
+- `purchasePartialReturnFlow.e2e`: PASS
+- `purchaseFlow.e2e`: PASS
+- `inventoryRepairFlow.e2e`: PASS
+- `salesShipFlow.e2e`: PASS
+- `dyeLotFlow.e2e`: PASS
+- 面料缸号 + 采购/库存修复/销售发货 E2E 聚合回归（6 suites / 50 tests）: PASS
+- `tests/e2e` 全量聚合回归（7 suites / 69 tests）: PASS
+- `productionFlow.e2e` 任务级 output IO 断言: PASS
+- `productionFlow.e2e` 任务级 input IO 断言: PASS
+- `productionFlow.e2e` start-timing input IO 断言: PASS
+- 本地 MySQL 迁移执行与结构回查: PASS
+- 本地 API 真实链路与数据库回查: PASS
+- 本地 API 最终态完工/入库验证: PASS
+- 容器化 API Redis 降级启动验证: PASS
+- 前端只读切片浏览器联调: PASS
+- 前端只读切片评审后回归: PASS

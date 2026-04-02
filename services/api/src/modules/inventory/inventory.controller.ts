@@ -37,6 +37,51 @@ const ListInventorySchema = PaginationSchema.extend({
   belowSafety: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
 
+const ListDailySnapshotSchema = PaginationSchema.extend({
+  snapshotDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  skuId: z.coerce.number().int().positive().optional(),
+  keyword: z.string().max(100).optional(),
+});
+
+const ListInventoryTransactionsSchema = PaginationSchema.extend({
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  keyword: z.string().max(100).optional(),
+});
+
+const RebuildSnapshotSchema = z.object({
+  snapshotDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  skuId: z.number().int().positive().optional(),
+  skuIds: z.array(z.number().int().positive()).min(1).max(200).optional(),
+  dryRun: z.boolean().optional(),
+}).refine(
+  (value) => !(value.skuId && value.skuIds),
+  'skuId 和 skuIds 不能同时传入',
+);
+
+const ReconcileInventorySchema = z.object({
+  skuId: z.number().int().positive().optional(),
+  skuIds: z.array(z.number().int().positive()).min(1).max(200).optional(),
+  dryRun: z.boolean().default(true),
+  includeReserved: z.boolean().default(false),
+  includeInTransit: z.boolean().default(false),
+}).refine(
+  (value) => !(value.skuId && value.skuIds),
+  'skuId 和 skuIds 不能同时传入',
+);
+
+const RepairInventorySchema = z.object({
+  snapshotDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  skuId: z.number().int().positive().optional(),
+  skuIds: z.array(z.number().int().positive()).min(1).max(200).optional(),
+  dryRun: z.boolean().default(true),
+  includeReserved: z.boolean().default(true),
+  includeInTransit: z.boolean().default(true),
+}).refine(
+  (value) => !(value.skuId && value.skuIds),
+  'skuId 和 skuIds 不能同时传入',
+);
+
 export class InventoryController {
   private svc(req: Request): InventoryService {
     // roles 来自 JWT 中间件解析后挂载在 req.roles（string[]）
@@ -54,6 +99,15 @@ export class InventoryController {
     success(res, buildPaginated(list, total, q.page, q.pageSize));
   }
 
+  async listDailySnapshots(req: Request, res: Response): Promise<void> {
+    const q = ListDailySnapshotSchema.parse(req.query);
+    const { list, total, snapshotDate } = await this.svc(req).listDailySnapshots(q);
+    success(res, {
+      ...buildPaginated(list, total, q.page, q.pageSize),
+      snapshotDate,
+    });
+  }
+
   async getDyeLots(req: Request, res: Response): Promise<void> {
     const skuId = Number(req.params.skuId);
     const data = await this.svc(req).getDyeLotDetails(skuId);
@@ -68,6 +122,19 @@ export class InventoryController {
       qtyReserved: data.qtyReserved.toFixed(4),
       qtyAvailable: data.qtyAvailable.toFixed(4),
       stockUnit: data.stockUnit,
+    });
+  }
+
+  async listTransactions(req: Request, res: Response): Promise<void> {
+    const skuId = z.coerce.number().int().positive().parse(req.params.skuId);
+    const q = ListInventoryTransactionsSchema.parse(req.query);
+    const result = await this.svc(req).listTransactions(skuId, q);
+    success(res, {
+      skuId: result.skuId,
+      skuCode: result.skuCode,
+      skuName: result.skuName,
+      stockUnit: result.stockUnit,
+      ...buildPaginated(result.list, result.total, q.page, q.pageSize),
     });
   }
 
@@ -143,6 +210,36 @@ export class InventoryController {
     const stocktakeId = Number(req.params.id);
     const result = await this.svc(req).getStocktakeDiff(stocktakeId);
     success(res, result);
+  }
+
+  async rebuildSnapshots(req: Request, res: Response): Promise<void> {
+    const body = RebuildSnapshotSchema.parse(req.body ?? {});
+    const result = await this.svc(req).rebuildDailySnapshots(body);
+    success(
+      res,
+      result,
+      body.dryRun ? '库存日结快照预览完成' : '库存日结快照已重建',
+    );
+  }
+
+  async reconcileInventory(req: Request, res: Response): Promise<void> {
+    const body = ReconcileInventorySchema.parse(req.body ?? {});
+    const result = await this.svc(req).reconcileInventoryBalances(body);
+    success(
+      res,
+      result,
+      body.dryRun ? '库存账本差异预览完成' : '库存账本已对账修复',
+    );
+  }
+
+  async repairInventory(req: Request, res: Response): Promise<void> {
+    const body = RepairInventorySchema.parse(req.body ?? {});
+    const result = await this.svc(req).repairInventoryState(body);
+    success(
+      res,
+      result,
+      body.dryRun ? '库存修复预览完成' : '库存修复已执行',
+    );
   }
 }
 

@@ -2,6 +2,8 @@ import { TenantContext } from '../../shared/BaseRepository';
 import { SkuRepository, SkuListFilter } from './sku.repository';
 import { AppDataSource } from '../../config/database';
 import { getRedisClient, RedisKeys, RedisTTL } from '../../config/redis';
+import { AppError } from '../../shared/AppError';
+import { ResponseCode } from '../../shared/ApiResponse';
 
 /** CSV 解析后每行的原始字段（全部为字符串，允许为空） */
 export interface ImportSkuRow {
@@ -358,7 +360,10 @@ export class SkuService {
       [cat2Id],
     );
     if (!cat2 || Number(cat2.parent_id) !== cat1Id) {
-      throw new Error(`二级分类 ${cat2Id} 不属于一级分类 ${cat1Id}`);
+      throw AppError.badRequest(
+        `二级分类 ${cat2Id} 不属于一级分类 ${cat1Id}`,
+        ResponseCode.SKU_CATEGORY_MISMATCH,
+      );
     }
   }
 

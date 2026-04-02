@@ -127,11 +127,18 @@ app.use('/uploads', authMiddleware, (req, res, next) => {
 }, express.static(path.resolve(process.env.UPLOAD_DIR || '/app/uploads')));
 
 // ── 全局限流（防暴力请求） ─────────────────────────────────────
+const isNonProd = process.env.NODE_ENV !== 'production';
+const isLocalLoopback = (ip?: string): boolean => {
+  if (!ip) return false;
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+};
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,   // 1 分钟窗口
   max: 300,              // 每 IP 每分钟最多 300 次请求
   standardHeaders: true,
   legacyHeaders: false,
+  // 本地联调/自动化在单机高频压测场景下可能触发误限流；生产环境仍保持严格限流。
+  skip: (req) => isNonProd && isLocalLoopback(req.ip),
   message: { code: 1099, data: null, message: '请求过于频繁，请稍后重试' },
 });
 app.use('/api', globalLimiter as RequestHandler);

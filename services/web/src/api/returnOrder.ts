@@ -10,13 +10,15 @@ import type { PaginatedData } from '@/types/api';
 
 export interface ReturnOrderItem {
   id: number;
-  returnOrderId: number;
+  returnId: number;
   skuId: number;
-  inspectionItemId: number | null;
-  qty: string;
-  unit: string;
-  returnReason: string;
-  notes: string | null;
+  qtyReturn: string;
+  purchaseUnit: string;
+  unitPrice: string;
+  defectReason: string | null;
+  amount: string;
+  createdAt?: string;
+  updatedAt?: string;
   skuCode?: string;
   skuName?: string;
   [key: string]: unknown;
@@ -39,6 +41,9 @@ export interface ReturnOrder {
   completedAt?: string;
   supplierName?: string;
   poNo?: string;
+  inspectionNo?: string;
+  totalAmount?: string;
+  itemCount?: number;
   items?: ReturnOrderItem[];
   [key: string]: unknown;
 }
@@ -46,24 +51,25 @@ export interface ReturnOrder {
 export interface CreateReturnOrderPayload {
   returnType: 'purchase_return' | 'production_return';
   sourcePoId?: number;
-  sourceInspectionId?: number;
   supplierId?: number;
   returnReason: string;
   notes?: string;
   items: Array<{
     skuId: number;
-    inspectionItemId?: number;
-    qty: string;
-    unit: string;
-    returnReason: string;
+    qtyReturn: string;
+    purchaseUnit: string;
+    unitPrice: string;
+    defectReason?: string;
   }>;
 }
 
 export interface ReturnOrderListParams {
   status?: string;
+  returnType?: string;
   supplierId?: number;
   dateFrom?: string;
   dateTo?: string;
+  keyword?: string;
   page?: number;
   pageSize?: number;
 }
@@ -109,6 +115,7 @@ export function useReturnOrderList(params?: ReturnOrderListParams) {
   return useQuery({
     queryKey: returnOrderKeys.list(params as Record<string, unknown>),
     queryFn: () => returnOrderApi.list(params),
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -118,6 +125,7 @@ export function useReturnOrderDetail(id: number | null) {
     queryKey: returnOrderKeys.detail(id!),
     queryFn: () => returnOrderApi.getById(id!),
     enabled: id !== null && id > 0,
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -137,8 +145,9 @@ export function useConfirmReturnOrder() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => returnOrderApi.confirm(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       void qc.invalidateQueries({ queryKey: returnOrderKeys.all });
+      void qc.invalidateQueries({ queryKey: returnOrderKeys.detail(id) });
     },
   });
 }
@@ -149,8 +158,9 @@ export function useShipReturnOrder() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data?: { trackingNo?: string; notes?: string } }) =>
       returnOrderApi.ship(id, data),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       void qc.invalidateQueries({ queryKey: returnOrderKeys.all });
+      void qc.invalidateQueries({ queryKey: returnOrderKeys.detail(variables.id) });
     },
   });
 }
@@ -161,8 +171,9 @@ export function useCompleteReturnOrder() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data?: { notes?: string } }) =>
       returnOrderApi.complete(id, data),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       void qc.invalidateQueries({ queryKey: returnOrderKeys.all });
+      void qc.invalidateQueries({ queryKey: returnOrderKeys.detail(variables.id) });
     },
   });
 }

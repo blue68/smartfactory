@@ -56,6 +56,11 @@ export interface StocktakingItem {
   diffQty: string | null;
 }
 
+interface StocktakingTaskDetailResult {
+  task: StocktakingTask;
+  items: StocktakingItem[];
+}
+
 export interface StocktakingListResult {
   list: StocktakingTask[];
   total: number;
@@ -92,7 +97,9 @@ export const stocktakingApi = {
     request.post<StocktakingTask>('/api/stocktaking', payload),
 
   getItems: (taskId: number) =>
-    request.get<StocktakingItem[]>(`/api/stocktaking/${taskId}/items`),
+    request
+      .get<StocktakingTaskDetailResult>(`/api/stocktaking/${taskId}`)
+      .then((result) => result.items),
 
   updateItems: (taskId: number, payload: UpdateItemsPayload) =>
     request.put<void>(`/api/stocktaking/${taskId}/items`, payload),

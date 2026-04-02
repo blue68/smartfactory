@@ -22,6 +22,18 @@ router.get('/dashboard',           asyncHandler(productionController.getDashboar
 // BE-P1: 工人和工作站列表（固定路由，必须在 /:id 参数路由之前）
 router.get('/workers',             asyncHandler(productionController.listWorkers.bind(productionController)));
 router.get('/workstations',        asyncHandler(productionController.listWorkstations.bind(productionController)));
+router.post('/workstations',
+  requireRoles('supervisor', 'boss', 'admin'),
+  asyncHandler(productionController.createWorkstation.bind(productionController)),
+);
+router.put('/workstations/:id',
+  requireRoles('supervisor', 'boss', 'admin'),
+  asyncHandler(productionController.updateWorkstation.bind(productionController)),
+);
+router.delete('/workstations/:id',
+  requireRoles('supervisor', 'boss', 'admin'),
+  asyncHandler(productionController.deleteWorkstation.bind(productionController)),
+);
 
 // BE-P1: 排产手动调整（固定路由段，必须在 /:date 参数路由之前）
 router.put('/schedule/:date/adjust',
@@ -52,6 +64,18 @@ router.get('/orders/:id/materials',
 router.get('/orders/:id/material-check',
   requireRoles('supervisor', 'boss'),
   asyncHandler(productionOrderController.checkMaterialStatus.bind(productionOrderController)),
+);
+router.post('/orders/:id/release',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(productionOrderController.releaseOrder.bind(productionOrderController)),
+);
+router.get('/orders/:id/components',
+  requireRoles('supervisor', 'boss', 'purchase'),
+  asyncHandler(productionOrderController.getComponents.bind(productionOrderController)),
+);
+router.get('/orders/:id/operations',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(productionOrderController.getOperations.bind(productionOrderController)),
 );
 router.put('/orders/:id/cancel',
   requireRoles('supervisor', 'boss'),
@@ -87,6 +111,10 @@ router.post('/tasks/:id/complete',
   requireRoles('worker', 'supervisor'),
   asyncHandler(productionController.completeTask.bind(productionController)),
 );
+router.post('/tasks/:id/complete-v2',
+  requireRoles('worker', 'supervisor'),
+  asyncHandler(productionController.completeTaskV2.bind(productionController)),
+);
 // P0-06: 暂停 / 恢复任务
 router.post('/tasks/:id/suspend',
   requireRoles('supervisor', 'boss'),
@@ -98,6 +126,7 @@ router.post('/tasks/:id/resume',
 );
 
 router.post('/tasks/:id/exception',
+  requireRoles('worker', 'supervisor', 'boss'),
   asyncHandler(productionController.reportException.bind(productionController)),
 );
 router.post('/tasks/:id/resolve-exception',

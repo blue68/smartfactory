@@ -15,6 +15,12 @@ router.get(
   asyncHandler(settlementController.getReceivable.bind(settlementController)),
 );
 
+router.get(
+  '/export/csv',
+  requireRoles('boss', 'supervisor'),
+  asyncHandler(settlementController.exportCsv.bind(settlementController)),
+);
+
 // F-707: 创建结算单（从已交付订单生成）
 router.post(
   '/',

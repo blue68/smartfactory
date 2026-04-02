@@ -16,6 +16,7 @@ import BomPage from '@/pages/master-data/BomPage';
 import TracePage from '@/pages/quality/TracePage';
 import SupplierPage from '@/pages/master-data/SupplierPage';
 import ProcessConfigPage from '@/pages/master-data/ProcessConfigPage';
+import SkuProcessPage from '@/pages/master-data/SkuProcessPage';
 import PricePage from '@/pages/purchase/PricePage';
 import AiChatPage from '@/pages/ai/AiChatPage';
 import CustomerPage from '@/pages/sales/CustomerPage';
@@ -28,8 +29,12 @@ import LoginPage from '@/pages/auth/LoginPage';
 import ProductionOrderPage from '@/pages/production/ProductionOrderPage';
 import ShortageBoard from '@/pages/production/ShortageBoard';
 import PurchaseSuggestionPage from '@/pages/purchase/PurchaseSuggestionPage';
+import PurchaseOrderPage from '@/pages/purchase/PurchaseOrderPage';
+import PurchaseDeliveryPage from '@/pages/purchase/PurchaseDeliveryPage';
+import PurchaseReceiptPage from '@/pages/purchase/PurchaseReceiptPage';
 import IncomingInspectionPage from '@/pages/purchase/IncomingInspectionPage';
 import ReturnOrderPage from '@/pages/purchase/ReturnOrderPage';
+import PurchaseSettlementPage from '@/pages/purchase/PurchaseSettlementPage';
 import ScheduleSuggestionPage from '@/pages/schedule/ScheduleSuggestionPage';
 import NotificationPage from '@/pages/notification/NotificationPage';
 import StocktakingPage from '@/pages/stocktaking/StocktakingPage';
@@ -71,6 +76,7 @@ export default function App() {
             <Route path="/quality/trace" element={<TracePage />} />
             <Route path="/master-data/supplier" element={<SupplierPage />} />
             <Route path="/master-data/process-config" element={<ProcessConfigPage />} />
+            <Route path="/master-data/sku-process" element={<SkuProcessPage />} />
             <Route path="/purchase/prices" element={<PricePage />} />
             <Route path="/master-data/sku-category" element={<CategoryConfigPage />} />
             <Route path="/report/wages" element={<WageReportPage />} />
@@ -78,8 +84,12 @@ export default function App() {
             <Route path="/production/orders" element={<ProductionOrderPage />} />
             <Route path="/production/shortage" element={<ShortageBoard />} />
             <Route path="/purchase/purchase-suggestions" element={<PurchaseSuggestionPage />} />
+            <Route path="/purchase/orders" element={<PurchaseOrderPage />} />
+            <Route path="/purchase/deliveries" element={<PurchaseDeliveryPage />} />
+            <Route path="/purchase/receipts" element={<PurchaseReceiptPage />} />
             <Route path="/purchase/incoming-inspection" element={<IncomingInspectionPage />} />
             <Route path="/purchase/returns" element={<ReturnOrderPage />} />
+            <Route path="/purchase/settlements" element={<PurchaseSettlementPage />} />
             <Route path="/schedule-suggestions" element={<ScheduleSuggestionPage />} />
             <Route path="/ai-chat" element={<AiChatPage />} />
             <Route path="/notifications" element={<NotificationPage />} />

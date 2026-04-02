@@ -6,6 +6,8 @@
 export type {
   WageReportRow,
   WageReportFilter as WageReportParams,
+  WageTaskReportFilter as WageTaskReportParams,
+  WageTaskReportRow,
   MyWagesFilter,
   WageReportData,
   WorkerGrade,
@@ -13,6 +15,7 @@ export type {
 
 export {
   useWageReport,
+  useTaskWageReport,
   useMyWages,
   wageReportApi,
   wageReportKeys,

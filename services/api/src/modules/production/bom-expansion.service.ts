@@ -105,7 +105,7 @@ export class BomExpansionService {
       // 检查该组件是否存在激活的子 BOM（半成品）
       const subBomRows: BomHeaderIdRow[] = await query(
         `SELECT id FROM bom_headers
-         WHERE sku_id = ? AND tenant_id = ? AND is_active = 1
+         WHERE sku_id = ? AND tenant_id = ? AND status = 'active'
          LIMIT 1`,
         [item.component_sku_id, this.tenantId],
       );

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import Modal from '@/components/common/Modal';
 import Drawer from '@/components/common/Drawer';
 import Button from '@/components/common/Button';
@@ -10,6 +11,7 @@ import {
   useOrderStats,
   usePendingApprovals,
   useCreateSalesOrder,
+  updateSalesOrder,
   useSubmitSalesOrder,
   useApproveSalesOrder,
   useRejectSalesOrder,
@@ -27,6 +29,7 @@ import type {
   CreateSalesOrderPayload,
 } from '@/api/salesOrder';
 import { useCustomerOptions } from '@/api/customer';
+import { useSkuList } from '@/api/sku';
 import { useAuthStore } from '@/stores/authStore';
 import { UserRole } from '@/types/enums';
 import styles from './SalesOrderListPage.module.css';
@@ -39,7 +42,9 @@ const STATUS_LABELS: Record<SalesOrderStatus, string> = {
   draft: '草稿',
   pending_approval: '待审批',
   confirmed: '已确认',
+  produced: '待发货',
   in_production: '生产中',
+  partial_shipped: '部分发货',
   shipped: '已发货',
   completed: '已完成',
   closed: '已关闭',
@@ -276,28 +281,68 @@ interface CreateOrderModalProps {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  initialOrder?: SalesOrder | null;
 }
 
-function CreateOrderModal({ open, onClose, onSuccess }: CreateOrderModalProps) {
+function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: CreateOrderModalProps) {
+  const qc = useQueryClient();
   const { data: customerList = [] } = useCustomerOptions();
+  const { data: skuPage } = useSkuList({ pageSize: 200, skuTypes: 'finished' });
   const createOrder = useCreateSalesOrder();
+  const isEdit = Boolean(initialOrder);
+  const skuOptions = useMemo(
+    () =>
+      (skuPage?.list ?? [])
+        .filter((sku) => sku.category1Code === 'FINISHED')
+        .map((sku) => ({ ...sku, id: Number(sku.id) })),
+    [skuPage],
+  );
 
   const [customerId, setCustomerId] = useState<number | ''>('');
   const [orderDate, setOrderDate] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
   const [urgent, setUrgent] = useState(false);
   const [items, setItems] = useState<DraftLineItem[]>([emptyLineItem()]);
+  const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  const buildDraftItemsFromOrder = useCallback((order: SalesOrder): DraftLineItem[] => {
+    const orderItems = order.items ?? [];
+    if (orderItems.length === 0) return [emptyLineItem()];
+    return orderItems.map((item) => ({
+      skuId: item.productId && Number(item.productId) > 0 ? Number(item.productId) : '',
+      productCode: item.productCode ?? '',
+      productName: item.productName ?? '',
+      quantity: Number(item.qtyOrdered ?? item.quantity ?? 1) || 1,
+      unit: item.unit ?? '件',
+      unitPrice: Number(item.unitPrice ?? 0),
+    }));
+  }, []);
+
+  const populateFromOrder = useCallback((order: SalesOrder) => {
+    setCustomerId(Number(order.customerId) || '');
+    setOrderDate(order.orderDate ? String(order.orderDate).slice(0, 10) : '');
+    setDeliveryDate(order.deliveryDate ? String(order.deliveryDate).slice(0, 10) : '');
+    setUrgent(Boolean(order.isUrgent));
+    setItems(buildDraftItemsFromOrder(order));
+    setNotes(order.notes ?? '');
+    setError('');
+  }, [buildDraftItemsFromOrder]);
+
   const handleReset = useCallback(() => {
+    if (initialOrder) {
+      populateFromOrder(initialOrder);
+      return;
+    }
     setCustomerId('');
     setOrderDate('');
     setDeliveryDate('');
     setUrgent(false);
     setItems([emptyLineItem()]);
+    setNotes('');
     setError('');
-  }, []);
+  }, [initialOrder, populateFromOrder]);
 
   const handleClose = useCallback(() => {
     handleReset();
@@ -321,14 +366,80 @@ function CreateOrderModal({ open, onClose, onSuccess }: CreateOrderModalProps) {
     });
   };
 
+  useEffect(() => {
+    if (skuOptions.length === 0) return;
+    setItems((prev) => {
+      let changed = false;
+      const next = prev.map((item) => {
+        if (!item.skuId) return item;
+        const selectedSku = skuOptions.find((sku) => Number(sku.id) === Number(item.skuId));
+        if (!selectedSku) return item;
+
+        const nextItem = {
+          ...item,
+          productCode: item.productCode || selectedSku.skuCode,
+          productName: item.productName || selectedSku.name,
+          unit: item.unit || selectedSku.stockUnit || '件',
+        };
+
+        if (
+          nextItem.productCode !== item.productCode ||
+          nextItem.productName !== item.productName ||
+          nextItem.unit !== item.unit
+        ) {
+          changed = true;
+          return nextItem;
+        }
+
+        return item;
+      });
+
+      return changed ? next : prev;
+    });
+  }, [skuOptions]);
+
+  useEffect(() => {
+    if (!open) return;
+    handleReset();
+  }, [open, handleReset]);
+
+  const handleSkuChange = (idx: number, rawSkuId: string) => {
+    const skuId = Number(rawSkuId) || '';
+    const selectedSku = skuOptions.find((sku) => Number(sku.id) === Number(skuId));
+    setItems((prev) => {
+      const next = [...prev];
+      next[idx] = {
+        ...next[idx],
+        skuId,
+        productCode: selectedSku?.skuCode ?? '',
+        productName: selectedSku?.name ?? '',
+        unit: selectedSku?.stockUnit ?? next[idx].unit,
+      };
+      return next;
+    });
+  };
+
   const handleSubmit = async () => {
     if (!customerId) { setError('请选择客户'); return; }
     if (!orderDate) { setError('请选择订单日期'); return; }
     if (!deliveryDate) { setError('请选择交期'); return; }
     if (items.length === 0) { setError('请至少添加一个产品行'); return; }
-    for (const item of items) {
-      if (!item.productCode || !item.productName) {
-        setError('请填写所有产品编号和名称');
+
+    const normalizedItems = items.map((item) => {
+      const skuId = Number(item.skuId);
+      const selectedSku = skuOptions.find((sku) => Number(sku.id) === skuId);
+      return {
+        ...item,
+        skuId,
+        productCode: item.productCode || selectedSku?.skuCode || '',
+        productName: item.productName || selectedSku?.name || `SKU#${skuId}`,
+        unit: item.unit || selectedSku?.stockUnit || '件',
+      };
+    });
+
+    for (const item of normalizedItems) {
+      if (!Number.isInteger(item.skuId) || item.skuId <= 0) {
+        setError('请选择所有产品');
         return;
       }
       if (item.quantity <= 0) { setError('产品数量必须大于0'); return; }
@@ -339,8 +450,9 @@ function CreateOrderModal({ open, onClose, onSuccess }: CreateOrderModalProps) {
       orderDate,
       deliveryDate,
       isUrgent: urgent,
-      items: items.map((it) => ({
-        skuId: it.skuId as number,
+      notes: notes.trim() || undefined,
+      items: normalizedItems.map((it) => ({
+        skuId: it.skuId,
         productName: it.productName,
         quantity: it.quantity,
         unit: it.unit,
@@ -351,11 +463,19 @@ function CreateOrderModal({ open, onClose, onSuccess }: CreateOrderModalProps) {
     try {
       setSubmitting(true);
       setError('');
-      await createOrder.mutateAsync(payload);
+      if (initialOrder) {
+        await updateSalesOrder(initialOrder.id, payload);
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: ['sales-orders'] }),
+          qc.invalidateQueries({ queryKey: ['sales-order', initialOrder.id] }),
+        ]);
+      } else {
+        await createOrder.mutateAsync(payload);
+      }
       handleReset();
       onSuccess();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : '创建失败，请重试');
+      setError(e instanceof Error ? e.message : `${isEdit ? '保存' : '创建'}失败，请重试`);
     } finally {
       setSubmitting(false);
     }
@@ -367,7 +487,7 @@ function CreateOrderModal({ open, onClose, onSuccess }: CreateOrderModalProps) {
   );
 
   return (
-    <Modal open={open} onClose={handleClose} title="新建销售订单" size="lg" hideFooter>
+    <Modal open={open} onClose={handleClose} title={isEdit ? '编辑销售订单' : '新建销售订单'} size="lg" hideFooter>
       <div className={styles.formGrid}>
         <div className={styles.formGroup}>
           <label className={styles.formLabel}>客户 *</label>
@@ -419,7 +539,6 @@ function CreateOrderModal({ open, onClose, onSuccess }: CreateOrderModalProps) {
         </div>
       </div>
 
-      {/* Line Items */}
       <div className={styles.itemsSection}>
         <div className={styles.itemsHeader}>
           <span className={styles.itemsTitle}>产品明细</span>
@@ -432,7 +551,7 @@ function CreateOrderModal({ open, onClose, onSuccess }: CreateOrderModalProps) {
           <table className={styles.itemsTable}>
             <thead>
               <tr>
-                <th>产品编号</th>
+                <th>产品 SKU</th>
                 <th>产品名称</th>
                 <th>数量</th>
                 <th>单位</th>
@@ -445,19 +564,25 @@ function CreateOrderModal({ open, onClose, onSuccess }: CreateOrderModalProps) {
               {items.map((item, idx) => (
                 <tr key={idx}>
                   <td>
-                    <input
+                    <select
                       className={styles.cellInput}
-                      value={item.productCode}
-                      onChange={(e) => updateItem(idx, 'productCode', e.target.value)}
-                      placeholder="编号"
-                    />
+                      value={item.skuId}
+                      onChange={(e) => handleSkuChange(idx, e.target.value)}
+                    >
+                      <option value="">请选择 SKU</option>
+                      {skuOptions.map((sku) => (
+                        <option key={sku.id} value={sku.id}>
+                          {sku.skuCode} · {sku.name}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td>
                     <input
                       className={styles.cellInput}
                       value={item.productName}
-                      onChange={(e) => updateItem(idx, 'productName', e.target.value)}
-                      placeholder="名称"
+                      readOnly
+                      placeholder="选择 SKU 后自动带出"
                     />
                   </td>
                   <td>
@@ -475,7 +600,7 @@ function CreateOrderModal({ open, onClose, onSuccess }: CreateOrderModalProps) {
                     <input
                       className={`${styles.cellInput} ${styles.cellInputNarrow}`}
                       value={item.unit}
-                      onChange={(e) => updateItem(idx, 'unit', e.target.value)}
+                      readOnly
                     />
                   </td>
                   <td>
@@ -519,6 +644,17 @@ function CreateOrderModal({ open, onClose, onSuccess }: CreateOrderModalProps) {
         </div>
       </div>
 
+      <div className={styles.formGroup}>
+        <label className={styles.formLabel}>备注</label>
+        <textarea
+          className={styles.textarea}
+          rows={3}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="可选"
+        />
+      </div>
+
       {error && <div className={styles.formError}>{error}</div>}
 
       <div className={styles.modalFooter}>
@@ -526,7 +662,7 @@ function CreateOrderModal({ open, onClose, onSuccess }: CreateOrderModalProps) {
           取消
         </Button>
         <Button variant="primary" onClick={handleSubmit} loading={submitting}>
-          创建订单
+          {isEdit ? '保存修改' : '创建订单'}
         </Button>
       </div>
     </Modal>
@@ -601,9 +737,10 @@ interface OrderDetailDrawerProps {
   orderId: number | null;
   onClose: () => void;
   onRefresh: () => void;
+  onEdit: (order: SalesOrder) => void;
 }
 
-function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerProps) {
+function OrderDetailDrawer({ orderId, onClose, onRefresh, onEdit }: OrderDetailDrawerProps) {
   const canCreateOrder = useCanCreateOrder();
   const canApprove     = useCanApprove();
   const canShip        = useCanShip();
@@ -658,7 +795,6 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
       case 'draft':
         return (
           <div className={styles.actionGroup}>
-            {/* 提交审批: boss, supervisor, sales */}
             {canCreateOrder && (
               <Button
                 size="sm"
@@ -669,7 +805,6 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
                 提交审批
               </Button>
             )}
-            {/* 关闭: boss only */}
             {canApprove && (
               <Button
                 size="sm"
@@ -724,7 +859,6 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
       case 'confirmed':
         return (
           <div className={styles.actionGroup}>
-            {/* 确认订单 / 触发建工单: boss only */}
             {canApprove && (
               <Button
                 size="sm"
@@ -735,18 +869,16 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
                 触发建工单
               </Button>
             )}
-            {/* 发货: boss, supervisor */}
             {canShip && (
               <Button
                 size="sm"
                 variant="secondary"
                 loading={actionLoading}
-                onClick={() => handleAction(() => shipOrder.mutateAsync(id))}
+                onClick={() => handleAction(() => shipOrder.mutateAsync({ id }))}
               >
                 标记发货
               </Button>
             )}
-            {/* 关闭: boss only */}
             {canApprove && (
               <Button
                 size="sm"
@@ -763,18 +895,16 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
       case 'in_production':
         return (
           <div className={styles.actionGroup}>
-            {/* 发货: boss, supervisor */}
             {canShip && (
               <Button
                 size="sm"
                 variant="primary"
                 loading={actionLoading}
-                onClick={() => handleAction(() => shipOrder.mutateAsync(id))}
+                onClick={() => handleAction(() => shipOrder.mutateAsync({ id }))}
               >
                 标记发货
               </Button>
             )}
-            {/* 关闭: boss only */}
             {canApprove && (
               <Button
                 size="sm"
@@ -791,7 +921,6 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
       case 'shipped':
         return (
           <div className={styles.actionGroup}>
-            {/* 完成: boss, supervisor */}
             {canShip && (
               <Button
                 size="sm"
@@ -802,7 +931,6 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
                 确认完成
               </Button>
             )}
-            {/* 关闭: boss only */}
             {canApprove && (
               <Button
                 size="sm"
@@ -922,6 +1050,18 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh }: OrderDetailDrawerPro
               <div className={styles.drawerSectionTitle}>状态操作</div>
               {actionError && (
                 <div className={styles.formError}>{actionError}</div>
+              )}
+              {order.status === 'draft' && canCreateOrder && (
+                <div className={styles.actionGroup} style={{ marginBottom: '12px' }}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={actionLoading}
+                    onClick={() => onEdit(order)}
+                  >
+                    编辑订单
+                  </Button>
+                </div>
               )}
               {renderActions(order)}
             </div>
@@ -1077,6 +1217,7 @@ export default function SalesOrderListPage() {
   const [searchInput, setSearchInput] = useState('');
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<SalesOrder | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
 
   const isAdmin        = useIsAdmin();
@@ -1119,6 +1260,7 @@ export default function SalesOrderListPage() {
 
   const handleCreateSuccess = useCallback(() => {
     setCreateModalOpen(false);
+    setEditingOrder(null);
     refresh();
   }, [refresh]);
 
@@ -1278,9 +1420,13 @@ export default function SalesOrderListPage() {
 
       {/* Create Modal */}
       <CreateOrderModal
-        open={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
+        open={createModalOpen || editingOrder !== null}
+        onClose={() => {
+          setCreateModalOpen(false);
+          setEditingOrder(null);
+        }}
         onSuccess={handleCreateSuccess}
+        initialOrder={editingOrder}
       />
 
       {/* Detail Drawer */}
@@ -1288,6 +1434,9 @@ export default function SalesOrderListPage() {
         orderId={selectedOrderId}
         onClose={() => setSelectedOrderId(null)}
         onRefresh={refresh}
+        onEdit={(order) => {
+          setEditingOrder(order);
+        }}
       />
     </div>
   );

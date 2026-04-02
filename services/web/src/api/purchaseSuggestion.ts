@@ -10,33 +10,37 @@ import type { PaginatedData } from '@/types/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type PurchaseSuggestionSource = 'mrp' | 'manual' | 'ai';
+export type PurchaseSuggestionSource = 'production_shortage' | 'manual' | 'ai_schedule';
 export type PurchaseSuggestionStatus =
   | 'pending'
   | 'approved'
   | 'rejected'
-  | 'converted';
+  | 'executed'
+  | 'expired';
 
-export interface PurchaseSuggestionV2 {
+export interface PurchaseSuggestion {
   id: number;
+  suggestion_no: string;
   source: PurchaseSuggestionSource;
   status: PurchaseSuggestionStatus;
-  skuId: number;
-  skuCode: string;
+  sku_id: number;
+  sku_code: string;
   skuName: string;
-  unit: string;
-  suggestedQty: string;
-  suggestedSupplierId: number | null;
+  stock_unit?: string | null;
+  purchase_unit?: string | null;
+  suggested_supplier_id: number | null;
   supplierName: string | null;
-  estimatedPrice: string | null;
-  estimatedAmount: string | null;
+  suggested_qty: string;
+  estimated_price: string | null;
+  estimated_amount: string | null;
+  shortage_qty?: string | null;
   reason: string;
-  neededByDate: string | null;
-  approvedById: number | null;
-  approvedAt: string | null;
-  rejectedReason: string | null;
-  convertedPoId: number | null;
-  createdAt: string;
+  confidence?: string | null;
+  approved_by: number | null;
+  approved_at: string | null;
+  reject_reason?: string | null;
+  created_at?: string;
+  work_order_no?: string | null;
   [key: string]: unknown;
 }
 
@@ -63,6 +67,16 @@ export interface PurchaseSuggestionListParams {
   pageSize?: number;
 }
 
+export interface BatchToPoResult {
+  createdPOs: Array<{
+    id: number;
+    poNo: string;
+    supplierId: number;
+    itemCount: number;
+  }>;
+  executedSuggestionIds: number[];
+}
+
 // ── Query Keys ─────────────────────────────────────────────────────────────────
 
 export const purchaseSuggestionKeys = {
@@ -77,7 +91,7 @@ export const purchaseSuggestionKeys = {
 
 export const purchaseSuggestionApi = {
   list: (params?: PurchaseSuggestionListParams) =>
-    request.get<PaginatedData<PurchaseSuggestionV2>>(
+    request.get<PaginatedData<PurchaseSuggestion>>(
       '/api/purchase-suggestions',
       params as Record<string, unknown>,
     ),
@@ -89,7 +103,7 @@ export const purchaseSuggestionApi = {
     request.put<null>(`/api/purchase-suggestions/${id}/reject`, data),
 
   batchToPo: (data: BatchToPoPayload) =>
-    request.post<{ poId: number; poNo: string }>(
+    request.post<BatchToPoResult>(
       '/api/purchase-suggestions/batch-to-po',
       data,
     ),

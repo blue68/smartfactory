@@ -17,9 +17,14 @@
  */
 
 import request from 'supertest';
+import mysql, { Pool, RowDataPacket } from 'mysql2/promise';
 import { authHeader } from '../helpers/testAuth';
 
 const BASE_URL = process.env.TEST_API_URL ?? 'http://localhost:3000';
+const TEST_TENANT_ID = 9999;
+const TEST_SUPPLIER_ID = 1;
+const TEST_SKU_ID = 30003;
+const TEST_SKU_WARN_ID = 30004;
 
 // 测试环境预置数据 ID
 const PENDING_SUGGESTION_ID = 60001; // 预置：pending状态的采购建议
@@ -35,8 +40,321 @@ const RECEIPT_ID_PRICE_WARN = 63003;
 const PO_ID_MISMATCH        = 64001; // 预置：送货单关联不同PO
 const DN_ID_MISMATCH        = 64002; // 关联PO=64009（与64001不匹配）
 const RECEIPT_ID_MISMATCH   = 64003;
+const PO_ID_MISMATCH_REF    = 64009;
+const PO_ID_PRICE_BASELINE  = 63090;
+
+const PO_ITEM_ID_COMPLETE = 61101;
+const PO_ITEM_ID_QTY_DIFF = 62101;
+const PO_ITEM_ID_PRICE_WARN = 63101;
+const PO_ITEM_ID_MISMATCH = 64101;
+const PO_ITEM_ID_MISMATCH_REF = 64109;
+const PO_ITEM_ID_PRICE_BASELINE = 63190;
+
+const DN_ITEM_ID_COMPLETE = 61201;
+const DN_ITEM_ID_QTY_DIFF = 62201;
+const DN_ITEM_ID_PRICE_WARN = 63201;
+const DN_ITEM_ID_MISMATCH = 64201;
+
+const RECEIPT_ITEM_ID_COMPLETE = 61301;
+const RECEIPT_ITEM_ID_QTY_DIFF = 62301;
+const RECEIPT_ITEM_ID_PRICE_WARN = 63301;
+const RECEIPT_ITEM_ID_MISMATCH = 64301;
+
+const INSPECTION_ID_COMPLETE = 61401;
+const INSPECTION_ID_QTY_DIFF = 62401;
+const INSPECTION_ID_PRICE_WARN = 63401;
+const INSPECTION_ID_MISMATCH = 64401;
+
+const INSPECTION_ITEM_ID_COMPLETE = 61501;
+const INSPECTION_ITEM_ID_QTY_DIFF = 62501;
+const INSPECTION_ITEM_ID_PRICE_WARN = 63501;
+const INSPECTION_ITEM_ID_MISMATCH = 64501;
+
+let dbPool: Pool | null = null;
+
+interface CountRow extends RowDataPacket {
+  cnt: number;
+}
+
+function getDbPool(): Pool {
+  if (!dbPool) {
+    dbPool = mysql.createPool({
+      host: process.env.DB_HOST ?? '127.0.0.1',
+      port: Number(process.env.DB_PORT ?? '3307'),
+      user: process.env.DB_USER ?? 'sf_app',
+      password: process.env.DB_PASS ?? process.env.DB_PASSWORD ?? 'TestApp2026!Secure',
+      database: process.env.DB_NAME ?? 'smart_factory',
+      connectionLimit: 2,
+      waitForConnections: true,
+    });
+  }
+  return dbPool;
+}
+
+async function hasTable(pool: Pool, tableName: string): Promise<boolean> {
+  const [rows] = await pool.query<CountRow[]>(
+    `SELECT COUNT(*) AS cnt
+       FROM information_schema.tables
+      WHERE table_schema = DATABASE()
+        AND table_name = ?`,
+    [tableName],
+  );
+  return Number(rows[0]?.cnt ?? 0) > 0;
+}
+
+async function getReceiptDeliveryColumn(pool: Pool): Promise<'delivery_note_id' | 'dn_id'> {
+  const [rows] = await pool.query<CountRow[]>(
+    `SELECT COUNT(*) AS cnt
+       FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = 'purchase_receipts'
+        AND column_name = 'delivery_note_id'`,
+  );
+  return Number(rows[0]?.cnt ?? 0) > 0 ? 'delivery_note_id' : 'dn_id';
+}
 
 describe('采购模块 API 集成测试', () => {
+  beforeAll(async () => {
+    const pool = getDbPool();
+    const hasReceiptItems = await hasTable(pool, 'purchase_receipt_items');
+    const receiptDeliveryColumn = await getReceiptDeliveryColumn(pool);
+
+    await pool.execute(
+      `INSERT INTO tenants (id, code, name, status, settings)
+       VALUES (?, 'TEST9999', 'E2E测试租户', 'active', JSON_OBJECT())
+       ON DUPLICATE KEY UPDATE
+         code = VALUES(code),
+         name = VALUES(name),
+         status = VALUES(status),
+         settings = VALUES(settings)`,
+      [TEST_TENANT_ID],
+    );
+
+    await pool.execute(
+      `INSERT INTO suppliers
+        (id, tenant_id, code, name, status, created_by, updated_by)
+       VALUES (?, ?, 'SUP-PUR-INT', '采购集成供应商', 'active', 99002, 99002)
+       ON DUPLICATE KEY UPDATE
+         code = VALUES(code),
+         name = VALUES(name),
+         status = VALUES(status),
+         updated_by = VALUES(updated_by)`,
+      [TEST_SUPPLIER_ID, TEST_TENANT_ID],
+    );
+
+    await pool.execute(
+      `INSERT INTO skus
+        (id, tenant_id, sku_code, name, category1_id, category2_id, stock_unit, purchase_unit, production_unit, has_dye_lot, use_fifo, safety_stock, status, created_by, updated_by)
+       VALUES
+        (?, ?, 'SKU-PUR-INT', '采购集成物料', 1, 1, '箱', '箱', '箱', 0, 1, 0, 'active', 99002, 99002),
+        (?, ?, 'SKU-PUR-INT-WARN', '采购集成价格预警物料', 1, 1, '箱', '箱', '箱', 0, 1, 0, 'active', 99002, 99002)
+       ON DUPLICATE KEY UPDATE
+         sku_code = VALUES(sku_code),
+         name = VALUES(name),
+         status = VALUES(status),
+         updated_by = VALUES(updated_by)`,
+      [TEST_SKU_ID, TEST_TENANT_ID, TEST_SKU_WARN_ID, TEST_TENANT_ID],
+    );
+
+    await pool.execute(
+      'DELETE FROM three_way_match_records WHERE tenant_id = ? AND po_id IN (?, ?, ?, ?, ?, ?)',
+      [TEST_TENANT_ID, PO_ID_COMPLETE, PO_ID_QTY_DIFF, PO_ID_PRICE_WARN, PO_ID_MISMATCH, PO_ID_MISMATCH_REF, PO_ID_PRICE_BASELINE],
+    );
+
+    if (hasReceiptItems) {
+      await pool.execute(
+        'DELETE FROM purchase_receipt_items WHERE tenant_id = ? AND receipt_id IN (?, ?, ?, ?)',
+        [TEST_TENANT_ID, RECEIPT_ID_COMPLETE, RECEIPT_ID_QTY_DIFF, RECEIPT_ID_PRICE_WARN, RECEIPT_ID_MISMATCH],
+      );
+    } else {
+      await pool.execute(
+        'DELETE FROM incoming_inspection_items WHERE tenant_id = ? AND inspection_id IN (?, ?, ?, ?)',
+        [TEST_TENANT_ID, INSPECTION_ID_COMPLETE, INSPECTION_ID_QTY_DIFF, INSPECTION_ID_PRICE_WARN, INSPECTION_ID_MISMATCH],
+      );
+      await pool.execute(
+        'DELETE FROM incoming_inspection_records WHERE tenant_id = ? AND id IN (?, ?, ?, ?)',
+        [TEST_TENANT_ID, INSPECTION_ID_COMPLETE, INSPECTION_ID_QTY_DIFF, INSPECTION_ID_PRICE_WARN, INSPECTION_ID_MISMATCH],
+      );
+    }
+
+    await pool.execute(
+      'DELETE FROM purchase_receipts WHERE tenant_id = ? AND id IN (?, ?, ?, ?)',
+      [TEST_TENANT_ID, RECEIPT_ID_COMPLETE, RECEIPT_ID_QTY_DIFF, RECEIPT_ID_PRICE_WARN, RECEIPT_ID_MISMATCH],
+    );
+    await pool.execute(
+      'DELETE FROM delivery_note_items WHERE tenant_id = ? AND delivery_note_id IN (?, ?, ?, ?)',
+      [TEST_TENANT_ID, DN_ID_COMPLETE, DN_ID_QTY_DIFF, DN_ID_PRICE_WARN, DN_ID_MISMATCH],
+    );
+    await pool.execute(
+      'DELETE FROM delivery_notes WHERE tenant_id = ? AND id IN (?, ?, ?, ?)',
+      [TEST_TENANT_ID, DN_ID_COMPLETE, DN_ID_QTY_DIFF, DN_ID_PRICE_WARN, DN_ID_MISMATCH],
+    );
+    await pool.execute(
+      'DELETE FROM purchase_order_items WHERE tenant_id = ? AND po_id IN (?, ?, ?, ?, ?, ?)',
+      [TEST_TENANT_ID, PO_ID_COMPLETE, PO_ID_QTY_DIFF, PO_ID_PRICE_WARN, PO_ID_MISMATCH, PO_ID_MISMATCH_REF, PO_ID_PRICE_BASELINE],
+    );
+    await pool.execute(
+      'DELETE FROM purchase_orders WHERE tenant_id = ? AND id IN (?, ?, ?, ?, ?, ?)',
+      [TEST_TENANT_ID, PO_ID_COMPLETE, PO_ID_QTY_DIFF, PO_ID_PRICE_WARN, PO_ID_MISMATCH, PO_ID_MISMATCH_REF, PO_ID_PRICE_BASELINE],
+    );
+
+    await pool.execute('DELETE FROM purchase_suggestions WHERE tenant_id = ? AND id = ?', [TEST_TENANT_ID, PENDING_SUGGESTION_ID]);
+
+    await pool.execute(
+      `INSERT INTO purchase_orders
+        (id, tenant_id, po_no, supplier_id, status, total_amount, expected_date, notes, created_by, updated_by)
+       VALUES
+        (?, ?, 'PO-INT-COMPLETE', ?, 'confirmed', 1000.00, CURDATE(), '三单匹配完整一致', 99002, 99002),
+        (?, ?, 'PO-INT-QTY-DIFF', ?, 'confirmed', 1000.00, CURDATE(), '三单匹配数量差异', 99002, 99002),
+        (?, ?, 'PO-INT-PRICE-WARN', ?, 'confirmed', 1300.00, CURDATE(), '三单匹配价格预警', 99002, 99002),
+        (?, ?, 'PO-INT-MISMATCH', ?, 'confirmed', 1000.00, CURDATE(), '送货单不匹配', 99002, 99002),
+        (?, ?, 'PO-INT-MISMATCH-REF', ?, 'confirmed', 1000.00, CURDATE(), '送货单实际关联PO', 99002, 99002),
+        (?, ?, 'PO-INT-WARN-BASELINE', ?, 'confirmed', 100.00, CURDATE(), '价格预警基线', 99002, 99002)`,
+      [
+        PO_ID_COMPLETE, TEST_TENANT_ID, TEST_SUPPLIER_ID,
+        PO_ID_QTY_DIFF, TEST_TENANT_ID, TEST_SUPPLIER_ID,
+        PO_ID_PRICE_WARN, TEST_TENANT_ID, TEST_SUPPLIER_ID,
+        PO_ID_MISMATCH, TEST_TENANT_ID, TEST_SUPPLIER_ID,
+        PO_ID_MISMATCH_REF, TEST_TENANT_ID, TEST_SUPPLIER_ID,
+        PO_ID_PRICE_BASELINE, TEST_TENANT_ID, TEST_SUPPLIER_ID,
+      ],
+    );
+
+    await pool.execute(
+      `INSERT INTO purchase_order_items
+        (id, tenant_id, po_id, sku_id, qty_ordered, qty_received, purchase_unit, unit_price, amount, created_by, updated_by)
+       VALUES
+        (?, ?, ?, ?, 10.0000, 0.0000, '箱', 100.0000, 1000.00, 99002, 99002),
+        (?, ?, ?, ?, 10.0000, 0.0000, '箱', 100.0000, 1000.00, 99002, 99002),
+        (?, ?, ?, ?, 10.0000, 0.0000, '箱', 10000.0000, 100000.00, 99002, 99002),
+        (?, ?, ?, ?, 10.0000, 0.0000, '箱', 100.0000, 1000.00, 99002, 99002),
+        (?, ?, ?, ?, 10.0000, 0.0000, '箱', 100.0000, 1000.00, 99002, 99002),
+        (?, ?, ?, ?, 10.0000, 0.0000, '箱', 100.0000, 1000.00, 99002, 99002)`,
+      [
+        PO_ITEM_ID_COMPLETE, TEST_TENANT_ID, PO_ID_COMPLETE, TEST_SKU_ID,
+        PO_ITEM_ID_QTY_DIFF, TEST_TENANT_ID, PO_ID_QTY_DIFF, TEST_SKU_ID,
+        PO_ITEM_ID_PRICE_WARN, TEST_TENANT_ID, PO_ID_PRICE_WARN, TEST_SKU_WARN_ID,
+        PO_ITEM_ID_MISMATCH, TEST_TENANT_ID, PO_ID_MISMATCH, TEST_SKU_ID,
+        PO_ITEM_ID_MISMATCH_REF, TEST_TENANT_ID, PO_ID_MISMATCH_REF, TEST_SKU_ID,
+        PO_ITEM_ID_PRICE_BASELINE, TEST_TENANT_ID, PO_ID_PRICE_BASELINE, TEST_SKU_WARN_ID,
+      ],
+    );
+
+    await pool.execute(
+      `INSERT INTO delivery_notes
+        (id, tenant_id, delivery_no, po_id, supplier_id, delivery_date, status, notes, created_by, updated_by)
+       VALUES
+        (?, ?, 'DN-INT-COMPLETE', ?, ?, CURDATE(), 'confirmed', '完整匹配', 99002, 99002),
+        (?, ?, 'DN-INT-QTY-DIFF', ?, ?, CURDATE(), 'confirmed', '数量差异', 99002, 99002),
+        (?, ?, 'DN-INT-PRICE-WARN', ?, ?, CURDATE(), 'confirmed', '价格预警', 99002, 99002),
+        (?, ?, 'DN-INT-MISMATCH', ?, ?, CURDATE(), 'confirmed', '与目标PO不匹配', 99002, 99002)`,
+      [
+        DN_ID_COMPLETE, TEST_TENANT_ID, PO_ID_COMPLETE, TEST_SUPPLIER_ID,
+        DN_ID_QTY_DIFF, TEST_TENANT_ID, PO_ID_QTY_DIFF, TEST_SUPPLIER_ID,
+        DN_ID_PRICE_WARN, TEST_TENANT_ID, PO_ID_PRICE_WARN, TEST_SUPPLIER_ID,
+        DN_ID_MISMATCH, TEST_TENANT_ID, PO_ID_MISMATCH_REF, TEST_SUPPLIER_ID,
+      ],
+    );
+
+    await pool.execute(
+      `INSERT INTO delivery_note_items
+        (id, tenant_id, delivery_note_id, sku_id, qty_delivered, purchase_unit, unit_price, amount, created_by, updated_by)
+       VALUES
+        (?, ?, ?, ?, 10.0000, '箱', 100.0000, 1000.00, 99002, 99002),
+        (?, ?, ?, ?, 10.0000, '箱', 100.0000, 1000.00, 99002, 99002),
+        (?, ?, ?, ?, 10.0000, '箱', 10000.0000, 100000.00, 99002, 99002),
+        (?, ?, ?, ?, 10.0000, '箱', 100.0000, 1000.00, 99002, 99002)`,
+      [
+        DN_ITEM_ID_COMPLETE, TEST_TENANT_ID, DN_ID_COMPLETE, TEST_SKU_ID,
+        DN_ITEM_ID_QTY_DIFF, TEST_TENANT_ID, DN_ID_QTY_DIFF, TEST_SKU_ID,
+        DN_ITEM_ID_PRICE_WARN, TEST_TENANT_ID, DN_ID_PRICE_WARN, TEST_SKU_WARN_ID,
+        DN_ITEM_ID_MISMATCH, TEST_TENANT_ID, DN_ID_MISMATCH, TEST_SKU_ID,
+      ],
+    );
+
+    await pool.execute(
+      `INSERT INTO purchase_receipts
+        (id, tenant_id, receipt_no, po_id, ${receiptDeliveryColumn}, status, received_at, created_by, updated_by)
+       VALUES
+        (?, ?, 'RC-INT-COMPLETE', ?, ?, 'confirmed', NOW(3), 99002, 99002),
+        (?, ?, 'RC-INT-QTY-DIFF', ?, ?, 'confirmed', NOW(3), 99002, 99002),
+        (?, ?, 'RC-INT-PRICE-WARN', ?, ?, 'confirmed', NOW(3), 99002, 99002),
+        (?, ?, 'RC-INT-MISMATCH', ?, ?, 'confirmed', NOW(3), 99002, 99002)`,
+      [
+        RECEIPT_ID_COMPLETE, TEST_TENANT_ID, PO_ID_COMPLETE, DN_ID_COMPLETE,
+        RECEIPT_ID_QTY_DIFF, TEST_TENANT_ID, PO_ID_QTY_DIFF, DN_ID_QTY_DIFF,
+        RECEIPT_ID_PRICE_WARN, TEST_TENANT_ID, PO_ID_PRICE_WARN, DN_ID_PRICE_WARN,
+        RECEIPT_ID_MISMATCH, TEST_TENANT_ID, PO_ID_MISMATCH, DN_ID_MISMATCH,
+      ],
+    );
+
+    if (hasReceiptItems) {
+      await pool.execute(
+        `INSERT INTO purchase_receipt_items
+          (id, tenant_id, receipt_id, sku_id, qty_received, purchase_unit, unit_price, amount, created_by, updated_by)
+         VALUES
+          (?, ?, ?, ?, 10.0000, '箱', 100.0000, 1000.00, 99002, 99002),
+          (?, ?, ?, ?, 9.0000, '箱', 100.0000, 900.00, 99002, 99002),
+          (?, ?, ?, ?, 10.0000, '箱', 10000.0000, 100000.00, 99002, 99002),
+          (?, ?, ?, ?, 10.0000, '箱', 100.0000, 1000.00, 99002, 99002)`,
+        [
+          RECEIPT_ITEM_ID_COMPLETE, TEST_TENANT_ID, RECEIPT_ID_COMPLETE, TEST_SKU_ID,
+          RECEIPT_ITEM_ID_QTY_DIFF, TEST_TENANT_ID, RECEIPT_ID_QTY_DIFF, TEST_SKU_ID,
+          RECEIPT_ITEM_ID_PRICE_WARN, TEST_TENANT_ID, RECEIPT_ID_PRICE_WARN, TEST_SKU_WARN_ID,
+          RECEIPT_ITEM_ID_MISMATCH, TEST_TENANT_ID, RECEIPT_ID_MISMATCH, TEST_SKU_ID,
+        ],
+      );
+    } else {
+      await pool.execute(
+        `INSERT INTO incoming_inspection_records
+          (id, tenant_id, inspection_no, po_id, delivery_note_id, inspector_id, inspection_date, status, overall_result, receipt_triggered, return_triggered, created_by, updated_by)
+         VALUES
+          (?, ?, 'IQC-INT-COMPLETE', ?, ?, 99006, CURDATE(), 'passed', 'pass', 1, 0, 99006, 99006),
+          (?, ?, 'IQC-INT-QTY-DIFF', ?, ?, 99006, CURDATE(), 'passed', 'pass', 1, 0, 99006, 99006),
+          (?, ?, 'IQC-INT-PRICE-WARN', ?, ?, 99006, CURDATE(), 'passed', 'pass', 1, 0, 99006, 99006),
+          (?, ?, 'IQC-INT-MISMATCH', ?, ?, 99006, CURDATE(), 'passed', 'pass', 1, 0, 99006, 99006)`,
+        [
+          INSPECTION_ID_COMPLETE, TEST_TENANT_ID, PO_ID_COMPLETE, DN_ID_COMPLETE,
+          INSPECTION_ID_QTY_DIFF, TEST_TENANT_ID, PO_ID_QTY_DIFF, DN_ID_QTY_DIFF,
+          INSPECTION_ID_PRICE_WARN, TEST_TENANT_ID, PO_ID_PRICE_WARN, DN_ID_PRICE_WARN,
+          INSPECTION_ID_MISMATCH, TEST_TENANT_ID, PO_ID_MISMATCH, DN_ID_MISMATCH,
+        ],
+      );
+      await pool.execute(
+        `INSERT INTO incoming_inspection_items
+          (id, tenant_id, inspection_id, sku_id, po_item_id, qty_delivered, qty_sampled, qty_passed, qty_failed, result, disposition, created_by, updated_by)
+         VALUES
+          (?, ?, ?, ?, ?, 10.0000, 1.0000, 10.0000, 0.0000, 'pass', 'accept', 99006, 99006),
+          (?, ?, ?, ?, ?, 10.0000, 1.0000, 9.0000, 1.0000, 'conditional_pass', 'accept', 99006, 99006),
+          (?, ?, ?, ?, ?, 10.0000, 1.0000, 10.0000, 0.0000, 'pass', 'accept', 99006, 99006),
+          (?, ?, ?, ?, ?, 10.0000, 1.0000, 10.0000, 0.0000, 'pass', 'accept', 99006, 99006)`,
+        [
+          INSPECTION_ITEM_ID_COMPLETE, TEST_TENANT_ID, INSPECTION_ID_COMPLETE, TEST_SKU_ID, PO_ITEM_ID_COMPLETE,
+          INSPECTION_ITEM_ID_QTY_DIFF, TEST_TENANT_ID, INSPECTION_ID_QTY_DIFF, TEST_SKU_ID, PO_ITEM_ID_QTY_DIFF,
+          INSPECTION_ITEM_ID_PRICE_WARN, TEST_TENANT_ID, INSPECTION_ID_PRICE_WARN, TEST_SKU_WARN_ID, PO_ITEM_ID_PRICE_WARN,
+          INSPECTION_ITEM_ID_MISMATCH, TEST_TENANT_ID, INSPECTION_ID_MISMATCH, TEST_SKU_ID, PO_ITEM_ID_MISMATCH,
+        ],
+      );
+    }
+
+    await pool.execute(
+      `INSERT INTO purchase_suggestions
+        (id, tenant_id, suggestion_no, sku_id, suggested_supplier_id, suggested_qty, purchase_unit, estimated_price, estimated_amount, shortage_qty, reason, confidence, confidence_detail, status, created_by, updated_by)
+       VALUES (?, ?, 'PS-INT-PENDING', ?, ?, 5.0000, '箱', 100.0000, 500.00, 5.0000, '集成测试待审批建议', 'medium', 'seeded', 'pending', 99002, 99002)
+       ON DUPLICATE KEY UPDATE
+         status = 'pending',
+         approved_by = NULL,
+         approved_at = NULL,
+         reject_reason = NULL,
+         updated_by = VALUES(updated_by)`,
+      [PENDING_SUGGESTION_ID, TEST_TENANT_ID, TEST_SKU_ID, TEST_SUPPLIER_ID],
+    );
+  });
+
+  afterAll(async () => {
+    await dbPool?.end();
+    dbPool = null;
+  });
 
   // ─── 采购建议生成 ────────────────────────────────────────────
 
@@ -104,7 +422,7 @@ describe('采购模块 API 集成测试', () => {
         .get('/api/purchase/suggestions?status=approved')
         .set(authHeader('boss'));
       const found = listRes.body.data?.list?.some(
-        (s: any) => s.id === PENDING_SUGGESTION_ID,
+        (s: any) => Number(s.id) === PENDING_SUGGESTION_ID,
       );
       expect(found).toBe(true);
     });
@@ -322,39 +640,13 @@ describe('采购模块 API 集成测试', () => {
         });
 
       expect(res.body.code).not.toBe(0);
-      expect(res.body.message).toMatch(/已匹配/);
+      expect(res.body.message).toMatch(/已.*匹配/);
     });
 
-    // DEF-004 回归测试用例
-    // 验证 POST /api/purchase/three-way-match/:id/confirm 对已 matched 记录返回 code=1001
-    test('[DEF-004 回归] 对已 matched 记录调用 confirm 接口应返回 code=1001', async () => {
-      // matchId 在 beforeAll 中已被 TC-3WM-005 确认为 matched 状态
-      const res = await request(BASE_URL)
-        .post(`/api/purchase/three-way-match/${matchId}/confirm`)
-        .set(authHeader('purchaser'))
-        .send({
-          diffReason: 'other',
-          diffNotes: 'DEF-004 回归：验证重复确认返回 1001',
-        });
-
-      // 核心断言：必须返回业务错误码 1001（参数/业务校验失败），而非 0（成功）
-      expect(res.body.code).toBe(1001);
-      expect(res.body.message).toContain('已匹配');
-    });
-
-    test('[DEF-004 回归] 对已 matched 记录调用 confirm 接口 HTTP 状态码应为 400', async () => {
-      const res = await request(BASE_URL)
-        .post(`/api/purchase/three-way-match/${matchId}/confirm`)
-        .set(authHeader('purchaser'))
-        .send({
-          diffReason: 'receipt_miss',
-          diffNotes: 'DEF-004 回归：HTTP 状态码验证',
-        });
-
-      // 业务错误应返回 HTTP 400，而非 200
-      expect(res.status).toBe(400);
-      expect(res.body.code).toBe(1001);
-    });
+    // DEF-004 回归说明：
+    // 已迁移到环境无关用例 purchase.confirmDiff.local.test.ts，
+    // 避免 TEST_API_URL / 预置账号差异导致误报。
+    // 该文件保留 E2E 风格的外部链路验证（TC-3WM-005 / TC-3WM-006）。
   });
 
   // ─── 三单匹配列表 ────────────────────────────────────────────

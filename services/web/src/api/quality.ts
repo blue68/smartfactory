@@ -96,8 +96,12 @@ export function useCreateInspection() {
 
 /** 录入质量问题 */
 export function useCreateIssue() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: qualityApi.createIssue,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qualityKeys.all });
+    },
   });
 }
 
@@ -143,6 +147,8 @@ export function useIssueList(
         id: number;
         inspectionId: number;
         inspectionNo: string;
+        productionOrderId: number;
+        productionOrderNo: string;
         componentName: string;
         issueTypes: IssueType[];
         severity: IssueSeverity;
@@ -150,6 +156,16 @@ export function useIssueList(
         createdAt: string;
       }>>('/api/quality/issues', { ...params, page, pageSize } as Record<string, unknown>),
   });
+}
+
+/** 上传质量问题图片（复用通用上传接口） */
+export async function uploadQualityImage(file: File): Promise<{ url: string; originalName: string; size: number }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await request.instance.post('/api/upload', formData, {
+    headers: { 'Content-Type': undefined as unknown as string },
+  });
+  return res.data.data;
 }
 
 // 类型导出（供外部组件使用）

@@ -2,7 +2,7 @@
 name: ai-engineer
 description: 负责 AI 产品能力设计、模型集成、RAG 架构、Prompt 设计与智能工作流实现，并严格遵循 SDD（Specification Driven Development）模式开展工作的资深 AI 工程师
 tools: Read, Write, Edit, MultiEdit, Glob, Grep, Bash
-model: opus
+model: sonnet
 permissionMode: default
 maxTurns: 12
 ---

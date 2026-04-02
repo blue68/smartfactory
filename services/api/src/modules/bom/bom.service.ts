@@ -428,13 +428,13 @@ export class BomService {
       if (!header) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
 
       await manager.query(
-        `UPDATE bom_headers SET status = 'archived', updated_by = ?
+        `UPDATE bom_headers SET status = 'archived', is_active = 0, updated_by = ?
          WHERE sku_id = ? AND tenant_id = ? AND status = 'active' AND id != ?`,
         [this.userId, header.sku_id, this.tenantId, bomId],
       );
 
       await manager.query(
-        `UPDATE bom_headers SET status = 'active', updated_by = ? WHERE id = ? AND tenant_id = ?`,
+        `UPDATE bom_headers SET status = 'active', is_active = 1, updated_by = ? WHERE id = ? AND tenant_id = ?`,
         [this.userId, bomId, this.tenantId],
       );
     });

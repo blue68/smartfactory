@@ -1,6 +1,8 @@
 import Decimal from 'decimal.js';
 import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
+import { AppError } from '../../shared/AppError';
+import { ResponseCode } from '../../shared/ApiResponse';
 import { BomService } from '../bom/bom.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { UnitConverter } from '../../shared/unitConverter';
@@ -238,14 +240,23 @@ export class SuggestionService {
   }
 
   async approveSuggestion(id: number, approved: boolean, rejectReason?: string): Promise<void> {
+    const normalizedRejectReason = rejectReason?.trim();
+    if (!approved && !normalizedRejectReason) {
+      throw AppError.badRequest('驳回采购建议时必须填写驳回原因');
+    }
+
     const status = approved ? 'approved' : 'rejected';
-    await AppDataSource.query(
+    const result = await AppDataSource.query(
       `UPDATE purchase_suggestions
        SET status = ?, approved_by = ?, approved_at = NOW(),
            reject_reason = ?, updated_by = ?
        WHERE id = ? AND tenant_id = ?`,
-      [status, this.userId, rejectReason ?? null, this.userId, id, this.tenantId],
+      [status, this.userId, normalizedRejectReason ?? null, this.userId, id, this.tenantId],
     );
+
+    if (!result?.affectedRows) {
+      throw AppError.notFound('采购建议不存在');
+    }
   }
 
   // ── 私有辅助 ──────────────────────────────────────────────
@@ -270,9 +281,27 @@ export class SuggestionService {
     const accumulator = new Map<number, { totalQty: Decimal; stockUnit: string; orderCount: number }>();
 
     for (const po of productionOrders) {
-      const materials = await this.bomSvc.calcMaterialRequirements(
-        po.bom_header_id, po.qty_planned,
-      );
+      let materials;
+      try {
+        materials = await this.bomSvc.calcMaterialRequirements(
+          po.bom_header_id, po.qty_planned,
+        );
+      } catch (err) {
+        if (
+          err instanceof AppError
+          && (
+            err.code === ResponseCode.BOM_NOT_FOUND
+            || err.code === ResponseCode.SKU_NOT_FOUND
+          )
+        ) {
+          // 跳过历史脏数据（工单关联 BOM/SKU 已失效），避免整批建议生成失败。
+          console.warn(
+            `[SuggestionService] 跳过异常工单，原因=${err.message}, tenantId=${this.tenantId}, productionOrderId=${po.id}, bomId=${po.bom_header_id}`,
+          );
+          continue;
+        }
+        throw err;
+      }
       for (const m of materials) {
         const existing = accumulator.get(m.skuId);
         if (existing) {

@@ -1,0 +1,23 @@
+name: Setup Real Browser UI CI
+description: Prepare dependencies, tooling, and local stack for real-browser Playwright UI jobs
+
+runs:
+  using: composite
+  steps:
+    - name: Install root dependencies
+      shell: bash
+      run: npm ci
+
+    - name: Install mysql client
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y mysql-client
+
+    - name: Install Playwright chromium
+      shell: bash
+      run: npx playwright install --with-deps chromium
+
+    - name: Prepare real-browser UI local stack
+      shell: bash
+      run: bash scripts/prepare-real-browser-ui-ci.sh

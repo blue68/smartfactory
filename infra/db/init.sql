@@ -474,6 +474,7 @@ CREATE TABLE IF NOT EXISTS `delivery_note_items` (
   `tenant_id`        BIGINT UNSIGNED NOT NULL,
   `delivery_note_id` BIGINT UNSIGNED NOT NULL,
   `sku_id`           BIGINT UNSIGNED NOT NULL,
+  `dye_lot_no`       VARCHAR(100)    DEFAULT NULL COMMENT '面料/皮料类到货后确认的缸号',
   `qty_delivered`    DECIMAL(16,4)   NOT NULL,
   `purchase_unit`    VARCHAR(20)     NOT NULL,
   `unit_price`       DECIMAL(14,4)   NOT NULL,
@@ -1058,6 +1059,34 @@ CREATE TABLE IF NOT EXISTS `sales_settlements` (
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 46. 销售付款记录表 sales_payments
 -- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `settlements` (
+  `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`       BIGINT UNSIGNED NOT NULL,
+  `settlement_no`   VARCHAR(50)     NOT NULL,
+  `customer_id`     BIGINT UNSIGNED NOT NULL,
+  `order_id`        BIGINT UNSIGNED NOT NULL,
+  `total_amount`    DECIMAL(16,2)   NOT NULL DEFAULT 0.00,
+  `status`          ENUM('draft','confirmed','paid','cancelled') NOT NULL DEFAULT 'draft',
+  `due_date`        DATE            DEFAULT NULL,
+  `confirmed_by`    BIGINT UNSIGNED DEFAULT NULL,
+  `confirmed_at`    DATETIME(3)     DEFAULT NULL,
+  `paid_at`         DATETIME(3)     DEFAULT NULL,
+  `notes`           TEXT            DEFAULT NULL,
+  `created_by`      BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `updated_by`      BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `created_at`      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at`      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_settlements_no` (`tenant_id`, `settlement_no`),
+  KEY `idx_settlements_order` (`tenant_id`, `order_id`),
+  KEY `idx_settlements_status` (`tenant_id`, `status`),
+  KEY `idx_settlements_customer` (`tenant_id`, `customer_id`),
+  KEY `idx_settlements_due_date` (`tenant_id`, `due_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='销售结算单（F-707 settlement 模块）';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 47. 销售付款记录表 sales_payments
+-- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS `sales_payments` (
   `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `tenant_id`       INT UNSIGNED    NOT NULL COMMENT '租户ID',
@@ -1085,6 +1114,9 @@ INSERT INTO `roles` (`tenant_id`, `code`, `name`, `description`) VALUES
   (0, 'worker',      '生产工人', '执行生产任务'),
   (0, 'sales',       '销售员', '录入销售订单'),
   (0, 'purchase',    '采购员', '处理采购订单'),
+  (0, 'purchaser',   '采购员', '采购员角色别名，兼容前后端角色编码差异'),
+  (0, 'qc',          'QC验货员', '负责来料质检与质量检验'),
+  (0, 'manager',     '经理', '负责工艺配置与报表管理'),
   (0, 'admin',       '系统管理员', '租户内系统管理权限');
 
 -- ── 2. 测试租户 ───────────────────────────────────────────────────────────────
@@ -1102,7 +1134,17 @@ INSERT INTO `users` (`tenant_id`, `username`, `password_hash`, `real_name`, `sta
   -- 默认密码: Demo123!
   (1, 'admin',     '$2b$10$zQxH8rv.L5iC.WmFJPi.k.ybfWdEV1LkPcvtm5k1ZZyG5rNv8e4ZO', '系统管理员', 'active', 0),
   (1, 'warehouse', '$2b$10$zQxH8rv.L5iC.WmFJPi.k.ybfWdEV1LkPcvtm5k1ZZyG5rNv8e4ZO', '仓管员',     'active', 1),
-  (1, 'smoke_tester', '$2b$10$zQxH8rv.L5iC.WmFJPi.k.ybfWdEV1LkPcvtm5k1ZZyG5rNv8e4ZO', '冒烟测试员', 'active', 1);
+  (1, 'smoke_tester', '$2b$10$zQxH8rv.L5iC.WmFJPi.k.ybfWdEV1LkPcvtm5k1ZZyG5rNv8e4ZO', '冒烟测试员', 'active', 1),
+  -- 本地开发账号统一密码: Dev123!2026
+  (1, 'boss_dev',       '$2b$10$MmgwQ9xr9HEolYqOUjcpUumg/M3wle7C3ySCi4ziZSCnJfAl1zacO', '本地开发-老板', 'active', 0),
+  (1, 'admin_dev',      '$2b$10$MmgwQ9xr9HEolYqOUjcpUumg/M3wle7C3ySCi4ziZSCnJfAl1zacO', '本地开发-系统管理员', 'active', 0),
+  (1, 'supervisor_dev', '$2b$10$MmgwQ9xr9HEolYqOUjcpUumg/M3wle7C3ySCi4ziZSCnJfAl1zacO', '本地开发-主管', 'active', 0),
+  (1, 'warehouse_dev',  '$2b$10$MmgwQ9xr9HEolYqOUjcpUumg/M3wle7C3ySCi4ziZSCnJfAl1zacO', '本地开发-仓管员', 'active', 0),
+  (1, 'worker_dev',     '$2b$10$MmgwQ9xr9HEolYqOUjcpUumg/M3wle7C3ySCi4ziZSCnJfAl1zacO', '本地开发-生产工人', 'active', 0),
+  (1, 'sales_dev',      '$2b$10$MmgwQ9xr9HEolYqOUjcpUumg/M3wle7C3ySCi4ziZSCnJfAl1zacO', '本地开发-销售员', 'active', 0),
+  (1, 'purchaser_dev',  '$2b$10$MmgwQ9xr9HEolYqOUjcpUumg/M3wle7C3ySCi4ziZSCnJfAl1zacO', '本地开发-采购员', 'active', 0),
+  (1, 'qc_dev',         '$2b$10$MmgwQ9xr9HEolYqOUjcpUumg/M3wle7C3ySCi4ziZSCnJfAl1zacO', '本地开发-QC验货员', 'active', 0),
+  (1, 'manager_dev',    '$2b$10$MmgwQ9xr9HEolYqOUjcpUumg/M3wle7C3ySCi4ziZSCnJfAl1zacO', '本地开发-经理', 'active', 0);
 
 -- ── 4. 用户角色绑定 ───────────────────────────────────────────────────────────
 INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
@@ -1124,6 +1166,56 @@ INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
 SELECT 1, u.id, r.id
 FROM `users` u, `roles` r
 WHERE u.tenant_id = 1 AND u.username = 'smoke_tester' AND r.code = 'boss';
+
+INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
+SELECT 1, u.id, r.id
+FROM `users` u, `roles` r
+WHERE u.tenant_id = 1 AND u.username = 'boss_dev' AND r.code = 'boss';
+
+INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
+SELECT 1, u.id, r.id
+FROM `users` u, `roles` r
+WHERE u.tenant_id = 1 AND u.username = 'admin_dev' AND r.code = 'admin';
+
+INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
+SELECT 1, u.id, r.id
+FROM `users` u, `roles` r
+WHERE u.tenant_id = 1 AND u.username = 'supervisor_dev' AND r.code = 'supervisor';
+
+INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
+SELECT 1, u.id, r.id
+FROM `users` u, `roles` r
+WHERE u.tenant_id = 1 AND u.username = 'warehouse_dev' AND r.code = 'warehouse';
+
+INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
+SELECT 1, u.id, r.id
+FROM `users` u, `roles` r
+WHERE u.tenant_id = 1 AND u.username = 'worker_dev' AND r.code = 'worker';
+
+INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
+SELECT 1, u.id, r.id
+FROM `users` u, `roles` r
+WHERE u.tenant_id = 1 AND u.username = 'sales_dev' AND r.code = 'sales';
+
+INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
+SELECT 1, u.id, r.id
+FROM `users` u, `roles` r
+WHERE u.tenant_id = 1 AND u.username = 'purchaser_dev' AND r.code = 'purchase';
+
+INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
+SELECT 1, u.id, r.id
+FROM `users` u, `roles` r
+WHERE u.tenant_id = 1 AND u.username = 'purchaser_dev' AND r.code = 'purchaser';
+
+INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
+SELECT 1, u.id, r.id
+FROM `users` u, `roles` r
+WHERE u.tenant_id = 1 AND u.username = 'qc_dev' AND r.code = 'qc';
+
+INSERT INTO `user_roles` (`tenant_id`, `user_id`, `role_id`)
+SELECT 1, u.id, r.id
+FROM `users` u, `roles` r
+WHERE u.tenant_id = 1 AND u.username = 'manager_dev' AND r.code = 'manager';
 
 -- ── 5. 系统预置 SKU 分类（level=0/系统级，tenant_id=0） ───────────────────────
 INSERT INTO `sku_categories` (`tenant_id`, `level`, `parent_id`, `code`, `name`, `sort_order`) VALUES
@@ -1171,6 +1263,162 @@ INSERT INTO `skus` (`tenant_id`, `sku_code`, `name`, `spec`, `category1_id`, `ca
   (1, 'RM-00300', '纸箱（大）', '800x500x600mm，五层瓦楞', 4, 13, '个', '捆', '个', 0, 50, 'active', 1),
   (1, 'RM-00301', 'EPE珍珠棉', '厚20mm，1x50m/卷', 4, 13, 'm', '卷', 'm²', 0, 0, 'active', 1);
 
+-- ── 6A. Analytics 演示业务种子 ──────────────────────────────────────────────
+-- 目标：让 /api/analytics 六个接口在默认租户（tenant_id=1）下开箱即有可视化数据。
+-- 约束：优先复用 sales.api / production.api 已跑通的插入口径，仅补 analytics 依赖的最小业务链路。
+SET @analytics_boss_user_id := (
+  SELECT id FROM `users` WHERE tenant_id = 1 AND username = 'boss_dev' LIMIT 1
+);
+SET @analytics_sales_user_id := (
+  SELECT id FROM `users` WHERE tenant_id = 1 AND username = 'sales_dev' LIMIT 1
+);
+SET @analytics_supervisor_user_id := (
+  SELECT id FROM `users` WHERE tenant_id = 1 AND username = 'supervisor_dev' LIMIT 1
+);
+SET @analytics_worker_user_id := (
+  SELECT id FROM `users` WHERE tenant_id = 1 AND username = 'worker_dev' LIMIT 1
+);
+SET @analytics_purchaser_user_id := (
+  SELECT id FROM `users` WHERE tenant_id = 1 AND username = 'purchaser_dev' LIMIT 1
+);
+
+SET @analytics_fg_sofa_sku_id := (
+  SELECT id FROM `skus` WHERE tenant_id = 1 AND sku_code = 'FG-00009' LIMIT 1
+);
+SET @analytics_raw_fabric_sku_id := (
+  SELECT id FROM `skus` WHERE tenant_id = 1 AND sku_code = 'RM-00058' LIMIT 1
+);
+SET @analytics_wip_frame_sku_id := (
+  SELECT id FROM `skus` WHERE tenant_id = 1 AND sku_code = 'WIP-00023' LIMIT 1
+);
+SET @analytics_carton_sku_id := (
+  SELECT id FROM `skus` WHERE tenant_id = 1 AND sku_code = 'RM-00300' LIMIT 1
+);
+
+SET @analytics_customer_id := 910001;
+SET @analytics_supplier_a_id := 910101;
+SET @analytics_supplier_b_id := 910102;
+SET @analytics_workstation_id := 910201;
+SET @analytics_template_id := 910301;
+SET @analytics_step_cut_id := 910311;
+SET @analytics_step_assemble_id := 910312;
+SET @analytics_bom_id := 910401;
+SET @analytics_sales_order_confirmed_id := 910501;
+SET @analytics_sales_order_pending_id := 910502;
+SET @analytics_purchase_order_a_id := 910601;
+SET @analytics_purchase_order_b_id := 910602;
+SET @analytics_production_order_scheduled_id := 910701;
+SET @analytics_production_order_in_progress_id := 910702;
+SET @analytics_production_order_completed_id := 910703;
+SET @analytics_schedule_cut_id := 910721;
+SET @analytics_schedule_assemble_id := 910722;
+SET @analytics_task_cut_id := 910731;
+SET @analytics_task_assemble_id := 910732;
+
+INSERT INTO `customers`
+  (`id`, `tenant_id`, `code`, `name`, `status`, `grade`, `contact`, `phone`, `region`, `created_by`, `updated_by`)
+VALUES
+  (@analytics_customer_id, 1, 'CUS-ANLT-001', '华东直营样板客户', 'active', 'VIP', '陈经理', '13800000001', '华东', @analytics_boss_user_id, @analytics_boss_user_id);
+
+INSERT INTO `suppliers`
+  (`id`, `tenant_id`, `code`, `name`, `grade`, `status`, `contact`, `phone`, `created_by`, `updated_by`)
+VALUES
+  (@analytics_supplier_a_id, 1, 'SUP-ANLT-A', '华东辅料供应商', 'A', 'active', '李采购', '13900000001', @analytics_purchaser_user_id, @analytics_purchaser_user_id),
+  (@analytics_supplier_b_id, 1, 'SUP-ANLT-B', '半成品协作供应商', 'A', 'active', '周采购', '13900000002', @analytics_purchaser_user_id, @analytics_purchaser_user_id);
+
+INSERT INTO `supplier_prices`
+  (`id`, `tenant_id`, `supplier_id`, `sku_id`, `price`, `unit`, `is_current`, `effective_at`, `created_by`, `updated_by`)
+VALUES
+  (910111, 1, @analytics_supplier_a_id, @analytics_raw_fabric_sku_id, 12.0000, 'm', 1, CURDATE(), @analytics_purchaser_user_id, @analytics_purchaser_user_id),
+  (910112, 1, @analytics_supplier_b_id, @analytics_wip_frame_sku_id, 150.0000, '套', 1, CURDATE(), @analytics_purchaser_user_id, @analytics_purchaser_user_id),
+  (910113, 1, @analytics_supplier_a_id, @analytics_carton_sku_id, 5.0000, '个', 1, CURDATE(), @analytics_purchaser_user_id, @analytics_purchaser_user_id);
+
+INSERT INTO `inventory`
+  (`tenant_id`, `sku_id`, `qty_on_hand`, `qty_reserved`, `qty_in_transit`, `last_in_at`, `last_out_at`)
+VALUES
+  (1, @analytics_raw_fabric_sku_id, 18.0000, 2.0000, 0.0000, DATE_SUB(NOW(), INTERVAL 5 DAY), DATE_SUB(NOW(), INTERVAL 2 DAY)),
+  (1, @analytics_wip_frame_sku_id, 3.0000, 0.0000, 0.0000, DATE_SUB(NOW(), INTERVAL 4 DAY), NULL),
+  (1, @analytics_carton_sku_id, 60.0000, 0.0000, 0.0000, DATE_SUB(NOW(), INTERVAL 3 DAY), NULL);
+
+INSERT INTO `inventory_transactions`
+  (`id`, `tenant_id`, `transaction_no`, `sku_id`, `transaction_type`, `direction`, `qty_input`, `input_unit`, `qty_stock_unit`, `stock_unit`, `reference_type`, `reference_id`, `reference_no`, `batch_cost`, `notes`, `created_at`, `created_by`)
+VALUES
+  (910801, 1, 'ITX-ANLT-001', @analytics_raw_fabric_sku_id, 'PURCHASE_IN', 'IN', 30.0000, 'm', 30.0000, 'm', 'analytics_seed', @analytics_purchase_order_a_id, 'ANLT-PO-A', 12.0000, '经营分析演示入库', DATE_SUB(NOW(), INTERVAL 20 DAY), @analytics_purchaser_user_id),
+  (910802, 1, 'ITX-ANLT-002', @analytics_raw_fabric_sku_id, 'MATERIAL_OUT', 'OUT', 8.0000, 'm', 8.0000, 'm', 'analytics_seed', @analytics_production_order_in_progress_id, 'ANLT-WO-IP', 12.0000, '经营分析演示领料', DATE_SUB(NOW(), INTERVAL 12 DAY), @analytics_supervisor_user_id),
+  (910803, 1, 'ITX-ANLT-003', @analytics_carton_sku_id, 'PURCHASE_IN', 'IN', 15.0000, '个', 15.0000, '个', 'analytics_seed', @analytics_purchase_order_a_id, 'ANLT-PO-A', 5.0000, '经营分析演示包材入库', DATE_SUB(NOW(), INTERVAL 5 DAY), @analytics_purchaser_user_id);
+
+INSERT INTO `workstations`
+  (`id`, `tenant_id`, `name`, `type`, `capacity`, `status`)
+VALUES
+  (@analytics_workstation_id, 1, '分析演示裁剪站', 'default', 20, 'active');
+
+INSERT INTO `process_templates`
+  (`id`, `tenant_id`, `sku_id`, `name`, `status`, `created_by`, `updated_by`)
+VALUES
+  (@analytics_template_id, 1, @analytics_fg_sofa_sku_id, '分析演示沙发工艺', 'active', @analytics_supervisor_user_id, @analytics_supervisor_user_id);
+
+INSERT INTO `process_steps`
+  (`id`, `tenant_id`, `template_id`, `step_no`, `step_name`, `standard_hours`, `workstation_type`, `created_by`, `updated_by`)
+VALUES
+  (@analytics_step_cut_id, 1, @analytics_template_id, 1, '裁剪', 0.4000, 'default', @analytics_supervisor_user_id, @analytics_supervisor_user_id),
+  (@analytics_step_assemble_id, 1, @analytics_template_id, 2, '组装', 0.6000, 'default', @analytics_supervisor_user_id, @analytics_supervisor_user_id);
+
+INSERT INTO `bom_headers`
+  (`id`, `tenant_id`, `sku_id`, `version`, `status`, `description`, `is_active`, `created_by`, `updated_by`)
+VALUES
+  (@analytics_bom_id, 1, @analytics_fg_sofa_sku_id, '1.0', 'active', '经营分析演示BOM', 1, @analytics_supervisor_user_id, @analytics_supervisor_user_id);
+
+INSERT INTO `bom_items`
+  (`id`, `tenant_id`, `bom_header_id`, `parent_item_id`, `component_sku_id`, `material_sku_id`, `quantity`, `qty_per_unit`, `unit`, `level`, `scrap_rate`, `sort_order`, `created_by`, `updated_by`)
+VALUES
+  (910411, 1, @analytics_bom_id, NULL, @analytics_raw_fabric_sku_id, @analytics_raw_fabric_sku_id, 2.0000, 2.0000, 'm', 1, 0.0000, 1, @analytics_supervisor_user_id, @analytics_supervisor_user_id),
+  (910412, 1, @analytics_bom_id, NULL, @analytics_wip_frame_sku_id, @analytics_wip_frame_sku_id, 0.5000, 0.5000, '套', 1, 0.0000, 2, @analytics_supervisor_user_id, @analytics_supervisor_user_id),
+  (910413, 1, @analytics_bom_id, NULL, @analytics_carton_sku_id, @analytics_carton_sku_id, 1.0000, 1.0000, '个', 1, 0.0000, 3, @analytics_supervisor_user_id, @analytics_supervisor_user_id);
+
+INSERT INTO `sales_orders`
+  (`id`, `tenant_id`, `order_no`, `customer_id`, `order_type`, `status`, `priority`, `expected_delivery`, `total_amount`, `constraint_passed`, `approval_status`, `sales_person_id`, `notes`, `created_at`, `updated_at`, `created_by`, `updated_by`)
+VALUES
+  (@analytics_sales_order_confirmed_id, 1, 'SO-ANLT-001', @analytics_customer_id, 'normal', 'confirmed', 80, DATE_ADD(CURDATE(), INTERVAL 14 DAY), 38800.00, 1, 'approved', @analytics_sales_user_id, '经营分析演示已确认订单', DATE_ADD(DATE_FORMAT(NOW(), '%Y-%m-01'), INTERVAL 1 DAY), DATE_ADD(DATE_FORMAT(NOW(), '%Y-%m-01'), INTERVAL 1 DAY), @analytics_sales_user_id, @analytics_sales_user_id),
+  (@analytics_sales_order_pending_id, 1, 'SO-ANLT-002', @analytics_customer_id, 'urgent', 'pending_approval', 95, DATE_ADD(CURDATE(), INTERVAL 7 DAY), 27600.00, 0, 'pending', @analytics_sales_user_id, '经营分析演示待审批订单', DATE_ADD(DATE_FORMAT(NOW(), '%Y-%m-01'), INTERVAL 2 DAY), DATE_ADD(DATE_FORMAT(NOW(), '%Y-%m-01'), INTERVAL 2 DAY), @analytics_sales_user_id, @analytics_sales_user_id);
+
+INSERT INTO `sales_order_items`
+  (`id`, `tenant_id`, `order_id`, `sku_id`, `qty_ordered`, `qty`, `qty_delivered`, `unit_price`, `amount`, `bom_header_id`, `created_by`, `updated_by`)
+VALUES
+  (910511, 1, @analytics_sales_order_confirmed_id, @analytics_fg_sofa_sku_id, 4.0000, 4.0000, 0.0000, 9700.0000, 38800.00, @analytics_bom_id, @analytics_sales_user_id, @analytics_sales_user_id),
+  (910512, 1, @analytics_sales_order_pending_id, @analytics_fg_sofa_sku_id, 3.0000, 3.0000, 0.0000, 9200.0000, 27600.00, @analytics_bom_id, @analytics_sales_user_id, @analytics_sales_user_id);
+
+INSERT INTO `purchase_orders`
+  (`id`, `tenant_id`, `po_no`, `supplier_id`, `status`, `total_amount`, `expected_date`, `notes`, `created_at`, `updated_at`, `created_by`, `updated_by`)
+VALUES
+  (@analytics_purchase_order_a_id, 1, 'PO-ANLT-001', @analytics_supplier_a_id, 'confirmed', 290.00, DATE_ADD(CURDATE(), INTERVAL 5 DAY), '经营分析演示原材料/包材采购', DATE_SUB(NOW(), INTERVAL 10 DAY), DATE_SUB(NOW(), INTERVAL 10 DAY), @analytics_purchaser_user_id, @analytics_purchaser_user_id),
+  (@analytics_purchase_order_b_id, 1, 'PO-ANLT-002', @analytics_supplier_b_id, 'partial_received', 600.00, DATE_ADD(CURDATE(), INTERVAL 12 DAY), '经营分析演示半成品采购', DATE_SUB(NOW(), INTERVAL 45 DAY), DATE_SUB(NOW(), INTERVAL 45 DAY), @analytics_purchaser_user_id, @analytics_purchaser_user_id);
+
+INSERT INTO `purchase_order_items`
+  (`id`, `tenant_id`, `po_id`, `sku_id`, `qty_ordered`, `qty_received`, `purchase_unit`, `unit_price`, `amount`, `created_by`, `updated_by`)
+VALUES
+  (910611, 1, @analytics_purchase_order_a_id, @analytics_raw_fabric_sku_id, 20.0000, 18.0000, 'm', 12.0000, 240.00, @analytics_purchaser_user_id, @analytics_purchaser_user_id),
+  (910612, 1, @analytics_purchase_order_a_id, @analytics_carton_sku_id, 10.0000, 10.0000, '个', 5.0000, 50.00, @analytics_purchaser_user_id, @analytics_purchaser_user_id),
+  (910613, 1, @analytics_purchase_order_b_id, @analytics_wip_frame_sku_id, 4.0000, 2.0000, '套', 150.0000, 600.00, @analytics_purchaser_user_id, @analytics_purchaser_user_id);
+
+INSERT INTO `production_orders`
+  (`id`, `tenant_id`, `work_order_no`, `sales_order_id`, `sku_id`, `bom_header_id`, `process_template_id`, `qty_planned`, `qty_completed`, `status`, `priority`, `planned_start`, `planned_end`, `actual_start`, `actual_end`, `notes`, `created_at`, `updated_at`, `created_by`, `updated_by`)
+VALUES
+  (@analytics_production_order_scheduled_id, 1, 'WO-ANLT-001', @analytics_sales_order_confirmed_id, @analytics_fg_sofa_sku_id, @analytics_bom_id, @analytics_template_id, 12.0000, 0.0000, 'scheduled', 80, DATE_SUB(CURDATE(), INTERVAL 1 DAY), DATE_ADD(CURDATE(), INTERVAL 2 DAY), NULL, NULL, '经营分析演示待开工工单', DATE_SUB(NOW(), INTERVAL 6 DAY), DATE_SUB(NOW(), INTERVAL 6 DAY), @analytics_supervisor_user_id, @analytics_supervisor_user_id),
+  (@analytics_production_order_in_progress_id, 1, 'WO-ANLT-002', @analytics_sales_order_confirmed_id, @analytics_fg_sofa_sku_id, @analytics_bom_id, @analytics_template_id, 20.0000, 8.0000, 'in_progress', 85, DATE_SUB(CURDATE(), INTERVAL 2 DAY), DATE_ADD(CURDATE(), INTERVAL 1 DAY), DATE_SUB(NOW(), INTERVAL 2 DAY), NULL, '经营分析演示在制工单', DATE_SUB(NOW(), INTERVAL 4 DAY), DATE_SUB(NOW(), INTERVAL 1 DAY), @analytics_supervisor_user_id, @analytics_supervisor_user_id),
+  (@analytics_production_order_completed_id, 1, 'WO-ANLT-003', @analytics_sales_order_confirmed_id, @analytics_fg_sofa_sku_id, @analytics_bom_id, @analytics_template_id, 20.0000, 18.0000, 'completed', 70, DATE_SUB(CURDATE(), INTERVAL 6 DAY), DATE_SUB(CURDATE(), INTERVAL 2 DAY), DATE_SUB(NOW(), INTERVAL 4 DAY), DATE_SUB(NOW(), INTERVAL 2 DAY), '经营分析演示完工工单', DATE_SUB(NOW(), INTERVAL 8 DAY), DATE_SUB(NOW(), INTERVAL 2 DAY), @analytics_supervisor_user_id, @analytics_supervisor_user_id);
+
+INSERT INTO `production_schedules`
+  (`id`, `tenant_id`, `schedule_date`, `production_order_id`, `process_step_id`, `workstation_id`, `worker_id`, `planned_qty`, `status`, `ai_generated`, `created_by`, `updated_by`)
+VALUES
+  (@analytics_schedule_cut_id, 1, DATE_SUB(CURDATE(), INTERVAL 3 DAY), @analytics_production_order_completed_id, @analytics_step_cut_id, @analytics_workstation_id, @analytics_worker_user_id, 10.0000, 'completed', 1, @analytics_supervisor_user_id, @analytics_supervisor_user_id),
+  (@analytics_schedule_assemble_id, 1, DATE_SUB(CURDATE(), INTERVAL 2 DAY), @analytics_production_order_completed_id, @analytics_step_assemble_id, @analytics_workstation_id, @analytics_worker_user_id, 8.0000, 'completed', 1, @analytics_supervisor_user_id, @analytics_supervisor_user_id);
+
+INSERT INTO `production_tasks`
+  (`id`, `tenant_id`, `task_no`, `schedule_id`, `production_order_id`, `process_step_id`, `worker_id`, `task_date`, `planned_qty`, `completed_qty`, `status`, `started_at`, `completed_at`, `created_at`, `updated_at`, `created_by`, `updated_by`)
+VALUES
+  (@analytics_task_cut_id, 1, 'TASK-ANLT-001', @analytics_schedule_cut_id, @analytics_production_order_completed_id, @analytics_step_cut_id, @analytics_worker_user_id, DATE_SUB(CURDATE(), INTERVAL 3 DAY), 10.0000, 9.0000, 'completed', DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 3 DAY), @analytics_supervisor_user_id, @analytics_supervisor_user_id),
+  (@analytics_task_assemble_id, 1, 'TASK-ANLT-002', @analytics_schedule_assemble_id, @analytics_production_order_completed_id, @analytics_step_assemble_id, @analytics_worker_user_id, DATE_SUB(CURDATE(), INTERVAL 2 DAY), 8.0000, 8.0000, 'completed', DATE_SUB(NOW(), INTERVAL 2 DAY), DATE_SUB(NOW(), INTERVAL 2 DAY), DATE_SUB(NOW(), INTERVAL 2 DAY), DATE_SUB(NOW(), INTERVAL 2 DAY), @analytics_supervisor_user_id, @analytics_supervisor_user_id);
+
 -- ═════════════════════════════════════════════════════════════════════════════
 -- Sprint 3 新增表结构（V2 全链路贯通）
 -- ═════════════════════════════════════════════════════════════════════════════
@@ -1212,6 +1460,7 @@ CREATE TABLE IF NOT EXISTS `incoming_inspection_items` (
   `inspection_id`       BIGINT UNSIGNED NOT NULL COMMENT '关联来料质检单ID',
   `sku_id`              BIGINT UNSIGNED NOT NULL,
   `po_item_id`          BIGINT UNSIGNED NOT NULL COMMENT '关联采购订单明细ID',
+  `dye_lot_no`          VARCHAR(100)    DEFAULT NULL COMMENT '继承送货明细的缸号',
   `qty_delivered`       DECIMAL(16,4)   NOT NULL COMMENT '本次到货数量',
   `qty_sampled`         DECIMAL(16,4)   NOT NULL DEFAULT 0 COMMENT '抽检数量',
   `qty_passed`          DECIMAL(16,4)   NOT NULL DEFAULT 0 COMMENT '合格数量',

@@ -20,7 +20,10 @@ router.post('/inspections/:id/complete',
   asyncHandler(qualityController.completeInspection.bind(qualityController)),
 );
 router.get('/traceability/:productionOrderId', asyncHandler(qualityController.getTraceability.bind(qualityController)));
-router.get('/stats',                           asyncHandler(qualityController.getStats.bind(qualityController)));
+router.get('/stats',
+  requireRoles('qc', 'supervisor', 'boss'),
+  asyncHandler(qualityController.getStats.bind(qualityController)),
+);
 router.get('/issues',                          asyncHandler(qualityController.listIssues.bind(qualityController)));
 router.get('/issues/:id',                      asyncHandler(qualityController.getIssueDetail.bind(qualityController)));
 

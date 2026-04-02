@@ -155,6 +155,8 @@ export interface SkuListQuery {
   keyword?: string;
   hasDyeLot?: boolean;
   status?: SkuStatus;
+  /** Comma-separated skuType values, e.g. "semi_finished,finished" */
+  skuTypes?: string;
 }
 
 export interface CreateSkuPayload {
@@ -308,6 +310,76 @@ export interface InventoryListQuery {
   belowSafety?: boolean;
 }
 
+export interface DailyInventorySnapshotItem {
+  snapshotDate: string;
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  stockUnit: string;
+  qtyOnHand: string;
+  qtyReserved: string;
+  qtyAvailable: string;
+}
+
+export interface DailyInventorySnapshotQuery {
+  snapshotDate?: string;
+  skuId?: number;
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface InventorySummaryCategory {
+  categoryId: number;
+  categoryName: string;
+  totalQty: number;
+  skuCount: number;
+  alertCount: number;
+}
+
+export interface InventorySummary {
+  categories: InventorySummaryCategory[];
+  totalSkuCount: number;
+  totalAlertCount: number;
+}
+
+export interface InventoryTransactionTraceItem {
+  transactionId: number;
+  transactionNo: string;
+  transactionType: string;
+  direction: 'IN' | 'OUT';
+  qtyChange: string;
+  createdAt: string;
+  referenceType: string | null;
+  referenceId: number | null;
+  referenceNo: string | null;
+  taskId: number | null;
+  workOrderNo: string | null;
+  processStepName: string | null;
+  workerName: string | null;
+  notes: string | null;
+}
+
+export interface InventoryTransactionTraceQuery {
+  page?: number;
+  pageSize?: number;
+  dateFrom?: string;
+  dateTo?: string;
+  keyword?: string;
+}
+
+export interface InventoryTransactionTraceResult {
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  stockUnit: string;
+  list: InventoryTransactionTraceItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 // ─────────────────────────────────────────────
 // 供应商
 // ─────────────────────────────────────────────
@@ -351,25 +423,163 @@ export interface ApproveSuggestionPayload {
 // 采购订单
 // ─────────────────────────────────────────────
 export interface PurchaseOrderItem {
+  [key: string]: unknown;
+  id?: number;
   skuId: number;
+  skuCode?: string;
   skuName?: string;
+  hasDyeLot?: boolean;
   qtyOrdered: string;
+  qtyReceived?: string;
+  gapQty?: string;
+  progressPct?: number;
+  purchaseUnit: string;
+  unitPrice: string;
+  amount?: string;
+  deliveryHistory?: PurchaseOrderItemDeliveryHistory[];
+}
+
+export interface PurchaseOrderDelivery {
+  [key: string]: unknown;
+  id: number;
+  deliveryNo: string;
+  deliveryDate: string;
+  status: string;
+  notes?: string | null;
+  totalDelivered: string;
+  receiptId?: number | null;
+  receiptNo?: string | null;
+  receiptStatus?: string | null;
+  receivedAt?: string | null;
+}
+
+export interface PurchaseOrderItemDeliveryHistory {
+  [key: string]: unknown;
+  deliveryId: number;
+  deliveryNo: string;
+  deliveryDate: string;
+  deliveryStatus: string;
+  dyeLotNo?: string | null;
+  qtyDelivered: string;
+  receiptId?: number | null;
+  receiptNo?: string | null;
+  receiptStatus?: string | null;
+  qtyReceived?: string | null;
+  receivedAt?: string | null;
+}
+
+export interface DeliveryNoteItem {
+  [key: string]: unknown;
+  id: number;
+  skuId: number;
+  skuCode?: string;
+  skuName?: string;
+  hasDyeLot?: boolean;
+  dyeLotNo?: string | null;
+  qtyDelivered: string;
   purchaseUnit: string;
   unitPrice: string;
   amount?: string;
 }
 
+export interface DeliveryNote {
+  [key: string]: unknown;
+  id: number;
+  deliveryNo: string;
+  poId: number;
+  poNo?: string;
+  supplierId?: number;
+  supplierName?: string;
+  deliveryDate: string;
+  status: string;
+  notes?: string | null;
+  inspectionId?: number | null;
+  inspectionNo?: string | null;
+  inspectionCreatedAt?: string | null;
+  receiptId?: number | null;
+  receiptNo?: string | null;
+  matchId?: number | null;
+  matchStatus?: string | null;
+  matchCreatedAt?: string | null;
+  matchConfirmedAt?: string | null;
+  receivedAt?: string | null;
+  creatorName?: string | null;
+  totalDelivered?: string;
+  createdAt?: string | null;
+  items?: DeliveryNoteItem[];
+}
+
 export interface PurchaseOrder {
+  [key: string]: unknown;
   id: number;
   poNo: string;
   supplierId: number;
   supplierName: string;
   status: PurchaseOrderStatus;
-  expectedDate: string;
+  expectedDate?: string | null;
   totalAmount: string;
   notes?: string;
+  closeReason?: string | null;
+  closedAt?: string | null;
+  closedByName?: string | null;
+  overdueDays?: number;
+  totalOrdered?: string;
+  totalReceived?: string;
+  totalGap?: string;
   items: PurchaseOrderItem[];
+  deliveries?: PurchaseOrderDelivery[];
   createdAt: string;
+}
+
+export interface PurchaseOrderTailRow {
+  [key: string]: unknown;
+  id: number;
+  poNo: string;
+  supplierName: string;
+  status: PurchaseOrderStatus;
+  expectedDate: string;
+  totalAmount: string;
+  totalOrdered: string;
+  totalReceived: string;
+  totalGap: string;
+  overdueDays: number;
+}
+
+export interface PurchaseReceiptItem {
+  [key: string]: unknown;
+  id: number;
+  skuId: number;
+  skuCode?: string;
+  skuName?: string;
+  dyeLotNo?: string | null;
+  qtyReceived: string;
+  purchaseUnit: string;
+  unitPrice: string;
+  amount?: string;
+}
+
+export interface PurchaseReceipt {
+  [key: string]: unknown;
+  id: number;
+  receiptNo: string;
+  poId: number;
+  poNo?: string;
+  poStatus?: PurchaseOrderStatus;
+  deliveryNoteId?: number | null;
+  deliveryNo?: string | null;
+  status: 'pending' | 'confirmed' | 'cancelled' | string;
+  totalAmount?: string;
+  totalQty?: string;
+  notes?: string | null;
+  receivedAt?: string | null;
+  supplierName?: string;
+  inspectionNo?: string | null;
+  operatorName?: string | null;
+  items?: PurchaseReceiptItem[];
+}
+
+export interface UpdatePurchaseReceiptNotesPayload {
+  notes: string;
 }
 
 export interface CreatePurchaseOrderPayload {
@@ -380,12 +590,33 @@ export interface CreatePurchaseOrderPayload {
   items: PurchaseOrderItem[];
 }
 
+export interface CreateDeliveryNotePayload {
+  poId: number;
+  deliveryDate: string;
+  notes?: string;
+  items: Array<{
+    skuId: number;
+    qtyDelivered: string;
+    purchaseUnit: string;
+    unitPrice: string;
+    dyeLotNo?: string;
+  }>;
+}
+
+export interface ClosePurchaseOrderPayload {
+  reason: string;
+}
+
 // ─────────────────────────────────────────────
 // 三单匹配
 // ─────────────────────────────────────────────
 export interface ThreeWayMatchDiffItem {
   skuId: number;
   skuName: string;
+  hasDyeLot?: boolean;
+  deliveryDyeLots?: string[];
+  receiptDyeLots?: string[];
+  isDyeLotMismatch?: boolean;
   poQty: string;
   poUnit: string;
   poPrice: string;
@@ -413,6 +644,7 @@ export interface ThreeWayMatch {
   confirmedBy: string | null;
   diffReason: string | null;
   diffNotes: string | null;
+  supplierName?: string | null;
 }
 
 export interface ConfirmMatchPayload {
@@ -559,16 +791,23 @@ export interface CreateProductionOrderPayload {
 }
 
 export interface ScheduleItem {
+  scheduleId: number;
   productionOrderId: number;
+  operationId?: number | null;
+  componentId?: number | null;
   workOrderNo: string;
   processStepId: number;
   stepName: string;
-  workerId: number;
-  workerName: string;
-  workstationId: number;
-  workstationName: string;
+  outputSkuId?: number | null;
+  outputSkuName?: string | null;
+  workerId: number | null;
+  workerName: string | null;
+  workstationId: number | null;
+  workstationName: string | null;
   plannedQty: string;
   estimatedHours: string;
+  status: 'planned' | 'confirmed';
+  updatedAt?: string;
 }
 
 export interface ScheduleResult {
@@ -578,16 +817,72 @@ export interface ScheduleResult {
     totalOrders: number;
     totalSteps: number;
     capacityLoadRate: string;
+    confirmed: boolean;
+    confirmedAt: string | null;
   };
 }
 
 export interface CompleteTaskPayload {
   completedQty: string;
+  actualHours?: string;
   scrapQty?: string;
   scrapReason?: ScrapReason;
   componentBarcode?: string;
   notes?: string;
   images?: string[];
+}
+
+export interface ProductionTaskDependency {
+  operationId: number;
+  stepName: string;
+  requiredQty: string;
+  completedQty: string;
+  status: string;
+}
+
+export interface ProductionTaskDependencySummary {
+  blocked: boolean;
+  blockingReason: string | null;
+  predecessors: ProductionTaskDependency[];
+}
+
+export interface ProductionTaskMaterialTransaction {
+  id: number;
+  ioType: 'input' | 'output';
+  skuId: number;
+  skuCode: string | null;
+  skuName: string | null;
+  plannedQty: string;
+  actualQty: string;
+  inventoryTxId: number | null;
+  transactionNo: string | null;
+  transactionType: string | null;
+  direction: 'IN' | 'OUT' | null;
+  transactionQty: string | null;
+  transactionTime: string | null;
+  referenceNo: string | null;
+}
+
+export interface ProductionTaskWageReport {
+  reportId: number;
+  reportNo: string;
+  reportDate: string;
+  productionOrderId: number | null;
+  orderNo: string | null;
+  taskId: number | null;
+  taskNo: string | null;
+  taskStatus: string | null;
+  userId: number;
+  userName: string;
+  workerGrade: string;
+  processStepId: number | null;
+  stepName: string;
+  qtyCompleted: string;
+  qtyQualified: string;
+  qtyDefective: string;
+  workHours: string;
+  unitPrice: string;
+  subtotal: string;
 }
 
 // ─────────────────────────────────────────────
@@ -656,6 +951,12 @@ export interface TraceabilityChain {
     withScanRecord: number;
     dyeLots: string[];
   };
+  aiAnalysis: {
+    summary: string;
+    rootCauses: string[];
+    recommendations: string[];
+    generatedAt: string;
+  } | null;
 }
 
 export interface QualityStats {
@@ -663,6 +964,9 @@ export interface QualityStats {
   totalInspected: number;
   totalFailed: number;
   failRate: string;
+  traceCompletionRate: string;
+  tracedIssueCount: number;
+  totalIssueCount: number;
   trendData: Array<{
     date: string;
     failCount: number;

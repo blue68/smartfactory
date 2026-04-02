@@ -14,7 +14,9 @@ export type SalesOrderStatus =
   | 'draft'
   | 'pending_approval'
   | 'confirmed'
+  | 'produced'
   | 'in_production'
+  | 'partial_shipped'
   | 'shipped'
   | 'completed'
   | 'closed';
@@ -28,6 +30,8 @@ export interface SalesOrderItem {
   spec?: string;
   /** 后端 DECIMAL，字符串类型 */
   quantity: string;
+  qtyOrdered?: string;
+  qtyDelivered?: string;
   unit?: string;
   /** 后端 DECIMAL，字符串类型 */
   unitPrice: string;
@@ -49,10 +53,41 @@ export interface SalesOrder {
   /** 后端 DECIMAL，字符串类型 */
   totalAmount: string;
   notes?: string;
+  approvalStatus?: string;
+  approvalNotes?: string;
+  approvedBy?: number | null;
+  approvedByName?: string | null;
+  approvedAt?: string | null;
   approvalReason?: string;
   createdAt: string;
   updatedAt: string;
   items?: SalesOrderItem[];
+  productionOrders?: Array<{
+    id: number;
+    workOrderNo: string;
+    status: string;
+    materialStatus?: string;
+    createdAt: string;
+    plannedEnd?: string | null;
+  }>;
+  deliveries?: Array<{
+    id: number;
+    deliveryNo: string;
+    trackingNo?: string | null;
+    status: string;
+    shippedAt: string;
+    receivedAt?: string | null;
+  }>;
+  auditLogs?: Array<{
+    id: number;
+    module: string;
+    action: string;
+    targetId: number;
+    targetCode?: string | null;
+    operatorId: number;
+    operatorName?: string | null;
+    createdAt: string;
+  }>;
 }
 
 export interface SalesOrderListQuery {
@@ -69,6 +104,7 @@ export interface CreateSalesOrderPayload {
   orderDate: string;
   deliveryDate: string;
   isUrgent: boolean;
+  saveAsDraft?: boolean;
   notes?: string;
   items: Array<{
     skuId: number;
@@ -143,8 +179,14 @@ export async function confirmSalesOrder(id: number): Promise<void> {
 }
 
 /** POST /api/sales-orders/:id/ship — 标记发货 */
-export async function shipSalesOrder(id: number): Promise<void> {
-  return request.post<void>(`${BASE}/${id}/ship`);
+export async function shipSalesOrder(
+  id: number,
+  payload?: {
+    trackingNo?: string;
+    shippedItems?: Array<{ orderItemId: number; shippedQty: number }>;
+  },
+): Promise<void> {
+  return request.post<void>(`${BASE}/${id}/ship`, payload ?? {});
 }
 
 /** POST /api/sales-orders/:id/complete — 标记完成 */
@@ -172,11 +214,13 @@ export interface OrderStats {
   byStatus: {
     draft: number;
     submitted: number;
-    confirmed: number;
-    pending_approval: number;
-    in_production: number;
-    shipped: number;
-    completed: number;
+      confirmed: number;
+      produced: number;
+      pending_approval: number;
+      in_production: number;
+      partial_shipped: number;
+      shipped: number;
+      completed: number;
     closed: number;
     [key: string]: number;
   };
@@ -305,8 +349,16 @@ export function useConfirmSalesOrder() {
 export function useShipSalesOrder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => shipSalesOrder(id),
-    onSuccess: (_, id) => {
+    mutationFn: ({
+      id,
+      trackingNo,
+      shippedItems,
+    }: {
+      id: number;
+      trackingNo?: string;
+      shippedItems?: Array<{ orderItemId: number; shippedQty: number }>;
+    }) => shipSalesOrder(id, { trackingNo, shippedItems }),
+    onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ['sales-orders'] });
       qc.invalidateQueries({ queryKey: ['sales-order', id] });
     },

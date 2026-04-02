@@ -46,6 +46,41 @@ export class SettlementController {
     success(res, data);
   }
 
+  /** GET /api/settlements/export/csv — 导出结算单 CSV */
+  async exportCsv(req: Request, res: Response): Promise<void> {
+    const parsed = ListSettlementSchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw AppError.badRequest(parsed.error.issues.map((i) => i.message).join('; '));
+    }
+
+    const rows = await this.svc(req).listSettlementExportRows(parsed.data);
+    const headers = ['结算单号', '客户名称', '关联订单', '结算金额', '状态', '到期日', '是否逾期', '创建时间'];
+    const escape = (s: string) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+    const encodedFilename = encodeURIComponent('销售结算.csv');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="settlements.csv"; filename*=UTF-8''${encodedFilename}`);
+    res.write('\uFEFF' + headers.map(escape).join(',') + '\n');
+
+    for (const row of rows) {
+      const overdue = row.dueDate
+        && ['draft', 'confirmed'].includes(row.status)
+        && new Date(row.dueDate).getTime() < Date.now();
+      res.write([
+        row.settlementNo,
+        row.customerName,
+        row.orderNo,
+        row.totalAmount,
+        row.status,
+        row.dueDate ?? '',
+        overdue ? '是' : '否',
+        row.createdAt,
+      ].map(escape).join(',') + '\n');
+    }
+
+    res.end();
+  }
+
   /** GET /api/settlements/:id — 结算单详情 */
   async getSettlement(req: Request, res: Response): Promise<void> {
     const id = Number(req.params['id']);

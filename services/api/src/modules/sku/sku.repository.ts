@@ -13,6 +13,11 @@ export interface SkuListFilter {
    * Ignored when category1Id is also supplied (category1Id takes precedence).
    */
   category1Code?: string;
+  /**
+   * Filter by multiple level-1 category codes (IN clause).
+   * Ignored when category1Id or category1Code is supplied.
+   */
+  category1Codes?: string[];
   keyword?: string;
   hasDyeLot?: boolean;
   status?: 'active' | 'inactive';
@@ -49,6 +54,12 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
         's.category1_id = (SELECT id FROM sku_categories WHERE code = ? AND level = 1 AND tenant_id IN (0, ?) LIMIT 1)',
       );
       params.push(filter.category1Code, this.tenantId);
+    } else if (filter.category1Codes && filter.category1Codes.length > 0) {
+      const placeholders = filter.category1Codes.map(() => '?').join(', ');
+      conditions.push(
+        `s.category1_id IN (SELECT id FROM sku_categories WHERE code IN (${placeholders}) AND level = 1 AND tenant_id IN (0, ?))`,
+      );
+      params.push(...filter.category1Codes, this.tenantId);
     }
     if (filter.category2Id) {
       conditions.push('s.category2_id = ?');

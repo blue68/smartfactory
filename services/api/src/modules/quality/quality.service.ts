@@ -1,6 +1,8 @@
 import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
+import { ResponseCode } from '../../shared/ApiResponse';
+import Decimal from 'decimal.js';
 
 // ─── 类型定义 ──────────────────────────────────────────────────
 
@@ -16,6 +18,12 @@ export interface TraceabilityChain {
     withScanRecord: number;
     dyeLots: string[];
   };
+  aiAnalysis: {
+    summary: string;
+    rootCauses: string[];
+    recommendations: string[];
+    generatedAt: string;
+  } | null;
 }
 
 export interface ComponentTrace {
@@ -37,6 +45,9 @@ export interface QualityStats {
   totalInspected: number;
   totalFailed: number;
   failRate: string;
+  traceCompletionRate: string;
+  tracedIssueCount: number;
+  totalIssueCount: number;
   trendData: Array<{ date: string; failCount: number; inspectCount: number }>;
   issueTypeBreakdown: Array<{ type: string; count: number; pct: string }>;
   top5Issues: Array<{
@@ -54,6 +65,75 @@ export class QualityService {
   constructor(ctx: TenantContext) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+  }
+
+  private parseJsonStringArray(value: unknown): string[] {
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item));
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return [];
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => String(item));
+        }
+        return [String(parsed)];
+      } catch {
+        return [trimmed];
+      }
+    }
+    return [];
+  }
+
+  private parseOptionalJsonStringArray(value: unknown): string[] | null {
+    if (value === null || value === undefined) return null;
+    return this.parseJsonStringArray(value);
+  }
+
+  private buildAiAnalysis(
+    components: ComponentTrace[],
+    summary: TraceabilityChain['summary'],
+  ): TraceabilityChain['aiAnalysis'] {
+    if (components.length === 0) {
+      return null;
+    }
+
+    const rootCauses: string[] = [];
+    const recommendations: string[] = [];
+    const missingScanCount = summary.totalComponents - summary.withScanRecord;
+
+    if (summary.dyeLots.length > 1) {
+      rootCauses.push(`同一生产单出现 ${summary.dyeLots.length} 个缸号，存在混用风险`);
+      recommendations.push('锁定异常缸号批次并复核同批次成品');
+    }
+
+    if (missingScanCount > 0) {
+      rootCauses.push(`有 ${missingScanCount} 个组件缺少扫码记录，过程追溯链不完整`);
+      recommendations.push('要求相关工序补齐扫码报工，并核对缺失节点的人员与时间');
+    }
+
+    if (rootCauses.length === 0) {
+      rootCauses.push('当前溯源链记录完整，未发现明显的跨缸号或扫码缺失异常');
+      recommendations.push('继续按当前扫码与批次管理要求执行，保持追溯链完整性');
+    }
+
+    const summaryText = [
+      summary.dyeLots.length > 1
+        ? '主要风险集中在面料跨缸号使用'
+        : '未发现明显跨缸号使用风险',
+      missingScanCount > 0
+        ? `与 ${missingScanCount} 个工序扫码缺失`
+        : '且工序扫码记录完整',
+    ].join('');
+
+    return {
+      summary: `${summaryText}。`,
+      rootCauses,
+      recommendations,
+      generatedAt: new Date().toISOString(),
+    };
   }
 
   // ── 创建验货单 ────────────────────────────────────────────
@@ -123,6 +203,26 @@ export class QualityService {
   // ── 完成验货（计算合格数量） ──────────────────────────────
 
   async completeInspection(inspectionId: number, qtyPassed: string): Promise<void> {
+    const [inspection] = await AppDataSource.query<Array<{
+      qty_inspected: string;
+      status: 'draft' | 'completed';
+    }>>(
+      `SELECT qty_inspected, status
+       FROM inspection_records
+       WHERE id = ? AND tenant_id = ?
+       LIMIT 1`,
+      [inspectionId, this.tenantId],
+    );
+    if (!inspection) {
+      throw AppError.notFound('验货单不存在');
+    }
+    if (inspection.status === 'completed') {
+      throw AppError.badRequest('验货单已完成，不能重复完成');
+    }
+    if (new Decimal(qtyPassed).gt(new Decimal(inspection.qty_inspected))) {
+      throw AppError.badRequest('qtyPassed 不能超过 qtyInspected');
+    }
+
     await AppDataSource.query(
       `UPDATE inspection_records
        SET status = 'completed', qty_passed = ?, updated_by = ?
@@ -151,10 +251,12 @@ export class QualityService {
        INNER JOIN skus s ON s.id = po.sku_id
        INNER JOIN sales_orders so ON so.id = po.sales_order_id
        INNER JOIN customers c ON c.id = so.customer_id
-       WHERE po.id = ? AND po.tenant_id = ? LIMIT 1`,
+      WHERE po.id = ? AND po.tenant_id = ? LIMIT 1`,
       [productionOrderId, this.tenantId],
     );
-    if (!order) throw AppError.notFound('生产工单不存在');
+    if (!order) {
+      throw AppError.notFound('生产工单不存在', ResponseCode.PRODUCTION_ORDER_NOT_FOUND);
+    }
 
     // 2. 查询溯源链记录
     const traceRows = await AppDataSource.query<Array<{
@@ -203,6 +305,12 @@ export class QualityService {
       components.filter((c) => c.dyeLotNo).map((c) => c.dyeLotNo as string),
     )];
 
+    const chainSummary = {
+      totalComponents: components.length,
+      withScanRecord: components.filter((c) => c.hasScanRecord).length,
+      dyeLots,
+    };
+
     return {
       productionOrderId,
       workOrderNo: order.work_order_no,
@@ -210,11 +318,8 @@ export class QualityService {
       salesOrderNo: order.sales_order_no,
       customerName: order.customer_name,
       components,
-      summary: {
-        totalComponents: components.length,
-        withScanRecord: components.filter((c) => c.hasScanRecord).length,
-        dyeLots,
-      },
+      summary: chainSummary,
+      aiAnalysis: this.buildAiAnalysis(components, chainSummary),
     };
   }
 
@@ -237,6 +342,38 @@ export class QualityService {
     const failRate = totalInspected > 0
       ? ((totalFailed / totalInspected) * 100).toFixed(2) + '%'
       : '0%';
+
+    const [issueCoverage] = await AppDataSource.query<Array<{
+      traced_issue_count: string;
+      total_issue_count: string;
+    }>>(
+      `SELECT
+         COUNT(*) AS total_issue_count,
+         SUM(
+           CASE
+             WHEN EXISTS (
+               SELECT 1
+               FROM inspection_records ir
+               INNER JOIN traceability_records tr
+                 ON tr.production_order_id = ir.production_order_id
+                AND tr.tenant_id = qi.tenant_id
+               WHERE ir.id = qi.inspection_id
+                 AND ir.tenant_id = qi.tenant_id
+               LIMIT 1
+             ) THEN 1 ELSE 0
+           END
+         ) AS traced_issue_count
+       FROM quality_issues qi
+       WHERE qi.tenant_id = ?
+         AND qi.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`,
+      [this.tenantId, periodDays],
+    );
+
+    const tracedIssueCount = Number(issueCoverage?.traced_issue_count ?? 0);
+    const totalIssueCount = Number(issueCoverage?.total_issue_count ?? 0);
+    const traceCompletionRate = totalIssueCount > 0
+      ? `${((tracedIssueCount / totalIssueCount) * 100).toFixed(1)}%`
+      : '0.0%';
 
     // 趋势数据（按日聚合）
     const trendData = await AppDataSource.query<Array<{
@@ -315,6 +452,9 @@ export class QualityService {
       totalInspected,
       totalFailed,
       failRate,
+      traceCompletionRate,
+      tracedIssueCount,
+      totalIssueCount,
       trendData: trendData.map((r) => ({
         date: r.date,
         failCount: Number(r.fail_count),
@@ -381,10 +521,10 @@ export class QualityService {
       workOrderNo: row.work_order_no,
       skuName: row.sku_name,
       componentName: row.component_name,
-      issueTypes: row.issue_types ? JSON.parse(row.issue_types) as string[] : [],
+      issueTypes: this.parseJsonStringArray(row.issue_types),
       severity: row.severity,
       description: row.description,
-      images: row.images ? JSON.parse(row.images) as string[] : null,
+      images: this.parseOptionalJsonStringArray(row.images),
       createdAt: row.created_at,
     };
   }
@@ -398,6 +538,7 @@ export class QualityService {
     issueType?: string;
   }): Promise<{ list: Array<{
     id: number; inspectionId: number; inspectionNo: string;
+    productionOrderId: number; productionOrderNo: string;
     componentName: string; issueTypes: string[]; severity: string;
     description: string | null; createdAt: Date;
   }>; total: number }> {
@@ -420,14 +561,17 @@ export class QualityService {
     const [rows, countRows] = await Promise.all([
       AppDataSource.query<Array<{
         id: number; inspection_id: number; inspection_no: string;
+        production_order_id: number; production_order_no: string;
         component_name: string; issue_types: string; severity: string;
         description: string | null; created_at: Date;
       }>>(
         `SELECT qi.id, qi.inspection_id, ir.inspection_no,
+                ir.production_order_id, po.work_order_no AS production_order_no,
                 qi.component_name, qi.issue_types, qi.severity,
                 qi.description, qi.created_at
          FROM quality_issues qi
          INNER JOIN inspection_records ir ON ir.id = qi.inspection_id
+         INNER JOIN production_orders po ON po.id = ir.production_order_id
          WHERE ${where}
          ORDER BY qi.id DESC
          LIMIT ? OFFSET ?`,
@@ -442,8 +586,10 @@ export class QualityService {
       id: r.id,
       inspectionId: r.inspection_id,
       inspectionNo: r.inspection_no,
+      productionOrderId: r.production_order_id,
+      productionOrderNo: r.production_order_no,
       componentName: r.component_name,
-      issueTypes: r.issue_types ? JSON.parse(r.issue_types) as string[] : [],
+      issueTypes: this.parseJsonStringArray(r.issue_types),
       severity: r.severity,
       description: r.description,
       createdAt: r.created_at,

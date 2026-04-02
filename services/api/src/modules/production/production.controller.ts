@@ -19,12 +19,28 @@ const CreateProductionOrderSchema = z.object({
 
 const CompleteTaskSchema = z.object({
   completedQty: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  actualHours: z.coerce.number().positive().max(999999).optional(),
   scrapQty: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
   scrapReason: z.enum(['material_defect', 'operation_error', 'other']).optional(),
   componentBarcode: z.string().max(100).optional(),
   notes: z.string().max(500).optional(),
   images: z.array(z.string().url()).max(3).optional(),
 });
+
+const CompleteTaskV2Schema = CompleteTaskSchema.extend({
+  actualHours: z.coerce.number().positive().max(999999),
+});
+
+const WorkstationStatusSchema = z.enum(['active', 'inactive']);
+
+const CreateWorkstationSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  type: z.string().trim().min(1).max(50),
+  capacity: z.coerce.number().int().positive().max(999999).optional(),
+  status: WorkstationStatusSchema.optional(),
+});
+
+const UpdateWorkstationSchema = CreateWorkstationSchema.partial();
 
 export class ProductionController {
   private svc(req: Request) {
@@ -54,7 +70,8 @@ export class ProductionController {
 
   async generateSchedule(req: Request, res: Response): Promise<void> {
     const date = req.query.date as string | undefined;
-    const data = await this.svc(req).generateSchedule(date);
+    const force = z.coerce.boolean().optional().parse(req.query.force);
+    const data = await this.svc(req).generateSchedule(date, Boolean(force));
     success(res, data, `排产计划已生成（${data.date}）`);
   }
 
@@ -80,6 +97,13 @@ export class ProductionController {
   async completeTask(req: Request, res: Response): Promise<void> {
     const id = Number(req.params.id);
     const body = CompleteTaskSchema.parse(req.body);
+    await this.svc(req).completeTask(id, body);
+    success(res, null, '完工已上报');
+  }
+
+  async completeTaskV2(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const body = CompleteTaskV2Schema.parse(req.body);
     await this.svc(req).completeTask(id, body);
     success(res, null, '完工已上报');
   }
@@ -178,15 +202,30 @@ export class ProductionController {
   async adjustSchedule(req: Request, res: Response): Promise<void> {
     const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式必须为 YYYY-MM-DD').parse(req.params.date);
     const schema = z.object({
-      adjustments: z.array(z.object({
-        taskId: z.number().int().positive(),
-        workerId: z.number().int().positive().optional(),
-        workstationId: z.number().int().positive().optional(),
-        plannedQty: z.string().optional(),
-      })).min(1),
+      adjustments: z.array(
+        z.object({
+          scheduleId: z.number().int().positive().optional(),
+          taskId: z.number().int().positive().optional(),
+          workerId: z.number().int().positive().optional(),
+          workstationId: z.number().int().positive().optional(),
+          plannedQty: z.string().optional(),
+          expectedUpdatedAt: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/).optional(),
+        }).refine((item) => Boolean(item.scheduleId ?? item.taskId), {
+          message: 'scheduleId 必填',
+        }),
+      ).min(1),
     });
     const { adjustments } = schema.parse(req.body);
-    const result = await this.svc(req).adjustSchedule(date, adjustments);
+    const result = await this.svc(req).adjustSchedule(
+      date,
+      adjustments.map((item) => ({
+        scheduleId: item.scheduleId ?? item.taskId!,
+        workerId: item.workerId,
+        workstationId: item.workstationId,
+        plannedQty: item.plannedQty,
+        expectedUpdatedAt: item.expectedUpdatedAt,
+      })),
+    );
     success(res, result, '排产已调整');
   }
 
@@ -198,8 +237,28 @@ export class ProductionController {
 
   // BE-P1: 工作站列表
   async listWorkstations(req: Request, res: Response): Promise<void> {
-    const data = await this.svc(req).listWorkstations();
+    const includeInactive = z.coerce.boolean().optional().parse(req.query.includeInactive);
+    const data = await this.svc(req).listWorkstations(Boolean(includeInactive));
     success(res, data);
+  }
+
+  async createWorkstation(req: Request, res: Response): Promise<void> {
+    const body = CreateWorkstationSchema.parse(req.body);
+    const data = await this.svc(req).createWorkstation(body);
+    created(res, data, '工作站已创建');
+  }
+
+  async updateWorkstation(req: Request, res: Response): Promise<void> {
+    const id = z.coerce.number().int().positive().parse(req.params.id);
+    const body = UpdateWorkstationSchema.parse(req.body);
+    const data = await this.svc(req).updateWorkstation(id, body);
+    success(res, data, '工作站已更新');
+  }
+
+  async deleteWorkstation(req: Request, res: Response): Promise<void> {
+    const id = z.coerce.number().int().positive().parse(req.params.id);
+    await this.svc(req).deleteWorkstation(id);
+    success(res, { id }, '工作站已停用');
   }
 
   // P0-10: 任务统计

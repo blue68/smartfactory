@@ -109,6 +109,16 @@ function AuditLogDrawer({ open, onClose }: AuditLogDrawerProps) {
 
   const { data: logs = [], isLoading } = useAuditLogs(open ? params : undefined);
 
+  // ESC key to close drawer
+  useEffect(() => {
+    if (!open) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   function formatDateTime(iso: string) {
@@ -366,7 +376,6 @@ function DeleteModalV2({ open, target, preview, previewLoading, onClose, onConfi
           value={confirmInput}
           onChange={(e) => setConfirmInput(e.target.value)}
           placeholder={`输入「${target.name}」`}
-          // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
         />
       </div>
@@ -538,7 +547,6 @@ function CategoryModal({ open, initial, defaultLevel, defaultParentId, level1Lis
           value={form.name}
           onChange={(e) => set('name', e.target.value)}
           placeholder="如：真皮沙发类"
-          // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
         />
         {errors.name && <p className={styles.formError}>{errors.name}</p>}
@@ -676,14 +684,21 @@ export default function CategoryConfigPage() {
     [level1List, selectedCatId],
   );
 
+  // rawList is a tree: level-1 nodes with level-2 nested in `children`.
+  // Flatten to get all level-2 items for filtering.
+  const allLevel2 = useMemo(
+    () => rawList.flatMap((c) => c.children ?? []),
+    [rawList],
+  );
+
   const level2Rows = useMemo(() => {
     if (selectedCatId === null) return [];
-    return rawList.filter((c) => c.level === 2 && c.parentId === selectedCatId);
-  }, [rawList, selectedCatId]);
+    return allLevel2.filter((c) => c.parentId === selectedCatId);
+  }, [allLevel2, selectedCatId]);
 
   // ─── Count children of a level-1 category ───
   function childCount(catId: number): number {
-    return rawList.filter((c) => c.level === 2 && c.parentId === catId).length;
+    return allLevel2.filter((c) => c.parentId === catId).length;
   }
 
   // ─── Modal openers ────────────────────────────
@@ -852,7 +867,7 @@ export default function CategoryConfigPage() {
         <div>
           <button
             className={styles.backBtn}
-            onClick={() => navigate ? navigate(-1) : window.history.back()}
+            onClick={() => navigate ? navigate('/master-data/sku') : (window.location.href = '/master-data/sku')}
             aria-label="返回 SKU 列表"
             style={{ marginBottom: 8 }}
           >

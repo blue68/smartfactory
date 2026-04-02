@@ -17,6 +17,8 @@ const PREFIX_MAP: Record<string, string> = {
   // Sprint 3 新增
   incoming_inspection: 'IQC',
   return_order: 'RTN',
+  settlement: 'ST',
+  purchase_settlement: 'PST',
   bom_snapshot: 'SNAP',
   // Sprint 4 新增
   schedule_batch: 'SCH',
@@ -38,13 +40,22 @@ export async function generateNo(type: keyof typeof PREFIX_MAP, tenantId: number
   ].join('');
 
   const redisKey = `no:${tenantId}:${type}:${dateStr}`;
-  const redis = getRedisClient();
-  const seq = await redis.incr(redisKey);
+  try {
+    const redis = getRedisClient();
+    const seq = await redis.incr(redisKey);
 
-  // 首次创建时设置 48 小时过期（跨日安全）
-  if (seq === 1) {
-    await redis.expire(redisKey, 48 * 3600);
+    // 首次创建时设置 48 小时过期（跨日安全）
+    if (seq === 1) {
+      await redis.expire(redisKey, 48 * 3600);
+    }
+
+    return `${prefix}${dateStr}-${String(seq).padStart(5, '0')}`;
+  } catch (err) {
+    // Redis 短暂抖动时退化为时间戳+随机数，保证业务不中断。
+    const fallbackSeq = `${String(Date.now()).slice(-5)}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+    console.warn(
+      `[generateNo] Redis unavailable, fallback sequence used for ${type}: ${(err as Error).message}`,
+    );
+    return `${prefix}${dateStr}-${fallbackSeq}`;
   }
-
-  return `${prefix}${dateStr}-${String(seq).padStart(5, '0')}`;
 }

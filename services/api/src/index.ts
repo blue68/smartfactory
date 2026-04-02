@@ -29,45 +29,58 @@ async function bootstrap(): Promise<void> {
     // 1. 初始化数据库连接（带重试）
     await initDatabase();
 
-    // 2. 预热 Redis 连接（等待 ready 事件后再 ping）
-    const redis = getRedisClient();
-    if (redis.status !== 'ready') {
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Redis 连接超时')), 10000);
-        redis.once('ready', () => { clearTimeout(timeout); resolve(); });
-        redis.once('error', (err) => { clearTimeout(timeout); reject(err); });
-      });
+    // 2. 预热 Redis 连接（允许降级）
+    let redisReady = false;
+    try {
+      const redis = getRedisClient();
+      if (redis.status !== 'ready') {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('Redis 连接超时')), 10000);
+          redis.once('ready', () => { clearTimeout(timeout); resolve(); });
+          redis.once('error', (err) => { clearTimeout(timeout); reject(err); });
+        });
+      }
+      await redis.ping();
+      redisReady = true;
+      console.log('[Redis] 连接就绪');
+    } catch (redisErr) {
+      console.warn(
+        '[Bootstrap] Redis 预热失败，API 将以降级模式启动:',
+        (redisErr as Error).message,
+      );
     }
-    await redis.ping();
-    console.log('[Redis] 连接就绪');
 
     // 3. 注册每日 06:00 采购建议计算 cron job（BullMQ repeat job）
     //    BullMQ 使用 cron 表达式，repeat job 在 Queue 层维护，不依赖进程常驻定时器。
     //    第一次注册后 Redis 会持久化调度计划，进程重启后自动恢复。
-    try {
-      const jobData: SuggestionCalculateJobData = {
-        triggeredAt: new Date().toISOString(),
-      };
-      await queueService.addJob(
-        QUEUE_SUGGESTION_CALCULATE,
-        jobData,
-        {
-          repeat: {
-            // 每天 06:00（服务器本地时间）
-            pattern: '0 6 * * *',
+    if (redisReady) {
+      try {
+        const jobData: SuggestionCalculateJobData = {
+          triggeredAt: new Date().toISOString(),
+        };
+        await queueService.addJob(
+          QUEUE_SUGGESTION_CALCULATE,
+          jobData,
+          {
+            repeat: {
+              // 每天 06:00（服务器本地时间）
+              pattern: '0 6 * * *',
+            },
+            jobId: 'daily-suggestion-calculate',
+            attempts: 3,
+            backoff: {
+              type: 'exponential',
+              delay: 60_000,
+            },
           },
-          jobId: 'daily-suggestion-calculate',
-          attempts: 3,
-          backoff: {
-            type: 'exponential',
-            delay: 60_000,
-          },
-        },
-      );
-      console.log('[Bootstrap] 每日采购建议计算 cron job 已注册（每天 06:00）');
-    } catch (cronErr) {
-      // cron 注册失败不影响主服务启动，仅告警
-      console.warn('[Bootstrap] cron job 注册失败（Redis 不可用？）:', (cronErr as Error).message);
+        );
+        console.log('[Bootstrap] 每日采购建议计算 cron job 已注册（每天 06:00）');
+      } catch (cronErr) {
+        // cron 注册失败不影响主服务启动，仅告警
+        console.warn('[Bootstrap] cron job 注册失败（Redis 不可用？）:', (cronErr as Error).message);
+      }
+    } else {
+      console.warn('[Bootstrap] 跳过 cron job 注册：Redis 当前不可用');
     }
 
     // 4. 启动 HTTP 服务
