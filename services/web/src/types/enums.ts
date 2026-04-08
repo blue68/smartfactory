@@ -7,6 +7,8 @@
 // 用户角色
 // ─────────────────────────────────────────────
 export enum UserRole {
+  PLATFORM_SUPER_ADMIN = 'platform_super_admin',
+  ADMIN = 'admin',
   BOSS = 'boss',
   PURCHASER = 'purchaser',
   WAREHOUSE = 'warehouse',
@@ -17,6 +19,8 @@ export enum UserRole {
 }
 
 export const UserRoleLabel: Record<UserRole, string> = {
+  [UserRole.PLATFORM_SUPER_ADMIN]: '平台超级管理员',
+  [UserRole.ADMIN]: '系统管理员',
   [UserRole.BOSS]: '工厂老板',
   [UserRole.PURCHASER]: '采购员',
   [UserRole.WAREHOUSE]: '仓库管理员',

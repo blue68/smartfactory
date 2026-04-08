@@ -18,7 +18,7 @@ export function useAuth() {
     async (payload: LoginPayload) => {
       const data = await authApi.login(payload);
       // Refresh Token 由后端通过 Set-Cookie 写入 HttpOnly Cookie，前端无需处理
-      store.setAuth(data.user, data.accessToken);
+      store.setAuth(data.user, data.accessToken, data.permissionSnapshot ?? null);
       showToast({ type: 'success', message: '登录成功，欢迎回来！' });
       navigate('/', { replace: true });
     },

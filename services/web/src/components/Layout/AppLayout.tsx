@@ -7,12 +7,15 @@ import { useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import { useAppStore } from '@/stores/appStore';
+import { useAuthStore } from '@/stores/authStore';
 import AiChatPanel from '@/components/ai/AiChatPanel';
 import ToastContainer from '@/components/common/ToastContainer';
 import AiFloatButton from '@/components/common/AiFloatButton';
 
 export default function AppLayout() {
   const { sidebarCollapsed, aiPanelOpen } = useAppStore();
+  const user = useAuthStore((s) => s.user);
+  const hideAiEntry = user?.scopeLevel === 'platform';
 
   // 移动端：屏宽小于768时自动折叠侧边栏
   useEffect(() => {
@@ -47,10 +50,10 @@ export default function AppLayout() {
       </div>
 
       {/* AI 对话浮层 */}
-      {aiPanelOpen && <AiChatPanel />}
+      {!hideAiEntry && aiPanelOpen && <AiChatPanel />}
 
       {/* AI 浮动按钮 */}
-      <AiFloatButton />
+      {!hideAiEntry && <AiFloatButton />}
 
       {/* Toast 通知 */}
       <ToastContainer />

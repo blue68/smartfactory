@@ -1,0 +1,384 @@
+.page {
+  min-height: 100%;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background:
+    radial-gradient(circle at 8% 12%, rgba(37, 99, 235, 0.14), transparent 28%),
+    radial-gradient(circle at 92% 0%, rgba(14, 165, 233, 0.12), transparent 24%),
+    linear-gradient(180deg, #eef5ff 0%, #f8fbff 45%, #f5f7fb 100%);
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
+  gap: 1rem;
+}
+
+.heroCard,
+.panel,
+.actionButton {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 1.1rem;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+}
+
+.heroCard {
+  padding: 1.4rem;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.title {
+  margin: 0.9rem 0 0;
+  font-size: 2rem;
+  line-height: 1.15;
+  color: #0f172a;
+}
+
+.subtitle {
+  margin: 0.75rem 0 0;
+  max-width: 40rem;
+  color: #475569;
+  font-size: 0.97rem;
+  line-height: 1.75;
+}
+
+.heroActions {
+  margin-top: 1.2rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.primaryAction,
+.secondaryAction {
+  appearance: none;
+  border: none;
+  border-radius: 0.9rem;
+  padding: 0.8rem 1.05rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.primaryAction {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #fff;
+  box-shadow: 0 16px 32px rgba(37, 99, 235, 0.24);
+}
+
+.secondaryAction {
+  background: #eff6ff;
+  color: #1e40af;
+}
+
+.primaryAction:hover,
+.secondaryAction:hover,
+.actionButton:hover {
+  transform: translateY(-1px);
+}
+
+.summaryCard {
+  padding: 1.2rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.summaryTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.summaryList {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.summaryItem {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.summaryLabel {
+  font-size: 0.76rem;
+  color: #64748b;
+}
+
+.summaryValue {
+  font-size: 1rem;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.kpiCard {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 251, 255, 0.98) 100%);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+  padding: 1rem 1.05rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.kpiLabel {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.kpiValue {
+  color: #0f172a;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.kpiHint {
+  color: #94a3b8;
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
+
+.panel {
+  padding: 1.15rem;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.panelDesc {
+  margin: 0.5rem 0 0;
+  color: #64748b;
+  font-size: 0.84rem;
+  line-height: 1.7;
+}
+
+.actionList {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.actionButton {
+  width: 100%;
+  text-align: left;
+  padding: 0.95rem 1rem;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.actionButtonTitle {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.actionButtonDesc {
+  display: block;
+  margin-top: 0.3rem;
+  color: #64748b;
+  font-size: 0.81rem;
+  line-height: 1.6;
+}
+
+.tips {
+  margin: 0.95rem 0 0;
+  padding-left: 1.1rem;
+  color: #475569;
+  font-size: 0.84rem;
+  line-height: 1.8;
+}
+
+.tips li + li {
+  margin-top: 0.35rem;
+}
+
+.entityList,
+.auditList {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.entityCard {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 0.95rem;
+  background: #fff;
+  padding: 0.9rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.entityCard:hover {
+  transform: translateY(-1px);
+  border-color: rgba(59, 130, 246, 0.35);
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.1);
+}
+
+.entityMain {
+  min-width: 0;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.entityTitle {
+  color: #0f172a;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.entityMeta {
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  border-radius: 999px;
+  padding: 0.28rem 0.62rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.statusPill--active {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.statusPill--suspended {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.statusPill--cancelled {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.auditItem {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.95rem;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 0.9rem 1rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.auditTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.auditModule {
+  color: #2563eb;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.auditTime {
+  color: #94a3b8;
+  font-size: 0.74rem;
+}
+
+.auditAction {
+  color: #0f172a;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.auditMeta {
+  color: #64748b;
+  font-size: 0.79rem;
+  line-height: 1.6;
+}
+
+.empty {
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 0.95rem;
+  padding: 0.95rem 1rem;
+  color: #64748b;
+  font-size: 0.83rem;
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.ruleList {
+  margin: 1rem 0 0;
+  padding-left: 1.1rem;
+  color: #475569;
+  font-size: 0.84rem;
+  line-height: 1.85;
+}
+
+.ruleList li + li {
+  margin-top: 0.3rem;
+}
+
+@media (max-width: 1100px) {
+  .hero,
+  .grid,
+  .kpiGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: 1rem;
+  }
+
+  .title {
+    font-size: 1.6rem;
+  }
+}

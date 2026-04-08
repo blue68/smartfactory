@@ -14,11 +14,20 @@ interface NavItem {
   label: string;
   icon: string;
   roles: UserRole[];
+  menuCode?: string;
+  actionCode?: string;
   badge?: number;
   group: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
+  {
+    path: '/platform/home',
+    label: '平台工作台',
+    icon: '🛰️',
+    roles: [UserRole.PLATFORM_SUPER_ADMIN],
+    group: '平台',
+  },
   {
     path: '/dashboard',
     label: '老板驾驶舱',
@@ -135,21 +144,21 @@ const NAV_ITEMS: NavItem[] = [
     path: '/production/schedule',
     label: '排产计划',
     icon: '🏭',
-    roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
     group: '生产',
   },
   {
     path: '/production/tasks',
     label: '生产任务',
     icon: '🔨',
-    roles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
+    roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
     group: '生产',
   },
   {
     path: '/production/orders',
     label: '生产工单',
     icon: '📑',
-    roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
     group: '生产',
   },
   {
@@ -185,6 +194,13 @@ const NAV_ITEMS: NavItem[] = [
     label: 'SKU 主数据',
     icon: '🗂️',
     roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
+    group: '主数据',
+  },
+  {
+    path: '/master-data/warehouse-location',
+    label: '仓库库位配置',
+    icon: '🏬',
+    roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
     group: '主数据',
   },
   {
@@ -251,6 +267,62 @@ const NAV_ITEMS: NavItem[] = [
     group: '系统',
   },
   {
+    path: '/system/tenants',
+    label: '租户配置',
+    icon: '🏢',
+    roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: 'system.tenant.config',
+    group: '系统管理',
+  },
+  {
+    path: '/system/menus',
+    label: '菜单与功能',
+    icon: '🧭',
+    roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: 'system.menu.config',
+    group: '系统管理',
+  },
+  {
+    path: '/system/roles',
+    label: '角色配置',
+    icon: '🧩',
+    roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: 'system.role.config',
+    group: '系统管理',
+  },
+  {
+    path: '/system/users',
+    label: '人员配置',
+    icon: '👤',
+    roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: 'system.user.config',
+    group: '系统管理',
+  },
+  {
+    path: '/system/role-permissions',
+    label: '角色授权',
+    icon: '🔐',
+    roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: 'system.role.permission.config',
+    group: '系统管理',
+  },
+  {
+    path: '/system/user-role-assignments',
+    label: '人员角色分配',
+    icon: '🗃️',
+    roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: 'system.user.role.assignment',
+    group: '系统管理',
+  },
+  {
+    path: '/system/audit-logs',
+    label: '权限审计',
+    icon: '🧾',
+    roles: [UserRole.ADMIN, UserRole.BOSS],
+    actionCode: 'system.audit.view',
+    group: '系统管理',
+  },
+  {
     path: '/ai-chat',
     label: 'AI 助手',
     icon: '💬',
@@ -272,14 +344,27 @@ function groupNavItems(items: NavItem[]): Array<{ group: string; items: NavItem[
 }
 
 export default function Sidebar() {
-  const { user } = useAuthStore();
+  const { user, permissionSnapshot } = useAuthStore();
   const { sidebarCollapsed } = useAppStore();
   // useLocation 保留：确保路由变化时组件重新渲染（active 状态依赖）
   useLocation();
 
-  const visibleItems = NAV_ITEMS.filter(
-    (item) => user?.roles?.some((r) => item.roles.includes(r)) ?? false,
-  );
+  const menuCodeSet = permissionSnapshot
+    ? new Set(permissionSnapshot.menuCodes)
+    : null;
+  const actionCodeSet = permissionSnapshot
+    ? new Set(permissionSnapshot.actionCodes)
+    : null;
+
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (menuCodeSet && item.menuCode) {
+      return menuCodeSet.has(item.menuCode);
+    }
+    if (actionCodeSet && item.actionCode) {
+      return actionCodeSet.has(item.actionCode);
+    }
+    return user?.roles?.some((r) => item.roles.includes(r)) ?? false;
+  });
 
   const groupedItems = groupNavItems(visibleItems);
 

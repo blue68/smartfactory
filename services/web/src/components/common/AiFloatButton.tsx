@@ -4,14 +4,16 @@
  */
 
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuthStore } from '@/stores/authStore';
 import styles from './AiFloatButton.module.css';
 
 export default function AiFloatButton() {
   const navigate = useNavigate();
   const location = useLocation();
+  const user = useAuthStore((s) => s.user);
 
-  // 在 AI 聊天页面不显示浮动按钮
-  if (location.pathname === '/ai-chat') return null;
+  // 在 AI 聊天页面和平台态不显示浮动按钮
+  if (location.pathname === '/ai-chat' || user?.scopeLevel === 'platform') return null;
 
   return (
     <button

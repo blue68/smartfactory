@@ -96,6 +96,42 @@ jobs:
       job_name: "API — integration test"
       test_command: "npm run test:integration:managed"
 
+  api-access-control-unit:
+    name: "API — access control unit test"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+
+    env:
+      NODE_ENV: test
+      JWT_SECRET: ci-test-secret-do-not-use-in-prod-32c
+      JWT_REFRESH_SECRET: ci-test-refresh-secret-32chars
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: services/api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Access control unit tests
+        run: npm run test:unit:access-control -- --ci
+
+  api-access-control-integration:
+    needs:
+      - api-unit
+      - api-access-control-unit
+    uses: ./.github/workflows/api-managed-test.yml
+    with:
+      job_name: "API — access control integration test"
+      test_command: "npm run test:integration:access-control:managed"
+
   # ---------------------------------------------------------------------------
   # 后端: e2e test (依赖 MySQL 8.0 + Redis 7)
   # ---------------------------------------------------------------------------
@@ -216,6 +252,29 @@ jobs:
       job_name: "Purchase Suggestion UI — Playwright smoke"
       test_command: "npm run test:purchase-suggestion:ui:smoke"
       artifact_name: "purchase-suggestion-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 权限中心前端真实交互: 本地容器 + Playwright smoke
+  # ---------------------------------------------------------------------------
+  permission-control-ui-smoke:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Permission Control UI — Playwright smoke"
+      pre_test_command: "npm run test:permission-control:bootstrap"
+      test_command: "npm run test:permission-control:ui:smoke"
+      artifact_name: "permission-control-ui-smoke-playwright"
+
+  # ---------------------------------------------------------------------------
+  # 权限中心前端真实交互: 本地容器 + Playwright regression
+  # ---------------------------------------------------------------------------
+  permission-control-ui-regression:
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Permission Control UI — Playwright regression"
+      pre_test_command: "npm run test:permission-control:bootstrap"
+      test_command: "npm run test:permission-control:ui:regression"
+      artifact_name: "permission-control-ui-regression-playwright"
 
   # ---------------------------------------------------------------------------
   # 销售订单前端真实交互: 本地容器 + Playwright smoke
@@ -353,6 +412,16 @@ jobs:
       artifact_name: "stocktaking-ui-smoke-playwright"
 
   # ---------------------------------------------------------------------------
+  # 库存仓位治理前端真实交互: 本地容器 + Playwright governance regression
+  # ---------------------------------------------------------------------------
+  inventory-warehouse-ui-governance:
+    uses: ./.github/workflows/real-browser-ui-playwright.yml
+    with:
+      job_name: "Inventory Warehouse UI — Governance regression"
+      test_command: "npm run test:inventory-warehouse:ui:governance"
+      artifact_name: "inventory-warehouse-ui-governance-playwright"
+
+  # ---------------------------------------------------------------------------
   # 库存总览前端真实交互: 本地容器 + Playwright regression
   # ---------------------------------------------------------------------------
   inventory-ui-regression:
@@ -444,7 +513,7 @@ jobs:
   # ---------------------------------------------------------------------------
   ci-gate:
     name: CI Gate
-    needs: [api-unit, api-integration, api-e2e, web, web-ui-mock, purchase-ui-smoke, incoming-inspection-ui-smoke, purchase-suggestion-ui-smoke, sales-order-ui-smoke, process-config-ui-smoke, production-schedule-ui-smoke, production-order-ui-smoke, production-task-ui-smoke, production-shortage-ui-smoke, inventory-ui-smoke, stocktaking-ui-smoke, settlement-ui-smoke, purchase-ui-regression, incoming-inspection-ui-regression, purchase-suggestion-ui-regression, sales-order-ui-regression, process-config-ui-regression, production-schedule-ui-regression, production-order-ui-regression, production-task-ui-regression, production-shortage-ui-regression, inventory-ui-regression, stocktaking-ui-regression, settlement-ui-regression]
+    needs: [api-unit, api-access-control-unit, api-integration, api-access-control-integration, api-e2e, web, web-ui-mock, purchase-ui-smoke, incoming-inspection-ui-smoke, purchase-suggestion-ui-smoke, permission-control-ui-smoke, sales-order-ui-smoke, process-config-ui-smoke, production-schedule-ui-smoke, production-order-ui-smoke, production-task-ui-smoke, production-shortage-ui-smoke, inventory-ui-smoke, stocktaking-ui-smoke, inventory-warehouse-ui-governance, settlement-ui-smoke, purchase-ui-regression, incoming-inspection-ui-regression, purchase-suggestion-ui-regression, permission-control-ui-regression, sales-order-ui-regression, process-config-ui-regression, production-schedule-ui-regression, production-order-ui-regression, production-task-ui-regression, production-shortage-ui-regression, inventory-ui-regression, stocktaking-ui-regression, settlement-ui-regression]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -453,13 +522,16 @@ jobs:
           failed=0
           required_results=(
             "${{ needs.api-unit.result }}"
+            "${{ needs.api-access-control-unit.result }}"
             "${{ needs.api-integration.result }}"
+            "${{ needs.api-access-control-integration.result }}"
             "${{ needs.api-e2e.result }}"
             "${{ needs.web.result }}"
             "${{ needs.web-ui-mock.result }}"
             "${{ needs.purchase-ui-smoke.result }}"
             "${{ needs.incoming-inspection-ui-smoke.result }}"
             "${{ needs.purchase-suggestion-ui-smoke.result }}"
+            "${{ needs.permission-control-ui-smoke.result }}"
             "${{ needs.sales-order-ui-smoke.result }}"
             "${{ needs.process-config-ui-smoke.result }}"
             "${{ needs.production-schedule-ui-smoke.result }}"
@@ -468,6 +540,7 @@ jobs:
             "${{ needs.production-shortage-ui-smoke.result }}"
             "${{ needs.inventory-ui-smoke.result }}"
             "${{ needs.stocktaking-ui-smoke.result }}"
+            "${{ needs.inventory-warehouse-ui-governance.result }}"
             "${{ needs.settlement-ui-smoke.result }}"
           )
           for r in "${required_results[@]}"; do
@@ -479,6 +552,7 @@ jobs:
           purchase_regression_result="${{ needs.purchase-ui-regression.result }}"
           incoming_inspection_regression_result="${{ needs.incoming-inspection-ui-regression.result }}"
           purchase_suggestion_regression_result="${{ needs.purchase-suggestion-ui-regression.result }}"
+          permission_control_regression_result="${{ needs.permission-control-ui-regression.result }}"
           sales_order_regression_result="${{ needs.sales-order-ui-regression.result }}"
           process_config_regression_result="${{ needs.process-config-ui-regression.result }}"
           production_schedule_regression_result="${{ needs.production-schedule-ui-regression.result }}"
@@ -499,6 +573,10 @@ jobs:
             fi
             if [ "$purchase_suggestion_regression_result" != "success" ]; then
               echo "Purchase-suggestion regression job failed on develop push: $purchase_suggestion_regression_result"
+              failed=1
+            fi
+            if [ "$permission_control_regression_result" != "success" ]; then
+              echo "Permission-control regression job failed on develop push: $permission_control_regression_result"
               failed=1
             fi
             if [ "$sales_order_regression_result" != "success" ]; then

@@ -1,0 +1,180 @@
+import { Router } from 'express';
+import { asyncHandler } from '../../app';
+import { authMiddleware, requirePermissions, requireTenantFeature } from '../../middleware/auth';
+import { accessControlController } from './access-control.controller';
+
+const router = Router();
+
+router.use(authMiddleware);
+router.use(requireTenantFeature('rbac_center'));
+
+router.get(
+  '/tenants',
+  accessControlController.listValidator,
+  requirePermissions('system.tenant.manage'),
+  asyncHandler(accessControlController.listTenants.bind(accessControlController)),
+);
+router.post(
+  '/tenants',
+  accessControlController.createTenantValidator,
+  requirePermissions('system.tenant.manage'),
+  asyncHandler(accessControlController.createTenant.bind(accessControlController)),
+);
+router.put(
+  '/tenants/:id',
+  accessControlController.updateTenantValidator,
+  requirePermissions('system.tenant.manage'),
+  asyncHandler(accessControlController.updateTenant.bind(accessControlController)),
+);
+router.post(
+  '/tenants/:id/status',
+  accessControlController.updateTenantStatusValidator,
+  requirePermissions('system.tenant.manage'),
+  asyncHandler(accessControlController.updateTenantStatus.bind(accessControlController)),
+);
+router.get(
+  '/tenants/:id/feature-flags',
+  requirePermissions('system.tenant.manage'),
+  asyncHandler(accessControlController.getTenantFeatureFlags.bind(accessControlController)),
+);
+router.put(
+  '/tenants/:id/feature-flags',
+  accessControlController.tenantFeatureFlagsValidator,
+  requirePermissions('system.tenant.manage'),
+  asyncHandler(accessControlController.updateTenantFeatureFlags.bind(accessControlController)),
+);
+
+router.get(
+  '/menus/tree',
+  requirePermissions('system.menu.manage'),
+  asyncHandler(accessControlController.getMenuTree.bind(accessControlController)),
+);
+router.post(
+  '/menus',
+  accessControlController.menuValidator,
+  requirePermissions('system.menu.manage'),
+  asyncHandler(accessControlController.createMenu.bind(accessControlController)),
+);
+router.put(
+  '/menus/:id',
+  accessControlController.menuValidator,
+  requirePermissions('system.menu.manage'),
+  asyncHandler(accessControlController.updateMenu.bind(accessControlController)),
+);
+router.delete(
+  '/menus/:id',
+  requirePermissions('system.menu.manage'),
+  asyncHandler(accessControlController.deleteMenu.bind(accessControlController)),
+);
+router.get(
+  '/menus/:id/actions',
+  requirePermissions('system.menu.manage'),
+  asyncHandler(accessControlController.getMenuActions.bind(accessControlController)),
+);
+router.post(
+  '/actions',
+  accessControlController.actionValidator,
+  requirePermissions('system.menu.manage'),
+  asyncHandler(accessControlController.createAction.bind(accessControlController)),
+);
+router.put(
+  '/actions/:id',
+  accessControlController.updateActionValidator,
+  requirePermissions('system.menu.manage'),
+  asyncHandler(accessControlController.updateAction.bind(accessControlController)),
+);
+router.delete(
+  '/actions/:id',
+  requirePermissions('system.menu.manage'),
+  asyncHandler(accessControlController.deleteAction.bind(accessControlController)),
+);
+
+router.get(
+  '/roles',
+  requirePermissions('system.role.manage'),
+  asyncHandler(accessControlController.listRoles.bind(accessControlController)),
+);
+router.post(
+  '/roles',
+  accessControlController.roleValidator,
+  requirePermissions('system.role.manage'),
+  asyncHandler(accessControlController.createRole.bind(accessControlController)),
+);
+router.put(
+  '/roles/:id',
+  accessControlController.roleValidator,
+  requirePermissions('system.role.manage'),
+  asyncHandler(accessControlController.updateRole.bind(accessControlController)),
+);
+router.post(
+  '/roles/:id/status',
+  accessControlController.updateTenantStatusValidator,
+  requirePermissions('system.role.manage'),
+  asyncHandler(accessControlController.updateRoleStatus.bind(accessControlController)),
+);
+router.get(
+  '/roles/:id/permissions',
+  requirePermissions('system.role.grant'),
+  asyncHandler(accessControlController.getRolePermissions.bind(accessControlController)),
+);
+router.put(
+  '/roles/:id/permissions',
+  accessControlController.updateRolePermissionsValidator,
+  requirePermissions('system.role.grant'),
+  asyncHandler(accessControlController.updateRolePermissions.bind(accessControlController)),
+);
+
+router.get(
+  '/users',
+  requirePermissions('system.user.manage'),
+  asyncHandler(accessControlController.listUsers.bind(accessControlController)),
+);
+router.post(
+  '/users',
+  accessControlController.userValidator,
+  requirePermissions('system.user.manage'),
+  asyncHandler(accessControlController.createUser.bind(accessControlController)),
+);
+router.put(
+  '/users/:id',
+  accessControlController.userValidator,
+  requirePermissions('system.user.manage'),
+  asyncHandler(accessControlController.updateUser.bind(accessControlController)),
+);
+router.post(
+  '/users/:id/status',
+  accessControlController.updateTenantStatusValidator,
+  requirePermissions('system.user.manage'),
+  asyncHandler(accessControlController.updateUserStatus.bind(accessControlController)),
+);
+router.post(
+  '/users/:id/reset-password',
+  accessControlController.resetUserPasswordValidator,
+  requirePermissions('system.user.manage'),
+  asyncHandler(accessControlController.resetUserPassword.bind(accessControlController)),
+);
+router.get(
+  '/users/:id/role-assignments',
+  requirePermissions('system.user.assign'),
+  asyncHandler(accessControlController.getUserRoleAssignments.bind(accessControlController)),
+);
+router.put(
+  '/users/:id/role-assignments',
+  accessControlController.assignUserRolesValidator,
+  requirePermissions('system.user.assign'),
+  asyncHandler(accessControlController.assignUserRoles.bind(accessControlController)),
+);
+router.post(
+  '/users/:id/role-assignments',
+  accessControlController.assignUserRolesValidator,
+  requirePermissions('system.user.assign'),
+  asyncHandler(accessControlController.assignUserRoles.bind(accessControlController)),
+);
+router.get(
+  '/audit-logs',
+  accessControlController.auditLogsValidator,
+  requirePermissions('system.audit.view'),
+  asyncHandler(accessControlController.listAuditLogs.bind(accessControlController)),
+);
+
+export default router;
