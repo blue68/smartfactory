@@ -4,7 +4,7 @@
  * 覆盖测试用例：
  * - TC-QC-001  qc角色创建验货单
  * - TC-QC-002  supervisor角色创建验货单
- * - TC-QC-003  缺少必填字段 productionOrderId → 1001
+ * - TC-QC-003  缺少必填字段 productionOrderNo → 1001
  * - TC-QC-004  worker角色无权创建验货单 → 1003
  * - TC-QC-005  录入质量问题（外观缺陷）
  * - TC-QC-006  severity传非法枚举 → 1001
@@ -26,6 +26,7 @@ const TEST_TENANT_ID = 9999;
 
 // 测试环境预置数据（需测试 DB seed 中存在）
 const PRODUCTION_ORDER_ID  = 80010; // 预置：进行中的生产工单
+const PRODUCTION_ORDER_NO = 'WO-QA-INT-80010';
 const PRESET_INSPECTION_ID = 95001; // 预置：已创建的验货单（pending状态）
 const SEED_CUSTOMER_ID = 98001;
 const SEED_SALES_ORDER_ID = 98002;
@@ -117,14 +118,15 @@ describe('质量溯源模块 API 集成测试', () => {
     await pool.execute(
       `INSERT INTO production_orders
         (id, tenant_id, work_order_no, sales_order_id, sku_id, bom_header_id, process_template_id, qty_planned, qty_completed, status, priority, created_by, updated_by)
-       VALUES (?, ?, 'WO-QA-INT-80010', ?, ?, 1, 1, 100.0000, 0.0000, 'in_progress', 50, 99004, 99004)
+       VALUES (?, ?, ?, ?, ?, 1, 1, 100.0000, 0.0000, 'in_progress', 50, 99004, 99004)
        ON DUPLICATE KEY UPDATE
+         work_order_no = VALUES(work_order_no),
          sales_order_id = VALUES(sales_order_id),
          sku_id = VALUES(sku_id),
          qty_planned = VALUES(qty_planned),
          status = VALUES(status),
          updated_by = VALUES(updated_by)`,
-      [PRODUCTION_ORDER_ID, TEST_TENANT_ID, SEED_SALES_ORDER_ID, SEED_SKU_ID],
+      [PRODUCTION_ORDER_ID, TEST_TENANT_ID, PRODUCTION_ORDER_NO, SEED_SALES_ORDER_ID, SEED_SKU_ID],
     );
   });
 
@@ -143,7 +145,7 @@ describe('质量溯源模块 API 集成测试', () => {
         .post('/api/quality/inspections')
         .set(authHeader('qc'))
         .send({
-          productionOrderId: PRODUCTION_ORDER_ID,
+          productionOrderNo: PRODUCTION_ORDER_NO,
           inspectionDate: '2026-03-11',
           qtyInspected: '5',
         });
@@ -159,7 +161,7 @@ describe('质量溯源模块 API 集成测试', () => {
         .post('/api/quality/inspections')
         .set(authHeader('supervisor'))
         .send({
-          productionOrderId: PRODUCTION_ORDER_ID,
+          productionOrderNo: PRODUCTION_ORDER_NO,
           inspectionDate: '2026-03-11',
           qtyInspected: '3',
         });
@@ -168,7 +170,7 @@ describe('质量溯源模块 API 集成测试', () => {
       expect(res.body.code).toBe(0);
     });
 
-    test('TC-QC-003: 缺少必填字段 productionOrderId → 1001', async () => {
+    test('TC-QC-003: 缺少必填字段 productionOrderNo → 1001', async () => {
       const res = await request(BASE_URL)
         .post('/api/quality/inspections')
         .set(authHeader('qc'))
@@ -178,7 +180,7 @@ describe('质量溯源模块 API 集成测试', () => {
         });
 
       expect(res.body.code).toBe(1001);
-      expect(res.body.message).toMatch(/productionOrderId|工单/i);
+      expect(res.body.message).toMatch(/productionOrderNo|工单/i);
     });
 
     test('缺少必填字段 qtyInspected → 1001', async () => {
@@ -186,7 +188,7 @@ describe('质量溯源模块 API 集成测试', () => {
         .post('/api/quality/inspections')
         .set(authHeader('qc'))
         .send({
-          productionOrderId: PRODUCTION_ORDER_ID,
+          productionOrderNo: PRODUCTION_ORDER_NO,
           inspectionDate: '2026-03-11',
         });
 
@@ -198,7 +200,7 @@ describe('质量溯源模块 API 集成测试', () => {
         .post('/api/quality/inspections')
         .set(authHeader('worker'))
         .send({
-          productionOrderId: PRODUCTION_ORDER_ID,
+          productionOrderNo: PRODUCTION_ORDER_NO,
           inspectionDate: '2026-03-11',
           qtyInspected: '5',
         });
@@ -211,7 +213,7 @@ describe('质量溯源模块 API 集成测试', () => {
       const res = await request(BASE_URL)
         .post('/api/quality/inspections')
         .send({
-          productionOrderId: PRODUCTION_ORDER_ID,
+          productionOrderNo: PRODUCTION_ORDER_NO,
           inspectionDate: '2026-03-11',
           qtyInspected: '5',
         });
@@ -259,24 +261,24 @@ describe('质量溯源模块 API 集成测试', () => {
   // ─── 录入质量问题 ────────────────────────────────────────────
 
   describe('录入质量问题 — POST /api/quality/inspections/issues', () => {
-    let inspectionId: number;
+    let inspectionNo = '';
 
     beforeAll(async () => {
       const res = await request(BASE_URL)
         .post('/api/quality/inspections')
         .set(authHeader('qc'))
         .send({
-          productionOrderId: PRODUCTION_ORDER_ID,
+          productionOrderNo: PRODUCTION_ORDER_NO,
           inspectionDate: '2026-03-11',
           qtyInspected: '10',
         });
-      inspectionId = res.body.data?.id;
+      inspectionNo = String(res.body.data?.inspectionNo ?? '');
     });
 
     test('TC-QC-005: qc录入外观缺陷质量问题成功', async () => {
-      if (!inspectionId) return;
+      if (!inspectionNo) return;
 
-      const payload = buildQualityIssueData(inspectionId, {
+      const payload = buildQualityIssueData(inspectionNo, {
         componentName: '沙发左扶手',
         issueTypes: ['appearance'],
         severity: 'minor',
@@ -294,9 +296,9 @@ describe('质量溯源模块 API 集成测试', () => {
     });
 
     test('录入多类型问题（外观+尺寸）成功', async () => {
-      if (!inspectionId) return;
+      if (!inspectionNo) return;
 
-      const payload = buildQualityIssueData(inspectionId, {
+      const payload = buildQualityIssueData(inspectionNo, {
         componentName: '沙发靠背',
         issueTypes: ['appearance', 'dimension'],
         severity: 'normal',
@@ -314,12 +316,12 @@ describe('质量溯源模块 API 集成测试', () => {
     });
 
     test('TC-QC-006: severity传非法枚举值 → 1001', async () => {
-      if (!inspectionId) return;
+      if (!inspectionNo) return;
 
       const res = await request(BASE_URL)
         .post('/api/quality/inspections/issues')
         .set(authHeader('qc'))
-        .send(buildQualityIssueData(inspectionId, {
+        .send(buildQualityIssueData(inspectionNo, {
           severity: 'critical' as any, // 合法值: minor/normal/severe
         }));
 
@@ -328,12 +330,12 @@ describe('质量溯源模块 API 集成测试', () => {
     });
 
     test('TC-QC-007: issueTypes为空数组 → 1001', async () => {
-      if (!inspectionId) return;
+      if (!inspectionNo) return;
 
       const res = await request(BASE_URL)
         .post('/api/quality/inspections/issues')
         .set(authHeader('qc'))
-        .send(buildQualityIssueData(inspectionId, {
+        .send(buildQualityIssueData(inspectionNo, {
           issueTypes: [],
         }));
 
@@ -341,12 +343,12 @@ describe('质量溯源模块 API 集成测试', () => {
     });
 
     test('issueTypes包含非法枚举值 → 1001', async () => {
-      if (!inspectionId) return;
+      if (!inspectionNo) return;
 
       const res = await request(BASE_URL)
         .post('/api/quality/inspections/issues')
         .set(authHeader('qc'))
-        .send(buildQualityIssueData(inspectionId, {
+        .send(buildQualityIssueData(inspectionNo, {
           issueTypes: ['invalid_type'],
         }));
 
@@ -354,12 +356,12 @@ describe('质量溯源模块 API 集成测试', () => {
     });
 
     test('description超500字符 → 1001', async () => {
-      if (!inspectionId) return;
+      if (!inspectionNo) return;
 
       const res = await request(BASE_URL)
         .post('/api/quality/inspections/issues')
         .set(authHeader('qc'))
-        .send(buildQualityIssueData(inspectionId, {
+        .send(buildQualityIssueData(inspectionNo, {
           description: 'X'.repeat(501),
         }));
 
@@ -367,12 +369,12 @@ describe('质量溯源模块 API 集成测试', () => {
     });
 
     test('worker角色无权录入质量问题 → 1003', async () => {
-      if (!inspectionId) return;
+      if (!inspectionNo) return;
 
       const res = await request(BASE_URL)
         .post('/api/quality/inspections/issues')
         .set(authHeader('worker'))
-        .send(buildQualityIssueData(inspectionId));
+        .send(buildQualityIssueData(inspectionNo));
 
       expect(res.status).toBe(403);
       expect(res.body.code).toBe(1003);
@@ -389,7 +391,7 @@ describe('质量溯源模块 API 集成测试', () => {
         .post('/api/quality/inspections')
         .set(authHeader('qc'))
         .send({
-          productionOrderId: PRODUCTION_ORDER_ID,
+          productionOrderNo: PRODUCTION_ORDER_NO,
           inspectionDate: '2026-03-11',
           qtyInspected: '10',
         });
@@ -414,7 +416,7 @@ describe('质量溯源模块 API 集成测试', () => {
         .post('/api/quality/inspections')
         .set(authHeader('qc'))
         .send({
-          productionOrderId: PRODUCTION_ORDER_ID,
+          productionOrderNo: PRODUCTION_ORDER_NO,
           inspectionDate: '2026-03-11',
           qtyInspected: '5',
         });
@@ -435,7 +437,7 @@ describe('质量溯源模块 API 集成测试', () => {
         .post('/api/quality/inspections')
         .set(authHeader('qc'))
         .send({
-          productionOrderId: PRODUCTION_ORDER_ID,
+          productionOrderNo: PRODUCTION_ORDER_NO,
           inspectionDate: '2026-03-11',
           qtyInspected: '5',
         });
@@ -483,18 +485,17 @@ describe('质量溯源模块 API 集成测试', () => {
         .post('/api/quality/inspections')
         .set(authHeader('qc'))
         .send({
-          productionOrderId: PRODUCTION_ORDER_ID,
+          productionOrderNo: PRODUCTION_ORDER_NO,
           inspectionDate: '2026-03-12',
           qtyInspected: '12',
         });
 
-      const inspectionId = Number(createInspectionRes.body.data?.id ?? 0);
       seededInspectionNo = String(createInspectionRes.body.data?.inspectionNo ?? '');
 
       const createIssueRes = await request(BASE_URL)
         .post('/api/quality/inspections/issues')
         .set(authHeader('qc'))
-        .send(buildQualityIssueData(inspectionId, {
+        .send(buildQualityIssueData(seededInspectionNo, {
           componentName: '靠背连接件',
           issueTypes: ['material', 'function'],
           severity: 'severe',

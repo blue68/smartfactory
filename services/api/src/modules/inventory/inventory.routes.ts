@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import path from 'path';
+import multer from 'multer';
 import { inventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
 import { authMiddleware, requireRoles } from '../../middleware/auth';
@@ -9,7 +11,67 @@ import { success } from '../../shared/ApiResponse';
 const router = Router();
 router.use(authMiddleware);
 
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedMimes = ['text/csv', 'application/csv', 'application/vnd.ms-excel'];
+    if (ext === '.csv' || allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error('仅支持 .csv 格式文件'));
+  },
+});
+
 router.get('/',                              asyncHandler(inventoryController.list.bind(inventoryController)));
+router.get('/warehouses',                    asyncHandler(inventoryController.listWarehouses.bind(inventoryController)));
+router.get('/locations',                     asyncHandler(inventoryController.listLocations.bind(inventoryController)));
+router.post(
+  '/warehouses',
+  requireRoles('supervisor', 'boss', 'admin', 'warehouse'),
+  asyncHandler(inventoryController.createWarehouse.bind(inventoryController)),
+);
+router.put(
+  '/warehouses/:id',
+  requireRoles('supervisor', 'boss', 'admin', 'warehouse'),
+  asyncHandler(inventoryController.updateWarehouse.bind(inventoryController)),
+);
+router.delete(
+  '/warehouses/:id',
+  requireRoles('supervisor', 'boss', 'admin', 'warehouse'),
+  asyncHandler(inventoryController.deleteWarehouse.bind(inventoryController)),
+);
+router.post(
+  '/locations',
+  requireRoles('supervisor', 'boss', 'admin', 'warehouse'),
+  asyncHandler(inventoryController.createLocation.bind(inventoryController)),
+);
+router.put(
+  '/locations/:id',
+  requireRoles('supervisor', 'boss', 'admin', 'warehouse'),
+  asyncHandler(inventoryController.updateLocation.bind(inventoryController)),
+);
+router.delete(
+  '/locations/:id',
+  requireRoles('supervisor', 'boss', 'admin', 'warehouse'),
+  asyncHandler(inventoryController.deleteLocation.bind(inventoryController)),
+);
+router.get('/warehouses/import-template/csv', asyncHandler(inventoryController.downloadWarehouseImportTemplateCsv.bind(inventoryController)));
+router.post(
+  '/warehouses/import-csv',
+  requireRoles('supervisor', 'boss'),
+  csvUpload.single('file'),
+  asyncHandler(inventoryController.importWarehousesCsv.bind(inventoryController)),
+);
+router.get('/locations/import-template/csv', asyncHandler(inventoryController.downloadLocationImportTemplateCsv.bind(inventoryController)));
+router.post(
+  '/locations/import-csv',
+  requireRoles('supervisor', 'boss'),
+  csvUpload.single('file'),
+  asyncHandler(inventoryController.importLocationsCsv.bind(inventoryController)),
+);
 // BE-P1-005: 库存汇总看板（必须在 /:skuId 参数路由之前注册，避免路由歧义）
 router.get('/summary',                       asyncHandler(inventoryController.getSummary.bind(inventoryController)));
 // BE-08-08: 库存实时查询

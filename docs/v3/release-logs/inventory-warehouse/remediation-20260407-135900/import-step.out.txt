@@ -1,0 +1,6 @@
+[import-inventory-location-mappings] csv=/Users/kongwen/claude_wk/ai-software-company/docs/v3/sql/inventory-location-mapping-candidates-20260407-133711-filled-20260407-134641.csv
+[import-inventory-location-mappings] mode=--apply tenant_id=1 operator_id=0
+[import-inventory-location-mappings] applying mappings
+[import-inventory-location-mappings] validation_out=docs/v3/release-logs/inventory-warehouse/remediation-20260407-135900/mapping-import/validation.out.txt
+[import-inventory-location-mappings] apply_out=docs/v3/release-logs/inventory-warehouse/remediation-20260407-135900/mapping-import/apply.out.txt
+docs/v3/release-logs/inventory-warehouse/remediation-20260407-135900/mapping-import

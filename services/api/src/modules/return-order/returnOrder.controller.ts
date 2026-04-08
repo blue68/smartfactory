@@ -35,6 +35,8 @@ const ListReturnOrderQuerySchema = PaginationSchema.extend({
 const ShipReturnOrderSchema = z.object({
   trackingNo: z.string().trim().max(100).optional(),
   notes: z.string().trim().max(500).optional(),
+  warehouseId: z.number().int().positive().optional(),
+  locationId: z.number().int().positive().optional(),
 });
 
 const CompleteReturnOrderSchema = z.object({

@@ -13,25 +13,28 @@
  * - 录入质量问题：useCreateIssue + uploadQualityImage
  */
 
-import { useEffect, useState, useMemo, type ChangeEvent } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback, type ChangeEvent } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import Modal from '@/components/common/Modal';
 import Tag from '@/components/common/Tag';
 import Button from '@/components/common/Button';
+import request from '@/utils/request';
 import {
   useCreateInspection,
   useCreateIssue,
+  useQualityInspectionOptions,
+  useQualityProductionOrderOptions,
   useQualityStats,
   useTraceability,
   useIssueList,
   uploadQualityImage,
 } from '@/api/quality';
-import { IssueSeverity, IssueType, IssueTypeLabel } from '@/types/enums';
+import { IssueType, IssueTypeLabel } from '@/types/enums';
 import styles from './TracePage.module.css';
 
 // ─── 新建验货单表单类型 ────────────────────────
 type CreateInspectionForm = {
-  productionOrderId: string;
+  productionOrderNo: string;
   inspectionDate: string;
   qtyInspected: string;
 };
@@ -45,12 +48,17 @@ type UploadedIssueImage = {
 type CreateIssueSeverity = 'minor' | 'normal' | 'severe';
 
 type CreateIssueForm = {
-  inspectionId: string;
+  inspectionNo: string;
   componentName: string;
   issueTypes: IssueType[];
   severity: CreateIssueSeverity;
   description: string;
   images: UploadedIssueImage[];
+};
+
+type PreviewImage = {
+  sourceUrl: string;
+  title: string;
 };
 
 // ─── periodDays 映射 ──────────────────────────
@@ -109,17 +117,20 @@ const ISSUE_SEVERITY_OPTIONS: Array<{ value: CreateIssueSeverity; label: string 
   { value: 'severe', label: '严重' },
 ];
 
-function toIssueSeverity(value: CreateIssueSeverity): IssueSeverity {
-  switch (value) {
-    case 'severe':
-      return IssueSeverity.CRITICAL;
-    case 'minor':
-      return IssueSeverity.MINOR;
-    case 'normal':
-    default:
-      return IssueSeverity.MAJOR;
-  }
-}
+const ORDER_STATUS_LABEL: Record<string, string> = {
+  pending: '待排产',
+  scheduled: '已排产',
+  in_progress: '生产中',
+  completed: '已完工',
+  cancelled: '已取消',
+};
+
+const INSPECTION_STATUS_LABEL: Record<string, string> = {
+  draft: '草稿',
+  pending: '待确认',
+  completed: '已完成',
+  cancelled: '已取消',
+};
 
 // ─── 时间格式化（API 返回 ISO 字符串，展示为 M/D HH:mm）─
 function formatTime(iso: string | Date): string {
@@ -132,6 +143,23 @@ function formatTime(iso: string | Date): string {
     return `${month}/${day} ${hh}:${mm}`;
   } catch {
     return String(iso);
+  }
+}
+
+function formatDateOnly(iso: string | Date): string {
+  try {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  } catch {
+    return String(iso);
+  }
+}
+
+function toAbsoluteUrl(rawUrl: string): string {
+  try {
+    return new URL(rawUrl, window.location.origin).toString();
+  } catch {
+    return rawUrl;
   }
 }
 
@@ -253,18 +281,25 @@ const TOP3_STYLES = [
 // ─── 主组件 ───────────────────────────────────
 export default function TracePage() {
   const { setPageTitle, showToast } = useAppStore();
+  const issuePageSize = 20;
 
   const [dateRange, setDateRange] = useState<string>('近30天');
   const [createModal, setCreateModal] = useState(false);
   const [issueModal, setIssueModal] = useState(false);
+  const [allIssuesModal, setAllIssuesModal] = useState(false);
+  const [allIssuePage, setAllIssuePage] = useState(1);
   const [issueUploading, setIssueUploading] = useState(false);
+  const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
+  const imageBlobUrlMapRef = useRef<Map<string, string>>(new Map());
+  const [issueImageBlobUrlMap, setIssueImageBlobUrlMap] = useState<Record<string, string>>({});
+  const [issueImageLoadFailedMap, setIssueImageLoadFailedMap] = useState<Record<string, boolean>>({});
   const [form, setForm] = useState<CreateInspectionForm>({
-    productionOrderId: '',
+    productionOrderNo: '',
     inspectionDate: '',
     qtyInspected: '',
   });
   const [issueForm, setIssueForm] = useState<CreateIssueForm>({
-    inspectionId: '',
+    inspectionNo: '',
     componentName: '',
     issueTypes: [],
     severity: 'normal',
@@ -282,17 +317,28 @@ export default function TracePage() {
 
   // ── API 调用 ─────────────────────────────────
   const statsQuery     = useQualityStats(periodDays);
-  const issueListQuery = useIssueList({}, 1, 20);
+  const issueListQuery = useIssueList({}, 1, issuePageSize);
+  const allIssuesQuery = useIssueList({}, allIssuePage, issuePageSize, allIssuesModal);
   const traceQuery     = useTraceability(selectedOrderId);
 
   const createMutation = useCreateInspection();
   const createIssueMutation = useCreateIssue();
+  const productionOrderOptionsQuery = useQualityProductionOrderOptions(
+    form.productionOrderNo.trim(),
+    80,
+    createModal,
+  );
+  const inspectionOptionsQuery = useQualityInspectionOptions(
+    issueForm.inspectionNo.trim(),
+    80,
+    issueModal,
+  );
 
   useEffect(() => { setPageTitle('质量溯源中心'); }, [setPageTitle]);
 
   const resetIssueForm = () => {
     setIssueForm({
-      inspectionId: '',
+      inspectionNo: '',
       componentName: '',
       issueTypes: [],
       severity: 'normal',
@@ -405,24 +451,104 @@ export default function TracePage() {
 
   const finalBarChart = barChartData ?? BAR_CHART_FALLBACK;
   const finalTop3     = top3Data     ?? TOP3_FALLBACK;
+  const allIssueTotalPages = Math.max(1, allIssuesQuery.data?.totalPages ?? 1);
+
+  const resolveImageUrl = useCallback((rawUrl: string): string => toAbsoluteUrl(rawUrl), []);
+
+  const issueImageSourceUrls = useMemo(() => {
+    const recentIssueImages = (issueListQuery.data?.list ?? []).flatMap((issue) => issue.images ?? []);
+    const allIssueImages = (allIssuesQuery.data?.list ?? []).flatMap((issue) => issue.images ?? []);
+    const merged = [...recentIssueImages, ...allIssueImages]
+      .filter((imageUrl): imageUrl is string => typeof imageUrl === 'string' && imageUrl.trim().length > 0)
+      .map((imageUrl) => resolveImageUrl(imageUrl));
+    return Array.from(new Set(merged));
+  }, [allIssuesQuery.data?.list, issueListQuery.data?.list, resolveImageUrl]);
+
+  const unresolvedIssueImageUrls = useMemo(
+    () => issueImageSourceUrls.filter((url) => !issueImageBlobUrlMap[url] && !issueImageLoadFailedMap[url]),
+    [issueImageBlobUrlMap, issueImageLoadFailedMap, issueImageSourceUrls],
+  );
+
+  useEffect(() => {
+    if (unresolvedIssueImageUrls.length === 0) return;
+    const abortController = new AbortController();
+    let disposed = false;
+
+    const loadImages = async () => {
+      for (const sourceUrl of unresolvedIssueImageUrls) {
+        if (disposed) return;
+        try {
+          const response = await request.instance.get(sourceUrl, {
+            responseType: 'blob',
+            withCredentials: true,
+            signal: abortController.signal,
+          });
+          const blob = response.data as Blob;
+          const blobUrl = URL.createObjectURL(blob);
+          if (disposed) {
+            URL.revokeObjectURL(blobUrl);
+            return;
+          }
+          setIssueImageBlobUrlMap((prev) => {
+            if (prev[sourceUrl]) {
+              URL.revokeObjectURL(blobUrl);
+              return prev;
+            }
+            imageBlobUrlMapRef.current.set(sourceUrl, blobUrl);
+            return { ...prev, [sourceUrl]: blobUrl };
+          });
+        } catch {
+          if (!abortController.signal.aborted && !disposed) {
+            setIssueImageLoadFailedMap((prev) => (prev[sourceUrl] ? prev : { ...prev, [sourceUrl]: true }));
+          }
+        }
+      }
+    };
+
+    void loadImages();
+
+    return () => {
+      disposed = true;
+      abortController.abort();
+    };
+  }, [unresolvedIssueImageUrls]);
+
+  useEffect(() => () => {
+    for (const blobUrl of imageBlobUrlMapRef.current.values()) {
+      URL.revokeObjectURL(blobUrl);
+    }
+    imageBlobUrlMapRef.current.clear();
+  }, []);
+
+  const resolveAuthedImageUrl = useCallback((rawUrl: string): string | null => {
+    const absoluteUrl = resolveImageUrl(rawUrl);
+    return issueImageBlobUrlMap[absoluteUrl] ?? null;
+  }, [issueImageBlobUrlMap, resolveImageUrl]);
+
+  const isImageLoadFailed = useCallback((rawUrl: string): boolean => {
+    const absoluteUrl = resolveImageUrl(rawUrl);
+    return Boolean(issueImageLoadFailedMap[absoluteUrl]);
+  }, [issueImageLoadFailedMap, resolveImageUrl]);
+
+  const previewImageSrc = previewImage ? resolveAuthedImageUrl(previewImage.sourceUrl) : null;
 
   // ── 创建验货单 ────────────────────────────────
   const handleCreate = async () => {
-    if (!form.productionOrderId || !form.inspectionDate || !form.qtyInspected) {
+    if (!form.productionOrderNo.trim() || !form.inspectionDate || !form.qtyInspected) {
       showToast({ type: 'warning', message: '请填写生产工单号、验货日期和验货数量' });
       return;
     }
     try {
       const result = await createMutation.mutateAsync({
-        productionOrderId: Number(form.productionOrderId),
+        productionOrderNo: form.productionOrderNo.trim(),
         inspectionDate: form.inspectionDate,
         qtyInspected: form.qtyInspected,
       });
       showToast({ type: 'success', message: '验货单已创建' });
-      setIssueForm((prev) => ({ ...prev, inspectionId: String(result.id) }));
+      setIssueForm((prev) => ({ ...prev, inspectionNo: result.inspectionNo }));
       setCreateModal(false);
       setIssueModal(true);
-      setForm({ productionOrderId: '', inspectionDate: '', qtyInspected: '' });
+      setForm({ productionOrderNo: '', inspectionDate: '', qtyInspected: '' });
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
     }
@@ -496,8 +622,8 @@ export default function TracePage() {
   };
 
   const handleCreateIssue = async () => {
-    if (!issueForm.inspectionId || !Number.isInteger(Number(issueForm.inspectionId)) || Number(issueForm.inspectionId) <= 0) {
-      showToast({ type: 'warning', message: '请输入有效的验货单 ID' });
+    if (!issueForm.inspectionNo.trim()) {
+      showToast({ type: 'warning', message: '请输入验货单号' });
       return;
     }
     if (!issueForm.componentName.trim()) {
@@ -511,10 +637,10 @@ export default function TracePage() {
 
     try {
       await createIssueMutation.mutateAsync({
-        inspectionId: Number(issueForm.inspectionId),
+        inspectionNo: issueForm.inspectionNo.trim(),
         componentName: issueForm.componentName.trim(),
         issueTypes: issueForm.issueTypes,
-        severity: toIssueSeverity(issueForm.severity),
+        severity: issueForm.severity,
         description: issueForm.description.trim(),
         images: issueForm.images.map((image) => image.url),
       });
@@ -524,6 +650,63 @@ export default function TracePage() {
     } catch (error) {
       showToast({ type: 'error', message: (error as Error).message ?? '质量问题录入失败，请稍后重试' });
     }
+  };
+
+  const handleExportTraceReport = () => {
+    if (!traceQuery.data) {
+      showToast({ type: 'warning', message: '请先点击质量问题中的“溯源”加载溯源链' });
+      return;
+    }
+    const trace = traceQuery.data;
+    const lines: string[] = [
+      '质量溯源报告',
+      `生成时间: ${formatDateOnly(new Date())} ${formatTime(new Date())}`,
+      `生产工单号: ${trace.workOrderNo}`,
+      `成品: ${trace.skuName}`,
+      `销售单号: ${trace.salesOrderNo}`,
+      `客户: ${trace.customerName}`,
+      '',
+      '溯源汇总',
+      `- 总组件数: ${trace.summary.totalComponents}`,
+      `- 有扫码记录: ${trace.summary.withScanRecord}`,
+      `- 缸号: ${trace.summary.dyeLots.length > 0 ? trace.summary.dyeLots.join(', ') : '无'}`,
+      '',
+      '组件溯源明细',
+    ];
+
+    trace.components.forEach((component, index) => {
+      lines.push(
+        `${index + 1}. 工序 ${component.stepNo} / ${component.processStepName}`,
+        `   部件: ${component.componentName ?? '—'}`,
+        `   工人: ${component.workerName} (ID: ${component.workerId})`,
+        `   操作时间: ${formatTime(component.operationTime)}`,
+        `   物料: ${component.skuName ?? '—'}`,
+        `   缸号: ${component.dyeLotNo ?? '—'}`,
+        `   扫码状态: ${component.hasScanRecord ? '完整' : '缺失'}`,
+      );
+    });
+
+    if (trace.aiAnalysis) {
+      lines.push('', 'AI 根因分析', `- 摘要: ${trace.aiAnalysis.summary}`);
+      trace.aiAnalysis.rootCauses.forEach((cause) => {
+        lines.push(`- 根因: ${cause}`);
+      });
+      trace.aiAnalysis.recommendations.forEach((item) => {
+        lines.push(`- 建议: ${item}`);
+      });
+    }
+
+    const fileName = `trace-report-${trace.workOrderNo}-${formatDateOnly(new Date())}.txt`.replace(/[^\w.-]/g, '_');
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showToast({ type: 'success', message: '溯源报告已导出' });
   };
 
   // ── 溯源区标题 ───────────────────────────────
@@ -600,7 +783,7 @@ export default function TracePage() {
               从成品向下追溯：成品 → 问题部件 → 使用物料批次（含缸号）→ 生产工序 → 操作工人
             </div>
           </div>
-          <Button variant="ghost" size="sm">导出溯源报告</Button>
+          <Button variant="ghost" size="sm" onClick={handleExportTraceReport}>导出溯源报告</Button>
         </div>
 
         {/* 溯源链内容区：加载 / 错误 / 空 / 节点列表 */}
@@ -708,7 +891,16 @@ export default function TracePage() {
           <div className={styles.card}>
             <div className={styles.cardHeaderRow}>
               <h2 className={styles.cardTitle}>质量问题记录（近{periodDays}天）</h2>
-              <Button variant="ghost" size="sm">查看全部</Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setAllIssuePage(1);
+                  setAllIssuesModal(true);
+                }}
+              >
+                查看全部
+              </Button>
             </div>
 
             {issueListQuery.isLoading ? (
@@ -755,6 +947,37 @@ export default function TracePage() {
                         <div className={styles.issueItemDesc}>
                           {issue.description ?? '无问题描述'}
                         </div>
+                        {(issue.images ?? []).length > 0 && (
+                          <div className={styles.issueImagePreviewRow}>
+                            {(issue.images ?? []).slice(0, 3).map((imageUrl, imageIndex) => (
+                              <button
+                                key={`${issue.id}-${imageUrl}`}
+                                type="button"
+                                className={styles.issueImagePreviewButton}
+                                onClick={() => {
+                                  setPreviewImage({
+                                    sourceUrl: imageUrl,
+                                    title: `${issue.componentName} - 图片${imageIndex + 1}`,
+                                  });
+                                }}
+                                aria-label={`查看问题图片${imageIndex + 1}`}
+                              >
+                                {resolveAuthedImageUrl(imageUrl) ? (
+                                  <img
+                                    src={resolveAuthedImageUrl(imageUrl) ?? ''}
+                                    alt={`${issue.componentName}问题图片${imageIndex + 1}`}
+                                    className={styles.issueImagePreview}
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  <span className={styles.issueImagePreviewPlaceholder}>
+                                    {isImageLoadFailed(imageUrl) ? '加载失败' : '加载中'}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         <div className={styles.issueItemMeta}>
                           <span>{formatTime(issue.createdAt)}</span>
                           <span>验货单: {issue.inspectionNo}</span>
@@ -845,12 +1068,28 @@ export default function TracePage() {
             </label>
             <input
               className={styles.formInput}
-              type="number"
-              min="1"
-              value={form.productionOrderId}
-              onChange={(e) => setForm((f) => ({ ...f, productionOrderId: e.target.value }))}
-              placeholder="请输入工单 ID"
+              type="text"
+              list="quality-production-order-options"
+              value={form.productionOrderNo}
+              onChange={(e) => setForm((f) => ({ ...f, productionOrderNo: e.target.value }))}
+              placeholder="请输入生产工单号"
             />
+            <datalist id="quality-production-order-options">
+              {(productionOrderOptionsQuery.data ?? []).map((order) => (
+                <option
+                  key={order.id}
+                  value={order.workOrderNo}
+                  label={`${order.workOrderNo} · ${order.skuName} · ${ORDER_STATUS_LABEL[order.status] ?? order.status}`}
+                />
+              ))}
+            </datalist>
+            <div className={styles.formHint}>
+              {productionOrderOptionsQuery.isLoading
+                ? '正在加载可选生产工单号...'
+                : productionOrderOptionsQuery.isError
+                ? '工单号候选加载失败，可手动输入生产工单号'
+                : `已加载 ${productionOrderOptionsQuery.data?.length ?? 0} 条工单号候选，可输入关键字搜索`}
+            </div>
           </div>
           <div className={styles.formField}>
             <label className={styles.formLabel}>
@@ -898,16 +1137,32 @@ export default function TracePage() {
           <div className={styles.issueFormGrid}>
             <div className={styles.formField}>
               <label className={styles.formLabel}>
-                验货单 ID <span className={styles.required}>*</span>
+                验货单号 <span className={styles.required}>*</span>
               </label>
               <input
                 className={styles.formInput}
-                type="number"
-                min="1"
-                value={issueForm.inspectionId}
-                onChange={(e) => setIssueForm((prev) => ({ ...prev, inspectionId: e.target.value }))}
-                placeholder="请输入验货单 ID"
+                type="text"
+                list="quality-inspection-options"
+                value={issueForm.inspectionNo}
+                onChange={(e) => setIssueForm((prev) => ({ ...prev, inspectionNo: e.target.value }))}
+                placeholder="请输入验货单号"
               />
+              <datalist id="quality-inspection-options">
+                {(inspectionOptionsQuery.data ?? []).map((inspection) => (
+                  <option
+                    key={inspection.id}
+                    value={inspection.inspectionNo}
+                    label={`${inspection.inspectionNo} · ${inspection.workOrderNo} · ${inspection.skuName} · ${INSPECTION_STATUS_LABEL[inspection.status] ?? inspection.status}`}
+                  />
+                ))}
+              </datalist>
+              <div className={styles.formHint}>
+                {inspectionOptionsQuery.isLoading
+                  ? '正在加载可选验货单号...'
+                  : inspectionOptionsQuery.isError
+                  ? '验货单号候选加载失败，可手动输入'
+                  : `已加载 ${inspectionOptionsQuery.data?.length ?? 0} 条验货单号候选，可输入关键字搜索`}
+              </div>
             </div>
             <div className={styles.formField}>
               <label className={styles.formLabel}>
@@ -1013,6 +1268,140 @@ export default function TracePage() {
               )}
             </div>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={allIssuesModal}
+        title="全部质量问题记录"
+        onClose={() => setAllIssuesModal(false)}
+        hideFooter
+        size="xl"
+      >
+        <div className={styles.allIssuesModalBody}>
+          {allIssuesQuery.isLoading ? (
+            <div className={styles.allIssuesEmpty}>加载中...</div>
+          ) : allIssuesQuery.isError ? (
+            <div className={styles.allIssuesEmpty}>加载失败，请稍后重试</div>
+          ) : (allIssuesQuery.data?.list ?? []).length === 0 ? (
+            <div className={styles.allIssuesEmpty}>暂无质量问题记录</div>
+          ) : (
+            <>
+              <div className={styles.issueList} role="list">
+                {(allIssuesQuery.data?.list ?? []).map((issue) => {
+                  const tagVariant = severityToTagVariant(issue.severity);
+                  const severityLabel = severityToLabel(issue.severity);
+                  const primaryType = issue.issueTypes?.[0];
+                  const categoryLabel = primaryType ? issueTypeToLabel(primaryType) : '—';
+                  const isActive = selectedOrderId !== null && selectedOrderId === issue.productionOrderId;
+
+                  return (
+                    <div
+                      key={`all-${issue.id}`}
+                      className={`${styles.issueItem} ${isActive ? styles['issueItem--severe'] : ''}`}
+                      role="listitem"
+                    >
+                      <div className={styles.issueItemContent}>
+                        <div className={styles.issueItemHeader}>
+                          <Tag variant={tagVariant}>{severityLabel}</Tag>
+                          <Tag variant="neutral">{categoryLabel}</Tag>
+                        </div>
+                        <div className={styles.issueItemTitle}>{issue.componentName}</div>
+                        <div className={styles.issueItemDesc}>{issue.description ?? '无问题描述'}</div>
+                        {(issue.images ?? []).length > 0 && (
+                          <div className={styles.issueImagePreviewRow}>
+                            {(issue.images ?? []).slice(0, 3).map((imageUrl, imageIndex) => (
+                              <button
+                                key={`all-${issue.id}-${imageUrl}`}
+                                type="button"
+                                className={styles.issueImagePreviewButton}
+                                onClick={() => {
+                                  setPreviewImage({
+                                    sourceUrl: imageUrl,
+                                    title: `${issue.componentName} - 图片${imageIndex + 1}`,
+                                  });
+                                }}
+                              >
+                                {resolveAuthedImageUrl(imageUrl) ? (
+                                  <img
+                                    src={resolveAuthedImageUrl(imageUrl) ?? ''}
+                                    alt={`${issue.componentName}问题图片${imageIndex + 1}`}
+                                    className={styles.issueImagePreview}
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  <span className={styles.issueImagePreviewPlaceholder}>
+                                    {isImageLoadFailed(imageUrl) ? '加载失败' : '加载中'}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <div className={styles.issueItemMeta}>
+                          <span>{formatTime(issue.createdAt)}</span>
+                          <span>验货单: {issue.inspectionNo}</span>
+                          <span>工单: {issue.productionOrderNo}</span>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedOrderId(issue.productionOrderId);
+                          setAllIssuesModal(false);
+                        }}
+                      >
+                        溯源
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className={styles.allIssuesPager}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setAllIssuePage((prev) => Math.max(1, prev - 1))}
+                  disabled={allIssuePage <= 1}
+                >
+                  上一页
+                </Button>
+                <span className={styles.allIssuesPagerText}>
+                  第 {allIssuePage} / {allIssueTotalPages} 页
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setAllIssuePage((prev) => Math.min(allIssueTotalPages, prev + 1))}
+                  disabled={allIssuePage >= allIssueTotalPages}
+                >
+                  下一页
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(previewImage)}
+        title={previewImage?.title ?? '问题图片预览'}
+        onClose={() => setPreviewImage(null)}
+        hideFooter
+        size="lg"
+      >
+        <div className={styles.issueImagePreviewModalWrap}>
+          {previewImageSrc ? (
+            <img src={previewImageSrc} alt={previewImage?.title ?? '问题图片预览'} className={styles.issueImagePreviewModalImage} />
+          ) : (
+            <div className={styles.allIssuesEmpty}>
+              {previewImage?.sourceUrl
+                ? (isImageLoadFailed(previewImage.sourceUrl) ? '图片加载失败，请稍后重试' : '图片加载中...')
+                : '暂无可预览图片'}
+            </div>
+          )}
         </div>
       </Modal>
     </div>

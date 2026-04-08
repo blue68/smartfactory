@@ -1,0 +1,4 @@
+sku_code,source_note,warehouse_code,location_code,status
+RM-00102,DN20260401-001,WH-A,A-01-01,active
+RM-00150,PO20260402-015,WH-B,B-02-03,active
+WIP-00021,WO20260403-008,WH-P,P-01-02,active

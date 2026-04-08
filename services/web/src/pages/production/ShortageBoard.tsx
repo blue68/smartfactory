@@ -11,6 +11,7 @@ import {
   type ShortageItem,
   type ShortageSummaryItem,
 } from '@/api/mrp';
+import { useWarehouseOptions, useLocationOptions } from '@/api/inventory';
 import { useAppStore } from '@/stores/appStore';
 import Button from '@/components/common/Button';
 import Table from '@/components/common/Table';
@@ -89,11 +90,47 @@ export default function ShortageBoard() {
   const setPageTitle = useAppStore((state) => state.setPageTitle);
   const [keyword, setKeyword] = useState('');
   const [focusFilter, setFocusFilter] = useState<FocusFilter>('all');
+  const [warehouseId, setWarehouseId] = useState<number | ''>('');
+  const [locationId, setLocationId] = useState<number | ''>('');
+  const [onlyDefaultLocation, setOnlyDefaultLocation] = useState(false);
+  const [governanceRestoreFilter, setGovernanceRestoreFilter] = useState<{
+    warehouseId: number | '';
+    locationId: number | '';
+  } | null>(null);
   const [selectedSkuId, setSelectedSkuId] = useState<number | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const deferredKeyword = useDeferredValue(keyword.trim().toLowerCase());
+  const { data: warehouseOptions = [] } = useWarehouseOptions(true);
+  const defaultWarehouse = useMemo(
+    () => warehouseOptions.find((item) => item.code === 'DEFAULT') ?? null,
+    [warehouseOptions],
+  );
+  const { data: scopedLocationOptions = [] } = useLocationOptions(
+    warehouseId === '' ? undefined : Number(warehouseId),
+    true,
+  );
+  const { data: defaultWarehouseLocations = [] } = useLocationOptions(
+    defaultWarehouse?.id,
+    true,
+  );
+  const defaultLocation = useMemo(
+    () => defaultWarehouseLocations.find((item) => item.code === 'DEFAULT-UNKNOWN') ?? null,
+    [defaultWarehouseLocations],
+  );
+  const defaultWarehouseId = defaultWarehouse?.id;
+  const defaultLocationId = defaultLocation?.id;
+  const shortageSummaryQuery = useMemo(
+    () => ({
+      page: 1,
+      pageSize: 200,
+      warehouseId: warehouseId === '' ? undefined : Number(warehouseId),
+      locationId: locationId === '' ? undefined : Number(locationId),
+      onlyDefaultLocation: onlyDefaultLocation || undefined,
+    }),
+    [locationId, onlyDefaultLocation, warehouseId],
+  );
 
-  const { data: summaryData, isLoading } = useShortageSummary();
+  const { data: summaryData, isLoading } = useShortageSummary(shortageSummaryQuery);
   const { data: dashboardData } = useSupplyChainDashboard();
   const generateSuggestions = useGenerateMrpSuggestions();
 
@@ -146,6 +183,23 @@ export default function ShortageBoard() {
   useEffect(() => {
     setPageTitle('缺料看板');
   }, [setPageTitle]);
+
+  useEffect(() => {
+    if (!onlyDefaultLocation) return;
+    if (!defaultWarehouseId && !defaultLocationId) return;
+    if (defaultWarehouseId && warehouseId !== defaultWarehouseId) {
+      setWarehouseId(defaultWarehouseId);
+    }
+    if (defaultLocationId && locationId !== defaultLocationId) {
+      setLocationId(defaultLocationId);
+    }
+  }, [
+    defaultLocationId,
+    defaultWarehouseId,
+    locationId,
+    onlyDefaultLocation,
+    warehouseId,
+  ]);
 
   useEffect(() => {
     if (!filteredRows.length) {
@@ -319,15 +373,46 @@ export default function ShortageBoard() {
     },
   ], [handleRiskSignalClick, navigate]);
 
+  const handleGotoDefaultLocationGovernance = useCallback(() => {
+    const params = new URLSearchParams();
+    params.set('onlyDefaultLocation', 'true');
+    if (defaultWarehouseId) params.set('warehouseId', String(defaultWarehouseId));
+    if (defaultLocationId) params.set('locationId', String(defaultLocationId));
+    navigate(`/inventory?${params.toString()}`);
+  }, [defaultLocationId, defaultWarehouseId, navigate]);
+
+  const enterDefaultLocationMode = useCallback(() => {
+    setGovernanceRestoreFilter({
+      warehouseId,
+      locationId,
+    });
+    setOnlyDefaultLocation(true);
+    setWarehouseId(defaultWarehouseId ?? '');
+    setLocationId(defaultLocationId ?? '');
+  }, [defaultLocationId, defaultWarehouseId, locationId, warehouseId]);
+
+  const exitDefaultLocationMode = useCallback(() => {
+    setOnlyDefaultLocation(false);
+    setWarehouseId(governanceRestoreFilter?.warehouseId ?? '');
+    setLocationId(governanceRestoreFilter?.locationId ?? '');
+    setGovernanceRestoreFilter(null);
+  }, [governanceRestoreFilter]);
+
+  const resetFilters = useCallback(() => {
+    setKeyword('');
+    setFocusFilter('all');
+    setOnlyDefaultLocation(false);
+    setWarehouseId('');
+    setLocationId('');
+    setGovernanceRestoreFilter(null);
+  }, []);
+
   return (
     <div className={styles.page}>
       <section className={styles.hero}>
         <div className={styles.heroCopy}>
           <div className={styles.eyebrow}>Material Risk Control</div>
           <h1 className={styles.heroTitle}>缺料指挥台</h1>
-          <p className={styles.heroSubtitle}>
-            这页不再只展示缺口数字，而是把产品经理关心的“影响工单、在途缓冲、采购动作”放到同一视图里，便于主管和采购快速决策。
-          </p>
 
           <div className={styles.heroMeta}>
             <div className={styles.heroMetaItem}>
@@ -429,7 +514,83 @@ export default function ShortageBoard() {
                 placeholder="搜索 SKU、物料名称、工单号"
               />
             </label>
+            <label className={styles.selectField}>
+              <span>仓库</span>
+              <select
+                className={styles.selectInput}
+                value={warehouseId === '' ? '' : String(warehouseId)}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setWarehouseId(next ? Number(next) : '');
+                  setLocationId('');
+                  setOnlyDefaultLocation(false);
+                }}
+                disabled={onlyDefaultLocation}
+              >
+                <option value="">全部仓库</option>
+                {warehouseOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.code} · {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={styles.selectField}>
+              <span>库位</span>
+              <select
+                className={styles.selectInput}
+                value={locationId === '' ? '' : String(locationId)}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setLocationId(next ? Number(next) : '');
+                  setOnlyDefaultLocation(false);
+                }}
+                disabled={warehouseId === '' || onlyDefaultLocation}
+              >
+                <option value="">{warehouseId === '' ? '请先选择仓库' : '全部库位'}</option>
+                {scopedLocationOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.code} · {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={styles.toggleField}>
+              <input
+                type="checkbox"
+                checked={onlyDefaultLocation}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  if (checked) {
+                    enterDefaultLocationMode();
+                    return;
+                  }
+                  exitDefaultLocationMode();
+                }}
+              />
+              仅默认仓位
+            </label>
+            <Button size="sm" variant="ghost" onClick={handleGotoDefaultLocationGovernance}>
+              默认仓位治理
+            </Button>
+            <Button size="sm" variant="ghost" onClick={resetFilters}>
+              重置筛选
+            </Button>
           </div>
+
+          {onlyDefaultLocation && (
+            <div className={styles.governanceHint} role="status" aria-live="polite">
+              <span className={styles.governanceHintText}>
+                默认仓位治理模式已开启，
+                {defaultWarehouse?.id && defaultLocation?.id
+                  ? '当前已锁定 DEFAULT / DEFAULT-UNKNOWN。'
+                  : '当前未识别 DEFAULT 主数据，请先核对仓位主数据。'}
+              </span>
+              <Button size="sm" variant="ghost" onClick={exitDefaultLocationMode}>
+                退出治理模式
+              </Button>
+            </div>
+          )}
 
           <div className={styles.focusTabs}>
             {[

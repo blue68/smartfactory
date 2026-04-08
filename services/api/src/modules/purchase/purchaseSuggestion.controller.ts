@@ -9,6 +9,7 @@ const RejectSchema = z.object({
 
 const BatchToPOSchema = z.object({
   suggestionIds: z.array(z.number().int().positive()).min(1).max(100),
+  supplierId: z.number().int().positive().optional(),
 });
 
 class PurchaseSuggestionController {
@@ -46,7 +47,7 @@ class PurchaseSuggestionController {
     const ctx = { tenantId: req.tenantId, userId: req.userId };
     const svc = new PurchaseSuggestionService(ctx);
     const body = BatchToPOSchema.parse(req.body);
-    const result = await svc.batchCreatePOFromSuggestions(body.suggestionIds);
+    const result = await svc.batchCreatePOFromSuggestions(body.suggestionIds, body.supplierId);
     success(res, result, '批量转单成功');
   }
 }

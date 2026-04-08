@@ -235,7 +235,7 @@ export function buildSalesOrderData(
 // ─── 质量问题测试数据工厂 ────────────────────────────────────
 
 export interface QualityIssueData {
-  inspectionId: number;
+  inspectionNo: string;
   componentName: string;
   issueTypes: string[];
   severity: 'minor' | 'normal' | 'severe';
@@ -244,11 +244,11 @@ export interface QualityIssueData {
 }
 
 export function buildQualityIssueData(
-  inspectionId: number,
+  inspectionNo: string,
   override: Partial<QualityIssueData> = {},
 ): QualityIssueData {
   return {
-    inspectionId,
+    inspectionNo,
     componentName: '测试部件A',
     issueTypes: ['appearance'],
     severity: 'minor',

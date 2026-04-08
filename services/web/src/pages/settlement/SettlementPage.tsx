@@ -8,7 +8,7 @@
  *   - 分页、骨架屏、空态、错误态
  */
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
 import { UserRole } from '@/types/enums';
@@ -16,6 +16,8 @@ import Button from '@/components/common/Button';
 import {
   settlementApi,
   useSettlementList,
+  usePendingSettlementOrders,
+  useCreateSettlement,
   useSettlementReceivable,
   useConfirmSettlement,
   usePaySettlement,
@@ -52,6 +54,12 @@ const BADGE_CLASS: Record<SettlementStatus, string> = {
   cancelled: styles['badge--cancelled'],
 };
 
+const PendingOrderStatusLabel: Record<'shipped' | 'partial_shipped' | 'completed', string> = {
+  shipped: '已发货',
+  partial_shipped: '部分发货',
+  completed: '已完成',
+};
+
 // ── 日期格式化 ──────────────────────────────────────────────
 
 function formatDate(str: string): string {
@@ -82,21 +90,25 @@ function isOverdueSettlement(status: SettlementStatus, dueDate?: string): boolea
 }
 
 export default function SettlementPage() {
-  const { setPageTitle } = useAppStore();
+  const { setPageTitle, showToast } = useAppStore();
   const { hasAnyRole } = useAuthStore();
   const [activeTab, setActiveTab] = useState<TabKey>('');
   const [page, setPage] = useState(1);
+  const [pendingPage, setPendingPage] = useState(1);
   const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [creatingOrderId, setCreatingOrderId] = useState<number | null>(null);
   const [receivableGroup, setReceivableGroup] = useState<'customer' | 'month' | 'aging'>('customer');
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string } | null>(null);
+  const pendingSectionRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => { setPageTitle('销售结算'); }, [setPageTitle]);
 
   const isBoss = hasAnyRole([UserRole.BOSS]);
   const canManageSettlement = hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]);
   const canViewReceivable = hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]);
+  const canViewPendingOrders = hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR, UserRole.SALES]);
 
   const query: SettlementListQuery = useMemo(() => ({
     page,
@@ -107,7 +119,20 @@ export default function SettlementPage() {
     customerId: selectedCustomer?.id,
   }), [activeTab, keyword, overdueOnly, page, selectedCustomer?.id]);
 
+  const pendingQuery = useMemo(() => ({
+    page: pendingPage,
+    pageSize: 8,
+    customerId: selectedCustomer?.id,
+    keyword: keyword || undefined,
+  }), [keyword, pendingPage, selectedCustomer?.id]);
+
   const { data, isLoading, error } = useSettlementList(query);
+  const {
+    data: pendingData,
+    isLoading: pendingLoading,
+    error: pendingError,
+  } = usePendingSettlementOrders(pendingQuery, canViewPendingOrders);
+  const createMutation = useCreateSettlement();
   const { data: receivableSummary } = useSettlementReceivable(receivableGroup, canViewReceivable);
   const confirmMutation = useConfirmSettlement();
   const payMutation = usePaySettlement();
@@ -115,6 +140,9 @@ export default function SettlementPage() {
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1;
   const list = data?.list ?? [];
+  const pendingList = pendingData?.list ?? [];
+  const pendingTotal = pendingData?.total ?? 0;
+  const pendingTotalPages = pendingData ? Math.max(1, Math.ceil(pendingData.total / pendingData.pageSize)) : 1;
   const customerReceivables = receivableSummary?.groupBy === 'customer' ? receivableSummary.data : [];
   const monthReceivables = receivableSummary?.groupBy === 'month' ? receivableSummary.data : [];
   const agingReceivables = receivableSummary?.groupBy === 'aging' ? receivableSummary.data : [];
@@ -137,6 +165,7 @@ export default function SettlementPage() {
   const handleSearch = useCallback(() => {
     setKeyword(keywordInput.trim());
     setPage(1);
+    setPendingPage(1);
   }, [keywordInput]);
 
   const handleReset = useCallback(() => {
@@ -145,16 +174,34 @@ export default function SettlementPage() {
     setOverdueOnly(false);
     setSelectedCustomer(null);
     setPage(1);
+    setPendingPage(1);
   }, []);
 
   const handleCustomerSummaryClick = useCallback((customerId: number, customerName: string) => {
     setSelectedCustomer({ id: customerId, name: customerName });
     setPage(1);
+    setPendingPage(1);
   }, []);
 
   const handleExport = useCallback(async () => {
     await settlementApi.exportCsv(query);
   }, [query]);
+
+  const handleCreateSettlement = useCallback(async (orderId: number) => {
+    try {
+      setCreatingOrderId(orderId);
+      await createMutation.mutateAsync({ orderId });
+      showToast({ type: 'success', message: '结算单创建成功，已加入结算列表' });
+    } catch (error) {
+      showToast({ type: 'error', message: (error as Error).message ?? '创建结算单失败' });
+    } finally {
+      setCreatingOrderId(null);
+    }
+  }, [createMutation, showToast]);
+
+  const scrollToPendingSection = useCallback(() => {
+    pendingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   const COL_SPAN = 7;
 
@@ -164,7 +211,7 @@ export default function SettlementPage() {
       <div className={styles.page_header}>
         <h1 className={styles.page_title}>销售结算</h1>
         {canManageSettlement && (
-          <Button variant="primary" size="md" disabled>
+          <Button variant="primary" size="md" onClick={scrollToPendingSection}>
             + 新建结算
           </Button>
         )}
@@ -390,6 +437,97 @@ export default function SettlementPage() {
                 ))}
               </div>
             </div>
+          )}
+        </section>
+      )}
+
+      {canViewPendingOrders && (
+        <section ref={pendingSectionRef} className={styles.pending_section} aria-label="待销售结算订单">
+          <div className={styles.pending_header}>
+            <div>
+              <h2 className={styles.pending_title}>待销售结算订单</h2>
+              <p className={styles.pending_desc}>
+                来源于已发货/部分发货/已完成且尚未创建有效结算单的销售订单
+              </p>
+            </div>
+            <div className={styles.pending_meta}>
+              共 {pendingTotal} 条
+            </div>
+          </div>
+
+          {pendingLoading ? (
+            <div className={styles.pending_loading}>待结算订单加载中...</div>
+          ) : pendingError ? (
+            <div className={styles.pending_error}>
+              待结算订单加载失败：{(pendingError as Error).message}
+            </div>
+          ) : pendingList.length === 0 ? (
+            <div className={styles.pending_empty}>暂无待销售结算订单</div>
+          ) : (
+            <>
+              <div className={styles.pending_table_wrap}>
+                <table className={styles.pending_table}>
+                  <thead>
+                    <tr>
+                      <th>销售订单号</th>
+                      <th>客户</th>
+                      <th>订单状态</th>
+                      <th>订单金额</th>
+                      <th>交付日期</th>
+                      {canManageSettlement && <th>操作</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingList.map((order) => (
+                      <tr key={order.orderId}>
+                        <td className={styles.pending_order_no}>{order.orderNo}</td>
+                        <td>{order.customerName}</td>
+                        <td>{PendingOrderStatusLabel[order.status]}</td>
+                        <td className={styles.pending_amount}>{formatAmount(order.totalAmount)}</td>
+                        <td>{order.expectedDelivery ? formatDate(order.expectedDelivery) : '--'}</td>
+                        {canManageSettlement && (
+                          <td>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => void handleCreateSettlement(order.orderId)}
+                              loading={creatingOrderId === order.orderId && createMutation.isPending}
+                              disabled={createMutation.isPending && creatingOrderId !== order.orderId}
+                            >
+                              创建结算
+                            </Button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {pendingTotal > (pendingData?.pageSize ?? 8) && (
+                <div className={styles.pending_pagination}>
+                  <button
+                    type="button"
+                    className={styles.pagination__btn_ghost}
+                    onClick={() => setPendingPage((p) => Math.max(1, p - 1))}
+                    disabled={pendingPage <= 1}
+                  >
+                    上一页
+                  </button>
+                  <span className={styles.pending_page_info}>
+                    第 {pendingPage} / {pendingTotalPages} 页
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.pagination__btn_ghost}
+                    onClick={() => setPendingPage((p) => Math.min(pendingTotalPages, p + 1))}
+                    disabled={pendingPage >= pendingTotalPages}
+                  >
+                    下一页
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </section>
       )}

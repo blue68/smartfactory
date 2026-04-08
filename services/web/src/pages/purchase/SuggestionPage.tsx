@@ -187,10 +187,11 @@ export default function SuggestionPage() {
   const generateMutation = useGenerateSuggestions();
   const approveMutation  = useApproveSuggestion();
 
-  // Use real data if available, otherwise fall back to mock
-  const allSuggestions: PurchaseSuggestion[] = (data?.list && data.list.length > 0)
-    ? data.list
-    : MOCK_SUGGESTIONS;
+  // 生产/部署环境仅使用真实接口数据；开发模式允许回退到 Mock 便于静态联调
+  const allSuggestions: PurchaseSuggestion[] =
+    data?.list && data.list.length > 0
+      ? data.list
+      : (import.meta.env.DEV ? MOCK_SUGGESTIONS : []);
 
   const filteredSuggestions = statusFilter === ''
     ? allSuggestions

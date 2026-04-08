@@ -11,7 +11,9 @@ import type {
   QualityStats,
 } from '@/types/models';
 import type { PaginatedData } from '@/types/api';
-import type { InspectionStatus, IssueType, IssueSeverity } from '@/types/enums';
+import type { InspectionStatus, IssueType } from '@/types/enums';
+
+export type QualityIssueSeverity = 'minor' | 'normal' | 'severe';
 
 // ── Query Keys ───────────────────────────────
 export const qualityKeys = {
@@ -19,10 +21,33 @@ export const qualityKeys = {
   inspections: () => [...qualityKeys.all, 'inspections'] as const,
   inspectionList: (params: { status?: InspectionStatus; productionOrderId?: number }) =>
     [...qualityKeys.inspections(), params] as const,
+  productionOrderOptions: (keyword: string, limit: number) =>
+    [...qualityKeys.all, 'production-order-options', keyword, limit] as const,
+  inspectionOptions: (keyword: string, limit: number) =>
+    [...qualityKeys.all, 'inspection-options', keyword, limit] as const,
   traceability: (productionOrderId: number) =>
     [...qualityKeys.all, 'trace', productionOrderId] as const,
   stats: (periodDays: number) => [...qualityKeys.all, 'stats', periodDays] as const,
 };
+
+export interface QualityProductionOrderOption {
+  id: number;
+  workOrderNo: string;
+  skuName: string;
+  salesOrderNo: string;
+  status: string;
+  plannedStart: string | null;
+  plannedEnd: string | null;
+}
+
+export interface QualityInspectionOption {
+  id: number;
+  inspectionNo: string;
+  inspectionDate: string;
+  workOrderNo: string;
+  skuName: string;
+  status: string;
+}
 
 // ── 原始请求函数 ─────────────────────────────
 export const qualityApi = {
@@ -38,7 +63,7 @@ export const qualityApi = {
     ),
 
   createInspection: (payload: {
-    productionOrderId: number;
+    productionOrderNo: string;
     inspectionDate: string;
     qtyInspected: string;
   }) =>
@@ -48,14 +73,26 @@ export const qualityApi = {
     ),
 
   createIssue: (payload: {
-    inspectionId: number;
+    inspectionNo: string;
     componentName: string;
     issueTypes: IssueType[];
-    severity: IssueSeverity;
+    severity: QualityIssueSeverity;
     description: string;
     images?: string[];
   }) =>
     request.post<{ issueId: number }>('/api/quality/inspections/issues', payload),
+
+  getProductionOrderOptions: (params?: { keyword?: string; limit?: number }) =>
+    request.get<QualityProductionOrderOption[]>(
+      '/api/quality/production-orders/options',
+      params as Record<string, unknown>,
+    ),
+
+  getInspectionOptions: (params?: { keyword?: string; limit?: number }) =>
+    request.get<QualityInspectionOption[]>(
+      '/api/quality/inspection-options',
+      params as Record<string, unknown>,
+    ),
 
   completeInspection: (id: number, qtyPassed: string) =>
     request.post<null>(`/api/quality/inspections/${id}/complete`, { qtyPassed }),
@@ -136,9 +173,10 @@ export function useQualityStats(periodDays: 7 | 30 | 90 = 30) {
 
 /** 质量问题列表（分页 + 筛选） */
 export function useIssueList(
-  params: { severity?: IssueSeverity; issueType?: IssueType } = {},
+  params: { severity?: QualityIssueSeverity; issueType?: IssueType } = {},
   page = 1,
   pageSize = 20,
+  enabled = true,
 ) {
   return useQuery({
     queryKey: [...qualityKeys.all, 'issues', params, page, pageSize] as const,
@@ -151,10 +189,38 @@ export function useIssueList(
         productionOrderNo: string;
         componentName: string;
         issueTypes: IssueType[];
-        severity: IssueSeverity;
+        severity: QualityIssueSeverity;
         description: string | null;
+        images: string[] | null;
         createdAt: string;
       }>>('/api/quality/issues', { ...params, page, pageSize } as Record<string, unknown>),
+    enabled,
+  });
+}
+
+/** 质量模块可选生产工单号（用于 QC 新建验货单） */
+export function useQualityProductionOrderOptions(
+  keyword = '',
+  limit = 50,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: qualityKeys.productionOrderOptions(keyword, limit),
+    queryFn: () => qualityApi.getProductionOrderOptions({ keyword, limit }),
+    enabled,
+  });
+}
+
+/** 质量模块可选验货单号（用于录入质量问题） */
+export function useQualityInspectionOptions(
+  keyword = '',
+  limit = 50,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: qualityKeys.inspectionOptions(keyword, limit),
+    queryFn: () => qualityApi.getInspectionOptions({ keyword, limit }),
+    enabled,
   });
 }
 

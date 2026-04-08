@@ -26,8 +26,8 @@ export const SettlementStatusLabel: Record<SettlementStatus, string> = {
 export interface Settlement {
   id: number;
   settlementNo: string;
-  salesOrderId: number;
-  salesOrderNo: string;
+  orderId: number;
+  orderNo: string;
   customerId: number;
   customerName: string;
   totalAmount: string;
@@ -57,8 +57,33 @@ export interface SettlementListQuery {
 }
 
 export interface CreateSettlementPayload {
-  salesOrderId: number;
+  orderId: number;
   notes?: string;
+}
+
+export interface PendingSettlementOrder {
+  orderId: number;
+  orderNo: string;
+  customerId: number;
+  customerName: string;
+  status: 'shipped' | 'partial_shipped' | 'completed';
+  totalAmount: string;
+  expectedDelivery: string | null;
+  updatedAt: string;
+}
+
+export interface PendingSettlementOrderListResult {
+  list: PendingSettlementOrder[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface PendingSettlementOrderQuery {
+  page?: number;
+  pageSize?: number;
+  customerId?: number;
+  keyword?: string;
 }
 
 export type ReceivableGroupBy = 'customer' | 'month' | 'aging';
@@ -111,6 +136,8 @@ export const settlementKeys = {
   all: ['settlement'] as const,
   list: (query: SettlementListQuery) =>
     [...settlementKeys.all, 'list', query] as const,
+  pendingOrders: (query: PendingSettlementOrderQuery) =>
+    [...settlementKeys.all, 'pending-orders', query] as const,
   receivable: (groupBy: ReceivableGroupBy) =>
     [...settlementKeys.all, 'receivable', groupBy] as const,
 };
@@ -132,6 +159,16 @@ export const settlementApi = {
 
   create: (payload: CreateSettlementPayload) =>
     request.post<Settlement>('/api/settlements', payload),
+
+  getPendingOrders: (query: PendingSettlementOrderQuery) => {
+    const params: Record<string, unknown> = {
+      page: query.page ?? 1,
+      pageSize: query.pageSize ?? 20,
+    };
+    if (query.customerId) params.customerId = query.customerId;
+    if (query.keyword) params.keyword = query.keyword;
+    return request.get<PendingSettlementOrderListResult>('/api/settlements/pending-orders', params);
+  },
 
   confirm: (id: number) =>
     request.put<void>(`/api/settlements/${id}/confirm`),
@@ -181,6 +218,15 @@ export function useCreateSettlement() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: settlementKeys.all });
     },
+  });
+}
+
+export function usePendingSettlementOrders(query: PendingSettlementOrderQuery, enabled = true) {
+  return useQuery({
+    queryKey: settlementKeys.pendingOrders(query),
+    queryFn: () => settlementApi.getPendingOrders(query),
+    staleTime: 15_000,
+    enabled,
   });
 }
 

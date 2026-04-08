@@ -6,6 +6,7 @@ import { ResponseCode } from '../../shared/ApiResponse';
 import { ConstraintEngine } from './constraintEngine';
 import Decimal from 'decimal.js';
 import { generateNo } from '../../shared/generateNo';
+import { resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
 
 type InventorySnapshotTrackedManager = {
   query: typeof AppDataSource.query;
@@ -720,12 +721,17 @@ export class SalesService {
     orderId: number,
     params: {
       trackingNo?: string;
+      warehouseId?: number;
+      locationId?: number;
       shippedItems: Array<{ orderItemId: number; shippedQty: number }>;
     },
   ): Promise<{
     deliveryId: number;
     deliveryNo: string;
     orderStatus: string;
+    warehouseId: number;
+    locationId: number;
+    warningCode?: string;
   }> {
     // 1. 校验订单状态
     const [order] = await AppDataSource.query<
@@ -765,6 +771,14 @@ export class SalesService {
     const affectedSkuIds: number[] = [];
 
     const result = await AppDataSource.transaction(async (manager) => {
+      const warehouseLocation = await resolveWarehouseLocationBinding({
+        manager,
+        tenantId: this.tenantId,
+        userId: this.userId,
+        warehouseId: params.warehouseId,
+        locationId: params.locationId,
+        sourceRef: 'sales:ship',
+      });
       const lockedItems = await manager.query<
         Array<{ id: number; sku_id: number; stock_unit: string; qty_ordered: string; qty_delivered: string }>
       >(
@@ -816,10 +830,13 @@ export class SalesService {
       const inventoryRows = await manager.query<Array<{ sku_id: number; qty_on_hand: string; qty_reserved: string }>>(
         `SELECT sku_id, qty_on_hand, qty_reserved
          FROM inventory
-         WHERE tenant_id = ? AND sku_id IN (${skuPlaceholders})
+         WHERE tenant_id = ?
+           AND warehouse_id = ?
+           AND location_id = ?
+           AND sku_id IN (${skuPlaceholders})
          ORDER BY sku_id ASC
          FOR UPDATE`,
-        [this.tenantId, ...shippedSkuIds],
+        [this.tenantId, warehouseLocation.warehouseId, warehouseLocation.locationId, ...shippedSkuIds],
       );
       const inventoryMap = new Map(inventoryRows.map((row) => [Number(row.sku_id), row]));
 
@@ -879,13 +896,17 @@ export class SalesService {
         await manager.query(
           `INSERT INTO inventory_transactions
              (tenant_id, transaction_no, sku_id, transaction_type, direction,
+              warehouse_id, location_id, source_ref,
               qty_input, input_unit, qty_stock_unit, stock_unit,
-              reference_type, reference_id, reference_no, notes, created_by)
-           VALUES (?, ?, ?, 'DELIVERY_OUT', 'OUT', ?, ?, ?, ?, 'sales_delivery', ?, ?, ?, ?)`,
+              reference_type, reference_id, reference_no, notes, created_by, updated_by)
+           VALUES (?, ?, ?, 'DELIVERY_OUT', 'OUT', ?, ?, ?, ?, ?, ?, ?, 'sales_delivery', ?, ?, ?, ?, ?)`,
           [
             this.tenantId,
             txNo,
             skuId,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+            'sales:ship',
             shipped.qty.toFixed(4),
             shipped.stockUnit,
             shipped.qty.toFixed(4),
@@ -894,15 +915,27 @@ export class SalesService {
             deliveryNo,
             `销售订单 ${order.order_no} 发货出库`,
             this.userId,
+            this.userId,
           ],
         );
 
         await manager.query(
           `UPDATE inventory
            SET qty_on_hand = qty_on_hand - ?,
-               last_out_at = NOW()
-           WHERE tenant_id = ? AND sku_id = ?`,
-          [shipped.qty.toFixed(4), this.tenantId, skuId],
+               last_out_at = NOW(),
+               updated_by = ?
+           WHERE tenant_id = ?
+             AND sku_id = ?
+             AND warehouse_id = ?
+             AND location_id = ?`,
+          [
+            shipped.qty.toFixed(4),
+            this.userId,
+            this.tenantId,
+            skuId,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+          ],
         );
 
         await this.syncDailySnapshot(manager, skuId);
@@ -931,7 +964,14 @@ export class SalesService {
         [newOrderStatus, this.userId, orderId, this.tenantId],
       );
 
-      return { deliveryId, deliveryNo, orderStatus: newOrderStatus };
+      return {
+        deliveryId,
+        deliveryNo,
+        orderStatus: newOrderStatus,
+        warehouseId: warehouseLocation.warehouseId,
+        locationId: warehouseLocation.locationId,
+        warningCode: warehouseLocation.warningCode ?? undefined,
+      };
     });
 
     await this.invalidateInventorySnapshotCaches(affectedSkuIds);

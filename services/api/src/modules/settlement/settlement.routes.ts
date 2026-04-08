@@ -28,6 +28,13 @@ router.post(
   asyncHandler(settlementController.createSettlement.bind(settlementController)),
 );
 
+// F-707: 待结算销售订单（用于新建结算入口）
+router.get(
+  '/pending-orders',
+  requireRoles('boss', 'supervisor', 'sales'),
+  asyncHandler(settlementController.listPendingOrders.bind(settlementController)),
+);
+
 // F-707: 结算单列表
 router.get(
   '/',

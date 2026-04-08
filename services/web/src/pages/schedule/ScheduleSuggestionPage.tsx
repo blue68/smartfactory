@@ -36,6 +36,20 @@ function fmtDate(iso: string | null | undefined): string {
   return iso.slice(0, 10);
 }
 
+function fmtHistoryStatus(status: string): string {
+  if (status === 'completed') return '已完成';
+  if (status === 'failed') return '失败';
+  if (status === 'calculating') return '计算中';
+  if (status === 'pending') return '排队中';
+  return status;
+}
+
+function historyStatusClass(status: string): string {
+  if (status === 'completed') return styles['history_result--approved'];
+  if (status === 'failed') return styles['history_result--rejected'];
+  return '';
+}
+
 // ─── Loading 骨架 ─────────────────────────────
 function SkeletonRows({ count = 3 }: { count?: number }) {
   return (
@@ -501,6 +515,7 @@ function HistoryPanel() {
                 <th>采购条目</th>
                 <th>预估金额</th>
                 <th>类型</th>
+                <th>状态</th>
               </tr>
             </thead>
             <tbody>
@@ -518,6 +533,11 @@ function HistoryPanel() {
                       ].join(' ')}
                     >
                       {row.triggerType !== 'manual' ? '冷启动' : 'AI计算'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={[styles.history_result, historyStatusClass(row.status)].filter(Boolean).join(' ')}>
+                      {fmtHistoryStatus(row.status)}
                     </span>
                   </td>
                 </tr>
@@ -553,6 +573,7 @@ function HistoryPanel() {
                 <th>批次 ID</th>
                 <th>排产条目</th>
                 <th>类型</th>
+                <th>状态</th>
               </tr>
             </thead>
             <tbody>
@@ -564,6 +585,11 @@ function HistoryPanel() {
                   <td>
                     <span className={[styles.history_result, styles['history_result--approved']].join(' ')}>
                       {row.triggerType !== 'manual' ? '冷启动' : 'AI计算'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={[styles.history_result, historyStatusClass(row.status)].filter(Boolean).join(' ')}>
+                      {fmtHistoryStatus(row.status)}
                     </span>
                   </td>
                 </tr>

@@ -238,22 +238,57 @@
    - Added a seventh scenario in `tests/productionTask.real.spec.ts` for production-task regression: log in as `supervisor`, open a `pending` task drawer, trigger `开始生产`, verify the success toast and drawer footer switch to the in-progress action set, then assert the drawer renders the newly inserted input material row as `未落库存流水 / 待生成流水号` and the backing DB rows flip to `production_tasks.status = started` and `production_orders.status = in_progress`.
    - Updated `docs/v3/half-finished-production-qa-runbook.md` and `docs/test-report.md` so production-task regression coverage now explicitly includes the pending-task start path and its first input-material write-through.
 
-29. **Production Task Complete Write Path**
+29. **Production Task UX / Demo Closure**
+   - Fixed a live permission mismatch on `/production/tasks`: the UI exposed task actions to system administrators, but the backend task execution routes previously only allowed `worker` / `supervisor`. The production task execution routes now include `admin` and `boss` for start / complete / complete-v2 / exception, while suspend / resume / resolve-exception also include `admin`.
+   - Added `UserRole.ADMIN` to the frontend role enum, expanded production navigation and permission maps to include the admin role, and aligned task action visibility with the real backend route contract so the page no longer shows misleading write buttons to roles that cannot execute them.
+   - Updated the production task list so the main business column now emphasizes `当前产出` rather than only the final product name, and the task detail drawer now distinguishes `所属成品` / `当前产出` / `任务类型`, making semi-finished tasks visually recognizable instead of being buried under the process secondary line.
+   - Added a new task-type query path across backend and frontend: `GET /api/production/tasks` now supports `taskType=finished|semi_finished`, and the page filter bar now exposes `全部任务类型 / 成品任务 / 半成品任务`.
+   - Extended the task detail drawer’s `依赖与阻塞` block so it now shows not only predecessor operation demand / completion / status, but also the task’s required input materials, including planned demand, already issued quantity, current available stock, shortage gap, and stock-state color coding.
+   - Added stock-state visual semantics for task materials:
+     - healthy: inventory sufficient
+     - warning: inventory only slightly above the planned requirement
+     - danger: shortage exists and the detail card is marked `缺料`
+   - Normalized the frontend shortage-state handling so MySQL `0/1` return values do not get misread as generic truthy strings in the browser.
+
+30. **Local Demo Data for Production Tasks**
+   - The local demo tenant (`FACTORY001`) was updated so the first page of pending production tasks now includes visible semi-finished outputs, instead of only finished-goods labels.
+   - Demo semi-finished outputs were normalized to readable names:
+     - `Sofa Cover WIP`
+     - `Cabinet Panel WIP`
+     - `Sofa Frame WIP`
+   - Demo task-detail input materials were also seeded for direct browser verification:
+     - task `#15`: `Foam Sheet`, `Oak Panel`
+     - task `#100`: `Leather Roll`, `Adhesive`
+   - Demo inventory balances were seeded to make the stock-state UI directly observable:
+     - `Foam Sheet` / `Leather Roll`: sufficient stock
+     - `Oak Panel` / `Adhesive`: deliberate shortage
+
+31. **Validation Addendum**
+   - `cd services/api && npm run typecheck` passed after the production-task filter and material-stock extensions.
+   - `cd services/web && npm run typecheck` passed after the task-type filter, material-stock visual states, and admin-role alignment changes.
+   - `docker compose up -d --build api web` passed after the production-task page changes.
+   - Runtime API validation confirmed:
+     - `POST /api/production/tasks/14/start` succeeds for `admin_dev`
+     - `GET /api/production/tasks?status=pending&taskType=semi_finished&page=1&pageSize=8` returns only semi-finished tasks
+     - `GET /api/production/tasks/15` returns input materials with stock sufficiency / shortage fields
+     - `GET /api/production/tasks/100` returns a blocked semi-finished task with both predecessor dependency state and input-material shortage data
+
+32. **Production Task Complete Write Path**
    - Expanded `tests/helpers/productionTaskFlow.ts` with a started-task complete seed that removes preseeded aggregates, injects a `process_wages` rule for the current step, and polls for the completed task/order state plus the newly written `work_reports` and output `task_material_transactions` rows.
    - Added an eighth scenario in `tests/productionTask.real.spec.ts` for production-task regression: log in as `supervisor`, open an `in_progress` task drawer, trigger `完工上报`, submit completed qty / actual hours / scrap / notes, verify the success toast and drawer wage-output sections, then assert the backing DB rows flip to `production_tasks.status = completed`, `production_orders.status = completed`, and persist the expected wage + output snapshot.
    - Updated `docs/v3/half-finished-production-qa-runbook.md` and `docs/test-report.md` so production-task regression coverage now explicitly includes the in-progress complete-report write path in addition to start / exception recovery / suspend.
 
-30. **Production Schedule Confirm Write Path**
+33. **Production Schedule Confirm Write Path**
    - Expanded `tests/helpers/productionTaskFlow.ts` with a schedule-confirm polling helper that waits for the live `production_schedules` row to flip to `confirmed` and for the generated `production_tasks` row to appear with the stable `TK{date}{scheduleId}` task number, plus cleanup for confirmed schedule-generated tasks.
    - Added a third scenario in `tests/productionSchedule.real.spec.ts` for production-schedule regression: log in as `boss`, regenerate the live schedule, trigger `确认并下发给工人`, submit the real confirm modal, verify the success toast and `已下发` state, then assert the backing `production_schedules.status = confirmed` and a formal `production_tasks` row is generated from the confirmed schedule.
    - Updated `docs/v3/half-finished-production-qa-runbook.md` and `docs/test-report.md` so production-schedule regression coverage now explicitly includes the supervisor-side confirm-and-release write path, not only regenerate/adjust persistence.
 
-31. **Production Order Cancel Write Path**
+34. **Production Order Cancel Write Path**
    - Expanded `tests/helpers/productionTaskFlow.ts` with a pending-order seed that strips started-state aggregates back to a clean `pending` order/task shape, plus a DB polling helper for `production_orders.status = cancelled` and the cascaded `production_tasks.status = cancelled` result.
    - Added a third scenario in `tests/productionOrder.real.spec.ts` for production-order regression: log in as `boss`, open a `pending` order drawer, trigger `取消工单`, submit the real confirm modal, verify the drawer closes and the order card flips to `已取消`, then assert the backing order/task rows are both cancelled.
    - Updated `docs/v3/half-finished-production-qa-runbook.md` and `docs/test-report.md` so production-order regression coverage now explicitly includes the pending-order cancel path, not only structure and operation-lane read aggregation.
 
-32. **Production Order Create Write Path**
+35. **Production Order Create Write Path**
    - Expanded `tests/helpers/productionTaskFlow.ts` with a create-only seed for a confirmed sales order, active BOM, default process template, and ready inventory, plus cleanup/polling helpers for the resulting `production_orders`, `material_requirements`, and `sales_orders` state.
    - Added a fourth scenario in `tests/productionOrder.real.spec.ts` for production-order regression: log in as `boss`, open `+ 手动创建工单`, submit a real sales-order number in `从销售订单创建工单`, verify the success toast and the new `待排产 / 齐套` card, then assert the backing order is created with `status = pending`, `material_status = ready`, and the sales order flips to `in_production`.
    - Fixed two real-regression contract mismatches along the way: the new customer seed now writes `customers.code` to satisfy the live schema, and the browser test targets the create modal textbox by placeholder because the shipped label is not programmatically bound to the input.
@@ -262,7 +297,7 @@
      - `npm run test:production-order:ui:regression`
    - Updated `docs/v3/half-finished-production-qa-runbook.md` and `docs/test-report.md` so production-order regression coverage now explicitly includes the manual create-from-sales-order write path.
 
-33. **Production Shortage Real-Browser Flow**
+36. **Production Shortage Real-Browser Flow**
    - Added `tests/productionShortage.real.spec.ts` as a ninth real-backend Playwright page, focused on `/production/shortage`.
    - Expanded `tests/helpers/productionTaskFlow.ts` with a shortage-specific scenario that reuses the production task seed, then adds a live `material_requirements` row, BOM snapshot, supplier, and supplier price so the shortage board can render a real shortage SKU and generate a deterministic purchase suggestion.
    - Added two page scenarios:
@@ -278,7 +313,7 @@
      - `npm run test:production-shortage:ui`
    - Updated `docs/v3/half-finished-production-qa-runbook.md` and `docs/test-report.md` so shortage-board smoke/regression is now an explicit standard entrypoint instead of an uncovered production page.
 
-34. **Purchase Suggestion Real-Browser Flow**
+37. **Purchase Suggestion Real-Browser Flow**
    - Expanded `tests/helpers/purchaseFlow.ts` with a purchase-suggestion-specific seed, cleanup, and DB polling helpers so the real-browser suite can create a deterministic pending suggestion, wait for browser-side approval, and then verify convert-to-PO write-through in the live DB.
    - Added `tests/purchaseSuggestion.real.spec.ts` as a dedicated real-backend Playwright page for `/purchase/purchase-suggestions`.
    - Added two page scenarios:
@@ -291,7 +326,7 @@
    - Wired `purchase-suggestion-ui-smoke` and `purchase-suggestion-ui-regression` into `.github/workflows/ci.yml` and `ci-gate`, so the dedicated purchase-suggestion page now follows the same smoke-vs-regression CI pattern as the other real-browser pages.
    - Updated `docs/v3/half-finished-production-qa-runbook.md` and `docs/test-report.md` so purchase-suggestion smoke/regression is now an explicit standard entrypoint rather than implicit purchase-domain coverage.
 
-35. **Stocktaking Real-Browser Flow**
+38. **Stocktaking Real-Browser Flow**
    - Fixed two shipped frontend/backend contract mismatches before adding browser coverage:
      - `services/web/src/api/stocktaking.ts` now loads detail rows from the real `GET /api/stocktaking/:id` response instead of the nonexistent `/api/stocktaking/:id/items`
      - `services/web/src/pages/stocktaking/StocktakingPage.tsx` now exposes the `确认` action for real `in_progress` tasks, which is what the backend and DB schema actually produce
@@ -307,7 +342,7 @@
    - Wired `stocktaking-ui-smoke` and `stocktaking-ui-regression` into `.github/workflows/ci.yml` and `ci-gate`, so stocktaking now follows the same smoke-vs-regression CI pattern as the other real-browser pages.
    - Updated `docs/v3/half-finished-production-qa-runbook.md` and `docs/test-report.md` so stocktaking smoke/regression is now an explicit standard entrypoint.
 
-36. **Incoming Inspection Real-Browser Flow**
+39. **Incoming Inspection Real-Browser Flow**
    - Added `tests/helpers/incomingInspectionFlow.ts` and `tests/incomingInspection.real.spec.ts` as a dedicated real-backend Playwright page for `/purchase/incoming-inspection`, instead of leaving inspection coverage hidden inside the broader `purchaseFlow.real.spec.ts`.
    - Added two page scenarios:
      - `@incoming-inspection-smoke`: create a live inspection directly from the incoming-inspection page using the seeded PO / delivery business numbers, then verify the draft row and detail drawer render the real supplier / SKU payload.
@@ -318,3 +353,29 @@
      - `npm run test:incoming-inspection:ui:regression`
    - Wired `incoming-inspection-ui-smoke` and `incoming-inspection-ui-regression` into `.github/workflows/ci.yml` and `ci-gate`, so the dedicated incoming-inspection page now follows the same smoke-vs-regression CI pattern as the other real-browser pages.
    - Updated `docs/v3/half-finished-production-qa-runbook.md` and `docs/test-report.md` so incoming-inspection smoke/regression is now an explicit standard entrypoint rather than implicit purchase-domain coverage.
+
+40. **Production Task Detailed IO Manifest**
+   - Extended `GET /api/production/tasks/:taskId` so each task detail now returns explicit `inputMaterials` and `outputItems`, in addition to predecessor dependency status.
+   - Dependency predecessors now include the upstream semi-finished SKU context (`skuId / skuCode / skuName / unit`), so finished-product tasks can show the required semi-finished inputs instead of only step names.
+   - Input-material aggregation now follows a three-level fallback:
+     - `process_step_materials` configured on the current step
+     - existing task-level `task_material_transactions`
+     - scaled `material_requirements` for finished-product tasks when no step/task material rows exist yet
+   - The production task detail drawer now renders:
+     - `依赖与阻塞`: predecessor demand/completion/status plus the required raw-material cards
+     - `任务输入 / 输出清单`: unified semi-finished inputs, raw-material inputs, and task output SKU/qty/unit
+   - Runtime verification on the local stack confirmed:
+     - finished task `#103` returns a semi-finished predecessor (`WIP-00022 / Sofa Cover WIP`), multiple raw-material inputs, and a finished output item (`FG-00009 / 北欧三人沙发`)
+     - semi-finished task `#100` returns raw-material inputs plus a semi-finished output item (`WIP-00022 / Sofa Cover WIP`)
+
+41. **Production Task Drawer Widening And Unified Input List**
+   - Increased the production-task detail drawer width to a wide responsive panel so the current task overview, dependency cards, and IO manifest can fit on one screen without premature wrapping.
+   - Removed the duplicated raw-material block from `依赖与阻塞`; raw materials are now rendered only inside the unified `任务输入 / 输出清单`.
+   - Added a new `inputItems` contract to task detail, so the frontend can render one mixed input list covering:
+     - predecessor semi-finished inputs for finished-product tasks
+     - first-level BOM semi-finished inputs for semi-finished tasks
+     - first-level BOM raw-material inputs
+   - Semi-finished tasks now prefer the current output SKU’s active BOM top-level children when building the input list, instead of only relying on task material transactions.
+   - Seeded a local demo active BOM for `WIP-00022 / Sofa Cover WIP`, so task `#100` now visibly renders:
+     - one first-level semi-finished input: `WIP-00023 / Cabinet Panel WIP`
+     - two first-level raw-material inputs: `RM-00201 / Leather Roll`, `RM-00014 / Adhesive`

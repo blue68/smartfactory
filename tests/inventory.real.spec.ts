@@ -107,4 +107,71 @@ test.describe.serial('库存总览前端交互（真实后端）', () => {
       await cleanupInventoryScenario(scenario);
     }
   });
+
+  test('老板可在库存页退出默认仓位治理模式并重置筛选 @inventory-regression @inventory-warehouse-governance', async ({ page }) => {
+    await seedAuth(page, 'boss');
+    await page.goto(`${APP_BASE_URL}/inventory?onlyDefaultLocation=true&warehouseId=1&locationId=11`);
+
+    await expect(page.locator('#main-content').getByRole('heading', { name: '库存总览' })).toBeVisible();
+    await expect(page.getByText('默认仓位治理模式已开启')).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: '仅看默认仓位' })).toBeChecked();
+    await expect(page.getByRole('combobox', { name: '筛选仓库' })).toBeDisabled();
+    await expect(page.getByRole('combobox', { name: '筛选库位' })).toBeDisabled();
+
+    await page.getByRole('button', { name: '退出治理模式' }).click();
+    await expect(page.getByText('默认仓位治理模式已开启')).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: '仅看默认仓位' })).not.toBeChecked();
+    await expect(page.getByRole('combobox', { name: '筛选仓库' })).toBeEnabled();
+
+    await page.getByLabel('搜索物料').fill('RM-TEST');
+    await page.getByRole('combobox', { name: '筛选库存状态' }).selectOption('warning');
+    await page.getByRole('button', { name: '重置库存筛选' }).click();
+
+    await expect(page.getByLabel('搜索物料')).toHaveValue('');
+    await expect(page.getByRole('combobox', { name: '筛选库存状态' })).toHaveValue('');
+    await expect(page.getByRole('checkbox', { name: '仅看默认仓位' })).not.toBeChecked();
+  });
+
+  test('老板可在库存页退出治理模式后恢复进入前仓位筛选 @inventory-regression @inventory-warehouse-governance', async ({ page }) => {
+    const inventoryRequests: URL[] = [];
+    page.on('request', (request) => {
+      if (!request.url().includes('/api/inventory?')) return;
+      inventoryRequests.push(new URL(request.url()));
+    });
+
+    await seedAuth(page, 'boss');
+    await page.goto(`${APP_BASE_URL}/inventory?warehouseId=9&locationId=99`);
+
+    await expect(page.locator('#main-content').getByRole('heading', { name: '库存总览' })).toBeVisible();
+
+    const isOriginalFilterRequest = (url: URL) => (
+      url.searchParams.get('warehouseId') === '9'
+      && url.searchParams.get('locationId') === '99'
+      && url.searchParams.get('onlyDefaultLocation') === null
+    );
+
+    await expect
+      .poll(() => inventoryRequests.some(isOriginalFilterRequest))
+      .toBe(true);
+
+    const enterGovernanceRequestStart = inventoryRequests.length;
+    await page.getByRole('checkbox', { name: '仅看默认仓位' }).check();
+    await expect(page.getByRole('checkbox', { name: '仅看默认仓位' })).toBeChecked();
+    await expect(page.getByText('默认仓位治理模式已开启')).toBeVisible();
+
+    await expect
+      .poll(() => inventoryRequests.slice(enterGovernanceRequestStart).some((url) => (
+        url.searchParams.get('onlyDefaultLocation') === 'true'
+      )))
+      .toBe(true);
+
+    const exitGovernanceRequestStart = inventoryRequests.length;
+    await page.getByRole('button', { name: '退出治理模式' }).click();
+    await expect(page.getByRole('checkbox', { name: '仅看默认仓位' })).not.toBeChecked();
+    await expect(page.getByText('默认仓位治理模式已开启')).toHaveCount(0);
+
+    await expect
+      .poll(() => inventoryRequests.slice(exitGovernanceRequestStart).some(isOriginalFilterRequest))
+      .toBe(true);
+  });
 });

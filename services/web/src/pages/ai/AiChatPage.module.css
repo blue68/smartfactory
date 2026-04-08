@@ -860,6 +860,46 @@
   text-align: center;
 }
 
+.ai-chat__modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ai-chat__modal-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #1E293B;
+}
+
+.ai-chat__modal-section ul {
+  margin: 0;
+  padding-left: 1rem;
+  color: #475569;
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+.ai-chat__modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.ai-chat__setting-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  color: #334155;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.ai-chat__setting-row + .ai-chat__setting-row {
+  margin-top: 0.75rem;
+}
+
 /* ════════════════════════════════════════════
    响应式：移动端抽屉
 ════════════════════════════════════════════ */

@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import { EntityManager } from 'typeorm';
 import { TenantContext } from '../../shared/BaseRepository';
 import { generateNo } from '../../shared/generateNo';
+import { resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
 
 interface TaskRow {
   production_order_id: number;
@@ -151,6 +152,12 @@ export class WorkflowEngineService {
     manager: EntityManager,
   ): Promise<void> {
     const transactionNo = await generateNo('transaction', this.tenantId);
+    const warehouseLocation = await resolveWarehouseLocationBinding({
+      manager,
+      tenantId: this.tenantId,
+      userId: this.userId,
+      sourceRef: 'production:workflow:semi_finished',
+    });
     const [orderRow] = await manager.query<Array<{ work_order_no: string | null }>>(
       `SELECT work_order_no
        FROM production_orders
@@ -182,31 +189,50 @@ export class WorkflowEngineService {
     await manager.query(
       `INSERT INTO inventory_transactions
          (tenant_id, transaction_no, sku_id, transaction_type, direction,
+          warehouse_id, location_id, source_ref,
           qty_input, input_unit, qty_stock_unit, stock_unit,
-          reference_type, reference_id, reference_no, notes, created_by)
-       VALUES (?, ?, ?, 'PRODUCTION_IN', 'IN', ?, 'pcs', ?, 'pcs',
-               'production_order', ?, ?, ?, ?)`,
+          reference_type, reference_id, reference_no, notes, created_by, updated_by)
+       VALUES (?, ?, ?, 'PRODUCTION_IN', 'IN', ?, ?, ?, ?, 'pcs', ?, 'pcs',
+               'production_order', ?, ?, ?, ?, ?)`,
       [
         this.tenantId,
         transactionNo,
         outputSkuId,
+        warehouseLocation.warehouseId,
+        warehouseLocation.locationId,
+        'production:workflow:semi_finished',
         completedQty,
         completedQty,
         productionOrderId,
         workOrderNo,
         notes,
         this.userId,
+        this.userId,
       ],
     );
 
     // 更新库存（UPSERT：若无库存记录则插入，有则累加）
     await manager.query(
-      `INSERT INTO inventory (tenant_id, sku_id, qty_on_hand, qty_reserved, qty_in_transit, last_in_at)
-       VALUES (?, ?, ?, 0, 0, NOW())
+      `INSERT INTO inventory
+         (tenant_id, sku_id, warehouse_id, location_id, source_ref,
+          qty_on_hand, qty_reserved, qty_in_transit, last_in_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(), ?)
        ON DUPLICATE KEY UPDATE
          qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
-         last_in_at  = NOW()`,
-      [this.tenantId, outputSkuId, completedQty],
+         warehouse_id = VALUES(warehouse_id),
+         location_id = VALUES(location_id),
+         source_ref = VALUES(source_ref),
+         last_in_at  = NOW(),
+         updated_by = VALUES(updated_by)`,
+      [
+        this.tenantId,
+        outputSkuId,
+        warehouseLocation.warehouseId,
+        warehouseLocation.locationId,
+        'production:workflow:semi_finished',
+        completedQty,
+        this.userId,
+      ],
     );
 
     await this._syncInventoryDailySnapshot(manager, outputSkuId);

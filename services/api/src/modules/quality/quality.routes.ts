@@ -7,6 +7,14 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/inspections',               asyncHandler(qualityController.listInspections.bind(qualityController)));
+router.get('/production-orders/options',
+  requireRoles('qc', 'supervisor', 'boss', 'admin'),
+  asyncHandler(qualityController.listProductionOrderOptions.bind(qualityController)),
+);
+router.get('/inspection-options',
+  requireRoles('qc', 'supervisor', 'boss', 'admin'),
+  asyncHandler(qualityController.listInspectionOptions.bind(qualityController)),
+);
 router.post('/inspections',
   requireRoles('qc', 'supervisor'),
   asyncHandler(qualityController.createInspection.bind(qualityController)),

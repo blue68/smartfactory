@@ -1,0 +1,17 @@
+[inventory-warehouse-audit] running inventory-warehouse-postcheck.sql -> docs/v3/release-logs/inventory-warehouse/remediation-20260407-135900/audit/postcheck.out.txt
+[inventory-warehouse-audit] running inventory-warehouse-daily-audit.sql -> docs/v3/release-logs/inventory-warehouse/remediation-20260407-135900/audit/daily-audit.out.txt
+[inventory-warehouse-audit] collecting summarized metrics
+[inventory-warehouse-audit] done
+[inventory-warehouse-audit] output_dir=docs/v3/release-logs/inventory-warehouse/remediation-20260407-135900/audit
+metric	value
+inventory_invalid_binding	0
+metric	value
+tx_invalid_binding_daily	0
+metric	value
+default_ratio_pct	0.0000
+metric	value
+default_ratio_verdict	PASS
+metric	value
+default_tx_count_daily	0
+metric	value
+default_tx_count_total	0

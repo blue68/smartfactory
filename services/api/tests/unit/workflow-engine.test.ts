@@ -108,7 +108,7 @@ describe('WorkflowEngineService inventory idempotency', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) {
         return { insertId: 7001 };
       }
-      if (sql.includes('INSERT INTO inventory (tenant_id, sku_id, qty_on_hand')) {
+      if (sql.includes('INSERT INTO inventory')) {
         return { affectedRows: 1 };
       }
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) {

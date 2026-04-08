@@ -36,6 +36,14 @@ import { InventoryService } from '../../src/modules/inventory/inventory.service'
 
 type TxManager = { query: typeof mockQuery; __inventorySnapshotSkuIds?: Set<number> };
 
+function resolveWarehouseSql(sql: string): unknown | undefined {
+  if (sql.includes('INSERT INTO warehouses')) return { affectedRows: 1 };
+  if (sql.includes('SELECT id, code') && sql.includes('FROM warehouses')) return [{ id: 901, code: 'DEFAULT' }];
+  if (sql.includes('INSERT INTO locations')) return { affectedRows: 1 };
+  if (sql.includes('SELECT id, code') && sql.includes('FROM locations')) return [{ id: 902, code: 'DEFAULT-UNKNOWN' }];
+  return undefined;
+}
+
 describe('InventoryService auto snapshot sync', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -57,11 +65,13 @@ describe('InventoryService auto snapshot sync', () => {
       return result;
     });
     mockQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT id FROM inventory')) return [];
+      const warehouseSqlResult = resolveWarehouseSql(sql);
+      if (warehouseSqlResult !== undefined) return warehouseSqlResult;
+      if (sql.includes('SELECT id') && sql.includes('FROM inventory')) return [];
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1 };
-      if (sql.includes('INSERT INTO inventory (tenant_id, sku_id, qty_on_hand')) return { affectedRows: 1 };
+      if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
-      if (sql.includes('SELECT qty_on_hand AS qty FROM inventory')) return [{ qty: '15.0000' }];
+      if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '15.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 
@@ -101,13 +111,15 @@ describe('InventoryService auto snapshot sync', () => {
       return result;
     });
     mockQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT qty_on_hand, qty_reserved FROM inventory')) {
+      const warehouseSqlResult = resolveWarehouseSql(sql);
+      if (warehouseSqlResult !== undefined) return warehouseSqlResult;
+      if (sql.includes('qty_on_hand, qty_reserved') && sql.includes('FROM inventory') && sql.includes('FOR UPDATE')) {
         return [{ qty_on_hand: '15.0000', qty_reserved: '0.0000' }];
       }
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 2 };
-      if (sql.startsWith('UPDATE inventory SET qty_on_hand = qty_on_hand - ?')) return { affectedRows: 1 };
+      if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
-      if (sql.includes('SELECT qty_on_hand AS qty FROM inventory')) return [{ qty: '10.0000' }];
+      if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '10.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 
@@ -146,13 +158,15 @@ describe('InventoryService auto snapshot sync', () => {
       return result;
     });
     mockQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT qty_on_hand, qty_reserved FROM inventory')) {
+      const warehouseSqlResult = resolveWarehouseSql(sql);
+      if (warehouseSqlResult !== undefined) return warehouseSqlResult;
+      if (sql.includes('qty_on_hand, qty_reserved') && sql.includes('FROM inventory') && sql.includes('FOR UPDATE')) {
         return [{ qty_on_hand: '15.0000', qty_reserved: '0.0000' }];
       }
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 3 };
-      if (sql.startsWith('UPDATE inventory SET qty_on_hand = qty_on_hand - ?')) return { affectedRows: 1 };
+      if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
-      if (sql.includes('SELECT qty_on_hand AS qty FROM inventory')) return [{ qty: '14.0000' }];
+      if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '14.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 
@@ -186,13 +200,15 @@ describe('InventoryService auto snapshot sync', () => {
     const manager: TxManager = { query: mockQuery };
     mockTransaction.mockImplementation(async (cb: (manager: TxManager) => Promise<unknown>) => cb(manager));
     mockQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT qty_on_hand, qty_reserved FROM inventory')) {
+      const warehouseSqlResult = resolveWarehouseSql(sql);
+      if (warehouseSqlResult !== undefined) return warehouseSqlResult;
+      if (sql.includes('qty_on_hand, qty_reserved') && sql.includes('FROM inventory') && sql.includes('FOR UPDATE')) {
         return [{ qty_on_hand: '15.0000', qty_reserved: '0.0000' }];
       }
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 2 };
-      if (sql.startsWith('UPDATE inventory SET qty_on_hand = qty_on_hand - ?')) return { affectedRows: 1 };
+      if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
-      if (sql.includes('SELECT qty_on_hand AS qty FROM inventory')) {
+      if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) {
         throw new Error('tx failed after snapshot sync');
       }
       throw new Error(`Unexpected SQL: ${sql}`);
@@ -225,11 +241,13 @@ describe('InventoryService auto snapshot sync', () => {
     const manager: TxManager = { query: mockQuery };
     mockTransaction.mockImplementation(async (cb: (manager: TxManager) => Promise<unknown>) => cb(manager));
     mockQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT id FROM inventory')) return [];
+      const warehouseSqlResult = resolveWarehouseSql(sql);
+      if (warehouseSqlResult !== undefined) return warehouseSqlResult;
+      if (sql.includes('SELECT id') && sql.includes('FROM inventory')) return [];
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1 };
-      if (sql.includes('INSERT INTO inventory (tenant_id, sku_id, qty_on_hand')) return { affectedRows: 1 };
+      if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
-      if (sql.includes('SELECT qty_on_hand AS qty FROM inventory')) {
+      if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) {
         throw new Error('inbound tx failed after snapshot sync');
       }
       throw new Error(`Unexpected SQL: ${sql}`);
@@ -263,13 +281,15 @@ describe('InventoryService auto snapshot sync', () => {
     const manager: TxManager = { query: mockQuery };
     mockTransaction.mockImplementation(async (cb: (manager: TxManager) => Promise<unknown>) => cb(manager));
     mockQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT qty_on_hand, qty_reserved FROM inventory')) {
+      const warehouseSqlResult = resolveWarehouseSql(sql);
+      if (warehouseSqlResult !== undefined) return warehouseSqlResult;
+      if (sql.includes('qty_on_hand, qty_reserved') && sql.includes('FROM inventory') && sql.includes('FOR UPDATE')) {
         return [{ qty_on_hand: '15.0000', qty_reserved: '0.0000' }];
       }
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 3 };
-      if (sql.startsWith('UPDATE inventory SET qty_on_hand = qty_on_hand - ?')) return { affectedRows: 1 };
+      if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
-      if (sql.includes('SELECT qty_on_hand AS qty FROM inventory')) {
+      if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) {
         throw new Error('waste tx failed after snapshot sync');
       }
       throw new Error(`Unexpected SQL: ${sql}`);
@@ -304,13 +324,15 @@ describe('InventoryService auto snapshot sync', () => {
       throw new Error('outbound commit failed');
     });
     mockQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT qty_on_hand, qty_reserved FROM inventory')) {
+      const warehouseSqlResult = resolveWarehouseSql(sql);
+      if (warehouseSqlResult !== undefined) return warehouseSqlResult;
+      if (sql.includes('qty_on_hand, qty_reserved') && sql.includes('FROM inventory') && sql.includes('FOR UPDATE')) {
         return [{ qty_on_hand: '15.0000', qty_reserved: '0.0000' }];
       }
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 2 };
-      if (sql.startsWith('UPDATE inventory SET qty_on_hand = qty_on_hand - ?')) return { affectedRows: 1 };
+      if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
-      if (sql.includes('SELECT qty_on_hand AS qty FROM inventory')) return [{ qty: '10.0000' }];
+      if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '10.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 
@@ -348,11 +370,13 @@ describe('InventoryService auto snapshot sync', () => {
       throw new Error('inbound commit failed');
     });
     mockQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT id FROM inventory')) return [];
+      const warehouseSqlResult = resolveWarehouseSql(sql);
+      if (warehouseSqlResult !== undefined) return warehouseSqlResult;
+      if (sql.includes('SELECT id') && sql.includes('FROM inventory')) return [];
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1 };
-      if (sql.includes('INSERT INTO inventory (tenant_id, sku_id, qty_on_hand')) return { affectedRows: 1 };
+      if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
-      if (sql.includes('SELECT qty_on_hand AS qty FROM inventory')) return [{ qty: '15.0000' }];
+      if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '15.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 
@@ -391,13 +415,15 @@ describe('InventoryService auto snapshot sync', () => {
       throw new Error('waste commit failed');
     });
     mockQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT qty_on_hand, qty_reserved FROM inventory')) {
+      const warehouseSqlResult = resolveWarehouseSql(sql);
+      if (warehouseSqlResult !== undefined) return warehouseSqlResult;
+      if (sql.includes('qty_on_hand, qty_reserved') && sql.includes('FROM inventory') && sql.includes('FOR UPDATE')) {
         return [{ qty_on_hand: '15.0000', qty_reserved: '0.0000' }];
       }
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 3 };
-      if (sql.startsWith('UPDATE inventory SET qty_on_hand = qty_on_hand - ?')) return { affectedRows: 1 };
+      if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
-      if (sql.includes('SELECT qty_on_hand AS qty FROM inventory')) return [{ qty: '14.0000' }];
+      if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '14.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 

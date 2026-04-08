@@ -195,6 +195,22 @@ describe('销售结算模块 API 集成测试', () => {
   });
 
   describe('结算单列表 / 详情 / 应收汇总', () => {
+    test('sales 可查询待结算销售订单列表', async () => {
+      const res = await request(BASE_URL)
+        .get('/api/settlements/pending-orders?keyword=SO-SET&page=1&pageSize=20')
+        .set(authHeader('sales'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.code).toBe(0);
+      expect(res.body.data.page).toBe(1);
+      expect(res.body.data.pageSize).toBe(20);
+      const list: Array<Record<string, unknown>> = res.body.data?.list ?? [];
+      expect(Array.isArray(list)).toBe(true);
+      expect(list.some((item) => Number(item.orderId) === ORDER_CREATE_ID)).toBe(true);
+      // ORDER_DETAIL_ID 已经存在有效结算单，不应出现在待结算池
+      expect(list.some((item) => Number(item.orderId) === ORDER_DETAIL_ID)).toBe(false);
+    });
+
     test('sales 可按 keyword + overdueOnly 查询结算单列表', async () => {
       const res = await request(BASE_URL)
         .get('/api/settlements?keyword=ST-SET&overdueOnly=true&page=1&pageSize=20')

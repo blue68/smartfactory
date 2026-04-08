@@ -1,0 +1,10 @@
+[inventory-warehouse-readiness] tenant_id=1
+status=READY
+total_warehouses=2
+active_warehouses=2
+total_locations=2
+active_locations=2
+active_non_default_warehouses=1
+active_non_default_locations=1
+mapping_csv_total_rows=45
+mapping_csv_filled_rows=45

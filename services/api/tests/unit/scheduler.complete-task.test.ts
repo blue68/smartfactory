@@ -159,7 +159,7 @@ describe('SchedulerService completeTask idempotency', () => {
 
     const inventoryUpsertCall = mockQuery.mock.calls.find(
       ([sql]) => typeof sql === 'string'
-        && sql.includes('INSERT INTO inventory (tenant_id, sku_id, qty_on_hand'),
+        && sql.includes('INSERT INTO inventory'),
     );
     expect(inventoryUpsertCall).toBeUndefined();
     expect(mockRedisDel).toHaveBeenCalledWith('inventory:1:44');
@@ -191,7 +191,7 @@ describe('SchedulerService completeTask idempotency', () => {
         return [{ cnt: '0' }];
       }
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 701 };
-      if (sql.includes('INSERT INTO inventory (tenant_id, sku_id, qty_on_hand')) return { affectedRows: 1 };
+      if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
       if (sql.includes('SELECT dye_lot_no FROM order_dye_lot_bindings')) return [];
       if (sql.includes('INSERT INTO traceability_records')) return { insertId: 601 };
@@ -219,6 +219,9 @@ describe('SchedulerService completeTask idempotency', () => {
       1,
       expect.stringMatching(/^PROD-IN-/),
       44,
+      1,
+      1,
+      'production:scheduler:complete',
       '5.0000',
       'kg',
       '5.0000',
@@ -226,6 +229,7 @@ describe('SchedulerService completeTask idempotency', () => {
       9,
       'WO-9',
       '生产工单 WO-9 全部任务完工，成品自动入库',
+      99,
       99,
     ]);
   });
@@ -310,7 +314,7 @@ describe('SchedulerService completeTask idempotency', () => {
         return [{ cnt: '0' }];
       }
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 701 };
-      if (sql.includes('INSERT INTO inventory (tenant_id, sku_id, qty_on_hand')) return { affectedRows: 1 };
+      if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
       if (sql.includes('SELECT dye_lot_no FROM order_dye_lot_bindings')) return [];
       if (sql.includes('INSERT INTO traceability_records')) return { insertId: 601 };
@@ -411,7 +415,7 @@ describe('SchedulerService completeTask idempotency', () => {
         return [{ cnt: '0' }];
       }
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 701 };
-      if (sql.includes('INSERT INTO inventory (tenant_id, sku_id, qty_on_hand')) return { affectedRows: 1 };
+      if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
       if (sql.includes('SELECT dye_lot_no FROM order_dye_lot_bindings')) return [];
       if (sql.includes('INSERT INTO traceability_records')) {

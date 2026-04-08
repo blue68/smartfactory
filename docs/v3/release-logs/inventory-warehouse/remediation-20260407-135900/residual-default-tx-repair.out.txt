@@ -1,0 +1,22 @@
+[repair-inventory-default-transactions-by-mapping] tenant_id=1 apply_mode=1 repair_tag=DRILL_20260407135900
++-------------------------------+
+| default_tx_count_total_before |
++-------------------------------+
+|                             0 |
++-------------------------------+
++-------------------+--------------------+
+| candidate_tx_rows | candidate_sku_rows |
++-------------------+--------------------+
+|                 0 |                  0 |
++-------------------+--------------------+
++--------------------------+
+| repaired_default_tx_rows |
++--------------------------+
+|                        0 |
++--------------------------+
++------------------------------+
+| default_tx_count_total_after |
++------------------------------+
+|                            0 |
++------------------------------+
+[repair-inventory-default-transactions-by-mapping] done

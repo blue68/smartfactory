@@ -86,6 +86,9 @@ describe('ReturnOrderService inventory regressions', () => {
       7,
       'TX260331-00002',
       101,
+      1,
+      1,
+      'return_order:ship',
       '3.0000',
       'pcs',
       '3.0000',
@@ -94,12 +97,13 @@ describe('ReturnOrderService inventory regressions', () => {
       'RT-1001',
       '采购退货 RT-1001 发货出库',
       11,
+      11,
     ]);
 
     const inventoryUpdateCall = mockQuery.mock.calls.find(([sql]) =>
       String(sql).includes('UPDATE inventory'),
     );
-    expect(inventoryUpdateCall?.[1]).toEqual(['3.0000', 7, 101]);
+    expect(inventoryUpdateCall?.[1]).toEqual(['3.0000', 11, 7, 101, 1, 1]);
 
     const snapshotCall = mockQuery.mock.calls.find(([sql]) =>
       String(sql).includes('INSERT INTO inventory_daily_snapshots'),

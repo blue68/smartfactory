@@ -202,6 +202,7 @@
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+  align-items: flex-end;
 }
 
 .searchBox {
@@ -240,6 +241,64 @@
 .searchBox:focus-within {
   border-color: #dbe4ef;
   box-shadow: none;
+}
+
+.selectField {
+  display: grid;
+  gap: 6px;
+  min-width: 200px;
+}
+
+.selectField span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.selectInput {
+  height: 44px;
+  border-radius: 14px;
+  border: 1px solid #dbe4ef;
+  background: #f8fafc;
+  color: #0f172a;
+  padding: 0 12px;
+  font-size: 14px;
+  outline: none;
+}
+
+.selectInput:focus {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+
+.toggleField {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 14px;
+  border: 1px solid #dbe4ef;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 13px;
+}
+
+.governanceHint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.governanceHintText {
+  font-size: 13px;
+  color: #166534;
+  line-height: 1.6;
 }
 
 .focusTabs {

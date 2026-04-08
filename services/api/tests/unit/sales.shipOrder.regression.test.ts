@@ -63,6 +63,9 @@ describe('SalesService shipOrder inventory regression', () => {
       deliveryId: 21,
       deliveryNo: expect.any(String),
       orderStatus: 'shipped',
+      warehouseId: 1,
+      locationId: 1,
+      warningCode: 'INV_FALLBACK_DEFAULT_LOCATION',
     });
     expect(mockGenerateNo).toHaveBeenCalledWith('transaction', 7);
     const inventoryTxCall = mockQuery.mock.calls.find(([sql]) =>
@@ -73,6 +76,9 @@ describe('SalesService shipOrder inventory regression', () => {
       7,
       'TX260331-00001',
       101,
+      1,
+      1,
+      'sales:ship',
       '6.0000',
       'pcs',
       '6.0000',
@@ -81,12 +87,13 @@ describe('SalesService shipOrder inventory regression', () => {
       result.deliveryNo,
       '销售订单 SO-1003 发货出库',
       11,
+      11,
     ]);
     const inventoryUpdateCall = mockQuery.mock.calls.find(([sql]) =>
       String(sql).includes('UPDATE inventory'),
     );
     expect(String(inventoryUpdateCall?.[0])).toContain('UPDATE inventory');
-    expect(inventoryUpdateCall?.[1]).toEqual(['6.0000', 7, 101]);
+    expect(inventoryUpdateCall?.[1]).toEqual(['6.0000', 11, 7, 101, 1, 1]);
     const snapshotCall = mockQuery.mock.calls.find(([sql]) =>
       String(sql).includes('INSERT INTO inventory_daily_snapshots'),
     );

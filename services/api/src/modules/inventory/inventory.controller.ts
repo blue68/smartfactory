@@ -3,9 +3,13 @@ import { z } from 'zod';
 import { InventoryService } from './inventory.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
+import { AppError } from '../../shared/AppError';
 
 const InboundSchema = z.object({
-  skuId: z.number().int().positive(),
+  skuId: z.number().int().positive().optional(),
+  skuCode: z.string().trim().min(1).max(100).optional(),
+  warehouseId: z.number().int().positive().optional(),
+  locationId: z.number().int().positive().optional(),
   qtyInput: z.string().regex(/^\d+(\.\d{1,4})?$/),
   inputUnit: z.string().min(1).max(20),
   transactionType: z.enum(['PURCHASE_IN', 'PRODUCTION_IN', 'ADJUSTMENT_IN']),
@@ -15,10 +19,15 @@ const InboundSchema = z.object({
   referenceNo: z.string().max(50).optional(),
   batchCost: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
   notes: z.string().max(500).optional(),
-});
+}).refine(
+  (value) => Boolean(value.skuId) || Boolean(value.skuCode),
+  'skuId 或 skuCode 至少传一个',
+);
 
 const OutboundSchema = z.object({
   skuId: z.number().int().positive(),
+  warehouseId: z.number().int().positive().optional(),
+  locationId: z.number().int().positive().optional(),
   qtyInput: z.string().regex(/^\d+(\.\d{1,4})?$/),
   inputUnit: z.string().min(1).max(20),
   transactionType: z.enum(['MATERIAL_OUT', 'DELIVERY_OUT', 'ADJUSTMENT_OUT']),
@@ -33,6 +42,9 @@ const OutboundSchema = z.object({
 const ListInventorySchema = PaginationSchema.extend({
   category1Id: z.coerce.number().int().positive().optional(),
   category2Id: z.coerce.number().int().positive().optional(),
+  warehouseId: z.coerce.number().int().positive().optional(),
+  locationId: z.coerce.number().int().positive().optional(),
+  onlyDefaultLocation: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
   keyword: z.string().max(100).optional(),
   belowSafety: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
@@ -46,7 +58,69 @@ const ListDailySnapshotSchema = PaginationSchema.extend({
 const ListInventoryTransactionsSchema = PaginationSchema.extend({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  warehouseId: z.coerce.number().int().positive().optional(),
+  locationId: z.coerce.number().int().positive().optional(),
   keyword: z.string().max(100).optional(),
+});
+
+const ListWarehouseSchema = z.object({
+  onlyActive: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+});
+
+const ListLocationSchema = z.object({
+  warehouseId: z.coerce.number().int().positive().optional(),
+  onlyActive: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+});
+
+const MasterDataStatusSchema = z.enum(['active', 'inactive', 'locked', 'archived']);
+const LocationTypeSchema = z.enum(['general', 'zone', 'rack', 'shelf', 'bin']);
+
+const CreateWarehouseSchema = z.object({
+  code: z.string().trim().min(1).max(50),
+  name: z.string().trim().min(1).max(100),
+  type: z.string().trim().max(30).optional(),
+  plantCode: z.string().trim().max(50).optional(),
+  status: MasterDataStatusSchema.default('active'),
+});
+
+const UpdateWarehouseSchema = z.object({
+  code: z.string().trim().min(1).max(50).optional(),
+  name: z.string().trim().min(1).max(100).optional(),
+  type: z.string().trim().max(30).optional(),
+  plantCode: z.string().trim().max(50).optional(),
+  status: MasterDataStatusSchema.optional(),
+}).refine((value) => Object.keys(value).length > 0, '至少传入一个更新字段');
+
+const CreateLocationSchema = z.object({
+  warehouseId: z.number().int().positive(),
+  code: z.string().trim().min(1).max(50),
+  name: z.string().trim().min(1).max(100),
+  locationType: LocationTypeSchema.default('general'),
+  aisleCode: z.string().trim().max(30).optional(),
+  rackCode: z.string().trim().max(30).optional(),
+  shelfCode: z.string().trim().max(30).optional(),
+  binCode: z.string().trim().max(30).optional(),
+  level: z.number().int().min(1).max(9).default(1),
+  parentId: z.number().int().positive().optional(),
+  status: MasterDataStatusSchema.default('active'),
+});
+
+const UpdateLocationSchema = z.object({
+  warehouseId: z.number().int().positive().optional(),
+  code: z.string().trim().min(1).max(50).optional(),
+  name: z.string().trim().min(1).max(100).optional(),
+  locationType: LocationTypeSchema.optional(),
+  aisleCode: z.string().trim().max(30).optional(),
+  rackCode: z.string().trim().max(30).optional(),
+  shelfCode: z.string().trim().max(30).optional(),
+  binCode: z.string().trim().max(30).optional(),
+  level: z.number().int().min(1).max(9).optional(),
+  parentId: z.number().int().positive().nullable().optional(),
+  status: MasterDataStatusSchema.optional(),
+}).refine((value) => Object.keys(value).length > 0, '至少传入一个更新字段');
+
+const ImportCsvQuerySchema = z.object({
+  downloadFailed: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
 
 const RebuildSnapshotSchema = z.object({
@@ -97,6 +171,125 @@ export class InventoryController {
     const q = ListInventorySchema.parse(req.query);
     const { list, total } = await this.svc(req).listInventory(q);
     success(res, buildPaginated(list, total, q.page, q.pageSize));
+  }
+
+  async listWarehouses(req: Request, res: Response): Promise<void> {
+    const q = ListWarehouseSchema.parse(req.query);
+    const list = await this.svc(req).listWarehouses(q.onlyActive ?? true);
+    success(res, list);
+  }
+
+  async listLocations(req: Request, res: Response): Promise<void> {
+    const q = ListLocationSchema.parse(req.query);
+    const list = await this.svc(req).listLocations({
+      warehouseId: q.warehouseId,
+      onlyActive: q.onlyActive ?? true,
+    });
+    success(res, list);
+  }
+
+  async createWarehouse(req: Request, res: Response): Promise<void> {
+    const body = CreateWarehouseSchema.parse(req.body ?? {});
+    const data = await this.svc(req).createWarehouse(body);
+    created(res, data, '仓库创建成功');
+  }
+
+  async updateWarehouse(req: Request, res: Response): Promise<void> {
+    const id = z.coerce.number().int().positive().parse(req.params.id);
+    const body = UpdateWarehouseSchema.parse(req.body ?? {});
+    const data = await this.svc(req).updateWarehouse(id, body);
+    success(res, data, '仓库更新成功');
+  }
+
+  async deleteWarehouse(req: Request, res: Response): Promise<void> {
+    const id = z.coerce.number().int().positive().parse(req.params.id);
+    const data = await this.svc(req).deleteWarehouse(id);
+    success(res, data, '仓库删除成功');
+  }
+
+  async createLocation(req: Request, res: Response): Promise<void> {
+    const body = CreateLocationSchema.parse(req.body ?? {});
+    const data = await this.svc(req).createLocation(body);
+    created(res, data, '库位创建成功');
+  }
+
+  async updateLocation(req: Request, res: Response): Promise<void> {
+    const id = z.coerce.number().int().positive().parse(req.params.id);
+    const body = UpdateLocationSchema.parse(req.body ?? {});
+    const data = await this.svc(req).updateLocation(id, body);
+    success(res, data, '库位更新成功');
+  }
+
+  async deleteLocation(req: Request, res: Response): Promise<void> {
+    const id = z.coerce.number().int().positive().parse(req.params.id);
+    const data = await this.svc(req).deleteLocation(id);
+    success(res, data, '库位删除成功');
+  }
+
+  async downloadWarehouseImportTemplateCsv(req: Request, res: Response): Promise<void> {
+    const csv = this.svc(req).generateWarehouseImportTemplateCsv();
+    this.sendCsvAttachment(res, 'warehouse-import-template.csv', csv);
+  }
+
+  async importWarehousesCsv(req: Request, res: Response): Promise<void> {
+    const file = (req as Request & { file?: Express.Multer.File }).file;
+    if (!file?.buffer) {
+      throw AppError.badRequest('请上传 CSV 文件');
+    }
+
+    const q = ImportCsvQuerySchema.parse(req.query);
+    const result = await this.svc(req).importWarehousesFromCsv(file.buffer);
+    if (q.downloadFailed && result.failCount > 0) {
+      this.sendCsvAttachment(
+        res,
+        `warehouse-import-failures-${Date.now()}.csv`,
+        this.buildFailureCsv(
+          result.failures,
+          ['code', 'name', 'type', 'plantCode', 'status'],
+        ),
+      );
+      return;
+    }
+    success(res, result, `仓库导入完成：成功 ${result.successCount} 条，失败 ${result.failCount} 条`);
+  }
+
+  async downloadLocationImportTemplateCsv(req: Request, res: Response): Promise<void> {
+    const csv = this.svc(req).generateLocationImportTemplateCsv();
+    this.sendCsvAttachment(res, 'location-import-template.csv', csv);
+  }
+
+  async importLocationsCsv(req: Request, res: Response): Promise<void> {
+    const file = (req as Request & { file?: Express.Multer.File }).file;
+    if (!file?.buffer) {
+      throw AppError.badRequest('请上传 CSV 文件');
+    }
+
+    const q = ImportCsvQuerySchema.parse(req.query);
+    const result = await this.svc(req).importLocationsFromCsv(file.buffer);
+    if (q.downloadFailed && result.failCount > 0) {
+      this.sendCsvAttachment(
+        res,
+        `location-import-failures-${Date.now()}.csv`,
+        this.buildFailureCsv(
+          result.failures,
+          [
+            'warehouseCode',
+            'code',
+            'name',
+            'locationType',
+            'aisleCode',
+            'rackCode',
+            'shelfCode',
+            'binCode',
+            'level',
+            'parentCode',
+            'status',
+          ],
+        ),
+      );
+      return;
+    }
+    success(res, result, `库位导入完成：成功 ${result.successCount} 条，失败 ${result.failCount} 条`);
   }
 
   async listDailySnapshots(req: Request, res: Response): Promise<void> {
@@ -180,6 +373,8 @@ export class InventoryController {
   async recordWaste(req: Request, res: Response): Promise<void> {
     const schema = z.object({
       skuId: z.number().int().positive(),
+      warehouseId: z.number().int().positive().optional(),
+      locationId: z.number().int().positive().optional(),
       qty: z.string().regex(/^\d+(\.\d+)?$/),
       reason: z.string().min(1).max(200),
       notes: z.string().max(500).optional(),
@@ -240,6 +435,31 @@ export class InventoryController {
       result,
       body.dryRun ? '库存修复预览完成' : '库存修复已执行',
     );
+  }
+
+  private sendCsvAttachment(res: Response, filename: string, content: string): void {
+    const encodedFilename = encodeURIComponent(filename);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodedFilename}`);
+    res.send(`\uFEFF${content}`);
+  }
+
+  private buildFailureCsv(
+    failures: Array<{ rowNo: number; reason: string; row: Record<string, string> }>,
+    fields: string[],
+  ): string {
+    const escape = (value: string): string => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const header = ['rowNo', 'reason', ...fields];
+    const lines = [header.map(escape).join(',')];
+    failures.forEach((failure) => {
+      const values = [
+        String(failure.rowNo),
+        failure.reason,
+        ...fields.map((field) => failure.row[field] ?? ''),
+      ];
+      lines.push(values.map(escape).join(','));
+    });
+    return lines.join('\n');
   }
 }
 

@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js';
 import { AppDataSource } from '../../config/database';
 import { getRedisClient, RedisKeys } from '../../config/redis';
 import { TenantContext } from '../../shared/BaseRepository';
@@ -40,6 +41,7 @@ export class ProductionService {
   }
 
   async startTask(taskId: number) {
+    await this.assertTaskDependenciesReady(taskId, 'start');
     return this.scheduler.startTask(taskId);
   }
 
@@ -52,6 +54,7 @@ export class ProductionService {
     notes?: string;
     images?: string[];
   }) {
+    await this.assertTaskDependenciesReady(taskId, 'complete');
     return this.scheduler.completeTask(taskId, params);
   }
 
@@ -176,7 +179,15 @@ export class ProductionService {
                 ws.name AS workstationName,
                 u.real_name AS workerName,
                 s.name AS skuName, s.sku_code AS skuCode,
-                outs.name AS outputSkuName
+                outs.name AS outputSkuName,
+                outs.sku_code AS outputSkuCode,
+                outs.stock_unit AS outputStockUnit,
+                CASE
+                  WHEN COALESCE(pt.output_sku_id, ps.output_sku_id) IS NOT NULL
+                    AND COALESCE(pt.output_sku_id, ps.output_sku_id) <> po.sku_id
+                  THEN 'semi_finished'
+                  ELSE 'finished'
+                END AS taskType
          FROM production_tasks pt
          INNER JOIN production_orders po ON po.id = pt.production_order_id
          INNER JOIN process_steps ps ON ps.id = pt.process_step_id
@@ -218,11 +229,20 @@ export class ProductionService {
         taskId,
       }),
     ]);
+    const inputItems = await this.getTaskInputItems(
+      task,
+      dependencySummary.predecessors,
+      materialTransactions,
+    );
+    const outputItems = this.buildTaskOutputItems(task, materialTransactions);
 
     return {
       ...task,
       statusLabel: this.getTaskStatusLabel(String(task.status ?? 'pending')),
       dependencySummary,
+      inputItems,
+      inputMaterials: inputItems.filter((item) => item.itemType === 'material'),
+      outputItems,
       materialTransactions,
       wageReport: wageRows[0][0] ?? null,
       exceptions,
@@ -231,7 +251,7 @@ export class ProductionService {
 
   async listTasks(params: {
     page: number; pageSize: number; status?: string; keyword?: string;
-    processId?: number; dateFrom?: string; dateTo?: string; priority?: number;
+    processId?: number; taskType?: 'finished' | 'semi_finished'; dateFrom?: string; dateTo?: string; priority?: number;
   }) {
     const conds = ['pt.tenant_id = ?'];
     const p: unknown[] = [this.tenantId];
@@ -253,6 +273,13 @@ export class ProductionService {
       conds.push('ps.id = ?');
       p.push(params.processId);
     }
+    if (params.taskType === 'semi_finished') {
+      conds.push('COALESCE(pt.output_sku_id, ps.output_sku_id) IS NOT NULL');
+      conds.push('COALESCE(pt.output_sku_id, ps.output_sku_id) <> po.sku_id');
+    }
+    if (params.taskType === 'finished') {
+      conds.push('(COALESCE(pt.output_sku_id, ps.output_sku_id) IS NULL OR COALESCE(pt.output_sku_id, ps.output_sku_id) = po.sku_id)');
+    }
     if (params.dateFrom) {
       conds.push('pt.task_date >= ?');
       p.push(params.dateFrom);
@@ -271,26 +298,125 @@ export class ProductionService {
 
     const [list, countRows] = await Promise.all([
       AppDataSource.query(
-        // R06-G12: 补充 priority、version、actual_hours、skuName（产品名）字段
-        `SELECT pt.id, pt.task_no AS taskNo, pt.task_date AS taskDate,
-                CASE WHEN pt.status = 'started' THEN 'in_progress' ELSE pt.status END AS status,
-                pt.planned_qty AS plannedQty, pt.completed_qty AS completedQty,
-                pt.version, pt.actual_hours AS actualHours, ps.id AS processStepId,
-                pt.operation_id AS operationId, pt.output_sku_id AS outputSkuId,
-                po.work_order_no AS orderNo, po.priority,
-                ps.step_name AS processName,
-                ws.name AS workstationName, u.real_name AS workerName,
-                s.name AS skuName, s.sku_code AS skuCode,
-                outs.name AS outputSkuName
-         FROM production_tasks pt
-         INNER JOIN production_orders po ON po.id = pt.production_order_id
-         INNER JOIN process_steps ps ON ps.id = pt.process_step_id
-         LEFT JOIN workstations ws ON ws.id = pt.workstation_id
-         LEFT JOIN users u ON u.id = pt.worker_id
-         LEFT JOIN skus s ON s.id = po.sku_id
-         LEFT JOIN skus outs ON outs.id = COALESCE(pt.output_sku_id, ps.output_sku_id)
-         WHERE ${where}
-         ORDER BY pt.task_date DESC, pt.id DESC
+        // R06-G12 + dependency-aware priority sort
+        `SELECT
+            task_rows.*,
+            CASE
+              WHEN task_rows.priorityScore >= 110 THEN 'critical'
+              WHEN task_rows.priorityScore >= 85 THEN 'high'
+              WHEN task_rows.priorityScore >= 60 THEN 'medium'
+              ELSE 'normal'
+            END AS priorityLevel,
+            CASE
+              WHEN task_rows.priorityScore >= 110 THEN '关键优先'
+              WHEN task_rows.priorityScore >= 85 THEN '高优先'
+              WHEN task_rows.priorityScore >= 60 THEN '优先'
+              ELSE '普通'
+            END AS priorityLabel,
+            CASE
+              WHEN task_rows.activeDownstreamTaskCount > 0 AND task_rows.dependencyBlocked = 0
+                THEN CONCAT('关键链路，影响 ', task_rows.activeDownstreamTaskCount, ' 个后续任务')
+              WHEN task_rows.downstreamTaskCount > 0 AND task_rows.dependencyBlocked = 0
+                THEN CONCAT('前置任务，关联 ', task_rows.downstreamTaskCount, ' 个后续任务')
+              WHEN task_rows.dependencyBlocked = 1
+                THEN '存在前置阻塞，当前不可直接开工'
+              WHEN task_rows.priority >= 80
+                THEN '工单基础优先级较高'
+              ELSE '常规优先级'
+            END AS priorityReason
+         FROM (
+           SELECT
+             pt.id,
+             pt.task_no AS taskNo,
+             pt.task_date AS taskDate,
+             CASE WHEN pt.status = 'started' THEN 'in_progress' ELSE pt.status END AS status,
+             pt.planned_qty AS plannedQty,
+             pt.completed_qty AS completedQty,
+             pt.version,
+             pt.actual_hours AS actualHours,
+             ps.id AS processStepId,
+             pt.operation_id AS operationId,
+             pt.output_sku_id AS outputSkuId,
+             po.work_order_no AS orderNo,
+             po.priority,
+             ps.step_name AS processName,
+             ws.name AS workstationName,
+             u.real_name AS workerName,
+             s.name AS skuName,
+             s.sku_code AS skuCode,
+             outs.name AS outputSkuName,
+             CASE
+               WHEN COALESCE(pt.output_sku_id, ps.output_sku_id) IS NOT NULL
+                 AND COALESCE(pt.output_sku_id, ps.output_sku_id) <> po.sku_id
+               THEN 'semi_finished'
+               ELSE 'finished'
+             END AS taskType,
+             COALESCE(dep_out.downstreamTaskCount, 0) AS downstreamTaskCount,
+             COALESCE(dep_out.activeDownstreamTaskCount, 0) AS activeDownstreamTaskCount,
+             CASE WHEN COALESCE(dep_in.blockedDependencyCount, 0) > 0 THEN 1 ELSE 0 END AS dependencyBlocked,
+             (
+               po.priority
+               + LEAST(COALESCE(dep_out.activeDownstreamTaskCount, 0), 5) * 15
+               + LEAST(COALESCE(dep_out.downstreamTaskCount, 0), 5) * 5
+               + CASE WHEN pt.status = 'started' THEN 10 ELSE 0 END
+               + CASE
+                   WHEN COALESCE(dep_out.activeDownstreamTaskCount, 0) > 0
+                        AND COALESCE(dep_in.blockedDependencyCount, 0) = 0
+                   THEN 10
+                   ELSE 0
+                 END
+               - CASE WHEN COALESCE(dep_in.blockedDependencyCount, 0) > 0 THEN 25 ELSE 0 END
+             ) AS priorityScore
+           FROM production_tasks pt
+           INNER JOIN production_orders po ON po.id = pt.production_order_id
+           INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+           LEFT JOIN workstations ws ON ws.id = pt.workstation_id
+           LEFT JOIN users u ON u.id = pt.worker_id
+           LEFT JOIN skus s ON s.id = po.sku_id
+           LEFT JOIN skus outs ON outs.id = COALESCE(pt.output_sku_id, ps.output_sku_id)
+           LEFT JOIN (
+             SELECT
+               dep.tenant_id,
+               dep.predecessor_operation_id AS operationId,
+               COUNT(DISTINCT dep.operation_id) AS downstreamTaskCount,
+               COUNT(DISTINCT CASE
+                 WHEN succ_task.status IN ('pending', 'started', 'exception', 'suspended')
+                 THEN succ_task.id
+                 ELSE NULL
+               END) AS activeDownstreamTaskCount
+             FROM production_operation_dependencies dep
+             LEFT JOIN (
+               SELECT tenant_id, operation_id, MAX(id) AS task_id
+               FROM production_tasks
+               GROUP BY tenant_id, operation_id
+             ) succ_task_ref
+               ON succ_task_ref.tenant_id = dep.tenant_id
+              AND succ_task_ref.operation_id = dep.operation_id
+             LEFT JOIN production_tasks succ_task
+               ON succ_task.id = succ_task_ref.task_id
+             GROUP BY dep.tenant_id, dep.predecessor_operation_id
+           ) dep_out
+             ON dep_out.tenant_id = pt.tenant_id
+            AND dep_out.operationId = pt.operation_id
+           LEFT JOIN (
+             SELECT
+               dep.tenant_id,
+               dep.operation_id AS operationId,
+               SUM(CASE
+                 WHEN COALESCE(pred.completed_qty, 0) < dep.required_qty THEN 1
+                 ELSE 0
+               END) AS blockedDependencyCount
+             FROM production_operation_dependencies dep
+             INNER JOIN production_operations pred
+               ON pred.id = dep.predecessor_operation_id
+              AND pred.tenant_id = dep.tenant_id
+             GROUP BY dep.tenant_id, dep.operation_id
+           ) dep_in
+             ON dep_in.tenant_id = pt.tenant_id
+            AND dep_in.operationId = pt.operation_id
+           WHERE ${where}
+         ) task_rows
+         ORDER BY task_rows.priorityScore DESC, task_rows.priority DESC, task_rows.taskDate DESC, task_rows.id DESC
          LIMIT ? OFFSET ?`,
         [...p, params.pageSize, offset],
       ),
@@ -312,6 +438,7 @@ export class ProductionService {
   async reportException(taskId: number, params: {
     type: string; description: string; severity: string; affectsProgress?: boolean;
   }) {
+    await this.assertTaskDependenciesReady(taskId, 'exception');
     await AppDataSource.transaction(async (manager) => {
       const [task] = await manager.query<Array<{ id: number; status: string }>>(
         `SELECT id, status
@@ -857,6 +984,45 @@ export class ProductionService {
     }
   }
 
+  private async assertTaskDependenciesReady(
+    taskId: number,
+    action: 'start' | 'complete' | 'exception',
+  ): Promise<void> {
+    const [task] = await AppDataSource.query<Array<{
+      id: number;
+      operationId: number | null;
+    }>>(
+      `SELECT id, operation_id AS operationId
+       FROM production_tasks
+       WHERE id = ? AND tenant_id = ?
+       LIMIT 1`,
+      [taskId, this.tenantId],
+    );
+
+    if (!task) {
+      throw AppError.notFound('任务不存在', ResponseCode.NOT_FOUND);
+    }
+
+    if (!task.operationId) {
+      return;
+    }
+
+    const dependencySummary = await this.getTaskDependencySummary(Number(task.operationId));
+    if (!dependencySummary.blocked) {
+      return;
+    }
+
+    const actionLabel = action === 'start'
+      ? '开始生产'
+      : action === 'complete'
+        ? '完工上报'
+        : '异常上报';
+    throw AppError.badRequest(
+      `${dependencySummary.blockingReason ?? '存在未完成的前置依赖'}，暂不允许${actionLabel}`,
+      ResponseCode.INVALID_PARAMS,
+    );
+  }
+
   private async getTaskDependencySummary(operationId: number | null): Promise<{
     blocked: boolean;
     blockingReason: string | null;
@@ -866,6 +1032,10 @@ export class ProductionService {
       requiredQty: string;
       completedQty: string;
       status: string;
+      skuId: number | null;
+      skuCode: string | null;
+      skuName: string | null;
+      unit: string | null;
     }>;
   }> {
     if (!operationId) {
@@ -878,19 +1048,41 @@ export class ProductionService {
       requiredQty: string;
       completedQty: string;
       status: string;
+      skuId: number | null;
+      skuCode: string | null;
+      skuName: string | null;
+      unit: string | null;
     }>>(
       `SELECT
           dep.predecessor_operation_id AS operationId,
           COALESCE(ps.step_name, CONCAT('STEP#', pred.process_step_id)) AS stepName,
           dep.required_qty AS requiredQty,
           pred.completed_qty AS completedQty,
-          pred.status AS status
+          pred.status AS status,
+          COALESCE(pred_task.output_sku_id, pred.output_sku_id, pred_component.resolved_sku_id, pred_component.sku_id) AS skuId,
+          sku.sku_code AS skuCode,
+          sku.name AS skuName,
+          sku.stock_unit AS unit
        FROM production_operation_dependencies dep
        INNER JOIN production_operations pred
          ON pred.id = dep.predecessor_operation_id
         AND pred.tenant_id = dep.tenant_id
        LEFT JOIN process_steps ps
          ON ps.id = pred.process_step_id
+       LEFT JOIN (
+         SELECT tenant_id, operation_id, MAX(id) AS task_id
+         FROM production_tasks
+         GROUP BY tenant_id, operation_id
+       ) pred_task_ref
+         ON pred_task_ref.tenant_id = pred.tenant_id
+        AND pred_task_ref.operation_id = pred.id
+       LEFT JOIN production_tasks pred_task
+         ON pred_task.id = pred_task_ref.task_id
+       LEFT JOIN production_order_components pred_component
+         ON pred_component.id = pred.component_id
+        AND pred_component.tenant_id = pred.tenant_id
+       LEFT JOIN skus sku
+         ON sku.id = COALESCE(pred_task.output_sku_id, pred.output_sku_id, pred_component.resolved_sku_id, pred_component.sku_id)
        WHERE dep.tenant_id = ? AND dep.operation_id = ?
        ORDER BY COALESCE(ps.step_no, 9999) ASC, dep.predecessor_operation_id ASC`,
       [this.tenantId, operationId],
@@ -913,8 +1105,12 @@ export class ProductionService {
     skuId: number;
     skuCode: string | null;
     skuName: string | null;
+    stockUnit: string | null;
     plannedQty: string;
     actualQty: string;
+    qtyAvailable: string;
+    shortageQty: string;
+    isShortage: boolean;
     inventoryTxId: number | null;
     transactionNo: string | null;
     transactionType: string | null;
@@ -930,8 +1126,12 @@ export class ProductionService {
           tmt.sku_id AS skuId,
           s.sku_code AS skuCode,
           s.name AS skuName,
+          s.stock_unit AS stockUnit,
           tmt.planned_qty AS plannedQty,
           tmt.actual_qty AS actualQty,
+          CAST(COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) AS CHAR) AS qtyAvailable,
+          CAST(GREATEST(tmt.planned_qty - COALESCE(inv.qty_on_hand - inv.qty_reserved, 0), 0) AS CHAR) AS shortageQty,
+          CASE WHEN COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) < tmt.planned_qty THEN TRUE ELSE FALSE END AS isShortage,
           tmt.inventory_tx_id AS inventoryTxId,
           it.transaction_no AS transactionNo,
           it.transaction_type AS transactionType,
@@ -942,6 +1142,9 @@ export class ProductionService {
        FROM task_material_transactions tmt
        LEFT JOIN skus s
          ON s.id = tmt.sku_id
+       LEFT JOIN inventory inv
+         ON inv.sku_id = tmt.sku_id
+        AND inv.tenant_id = tmt.tenant_id
        LEFT JOIN inventory_transactions it
          ON it.id = tmt.inventory_tx_id
         AND it.tenant_id = tmt.tenant_id
@@ -949,6 +1152,512 @@ export class ProductionService {
        ORDER BY FIELD(tmt.io_type, 'output', 'input'), tmt.id ASC`,
       [this.tenantId, taskId],
     );
+  }
+
+  private async getTaskInputMaterials(
+    task: {
+      id: number;
+      productionOrderId: number;
+      processStepId: number;
+      plannedQty: string;
+      orderPlannedQty: string;
+      taskType: 'finished' | 'semi_finished';
+    },
+    materialTransactions: Array<{
+      id: number;
+      ioType: 'input' | 'output';
+      skuId: number;
+      skuCode: string | null;
+      skuName: string | null;
+      stockUnit: string | null;
+      plannedQty: string;
+      actualQty: string;
+      qtyAvailable: string;
+      shortageQty: string;
+      isShortage: boolean;
+      inventoryTxId: number | null;
+    }>,
+  ): Promise<Array<{
+    itemType: 'material';
+    sourceLabel: string;
+    skuId: number;
+    skuCode: string | null;
+    skuName: string | null;
+    unit: string | null;
+    requiredQty: string;
+    issuedQty: string;
+    qtyAvailable: string;
+    shortageQty: string;
+    isShortage: boolean;
+    inventoryTxId: number | null;
+  }>> {
+    const inputTransactions = materialTransactions.filter((item) => item.ioType === 'input');
+    const txBySkuId = new Map(inputTransactions.map((item) => [Number(item.skuId), item]));
+
+    const stepMaterials = await AppDataSource.query<Array<{
+      skuId: number;
+      skuCode: string | null;
+      skuName: string | null;
+      unit: string | null;
+      usagePerUnit: string;
+      lossRate: string;
+      consumeTiming: 'start' | 'complete';
+      qtyAvailable: string;
+    }>>(
+      `SELECT
+          COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id) AS skuId,
+          sku.sku_code AS skuCode,
+          sku.name AS skuName,
+          sku.stock_unit AS unit,
+          psm.usage_per_unit AS usagePerUnit,
+          psm.loss_rate AS lossRate,
+          psm.consume_timing AS consumeTiming,
+          CAST(COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) AS CHAR) AS qtyAvailable
+       FROM process_steps ps
+       INNER JOIN process_step_materials psm
+         ON psm.tenant_id = ps.tenant_id
+        AND psm.template_id = ps.template_id
+        AND psm.step_no = ps.step_no
+       LEFT JOIN production_order_components poc
+         ON poc.tenant_id = ?
+        AND poc.production_order_id = ?
+        AND poc.sku_id = psm.input_sku_id
+       LEFT JOIN skus sku
+         ON sku.id = COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id)
+       LEFT JOIN inventory inv
+         ON inv.tenant_id = ?
+        AND inv.sku_id = COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id)
+       WHERE ps.id = ? AND ps.tenant_id = ?
+       ORDER BY psm.id ASC`,
+      [this.tenantId, task.productionOrderId, this.tenantId, task.processStepId, this.tenantId],
+    );
+
+    if (stepMaterials.length > 0) {
+      const taskQty = new Decimal(task.plannedQty ?? 0);
+      return stepMaterials.map((item) => {
+        const requiredQty = taskQty
+          .mul(new Decimal(item.usagePerUnit ?? 0))
+          .mul(new Decimal(1).plus(new Decimal(item.lossRate ?? 0)));
+        const transaction = txBySkuId.get(Number(item.skuId));
+        const qtyAvailable = new Decimal(item.qtyAvailable ?? 0);
+        const shortageQty = Decimal.max(requiredQty.minus(qtyAvailable), 0);
+
+        return {
+          itemType: 'material' as const,
+          sourceLabel: item.consumeTiming === 'complete' ? '工序完工投料' : '工序开工投料',
+          skuId: Number(item.skuId),
+          skuCode: item.skuCode,
+          skuName: item.skuName,
+          unit: item.unit,
+          requiredQty: requiredQty.toFixed(4),
+          issuedQty: transaction?.actualQty ?? '0.0000',
+          qtyAvailable: qtyAvailable.toFixed(4),
+          shortageQty: shortageQty.toFixed(4),
+          isShortage: shortageQty.gt(0),
+          inventoryTxId: transaction?.inventoryTxId ?? null,
+        };
+      });
+    }
+
+    if (inputTransactions.length > 0) {
+      return inputTransactions.map((item) => ({
+        itemType: 'material' as const,
+        sourceLabel: '任务投料记录',
+        skuId: Number(item.skuId),
+        skuCode: item.skuCode,
+        skuName: item.skuName,
+        unit: item.stockUnit,
+        requiredQty: item.plannedQty,
+        issuedQty: item.actualQty,
+        qtyAvailable: item.qtyAvailable,
+        shortageQty: item.shortageQty,
+        isShortage: Number(item.shortageQty ?? 0) > 0,
+        inventoryTxId: item.inventoryTxId,
+      }));
+    }
+
+    if (task.taskType !== 'finished') {
+      return [];
+    }
+
+    const fallbackMaterials = await AppDataSource.query<Array<{
+      skuId: number;
+      skuCode: string | null;
+      skuName: string | null;
+      unit: string | null;
+      qtyRequired: string;
+      availableQty: string;
+      qtyShortage: string;
+    }>>(
+      `SELECT
+          mr.sku_id AS skuId,
+          sku.sku_code AS skuCode,
+          sku.name AS skuName,
+          sku.stock_unit AS unit,
+          mr.qty_required AS qtyRequired,
+          CAST(COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) AS CHAR) AS availableQty,
+          CAST(mr.qty_shortage AS CHAR) AS qtyShortage
+       FROM material_requirements mr
+       INNER JOIN skus sku
+         ON sku.id = mr.sku_id
+       LEFT JOIN inventory inv
+         ON inv.tenant_id = mr.tenant_id
+        AND inv.sku_id = mr.sku_id
+       WHERE mr.tenant_id = ? AND mr.production_order_id = ?
+       ORDER BY mr.id ASC`,
+      [this.tenantId, task.productionOrderId],
+    );
+
+    const orderQty = new Decimal(task.orderPlannedQty ?? 0);
+    const ratio = orderQty.gt(0)
+      ? new Decimal(task.plannedQty ?? 0).div(orderQty)
+      : new Decimal(1);
+
+    return fallbackMaterials.map((item) => {
+      const scaledRequiredQty = new Decimal(item.qtyRequired ?? 0).mul(ratio);
+      const qtyAvailable = new Decimal(item.availableQty ?? 0);
+      const shortageQty = Decimal.max(scaledRequiredQty.minus(qtyAvailable), 0);
+
+      return {
+        itemType: 'material' as const,
+        sourceLabel: '工单原材料需求',
+        skuId: Number(item.skuId),
+        skuCode: item.skuCode,
+        skuName: item.skuName,
+        unit: item.unit,
+        requiredQty: scaledRequiredQty.toFixed(4),
+        issuedQty: '0.0000',
+        qtyAvailable: qtyAvailable.toFixed(4),
+        shortageQty: shortageQty.toFixed(4),
+        isShortage: shortageQty.gt(0),
+        inventoryTxId: null,
+      };
+    });
+  }
+
+  private async getTaskInputItems(
+    task: {
+      id: number;
+      productionOrderId: number;
+      processStepId: number;
+      plannedQty: string;
+      orderPlannedQty: string;
+      outputSkuId?: number | null;
+      taskType: 'finished' | 'semi_finished';
+    },
+    predecessors: Array<{
+      operationId: number;
+      stepName: string;
+      requiredQty: string;
+      completedQty: string;
+      status: string;
+      skuId: number | null;
+      skuCode: string | null;
+      skuName: string | null;
+      unit: string | null;
+    }>,
+    materialTransactions: Array<{
+      id: number;
+      ioType: 'input' | 'output';
+      skuId: number;
+      skuCode: string | null;
+      skuName: string | null;
+      stockUnit: string | null;
+      plannedQty: string;
+      actualQty: string;
+      qtyAvailable: string;
+      shortageQty: string;
+      isShortage: boolean;
+      inventoryTxId: number | null;
+    }>,
+  ): Promise<Array<{
+    itemType: 'semi_finished' | 'material';
+    sourceLabel: string;
+    skuId: number;
+    skuCode: string | null;
+    skuName: string | null;
+    unit: string | null;
+    requiredQty: string;
+    fulfilledQty: string;
+    qtyAvailable: string;
+    shortageQty: string;
+    isShortage: boolean;
+    status: string | null;
+    operationId: number | null;
+    stepName: string | null;
+    inventoryTxId: number | null;
+  }>> {
+    const predecessorItems = predecessors
+      .filter((item) => item.skuId != null)
+      .map((item) => {
+        const requiredQty = new Decimal(item.requiredQty ?? 0);
+        const fulfilledQty = new Decimal(item.completedQty ?? 0);
+        const shortageQty = Decimal.max(requiredQty.minus(fulfilledQty), 0);
+        return {
+          itemType: 'semi_finished' as const,
+          sourceLabel: '前置工序依赖',
+          skuId: Number(item.skuId),
+          skuCode: item.skuCode,
+          skuName: item.skuName,
+          unit: item.unit,
+          requiredQty: requiredQty.toFixed(4),
+          fulfilledQty: fulfilledQty.toFixed(4),
+          qtyAvailable: fulfilledQty.toFixed(4),
+          shortageQty: shortageQty.toFixed(4),
+          isShortage: shortageQty.gt(0),
+          status: item.status,
+          operationId: item.operationId,
+          stepName: item.stepName,
+          inventoryTxId: null,
+        };
+      });
+
+    if (task.taskType === 'semi_finished' && task.outputSkuId) {
+      const bomInputItems = await this.getTaskBomInputItems(task, predecessors, materialTransactions);
+      if (bomInputItems.length > 0) {
+        return bomInputItems;
+      }
+    }
+
+    const materialItems = await this.getTaskInputMaterials(task, materialTransactions);
+    return [
+      ...predecessorItems,
+      ...materialItems.map((item) => ({
+        itemType: 'material' as const,
+        sourceLabel: item.sourceLabel,
+        skuId: item.skuId,
+        skuCode: item.skuCode,
+        skuName: item.skuName,
+        unit: item.unit,
+        requiredQty: item.requiredQty,
+        fulfilledQty: item.issuedQty,
+        qtyAvailable: item.qtyAvailable,
+        shortageQty: item.shortageQty,
+        isShortage: item.isShortage,
+        status: item.inventoryTxId ? '已投料' : Number(item.shortageQty ?? 0) > 0 ? '缺料' : '待投料',
+        operationId: null,
+        stepName: null,
+        inventoryTxId: item.inventoryTxId,
+      })),
+    ];
+  }
+
+  private async getTaskBomInputItems(
+    task: {
+      plannedQty: string;
+      outputSkuId?: number | null;
+    },
+    predecessors: Array<{
+      operationId: number;
+      stepName: string;
+      requiredQty: string;
+      completedQty: string;
+      status: string;
+      skuId: number | null;
+      skuCode: string | null;
+      skuName: string | null;
+      unit: string | null;
+    }>,
+    materialTransactions: Array<{
+      id: number;
+      ioType: 'input' | 'output';
+      skuId: number;
+      skuCode: string | null;
+      skuName: string | null;
+      stockUnit: string | null;
+      plannedQty: string;
+      actualQty: string;
+      qtyAvailable: string;
+      shortageQty: string;
+      isShortage: boolean;
+      inventoryTxId: number | null;
+    }>,
+  ): Promise<Array<{
+    itemType: 'semi_finished' | 'material';
+    sourceLabel: string;
+    skuId: number;
+    skuCode: string | null;
+    skuName: string | null;
+    unit: string | null;
+    requiredQty: string;
+    fulfilledQty: string;
+    qtyAvailable: string;
+    shortageQty: string;
+    isShortage: boolean;
+    status: string | null;
+    operationId: number | null;
+    stepName: string | null;
+    inventoryTxId: number | null;
+  }>> {
+    if (!task.outputSkuId) {
+      return [];
+    }
+
+    const inputTransactions = materialTransactions.filter((item) => item.ioType === 'input');
+    const txBySkuId = new Map(inputTransactions.map((item) => [Number(item.skuId), item]));
+    const predecessorBySkuId = new Map(
+      predecessors
+        .filter((item) => item.skuId != null)
+        .map((item) => [Number(item.skuId), item]),
+    );
+
+    const bomRows = await AppDataSource.query<Array<{
+      skuId: number;
+      skuCode: string | null;
+      skuName: string | null;
+      unit: string | null;
+      quantity: string;
+      scrapRate: string;
+      qtyAvailable: string;
+      itemType: 'semi_finished' | 'material';
+    }>>(
+      `SELECT
+          bi.component_sku_id AS skuId,
+          sku.sku_code AS skuCode,
+          sku.name AS skuName,
+          COALESCE(NULLIF(bi.unit, ''), sku.stock_unit) AS unit,
+          bi.quantity AS quantity,
+          bi.scrap_rate AS scrapRate,
+          CAST(COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) AS CHAR) AS qtyAvailable,
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM bom_headers sub_bh
+              WHERE sub_bh.tenant_id = bh.tenant_id
+                AND sub_bh.sku_id = bi.component_sku_id
+                AND sub_bh.status = 'active'
+              LIMIT 1
+            ) THEN 'semi_finished'
+            ELSE 'material'
+          END AS itemType
+       FROM bom_headers bh
+       INNER JOIN bom_items bi
+         ON bi.bom_header_id = bh.id
+        AND bi.tenant_id = bh.tenant_id
+        AND bi.parent_item_id IS NULL
+       LEFT JOIN skus sku
+         ON sku.id = bi.component_sku_id
+       LEFT JOIN inventory inv
+         ON inv.tenant_id = bh.tenant_id
+        AND inv.sku_id = bi.component_sku_id
+       WHERE bh.tenant_id = ?
+         AND bh.sku_id = ?
+         AND bh.status = 'active'
+       ORDER BY bi.sort_order ASC, bi.id ASC`,
+      [this.tenantId, task.outputSkuId],
+    );
+
+    if (bomRows.length === 0) {
+      return [];
+    }
+
+    const taskQty = new Decimal(task.plannedQty ?? 0);
+    return bomRows.map((item) => {
+      const requiredQty = taskQty
+        .mul(new Decimal(item.quantity ?? 0))
+        .mul(new Decimal(1).plus(new Decimal(item.scrapRate ?? 0)));
+
+      if (item.itemType === 'semi_finished') {
+        const predecessor = predecessorBySkuId.get(Number(item.skuId));
+        const fulfilledQty = new Decimal(predecessor?.completedQty ?? 0);
+        const shortageQty = Decimal.max(requiredQty.minus(fulfilledQty), 0);
+
+        return {
+          itemType: 'semi_finished' as const,
+          sourceLabel: '一级 BOM 依赖',
+          skuId: Number(item.skuId),
+          skuCode: item.skuCode,
+          skuName: item.skuName,
+          unit: item.unit,
+          requiredQty: requiredQty.toFixed(4),
+          fulfilledQty: fulfilledQty.toFixed(4),
+          qtyAvailable: fulfilledQty.toFixed(4),
+          shortageQty: shortageQty.toFixed(4),
+          isShortage: shortageQty.gt(0),
+          status: predecessor?.status ?? (shortageQty.gt(0) ? '待齐套' : '已满足'),
+          operationId: predecessor?.operationId ?? null,
+          stepName: predecessor?.stepName ?? null,
+          inventoryTxId: null,
+        };
+      }
+
+      const transaction = txBySkuId.get(Number(item.skuId));
+      const qtyAvailable = new Decimal(item.qtyAvailable ?? 0);
+      const shortageQty = Decimal.max(requiredQty.minus(qtyAvailable), 0);
+
+      return {
+        itemType: 'material' as const,
+        sourceLabel: '一级 BOM 依赖',
+        skuId: Number(item.skuId),
+        skuCode: item.skuCode,
+        skuName: item.skuName,
+        unit: item.unit,
+        requiredQty: requiredQty.toFixed(4),
+        fulfilledQty: transaction?.actualQty ?? '0.0000',
+        qtyAvailable: qtyAvailable.toFixed(4),
+        shortageQty: shortageQty.toFixed(4),
+        isShortage: shortageQty.gt(0),
+        status: transaction?.inventoryTxId ? '已投料' : shortageQty.gt(0) ? '缺料' : '待投料',
+        operationId: null,
+        stepName: null,
+        inventoryTxId: transaction?.inventoryTxId ?? null,
+      };
+    });
+  }
+
+  private buildTaskOutputItems(
+    task: {
+      taskType: 'finished' | 'semi_finished';
+      outputSkuId?: number | null;
+      outputSkuCode?: string | null;
+      outputSkuName?: string | null;
+      outputStockUnit?: string | null;
+      skuId?: number | null;
+      skuCode?: string | null;
+      skuName?: string | null;
+      plannedQty: string;
+      completedQty: string;
+    },
+    materialTransactions: Array<{
+      ioType: 'input' | 'output';
+      skuId: number;
+      skuCode: string | null;
+      skuName: string | null;
+      stockUnit: string | null;
+      plannedQty: string;
+      actualQty: string;
+    }>,
+  ): Array<{
+    itemType: 'finished' | 'semi_finished';
+    skuId: number;
+    skuCode: string | null;
+    skuName: string | null;
+    unit: string | null;
+    plannedQty: string;
+    actualQty: string;
+  }> {
+    const outputTransactions = materialTransactions.filter((item) => item.ioType === 'output');
+    if (outputTransactions.length > 0) {
+      return outputTransactions.map((item) => ({
+        itemType: task.taskType,
+        skuId: Number(item.skuId),
+        skuCode: item.skuCode,
+        skuName: item.skuName,
+        unit: item.stockUnit,
+        plannedQty: item.plannedQty,
+        actualQty: item.actualQty,
+      }));
+    }
+
+    return [{
+      itemType: task.taskType,
+      skuId: Number(task.outputSkuId ?? task.skuId ?? 0),
+      skuCode: task.outputSkuCode ?? task.skuCode ?? null,
+      skuName: task.outputSkuName ?? task.skuName ?? null,
+      unit: task.outputStockUnit ?? null,
+      plannedQty: String(task.plannedQty ?? '0'),
+      actualQty: String(task.completedQty ?? '0'),
+    }];
   }
 
   // BE-P1-008: 生产进度看板

@@ -610,27 +610,29 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0;
-  border: 1px solid #E2E8F0;
-  border-radius: 10px;
+  border: 1px solid #D9E2EF;
+  border-radius: 16px;
   overflow: hidden;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FBFF 100%);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
   font-size: 0.8125rem;
 }
 .infoGrid dt {
-  padding: 0.5rem 1rem;
-  background: #F8FAFC;
+  padding: 0.85rem 1rem;
+  background: #F8FBFF;
   border-right: 1px solid #E2E8F0;
   border-bottom: 1px solid #E2E8F0;
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: 0.78rem;
+  font-weight: 600;
   color: #64748B;
   display: flex;
   align-items: center;
 }
 .infoGrid dd {
-  padding: 0.5rem 1rem;
+  padding: 0.85rem 1rem;
   border-bottom: 1px solid #E2E8F0;
   color: #1E293B;
-  font-weight: 500;
+  font-weight: 600;
   margin: 0;
   display: flex;
   align-items: center;
@@ -639,13 +641,40 @@
 
 /* ── 工艺快照 ─────────────────────────────────────────────────────── */
 .snapshotBanner {
-  background: #EFF6FF;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  background: linear-gradient(180deg, #EFF6FF 0%, #F8FBFF 100%);
   border: 1px solid #BFDBFE;
-  border-radius: 6px;
-  padding: 0.625rem 1rem;
-  margin-bottom: 0.75rem;
+  border-radius: 12px;
+  padding: 0.875rem 1rem;
+  margin-bottom: 0.9rem;
   font-size: 0.8125rem;
   color: #1D4ED8;
+}
+
+.snapshotBanner__meta {
+  color: #64748B;
+  font-weight: 500;
+}
+
+.tableCard {
+  overflow: hidden;
+  border: 1px solid #D9E2EF;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FBFF 100%);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+
+.tableEmptyState {
+  color: #94A3B8;
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 1.5rem 1rem;
+  border: 1px dashed #D9E2EF;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FBFF 100%);
 }
 
 /* ── BOM / 物料需求 table ───────────────────────────────────────── */
@@ -653,28 +682,27 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.8125rem;
+  background: transparent;
 }
 .bomTable th {
-  padding: 0.5rem 0.75rem;
+  padding: 0.8rem 0.95rem;
   text-align: left;
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 700;
   color: #475569;
-  background: #F8FAFC;
+  background: #F8FBFF;
   border-bottom: 1px solid #E2E8F0;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 .bomTable th.alignRight { text-align: right; }
 .bomTable td {
-  padding: 0.5625rem 0.75rem;
+  padding: 0.9rem 0.95rem;
   border-bottom: 1px solid #F1F5F9;
   color: #1E293B;
   vertical-align: middle;
 }
 .bomTable tr:last-child td { border-bottom: none; }
-.bomTable tr:hover td { background: #F8FAFC; }
+.bomTable tr:hover td { background: #F8FBFF; }
 
 /* column helpers */
 .colCode  { width: 100px; white-space: nowrap; }
@@ -684,7 +712,21 @@
 .colStatus { width: 72px; white-space: nowrap; }
 
 .matCode  { font-family: "JetBrains Mono","DM Mono",monospace; font-size: 0.75rem; color: #64748B; }
-.matName  { font-weight: 500; color: #1E293B; }
+.matName  { font-weight: 700; color: #1E293B; }
+
+.tableMonoCell {
+  color: #94A3B8;
+  font-family: "JetBrains Mono","DM Mono",monospace;
+}
+
+.tableStrongCell {
+  color: #0F172A;
+  font-weight: 700;
+}
+
+.tableMutedCell {
+  color: #475569;
+}
 
 .shortagePositive {
   color: #DC2626;
@@ -865,8 +907,8 @@
 }
 
 .componentNode__path {
-  color: #94A3B8;
-  font-family: "JetBrains Mono", "DM Mono", monospace;
+  color: #64748B;
+  line-height: 1.55;
 }
 
 .operationLane {
@@ -902,8 +944,6 @@
   background: #E2E8F0;
   color: #475569;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   font-size: 0.625rem;
 }
 
@@ -921,6 +961,16 @@
 .operationStatus--released {
   background: #FEF3C7;
   color: #B45309;
+}
+
+.operationStatus--pending {
+  background: #E2E8F0;
+  color: #475569;
+}
+
+.operationStatus--cancelled {
+  background: #F1F5F9;
+  color: #64748B;
 }
 
 .operationCard__title {

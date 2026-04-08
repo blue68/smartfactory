@@ -9,6 +9,10 @@ import {
 import { success, created } from '../../shared/ApiResponse';
 import { AppError } from '../../shared/AppError';
 
+const CreateAdjustmentOrderSchema = z.object({
+  execute: z.boolean().default(true),
+});
+
 /**
  * StocktakingController — F-105 库存盘点
  *
@@ -88,6 +92,16 @@ export class StocktakingController {
     success(res, data);
   }
 
+  /** POST /api/stocktaking/:id/submit — 提交待确认 */
+  async submitTask(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params['id']);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw AppError.badRequest('无效的任务 ID');
+    }
+    const data = await this.svc(req).submitTask(id);
+    success(res, data, '盘点任务已提交待确认');
+  }
+
   /** POST /api/stocktaking/:id/confirm — 确认盘点（仅 boss） */
   async confirmTask(req: Request, res: Response): Promise<void> {
     const id = Number(req.params['id']);
@@ -96,6 +110,25 @@ export class StocktakingController {
     }
     const data = await this.svc(req).confirmTask(id);
     success(res, data, '盘点确认成功，库存已调整');
+  }
+
+  /** POST /api/stocktaking/:id/adjustment-order — 盘点差异一键生成调整单（可执行） */
+  async createAdjustmentOrder(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params['id']);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw AppError.badRequest('无效的任务 ID');
+    }
+    const parsed = CreateAdjustmentOrderSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw AppError.badRequest(parsed.error.issues.map((i) => i.message).join('; '));
+    }
+
+    const data = await this.svc(req).createAdjustmentOrder(id, parsed.data);
+    success(
+      res,
+      data,
+      data.execute ? '盘点差异调整单已生成并入账' : '盘点差异调整单预览已生成',
+    );
   }
 }
 

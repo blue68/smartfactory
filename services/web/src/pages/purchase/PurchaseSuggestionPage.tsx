@@ -12,6 +12,7 @@ import {
   type PurchaseSuggestionSource,
   type PurchaseSuggestionStatus,
 } from '@/api/purchaseSuggestion';
+import { useSupplierOptions } from '@/api/supplier';
 import { useAppStore } from '@/stores/appStore';
 import styles from './PurchaseSuggestionPage.module.css';
 
@@ -189,6 +190,9 @@ export default function PurchaseSuggestionPage() {
   const [linkedOrders, setLinkedOrders] = useState<Record<number, LinkedOrderInfo>>({});
   const [rejectReason, setRejectReason] = useState('');
   const [reviewNotes, setReviewNotes] = useState('');
+  const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
+  const [supplierPickerIds, setSupplierPickerIds] = useState<number[]>([]);
+  const [supplierPickerValue, setSupplierPickerValue] = useState('');
 
   useEffect(() => {
     setPageTitle('采购建议管理');
@@ -203,6 +207,7 @@ export default function PurchaseSuggestionPage() {
   const approveMutation = useApprovePurchaseSuggestion();
   const rejectMutation = useRejectPurchaseSuggestion();
   const batchToPOMutation = useBatchToPo();
+  const supplierOptionsQuery = useSupplierOptions();
   const deferredKeyword = useDeferredValue(keyword);
 
   const rows = useMemo(
@@ -242,8 +247,14 @@ export default function PurchaseSuggestionPage() {
   const primaryRow = panelRows[0] ?? null;
   const detailRow = rows.find((row) => row.id === detailId) ?? null;
   const detailOrderLink = detailRow ? linkedOrders[detailRow.id] ?? null : null;
+  const supplierPickerRows = rows.filter((row) => supplierPickerIds.includes(row.id));
+  const supplierPickerMissingRows = supplierPickerRows.filter((row) => row.suggestedSupplierId === null);
+  const supplierOptions = useMemo(
+    () => (supplierOptionsQuery.data ?? []).map((item) => ({ id: item.id, label: `${item.name}（${item.code}）` })),
+    [supplierOptionsQuery.data],
+  );
   const submittingReview = approveMutation.isPending || rejectMutation.isPending;
-  const sidePanelOpen = panelOpen || detailId !== null;
+  const overlayOpen = panelOpen || detailId !== null || supplierPickerOpen;
 
   const {
     pendingCount,
@@ -287,13 +298,19 @@ export default function PurchaseSuggestionPage() {
   }, [detailId, rows]);
 
   useEffect(() => {
-    if (!sidePanelOpen) return undefined;
+    if (!overlayOpen) return undefined;
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      if (supplierPickerOpen) {
+        setSupplierPickerOpen(false);
+        setSupplierPickerIds([]);
+        setSupplierPickerValue('');
+        return;
+      }
       if (panelOpen) {
         closePanel();
         return;
@@ -308,7 +325,7 @@ export default function PurchaseSuggestionPage() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [detailId, panelOpen, sidePanelOpen]);
+  }, [detailId, overlayOpen, panelOpen, supplierPickerOpen]);
 
   const openReviewPanel = (ids: number[], action: ReviewAction) => {
     if (ids.length === 0) {
@@ -341,6 +358,12 @@ export default function PurchaseSuggestionPage() {
     setDetailId(null);
   };
 
+  const closeSupplierPicker = () => {
+    setSupplierPickerOpen(false);
+    setSupplierPickerIds([]);
+    setSupplierPickerValue('');
+  };
+
   const handleOpenPurchaseOrder = (row: SuggestionRow) => {
     const linkedOrder = linkedOrders[row.id];
     if (!linkedOrder) {
@@ -371,35 +394,72 @@ export default function PurchaseSuggestionPage() {
     });
   };
 
+  const executeBatchTransfer = async (ids: number[], fallbackSupplierId?: number) => {
+    const transferRows = rows.filter((row) => ids.includes(row.id));
+    const result = await batchToPOMutation.mutateAsync({
+      suggestionIds: ids,
+      supplierId: fallbackSupplierId,
+    });
+    const poBySupplier = new Map(result.createdPOs.map((po) => [po.supplierId, po]));
+    setLinkedOrders((prev) => {
+      const next = { ...prev };
+      transferRows.forEach((row) => {
+        const effectiveSupplierId = row.suggestedSupplierId ?? fallbackSupplierId ?? null;
+        if (!effectiveSupplierId) return;
+        const linked = poBySupplier.get(effectiveSupplierId);
+        if (linked) {
+          next[row.id] = { poId: linked.id, poNo: linked.poNo };
+        }
+      });
+      return next;
+    });
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    showToast({
+      type: 'success',
+      message: `已转 ${result.executedSuggestionIds.length} 条建议，生成 ${result.createdPOs.length} 张采购单`,
+    });
+  };
+
   const handleBatchTransfer = async (ids: number[]) => {
     if (ids.length === 0) {
       showToast({ type: 'warning', message: '请先选择已通过的采购建议' });
       return;
     }
+
+    const transferRows = rows.filter((row) => ids.includes(row.id));
+    const noSupplierRows = transferRows.filter((row) => row.suggestedSupplierId === null);
+    if (noSupplierRows.length > 0) {
+      setSupplierPickerIds(ids);
+      setSupplierPickerValue('');
+      setSupplierPickerOpen(true);
+      return;
+    }
+
     try {
-      const transferRows = rows.filter((row) => ids.includes(row.id));
-      const result = await batchToPOMutation.mutateAsync({ suggestionIds: ids });
-      const poBySupplier = new Map(result.createdPOs.map((po) => [po.supplierId, po]));
-      setLinkedOrders((prev) => {
-        const next = { ...prev };
-        transferRows.forEach((row) => {
-          if (!row.suggestedSupplierId) return;
-          const linked = poBySupplier.get(row.suggestedSupplierId);
-          if (linked) {
-            next[row.id] = { poId: linked.id, poNo: linked.poNo };
-          }
-        });
-        return next;
-      });
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        ids.forEach((id) => next.delete(id));
-        return next;
-      });
+      await executeBatchTransfer(ids);
+    } catch (error) {
       showToast({
-        type: 'success',
-        message: `已转 ${result.executedSuggestionIds.length} 条建议，生成 ${result.createdPOs.length} 张采购单`,
+        type: 'error',
+        message: error instanceof Error ? error.message : '转采购单失败',
       });
+    }
+  };
+
+  const handleConfirmSupplierTransfer = async () => {
+    if (supplierPickerIds.length === 0) return;
+    const supplierId = Number(supplierPickerValue);
+    if (!Number.isInteger(supplierId) || supplierId <= 0) {
+      showToast({ type: 'warning', message: '请先选择供应商' });
+      return;
+    }
+
+    try {
+      await executeBatchTransfer(supplierPickerIds, supplierId);
+      closeSupplierPicker();
     } catch (error) {
       showToast({
         type: 'error',
@@ -1042,6 +1102,90 @@ export default function PurchaseSuggestionPage() {
               </button>
             </div>
           </aside>
+        </div>
+      )}
+
+      {supplierPickerOpen && (
+        <div className={styles.dialogOverlay} role="presentation" onClick={closeSupplierPicker}>
+          <section
+            className={styles.supplierDialog}
+            role="dialog"
+            aria-modal="true"
+            aria-label="补充供应商后转采购单"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={styles.supplierDialogHeader}>
+              <div className={styles.panelTitleWrap}>
+                <div className={styles.panelTitleIcon}>🏷️</div>
+                <div className={styles.panelTitle}>补充供应商后转采购单</div>
+              </div>
+              <button type="button" className={styles.panelClose} onClick={closeSupplierPicker} aria-label="关闭">
+                ✕
+              </button>
+            </div>
+
+            <div className={styles.supplierDialogBody}>
+              <p className={styles.supplierDialogDescription}>
+                当前选中 {supplierPickerIds.length} 条建议，其中 {supplierPickerMissingRows.length} 条未指定供应商。
+                请选择一个供应商作为本次缺失项的统一补充值。
+              </p>
+
+              {supplierPickerMissingRows.length > 0 && (
+                <div className={styles.supplierMissingList}>
+                  {supplierPickerMissingRows.slice(0, 6).map((row) => (
+                    <span key={row.id} className={styles.batchSummaryChip}>
+                      {row.suggestionNo} · {row.skuName}
+                    </span>
+                  ))}
+                  {supplierPickerMissingRows.length > 6 && (
+                    <span className={styles.batchSummaryChip}>
+                      另 {supplierPickerMissingRows.length - 6} 条
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <label className={styles.fieldLabel} htmlFor="fallback-supplier-select">
+                补充供应商 <span>*</span>
+              </label>
+              <select
+                id="fallback-supplier-select"
+                className={`${styles.filterSelect} ${styles.supplierSelect}`}
+                value={supplierPickerValue}
+                onChange={(e) => setSupplierPickerValue(e.target.value)}
+                disabled={supplierOptionsQuery.isLoading}
+              >
+                <option value="">请选择供应商</option>
+                {supplierOptions.map((option) => (
+                  <option key={option.id} value={String(option.id)}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              {supplierOptionsQuery.isLoading && (
+                <p className={styles.supplierDialogHint}>供应商列表加载中...</p>
+              )}
+              {!supplierOptionsQuery.isLoading && supplierOptions.length === 0 && (
+                <p className={styles.supplierDialogHint}>暂无可用供应商，请先在供应商主数据维护中新增。</p>
+              )}
+            </div>
+
+            <div className={styles.supplierDialogFooter}>
+              <button type="button" className={styles.panelCancelButton} onClick={closeSupplierPicker}>
+                取消
+              </button>
+              <button
+                type="button"
+                className={styles.panelApproveButton}
+                onClick={() => void handleConfirmSupplierTransfer()}
+                disabled={batchToPOMutation.isPending || supplierOptionsQuery.isLoading}
+              >
+                <span>↗</span>
+                确认转采购单
+              </button>
+            </div>
+          </section>
         </div>
       )}
 

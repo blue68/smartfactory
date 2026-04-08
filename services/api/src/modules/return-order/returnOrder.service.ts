@@ -7,6 +7,7 @@ import Decimal from 'decimal.js';
 import { generateNo } from '../../shared/generateNo';
 import { recalculatePurchaseOrderStatus } from '../purchase/purchase-order-status.util';
 import { getRedisClient, RedisKeys } from '../../config/redis';
+import { resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
 
 // ─── 参数类型定义 ─────────────────────────────────────────────────
 
@@ -531,7 +532,12 @@ export class ReturnOrderService {
   }
 
   // ── 标记已发出（ship）────────────────────────────────────────
-  async ship(id: number, params?: { trackingNo?: string; notes?: string }): Promise<void> {
+  async ship(id: number, params?: {
+    trackingNo?: string;
+    notes?: string;
+    warehouseId?: number;
+    locationId?: number;
+  }): Promise<void> {
     const affectedSkuIds: number[] = [];
 
     await AppDataSource.transaction(async (manager) => {
@@ -568,6 +574,16 @@ export class ReturnOrderService {
       const inventoryDeltas = shouldDeductInventory
         ? await this.collectShipInventoryDeltas(manager, record.id)
         : [];
+      const warehouseLocation = inventoryDeltas.length > 0
+        ? await resolveWarehouseLocationBinding({
+          manager,
+          tenantId: this.tenantId,
+          userId: this.userId,
+          warehouseId: params?.warehouseId,
+          locationId: params?.locationId,
+          sourceRef: 'return_order:ship',
+        })
+        : null;
 
       if (inventoryDeltas.length > 0) {
         const inventoryRows = await manager.query<Array<{
@@ -578,9 +594,16 @@ export class ReturnOrderService {
           `SELECT sku_id, qty_on_hand, qty_reserved
            FROM inventory
            WHERE tenant_id = ?
+             AND warehouse_id = ?
+             AND location_id = ?
              AND sku_id IN (${inventoryDeltas.map(() => '?').join(', ')})
            FOR UPDATE`,
-          [this.tenantId, ...inventoryDeltas.map((item) => item.skuId)],
+          [
+            this.tenantId,
+            warehouseLocation!.warehouseId,
+            warehouseLocation!.locationId,
+            ...inventoryDeltas.map((item) => item.skuId),
+          ],
         );
 
         const inventoryMap = new Map(
@@ -621,13 +644,17 @@ export class ReturnOrderService {
         await manager.query(
           `INSERT INTO inventory_transactions
              (tenant_id, transaction_no, sku_id, transaction_type, direction,
+              warehouse_id, location_id, source_ref,
               qty_input, input_unit, qty_stock_unit, stock_unit,
-              reference_type, reference_id, reference_no, notes, created_by)
-           VALUES (?, ?, ?, 'PURCHASE_RETURN_OUT', 'OUT', ?, ?, ?, ?, 'return_order', ?, ?, ?, ?)`,
+              reference_type, reference_id, reference_no, notes, created_by, updated_by)
+           VALUES (?, ?, ?, 'PURCHASE_RETURN_OUT', 'OUT', ?, ?, ?, ?, ?, ?, ?, 'return_order', ?, ?, ?, ?, ?)`,
           [
             this.tenantId,
             txNo,
             item.skuId,
+            warehouseLocation!.warehouseId,
+            warehouseLocation!.locationId,
+            'return_order:ship',
             item.qtyStock.toFixed(4),
             item.stockUnit,
             item.qtyStock.toFixed(4),
@@ -636,15 +663,27 @@ export class ReturnOrderService {
             record.return_no,
             `采购退货 ${record.return_no} 发货出库`,
             this.userId,
+            this.userId,
           ],
         );
 
         await manager.query(
           `UPDATE inventory
            SET qty_on_hand = qty_on_hand - ?,
-               last_out_at = NOW()
-           WHERE tenant_id = ? AND sku_id = ?`,
-          [item.qtyStock.toFixed(4), this.tenantId, item.skuId],
+               last_out_at = NOW(),
+               updated_by = ?
+           WHERE tenant_id = ?
+             AND sku_id = ?
+             AND warehouse_id = ?
+             AND location_id = ?`,
+          [
+            item.qtyStock.toFixed(4),
+            this.userId,
+            this.tenantId,
+            item.skuId,
+            warehouseLocation!.warehouseId,
+            warehouseLocation!.locationId,
+          ],
         );
 
         await this.syncDailySnapshot(manager, item.skuId);

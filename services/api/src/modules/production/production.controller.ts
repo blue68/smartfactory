@@ -121,6 +121,7 @@ export class ProductionController {
       status: z.string().optional(),
       keyword: z.string().max(100).optional(),
       processId: z.coerce.number().int().positive().optional(),
+      taskType: z.enum(['finished', 'semi_finished']).optional(),
       dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       priority: z.coerce.number().int().optional(),

@@ -11,7 +11,7 @@ const MockService = InventoryService as jest.MockedClass<typeof InventoryService
 let consoleErrorSpy: jest.SpyInstance;
 let consoleWarnSpy: jest.SpyInstance;
 
-function createReq(overrides: Partial<Request> = {}): Request {
+function createReq(overrides: Partial<Request> & { file?: Express.Multer.File } = {}): Request {
   return {
     tenantId: 1,
     userId: 9,
@@ -29,6 +29,8 @@ function createRes(): Response {
   const res = {
     status: jest.fn(),
     json: jest.fn(),
+    setHeader: jest.fn(),
+    send: jest.fn(),
   } as unknown as Response;
 
   (res.status as unknown as jest.Mock).mockReturnValue(res);
@@ -413,5 +415,156 @@ describe('InventoryController.repairInventory', () => {
       code: 1001,
     }));
     expect(MockService.prototype.repairInventoryState).not.toHaveBeenCalled();
+  });
+});
+
+describe('InventoryController.inbound', () => {
+  it('accepts skuCode payload and forwards to service', async () => {
+    MockService.prototype.inbound = jest.fn().mockResolvedValue({
+      transactionNo: 'IN202604070001',
+      newQtyOnHand: '18.0000',
+      warehouseId: 1,
+      locationId: 11,
+    });
+
+    const req = createReq({
+      body: {
+        skuCode: 'SKU-11',
+        qtyInput: '8',
+        inputUnit: 'm',
+        transactionType: 'ADJUSTMENT_IN',
+      },
+      path: '/api/inventory/inbound',
+    });
+    const res = createRes();
+
+    await inventoryController.inbound(req, res);
+
+    expect(MockService.prototype.inbound).toHaveBeenCalledWith({
+      skuCode: 'SKU-11',
+      qtyInput: '8',
+      inputUnit: 'm',
+      transactionType: 'ADJUSTMENT_IN',
+    });
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('rejects inbound payload when both skuId and skuCode are missing', async () => {
+    const req = createReq({
+      body: {
+        qtyInput: '8',
+        inputUnit: 'm',
+        transactionType: 'ADJUSTMENT_IN',
+      },
+      path: '/api/inventory/inbound',
+    });
+    const res = createRes();
+
+    await runWithErrorHandler(() => inventoryController.inbound(req, res), req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 1001,
+    }));
+    expect(MockService.prototype.inbound).not.toHaveBeenCalled();
+  });
+});
+
+describe('InventoryController master-data csv import', () => {
+  it('downloads warehouse csv template', async () => {
+    MockService.prototype.generateWarehouseImportTemplateCsv = jest.fn().mockReturnValue(
+      'code,name,type,plantCode,status\nWH-MAIN,主仓库,physical,PLANT-01,active',
+    );
+
+    const req = createReq({
+      method: 'GET',
+      path: '/api/inventory/warehouses/import-template/csv',
+    });
+    const res = createRes();
+
+    await inventoryController.downloadWarehouseImportTemplateCsv(req, res);
+
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv; charset=utf-8');
+    expect(res.send).toHaveBeenCalledWith(expect.stringContaining('code,name,type,plantCode,status'));
+  });
+
+  it('returns failure csv when warehouse import enables downloadFailed=true', async () => {
+    MockService.prototype.importWarehousesFromCsv = jest.fn().mockResolvedValue({
+      totalRows: 2,
+      successCount: 1,
+      failCount: 1,
+      failures: [{
+        rowNo: 3,
+        reason: '仓库编码重复: WH-MAIN',
+        row: {
+          code: 'WH-MAIN',
+          name: '重复主仓',
+          type: 'physical',
+          plantCode: 'PLANT-01',
+          status: 'active',
+        },
+      }],
+    });
+
+    const req = createReq({
+      method: 'POST',
+      query: { downloadFailed: 'true' },
+      file: {
+        buffer: Buffer.from('code,name\nWH-MAIN,主仓库'),
+        originalname: 'warehouse.csv',
+      } as unknown as Express.Multer.File,
+      path: '/api/inventory/warehouses/import-csv',
+    });
+    const res = createRes();
+
+    await inventoryController.importWarehousesCsv(req, res);
+
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv; charset=utf-8');
+    expect(res.send).toHaveBeenCalledWith(expect.stringContaining('仓库编码重复: WH-MAIN'));
+    expect(res.json).not.toHaveBeenCalled();
+  });
+
+  it('returns json summary when location import does not request failed csv', async () => {
+    MockService.prototype.importLocationsFromCsv = jest.fn().mockResolvedValue({
+      totalRows: 2,
+      successCount: 2,
+      failCount: 0,
+      failures: [],
+    });
+
+    const req = createReq({
+      method: 'POST',
+      query: { downloadFailed: 'false' },
+      file: {
+        buffer: Buffer.from('warehouseCode,code,name\nWH-MAIN,A,主仓A区'),
+        originalname: 'location.csv',
+      } as unknown as Express.Multer.File,
+      path: '/api/inventory/locations/import-csv',
+    });
+    const res = createRes();
+
+    await inventoryController.importLocationsCsv(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 0,
+      message: '库位导入完成：成功 2 条，失败 0 条',
+    }));
+  });
+
+  it('rejects csv import when file is missing', async () => {
+    const req = createReq({
+      method: 'POST',
+      query: { downloadFailed: 'true' },
+      path: '/api/inventory/locations/import-csv',
+    });
+    const res = createRes();
+
+    await runWithErrorHandler(() => inventoryController.importLocationsCsv(req, res), req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 1001,
+    }));
   });
 });

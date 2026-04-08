@@ -101,7 +101,12 @@ export const returnOrderApi = {
   confirm: (id: number) =>
     request.put<null>(`/api/return-orders/${id}/confirm`, {}),
 
-  ship: (id: number, data?: { trackingNo?: string; notes?: string }) =>
+  ship: (id: number, data?: {
+    trackingNo?: string;
+    notes?: string;
+    warehouseId?: number;
+    locationId?: number;
+  }) =>
     request.put<null>(`/api/return-orders/${id}/ship`, data ?? {}),
 
   complete: (id: number, data?: { notes?: string }) =>
@@ -156,7 +161,18 @@ export function useConfirmReturnOrder() {
 export function useShipReturnOrder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data?: { trackingNo?: string; notes?: string } }) =>
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: number;
+      data?: {
+        trackingNo?: string;
+        notes?: string;
+        warehouseId?: number;
+        locationId?: number;
+      };
+    }) =>
       returnOrderApi.ship(id, data),
     onSuccess: (_data, variables) => {
       void qc.invalidateQueries({ queryKey: returnOrderKeys.all });

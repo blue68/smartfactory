@@ -129,7 +129,7 @@ services:
       APP_NAME:       ${APP_NAME:-智造管家}
       LOG_LEVEL:      ${LOG_LEVEL:-info}
       # CORS
-      CORS_ORIGINS:   ${CORS_ORIGINS:-http://localhost}
+      CORS_ORIGINS:   ${CORS_ORIGINS:-http://localhost,http://localhost:80,http://127.0.0.1,http://127.0.0.1:80}
       # AI（Phase 2，暂时留空）
       AI_ENGINE_URL:  ${AI_ENGINE_URL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState, useCallback, useMemo, Fragment } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import {
   useInventoryList,
@@ -21,6 +22,8 @@ import {
   useInventoryDailySnapshots,
   useDyeLots,
   useInbound,
+  useWarehouseOptions,
+  useLocationOptions,
   inventoryApi,
 } from '@/api/inventory';
 import { useSkuCategories } from '@/api/sku';
@@ -31,6 +34,7 @@ import type {
   InventoryListQuery,
   InboundPayload,
 } from '@/types/models';
+import { ApiError } from '@/types/api';
 import { formatDate } from '@/utils/format';
 import Tag from '@/components/common/Tag';
 import Button from '@/components/common/Button';
@@ -87,7 +91,15 @@ const DAYS_CLASS: Record<InventoryStatus, string> = {
 };
 
 // ── 缸号展开面板 ───────────────────────────────────────────
-function DyeLotPanel({ skuId, skuName }: { skuId: number; skuName: string }) {
+function DyeLotPanel({
+  skuId,
+  skuName,
+  onViewUsage,
+}: {
+  skuId: number;
+  skuName: string;
+  onViewUsage?: (dyeLotNo: string) => void;
+}) {
   const { data, isLoading } = useDyeLots(skuId);
 
   if (isLoading) {
@@ -160,7 +172,11 @@ function DyeLotPanel({ skuId, skuName }: { skuId: number; skuName: string }) {
                   )}
                 </td>
                 <td>
-                  <button className={styles.btn_sm_ghost} style={{ fontSize: '0.75rem' }}>
+                  <button
+                    className={styles.btn_sm_ghost}
+                    style={{ fontSize: '0.75rem' }}
+                    onClick={() => onViewUsage?.(lot.dyeLotNo)}
+                  >
                     查看用途
                   </button>
                 </td>
@@ -175,6 +191,8 @@ function DyeLotPanel({ skuId, skuName }: { skuId: number; skuName: string }) {
 
 // ── 入库弹窗内部状态 ───────────────────────────────────────
 interface InboundFormState {
+  warehouseId: number | null;
+  locationId: number | null;
   qtyInput: string;
   inputUnit: string;
   dyeLotNo: string;
@@ -183,6 +201,8 @@ interface InboundFormState {
 }
 
 const INBOUND_FORM_DEFAULT: InboundFormState = {
+  warehouseId: null,
+  locationId: null,
   qtyInput: '',
   inputUnit: '',
   dyeLotNo: '',
@@ -197,6 +217,19 @@ interface TraceTarget {
   stockUnit: string;
   source: 'inventory' | 'snapshot';
   snapshotDate?: string;
+  keyword?: string;
+}
+
+interface AiReduceTarget {
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  stockUnit: string;
+  hasDyeLot: boolean;
+  qtyOnHand: string;
+  qtyAvailable: string;
+  safetyStock: string;
+  stockDays: number;
 }
 
 // ── 主页面 ─────────────────────────────────────────────────
@@ -206,7 +239,12 @@ type StatusFilter = '' | 'danger' | 'warning' | 'normal' | 'stagnant' | 'belowSa
 
 export default function InventoryPage() {
   const { setPageTitle } = useAppStore();
+  const [searchParams] = useSearchParams();
   const [query, setQuery] = useState<InventoryListQuery>({ page: 1, pageSize: 20 });
+  const [governanceRestoreFilter, setGovernanceRestoreFilter] = useState<{
+    warehouseId?: number;
+    locationId?: number;
+  } | null>(null);
   const [snapshotDate, setSnapshotDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [snapshotKeywordInput, setSnapshotKeywordInput] = useState('');
   const [snapshotKeyword, setSnapshotKeyword] = useState('');
@@ -217,6 +255,7 @@ export default function InventoryPage() {
   const [traceDateFrom, setTraceDateFrom] = useState('');
   const [traceDateTo, setTraceDateTo] = useState('');
   const [tracePage, setTracePage] = useState(1);
+  const [aiReduceTarget, setAiReduceTarget] = useState<AiReduceTarget | null>(null);
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
   const [useStockUnit, setUseStockUnit] = useState(true);
@@ -227,12 +266,79 @@ export default function InventoryPage() {
   const [exportError, setExportError] = useState<string | null>(null);
 
   // ── 入库弹窗状态 ──
-  const [inboundTarget, setInboundTarget] = useState<{ skuId: number; skuName: string; stockUnit: string; hasDyeLot: boolean } | null>(null);
+  const [inboundTarget, setInboundTarget] = useState<{
+    skuCode: string;
+    skuName: string;
+    stockUnit: string;
+    hasDyeLot: boolean;
+    isManual: boolean;
+  } | null>(null);
   const [inboundForm, setInboundForm] = useState<InboundFormState>(INBOUND_FORM_DEFAULT);
   const [inboundError, setInboundError] = useState<string | null>(null);
+  const [inboundWarning, setInboundWarning] = useState<string | null>(null);
   const inbound = useInbound();
+  const { data: warehouseOptions } = useWarehouseOptions();
+  const { data: locationOptions } = useLocationOptions(inboundForm.warehouseId ?? undefined);
+  const { data: filterLocationOptions } = useLocationOptions(query.warehouseId);
+  const defaultWarehouseId = useMemo(
+    () => (warehouseOptions ?? []).find((item) => item.code === 'DEFAULT')?.id,
+    [warehouseOptions],
+  );
+  const { data: defaultLocationOptions } = useLocationOptions(defaultWarehouseId);
+  const defaultLocationId = useMemo(
+    () => (defaultLocationOptions ?? []).find((item) => item.code === 'DEFAULT-UNKNOWN')?.id,
+    [defaultLocationOptions],
+  );
 
   useEffect(() => { setPageTitle('库存总览'); }, [setPageTitle]);
+
+  useEffect(() => {
+    const warehouseIdRaw = searchParams.get('warehouseId');
+    const locationIdRaw = searchParams.get('locationId');
+    const onlyDefaultRaw = searchParams.get('onlyDefaultLocation');
+    const nextWarehouseId = warehouseIdRaw ? Number(warehouseIdRaw) : undefined;
+    const nextLocationId = locationIdRaw ? Number(locationIdRaw) : undefined;
+    const nextOnlyDefault =
+      onlyDefaultRaw === '1' || onlyDefaultRaw === 'true' ? true : undefined;
+
+    if (!nextWarehouseId && !nextLocationId && !nextOnlyDefault) {
+      return;
+    }
+
+    setQuery((prev) => ({
+      ...prev,
+      page: 1,
+      warehouseId:
+        nextWarehouseId && Number.isInteger(nextWarehouseId) && nextWarehouseId > 0
+          ? nextWarehouseId
+          : prev.warehouseId,
+      locationId:
+        nextLocationId && Number.isInteger(nextLocationId) && nextLocationId > 0
+          ? nextLocationId
+          : prev.locationId,
+      onlyDefaultLocation: nextOnlyDefault ?? prev.onlyDefaultLocation,
+    }));
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!query.onlyDefaultLocation) return;
+    if (!defaultWarehouseId && !defaultLocationId) return;
+
+    setQuery((prev) => {
+      if (!prev.onlyDefaultLocation) return prev;
+      const nextWarehouseId = prev.warehouseId ?? defaultWarehouseId;
+      const nextLocationId = prev.locationId ?? defaultLocationId;
+      if (nextWarehouseId === prev.warehouseId && nextLocationId === prev.locationId) {
+        return prev;
+      }
+      return {
+        ...prev,
+        page: 1,
+        warehouseId: nextWarehouseId,
+        locationId: nextLocationId,
+      };
+    });
+  }, [query.onlyDefaultLocation, defaultWarehouseId, defaultLocationId]);
 
   const { data: categories } = useSkuCategories();
   const { data, isLoading, error } = useInventoryList(query);
@@ -332,6 +438,16 @@ export default function InventoryPage() {
     }));
   }, [keyword]);
 
+  const resetFilters = useCallback(() => {
+    setKeyword('');
+    setStatusFilter('');
+    setGovernanceRestoreFilter(null);
+    setQuery((q) => ({
+      page: 1,
+      pageSize: q.pageSize ?? 20,
+    }));
+  }, []);
+
   // ── 状态筛选变更（belowSafety 传给后端，其余客户端过滤）──
   const handleStatusFilterChange = useCallback((value: StatusFilter) => {
     setStatusFilter(value);
@@ -341,6 +457,31 @@ export default function InventoryPage() {
       belowSafety: value === 'belowSafety' ? true : undefined,
     }));
   }, []);
+
+  const enterDefaultLocationGovernance = useCallback(() => {
+    setGovernanceRestoreFilter({
+      warehouseId: query.warehouseId,
+      locationId: query.locationId,
+    });
+    setQuery((q) => ({
+      ...q,
+      page: 1,
+      onlyDefaultLocation: true,
+      warehouseId: defaultWarehouseId ?? q.warehouseId,
+      locationId: defaultLocationId ?? q.locationId,
+    }));
+  }, [defaultWarehouseId, defaultLocationId, query.locationId, query.warehouseId]);
+
+  const exitDefaultLocationGovernance = useCallback(() => {
+    setQuery((q) => ({
+      ...q,
+      page: 1,
+      warehouseId: governanceRestoreFilter?.warehouseId,
+      locationId: governanceRestoreFilter?.locationId,
+      onlyDefaultLocation: undefined,
+    }));
+    setGovernanceRestoreFilter(null);
+  }, [governanceRestoreFilter]);
 
   const toggleExpand = useCallback((skuId: number) => {
     setExpandedKeys((prev) => {
@@ -362,8 +503,9 @@ export default function InventoryPage() {
 
   const openTrace = useCallback((target: TraceTarget) => {
     setTraceTarget(target);
-    setTraceKeywordInput('');
-    setTraceKeyword('');
+    const initialKeyword = target.keyword?.trim() ?? '';
+    setTraceKeywordInput(initialKeyword);
+    setTraceKeyword(initialKeyword || '');
     setTraceDateFrom('');
     setTraceDateTo('');
     setTracePage(1);
@@ -378,24 +520,55 @@ export default function InventoryPage() {
     setTracePage(1);
   }, []);
 
-  // ── 打开入库弹窗 ───────────────────────────────────────────
-  const openInbound = useCallback((item: InventoryItem) => {
-    const skuId = Number(item.skuId);
-    setInboundTarget({
-      skuId,
+  const openAiReduceSuggestion = useCallback((item: InventoryItem, stockDays: number) => {
+    setAiReduceTarget({
+      skuId: Number(item.skuId),
+      skuCode: item.skuCode,
       skuName: item.skuName,
       stockUnit: item.stockUnit,
       hasDyeLot: item.hasDyeLot,
+      qtyOnHand: item.qtyOnHand,
+      qtyAvailable: item.qtyAvailable,
+      safetyStock: item.safetyStock,
+      stockDays,
     });
-    setInboundForm({ ...INBOUND_FORM_DEFAULT, inputUnit: item.stockUnit });
+  }, []);
+
+  const closeAiReduceSuggestion = useCallback(() => {
+    setAiReduceTarget(null);
+  }, []);
+
+  // ── 打开入库弹窗 ───────────────────────────────────────────
+  const openInbound = useCallback((item: InventoryItem) => {
+    setInboundTarget({
+      skuCode: item.skuCode,
+      skuName: item.skuName,
+      stockUnit: item.stockUnit,
+      hasDyeLot: item.hasDyeLot,
+      isManual: false,
+    });
+    setInboundForm({
+      ...INBOUND_FORM_DEFAULT,
+      inputUnit: item.stockUnit,
+      warehouseId: item.warehouseId ?? null,
+      locationId: item.locationId ?? null,
+    });
     setInboundError(null);
+    setInboundWarning(null);
   }, []);
 
   // 打开手动入库弹窗（无预设 SKU，用户自行填写）
   const openManualInbound = useCallback(() => {
-    setInboundTarget({ skuId: 0, skuName: '', stockUnit: '', hasDyeLot: false });
+    setInboundTarget({
+      skuCode: '',
+      skuName: '',
+      stockUnit: '',
+      hasDyeLot: false,
+      isManual: true,
+    });
     setInboundForm(INBOUND_FORM_DEFAULT);
     setInboundError(null);
+    setInboundWarning(null);
   }, []);
 
   const closeInbound = useCallback(() => {
@@ -416,15 +589,17 @@ export default function InventoryPage() {
       setInboundError('请输入单位');
       return;
     }
-    if (inboundTarget.skuId <= 0) {
-      setInboundError('请选择物料');
+    if (!inboundTarget.skuCode.trim()) {
+      setInboundError('请输入物料 SKU 编码');
       return;
     }
 
     setInboundError(null);
 
     const payload: InboundPayload = {
-      skuId: inboundTarget.skuId,
+      skuCode: inboundTarget.skuCode.trim(),
+      ...(inboundForm.warehouseId ? { warehouseId: inboundForm.warehouseId } : {}),
+      ...(inboundForm.locationId ? { locationId: inboundForm.locationId } : {}),
       qtyInput: inboundForm.qtyInput,
       inputUnit: inboundForm.inputUnit.trim(),
       transactionType: inboundForm.transactionType,
@@ -433,9 +608,20 @@ export default function InventoryPage() {
     };
 
     try {
-      await inbound.mutateAsync(payload);
+      const result = await inbound.mutateAsync(payload);
       closeInbound();
+      if (result.warningCode === 'INV_FALLBACK_DEFAULT_LOCATION') {
+        setInboundWarning('未命中有效库位，已自动落到默认库位 DEFAULT-UNKNOWN');
+      }
     } catch (err) {
+      if (err instanceof ApiError && (err.code === 4005 || err.code === 4006)) {
+        setInboundError('当前阶段要求维护仓库和库位，请先补齐主数据后再入库');
+        return;
+      }
+      if (err instanceof ApiError && err.code === 4007) {
+        setInboundError('仓库/库位无效或已停用，请重新选择');
+        return;
+      }
       setInboundError((err as Error).message ?? '入库失败，请重试');
     }
   }, [inboundTarget, inboundForm, inbound, closeInbound]);
@@ -467,6 +653,11 @@ export default function InventoryPage() {
           {exportError && (
             <span style={{ fontSize: '0.75rem', color: 'var(--color-error-600)' }}>
               {exportError}
+            </span>
+          )}
+          {inboundWarning && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--color-warning-700)' }}>
+              {inboundWarning}
             </span>
           )}
           <Button
@@ -512,151 +703,156 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <div className={styles.snapshot_card} role="region" aria-label="日结库存快照">
-        <div className={styles.snapshot_card__header}>
-          <div>
-            <div className={styles.snapshot_card__title}>日结库存快照（{resolvedSnapshotDate}）</div>
-            <div className={styles.snapshot_card__desc}>
-              只读口径，来自 `inventory_daily_snapshots`
-            </div>
-          </div>
-          <label className={styles.snapshot_card__date}>
-            快照日期
-            <input
-              type="date"
-              value={snapshotDate}
-              onChange={(e) => {
-                setSnapshotDate(e.target.value);
-                setSnapshotPage(1);
-              }}
-            />
-          </label>
-        </div>
-
-        <div className={styles.snapshot_card__filter}>
-          <input
-            className={styles.snapshot_card__search}
-            type="search"
-            value={snapshotKeywordInput}
-            placeholder="按 SKU 编码/名称筛选快照"
-            onChange={(e) => setSnapshotKeywordInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && applySnapshotSearch()}
-            aria-label="筛选日结快照"
-          />
-          <button className={styles.snapshot_card__btn} onClick={applySnapshotSearch}>
-            查询
-          </button>
-          <button
-            className={styles.snapshot_card__btn_ghost}
-            onClick={() => {
-              setSnapshotKeywordInput('');
-              setSnapshotKeyword('');
-              setSnapshotPage(1);
-            }}
-          >
-            清空
-          </button>
-        </div>
-
-        <div className={styles.snapshot_card__meta}>
-          <span>记录数 {dailySnapshotData?.total ?? 0}</span>
-          <span>日期 {resolvedSnapshotDate}</span>
-          <span>页码 {dailySnapshotData?.page ?? snapshotPage} / {snapshotTotalPages}</span>
-          {snapshotKeyword ? <span>关键词 “{snapshotKeyword}”</span> : <span>未使用关键词筛选</span>}
-        </div>
-
-        {dailySnapshotLoading ? (
-          <div className={styles.snapshot_card__empty}>正在加载日结快照…</div>
-        ) : dailySnapshotError ? (
-          <div className={styles.snapshot_card__error}>日结快照加载失败</div>
-        ) : dailySnapshotPreview.length === 0 ? (
-          <div className={styles.snapshot_card__empty}>当前日期暂无日结快照</div>
-        ) : (
-          <div className={styles.snapshot_card__list}>
-            {dailySnapshotPreview.map((item) => (
-              <div key={`${item.snapshotDate}-${item.skuId}`} className={styles.snapshot_card__row}>
-                <div className={styles.snapshot_card__sku}>
-                  <strong>{item.skuName}</strong>
-                  <span>{item.skuCode}</span>
-                </div>
-                <div className={styles.snapshot_card__qty}>
-                  <span>在库 {item.qtyOnHand}</span>
-                  <span>预留 {item.qtyReserved}</span>
-                  <span>可用 {item.qtyAvailable}</span>
-                  <span>{item.stockUnit}</span>
-                </div>
-                <div className={styles.snapshot_card__actions}>
-                  <button
-                    className={styles.snapshot_card__btn_ghost}
-                    onClick={() =>
-                      openTrace({
-                        skuId: Number(item.skuId),
-                        skuCode: item.skuCode,
-                        skuName: item.skuName,
-                        stockUnit: item.stockUnit,
-                        source: 'snapshot',
-                        snapshotDate: item.snapshotDate,
-                      })
-                    }
-                  >
-                    追溯
-                  </button>
+      <div className={styles.inventory_workspace}>
+        <aside className={styles.inventory_snapshot_panel}>
+          <div className={styles.snapshot_card} role="region" aria-label="日结库存快照">
+            <div className={styles.snapshot_card__header}>
+              <div>
+                <div className={styles.snapshot_card__title}>日结库存快照（{resolvedSnapshotDate}）</div>
+                <div className={styles.snapshot_card__desc}>
+                  只读口径，来自 `inventory_daily_snapshots`
                 </div>
               </div>
-            ))}
-            {(dailySnapshotData?.total ?? 0) > dailySnapshotPreview.length && (
-              <div className={styles.snapshot_card__more}>可翻页查看全部快照记录</div>
+              <label className={styles.snapshot_card__date}>
+                快照日期
+                <input
+                  type="date"
+                  value={snapshotDate}
+                  onChange={(e) => {
+                    setSnapshotDate(e.target.value);
+                    setSnapshotPage(1);
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className={styles.snapshot_card__filter}>
+              <input
+                className={styles.snapshot_card__search}
+                type="search"
+                value={snapshotKeywordInput}
+                placeholder="按 SKU 编码/名称筛选快照"
+                onChange={(e) => setSnapshotKeywordInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && applySnapshotSearch()}
+                aria-label="筛选日结快照"
+              />
+              <button className={styles.snapshot_card__btn} onClick={applySnapshotSearch}>
+                查询
+              </button>
+              <button
+                className={styles.snapshot_card__btn_ghost}
+                onClick={() => {
+                  setSnapshotKeywordInput('');
+                  setSnapshotKeyword('');
+                  setSnapshotPage(1);
+                }}
+              >
+                清空
+              </button>
+            </div>
+
+            <div className={styles.snapshot_card__meta}>
+              <span>记录数 {dailySnapshotData?.total ?? 0}</span>
+              <span>日期 {resolvedSnapshotDate}</span>
+              <span>页码 {dailySnapshotData?.page ?? snapshotPage} / {snapshotTotalPages}</span>
+              {snapshotKeyword ? <span>关键词 “{snapshotKeyword}”</span> : <span>未使用关键词筛选</span>}
+            </div>
+
+            {dailySnapshotLoading ? (
+              <div className={styles.snapshot_card__empty}>正在加载日结快照…</div>
+            ) : dailySnapshotError ? (
+              <div className={styles.snapshot_card__error}>日结快照加载失败</div>
+            ) : dailySnapshotPreview.length === 0 ? (
+              <div className={styles.snapshot_card__empty}>当前日期暂无日结快照</div>
+            ) : (
+              <div className={styles.snapshot_card__list}>
+                {dailySnapshotPreview.map((item) => (
+                  <div key={`${item.snapshotDate}-${item.skuId}`} className={styles.snapshot_card__row}>
+                    <div className={styles.snapshot_card__sku}>
+                      <strong>{item.skuName}</strong>
+                      <span>{item.skuCode}</span>
+                    </div>
+                    <div className={styles.snapshot_card__qty}>
+                      <span>在库 {item.qtyOnHand}</span>
+                      <span>预留 {item.qtyReserved}</span>
+                      <span>可用 {item.qtyAvailable}</span>
+                      <span>{item.stockUnit}</span>
+                    </div>
+                    <div className={styles.snapshot_card__actions}>
+                      <button
+                        className={styles.snapshot_card__btn_ghost}
+                        onClick={() =>
+                          openTrace({
+                            skuId: Number(item.skuId),
+                            skuCode: item.skuCode,
+                            skuName: item.skuName,
+                            stockUnit: item.stockUnit,
+                            source: 'snapshot',
+                            snapshotDate: item.snapshotDate,
+                          })
+                        }
+                      >
+                        追溯
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {(dailySnapshotData?.total ?? 0) > dailySnapshotPreview.length && (
+                  <div className={styles.snapshot_card__more}>可翻页查看全部快照记录</div>
+                )}
+              </div>
+            )}
+
+            {snapshotTotalPages > 1 && (
+              <div className={styles.snapshot_card__pagination}>
+                <button
+                  className={styles.snapshot_card__btn_ghost}
+                  disabled={snapshotPage <= 1}
+                  onClick={() => setSnapshotPage((p) => Math.max(1, p - 1))}
+                >
+                  上一页
+                </button>
+                <span>第 {dailySnapshotData?.page ?? snapshotPage} / {snapshotTotalPages} 页</span>
+                <button
+                  className={styles.snapshot_card__btn_ghost}
+                  disabled={(dailySnapshotData?.page ?? snapshotPage) >= snapshotTotalPages}
+                  onClick={() => setSnapshotPage((p) => Math.min(snapshotTotalPages, p + 1))}
+                >
+                  下一页
+                </button>
+              </div>
             )}
           </div>
-        )}
+        </aside>
 
-        {snapshotTotalPages > 1 && (
-          <div className={styles.snapshot_card__pagination}>
-            <button
-              className={styles.snapshot_card__btn_ghost}
-              disabled={snapshotPage <= 1}
-              onClick={() => setSnapshotPage((p) => Math.max(1, p - 1))}
-            >
-              上一页
-            </button>
-            <span>第 {dailySnapshotData?.page ?? snapshotPage} / {snapshotTotalPages} 页</span>
-            <button
-              className={styles.snapshot_card__btn_ghost}
-              disabled={(dailySnapshotData?.page ?? snapshotPage) >= snapshotTotalPages}
-              onClick={() => setSnapshotPage((p) => Math.min(snapshotTotalPages, p + 1))}
-            >
-              下一页
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* 筛选栏 */}
-      <div className={styles.filter_bar} role="search" aria-label="库存筛选">
+        <section className={styles.inventory_list_panel}>
+          {/* 筛选栏 */}
+          <div className={styles.filter_bar} role="search" aria-label="库存筛选">
         {/* 搜索框 */}
         <div className={styles.search_wrap}>
-          <svg
-            className={styles.search_icon}
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-          </svg>
-          <input
-            type="search"
-            className={styles.search_input}
-            placeholder="搜索物料名称或编码..."
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && applySearch()}
-            aria-label="搜索物料"
-          />
+          <div className={styles.search_field}>
+            <svg
+              className={styles.search_icon}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+            </svg>
+            <input
+              type="search"
+              className={styles.search_input}
+              placeholder="搜索物料名称或编码..."
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && applySearch()}
+              aria-label="搜索物料"
+            />
+          </div>
           <button
-            className={styles.btn_sm_ghost}
+            className={`${styles.btn_sm_ghost} ${styles.search_btn}`}
             onClick={applySearch}
             aria-label="执行搜索"
-            style={{ marginLeft: 4, padding: '0 8px', height: '100%', border: 'none', cursor: 'pointer' }}
           >
             搜索
           </button>
@@ -665,6 +861,7 @@ export default function InventoryPage() {
         {/* 分类筛选 */}
         <select
           className={styles.filter_select}
+          value={query.category1Id ?? ''}
           onChange={(e) =>
             setQuery((q) => ({
               ...q,
@@ -679,6 +876,67 @@ export default function InventoryPage() {
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
+
+        <select
+          className={styles.filter_select}
+          value={query.warehouseId ?? ''}
+          onChange={(e) => {
+            const warehouseId = e.target.value ? Number(e.target.value) : undefined;
+            setQuery((q) => ({
+              ...q,
+              page: 1,
+              warehouseId,
+              locationId: undefined,
+              onlyDefaultLocation: undefined,
+            }));
+          }}
+          aria-label="筛选仓库"
+          disabled={Boolean(query.onlyDefaultLocation)}
+        >
+          <option value="">全部仓库</option>
+          {(warehouseOptions ?? []).map((w) => (
+            <option key={w.id} value={w.id}>{w.code} · {w.name}</option>
+          ))}
+        </select>
+
+        <select
+          className={styles.filter_select}
+          value={query.locationId ?? ''}
+          onChange={(e) =>
+            setQuery((q) => ({
+              ...q,
+              page: 1,
+              locationId: e.target.value ? Number(e.target.value) : undefined,
+              onlyDefaultLocation: undefined,
+            }))
+          }
+          aria-label="筛选库位"
+          disabled={!query.warehouseId || Boolean(query.onlyDefaultLocation)}
+        >
+          <option value="">
+            {query.onlyDefaultLocation
+              ? '默认库位已锁定'
+              : query.warehouseId
+              ? '全部库位'
+              : '请先选择仓库'}
+          </option>
+          {(filterLocationOptions ?? []).map((l) => (
+            <option key={l.id} value={l.id}>{l.code} · {l.name}</option>
+          ))}
+        </select>
+
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem' }}>
+          <input
+            type="checkbox"
+            checked={Boolean(query.onlyDefaultLocation)}
+            onChange={(e) =>
+              e.target.checked
+                ? enterDefaultLocationGovernance()
+                : exitDefaultLocationGovernance()
+            }
+          />
+          仅看默认仓位
+        </label>
 
         {/* 状态筛选 */}
         <select
@@ -712,302 +970,409 @@ export default function InventoryPage() {
             按采购单位
           </button>
         </div>
-      </div>
-
-      {/* 表格区域 */}
-      <div className={styles.table_wrap} role="region" aria-label="库存列表">
-        <div className={styles.table_scroll}>
-          <table className={styles.table} aria-label="库存总览表格" aria-busy={isLoading}>
-            <thead>
-              <tr>
-                <th scope="col" className={styles.th} style={{ width: 36 }} />
-                <th scope="col" className={styles.th} style={{ width: 44 }}>状态</th>
-                <th scope="col" className={styles.th}>物料名称</th>
-                <th scope="col" className={styles.th}>分类</th>
-                <th scope="col" className={styles.th}>库存量</th>
-                <th scope="col" className={styles.th}>安全库存</th>
-                <th scope="col" className={styles.th}>库存天数</th>
-                <th scope="col" className={styles.th}>缸号批次</th>
-                <th scope="col" className={styles.th}>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                // 骨架屏
-                Array.from({ length: 6 }).map((_row, i) => (
-                  <tr key={i} className={styles.tr}>
-                    {Array.from({ length: 9 }).map((_col, j) => (
-                      <td key={j} className={styles.td}>
-                        <div className="skeleton" style={{ height: 18, borderRadius: 4 }} />
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : error ? (
-                <tr>
-                  <td colSpan={9} className={styles.td}>
-                    <div className="alert alert--error" style={{ margin: 'var(--space-4)' }}>
-                      <span className="alert__icon" aria-hidden="true">❌</span>
-                      <div className="alert__body">
-                        <div className="alert__title">加载失败</div>
-                        <div className="alert__desc">{(error as Error).message}</div>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ) : filteredList.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className={styles.td} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--text-secondary)' }}>
-                    暂无库存数据
-                  </td>
-                </tr>
-              ) : (
-                filteredList.map((item) => {
-                  const skuId = Number(item.skuId);
-                  const stockDays = calcStockDays(item);
-                  const status = calcInventoryStatus(item, stockDays);
-                  const isExpanded = expandedKeys.has(skuId);
-                  const isStagnant = status === 'stagnant';
-
-                  return (
-                    // 使用 Fragment 并传递 key，避免 React key 警告
-                    <Fragment key={skuId}>
-                      <tr
-                        className={`${styles.tr} ${isExpanded ? styles['tr--expanded-parent'] : ''}`}
-                      >
-                        {/* 展开按钮 */}
-                        <td className={styles.td}>
-                          {item.hasDyeLot && (
-                            <button
-                              className={`${styles.expand_btn} ${isExpanded ? styles['expand_btn--expanded'] : ''}`}
-                              onClick={() => toggleExpand(skuId)}
-                              aria-expanded={isExpanded}
-                              aria-label={isExpanded ? '收起缸号批次' : '展开缸号批次'}
-                            >
-                              <span className={styles.expand_btn__arrow} aria-hidden="true">▼</span>
-                            </button>
-                          )}
-                        </td>
-
-                        {/* 状态点 */}
-                        <td className={styles.td}>
-                          <span
-                            className={`${styles.status_dot} ${STATUS_DOT_CLASS[status]}`}
-                            aria-label={STATUS_DOT_ARIA[status]}
-                            role="img"
-                          />
-                        </td>
-
-                        {/* 物料名称 */}
-                        <td className={styles.td}>
-                          <div className={styles.sku_name}>
-                            {item.skuName}
-                            {item.hasDyeLot && (
-                              <Tag variant="dye-lot">含缸号</Tag>
-                            )}
-                          </div>
-                          <div className={styles.sku_code}>SKU: {item.skuCode}</div>
-                        </td>
-
-                        {/* 分类 — 暂无 category2Name 直接显示，从 skuCode 前缀推断或留空 */}
-                        <td className={styles.td}>
-                          <Tag variant="neutral">
-                            {getCategoryLabel(item.skuCode)}
-                          </Tag>
-                        </td>
-
-                        {/* 库存量 */}
-                        <td className={styles.td}>
-                          <div className={styles.unit_cell}>
-                            <span
-                              className={styles.unit_cell__num}
-                              style={{ color: getQtyColor(status) }}
-                            >
-                              {formatQty(item.qtyOnHand)}
-                            </span>
-                            <span className={styles.unit_cell__unit}>{item.stockUnit}</span>
-                          </div>
-                          {item.hasDyeLot && (
-                            <div className={styles.sub_note}>
-                              {/* mock: 批次数来自 dye-lots API，此处静态提示 */}
-                              含缸号批次
-                            </div>
-                          )}
-                        </td>
-
-                        {/* 安全库存 */}
-                        <td className={styles.td}>
-                          <span className={styles.safety_stock}>
-                            {item.safetyStock ? `${formatQty(item.safetyStock)} ${item.stockUnit}` : '—'}
-                          </span>
-                        </td>
-
-                        {/* 库存天数 */}
-                        <td className={styles.td}>
-                          <span className={`${styles.stock_days} ${DAYS_CLASS[status]}`}>
-                            {stockDays}天
-                            {status === 'danger' && ' ⚠'}
-                            {status === 'stagnant' && ' 📌'}
-                          </span>
-                        </td>
-
-                        {/* 缸号批次 */}
-                        <td className={styles.td}>
-                          {item.hasDyeLot ? (
-                            <button
-                              className={styles.expand_btn_text}
-                              onClick={() => toggleExpand(skuId)}
-                            >
-                              查看缸号明细
-                            </button>
-                          ) : (
-                            <span className={styles.em_dash}>—</span>
-                          )}
-                        </td>
-
-                        {/* 操作 */}
-                        <td className={styles.td}>
-                          <div className={styles.actions}>
-                            <button
-                              className={styles.btn_sm_ghost}
-                              onClick={() =>
-                                openTrace({
-                                  skuId,
-                                  skuCode: item.skuCode,
-                                  skuName: item.skuName,
-                                  stockUnit: item.stockUnit,
-                                  source: 'inventory',
-                                })
-                              }
-                            >
-                              追溯
-                            </button>
-                            {isStagnant ? (
-                              <button className={`${styles.btn_sm_ghost} ${styles.btn_sm_ghost_stagnant}`}>
-                                AI降库建议
-                              </button>
-                            ) : (
-                              <button
-                                className={styles.btn_sm_primary}
-                                onClick={() => openInbound(item)}
-                              >
-                                入库
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-
-                      {/* 缸号展开行 */}
-                      {isExpanded && item.hasDyeLot && (
-                        <tr className={styles.dye_lot_row}>
-                          <td colSpan={9} style={{ padding: 0 }}>
-                            <DyeLotPanel skuId={skuId} skuName={item.skuName} />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* 图例 */}
-        <div className={styles.legend} role="note" aria-label="图例说明">
-          <div className={styles.legend__item}>
-            <span className={`${styles.status_dot} ${styles.dot_red}`} aria-hidden="true" />
-            低于安全库存
+        <button
+          className={styles.btn_sm_ghost}
+          onClick={resetFilters}
+          aria-label="重置库存筛选"
+        >
+          重置筛选
+        </button>
           </div>
-          <div className={styles.legend__item}>
-            <span className={`${styles.status_dot} ${styles.dot_yellow}`} aria-hidden="true" />
-            临近安全库存（&lt;120%）
-          </div>
-          <div className={styles.legend__item}>
-            <span className={`${styles.status_dot} ${styles.dot_green}`} aria-hidden="true" />
-            库存正常
-          </div>
-          <div className={styles.legend__item}>
-            <span className={`${styles.status_dot} ${styles.dot_purple}`} aria-hidden="true" />
-            呆滞风险（&gt;90天）
-          </div>
-          <div className={styles.legend__item}>
-            <Tag variant="dye-lot">含缸号</Tag>
-            面料/皮料类，点击展开批次
-          </div>
-        </div>
-      </div>
 
-      {/* 分页 */}
-      <div className={styles.pagination}>
-        <span className={styles.pagination__info}>
-          共 {data?.total ?? 0} 条物料，第 {query.page ?? 1} / {totalPages} 页
-        </span>
-        <div className={styles.pagination__btns}>
-          <button
-            className={styles.pagination__btn_ghost}
-            onClick={() => setQuery((q) => ({ ...q, page: Math.max(1, (q.page ?? 1) - 1) }))}
-            disabled={(query.page ?? 1) <= 1}
-          >
-            上一页
-          </button>
-          {Array.from({ length: Math.min(totalPages, 5) }).map((_, i) => {
-            const p = i + 1;
-            const isActive = (query.page ?? 1) === p;
-            return (
+          {query.onlyDefaultLocation && (
+            <div className={styles.governance_hint} role="status" aria-live="polite">
+              <span className={styles.governance_hint__text}>
+                默认仓位治理模式已开启，
+                {defaultWarehouseId && defaultLocationId
+                  ? '已锁定 DEFAULT / DEFAULT-UNKNOWN。'
+                  : '当前未识别 DEFAULT 主数据，请先核对仓位主数据。'}
+              </span>
               <button
-                key={p}
-                className={isActive ? styles.pagination__btn_primary : styles.pagination__btn_ghost}
-                onClick={() => setQuery((q) => ({ ...q, page: p }))}
-                aria-current={isActive ? 'page' : undefined}
+                className={styles.btn_sm_ghost}
+                onClick={exitDefaultLocationGovernance}
               >
-                {p}
+                退出治理模式
               </button>
-            );
-          })}
-          <button
-            className={styles.pagination__btn_ghost}
-            onClick={() => setQuery((q) => ({ ...q, page: Math.min(totalPages, (q.page ?? 1) + 1) }))}
-            disabled={(query.page ?? 1) >= totalPages}
-          >
-            下一页
-          </button>
-        </div>
+            </div>
+          )}
+
+          {/* 表格区域 */}
+          <div className={styles.table_wrap} role="region" aria-label="库存列表">
+            <div className={styles.table_scroll}>
+              <table className={styles.table} aria-label="库存总览表格" aria-busy={isLoading}>
+                <thead>
+                  <tr>
+                    <th scope="col" className={styles.th} style={{ width: 36 }} />
+                    <th scope="col" className={styles.th} style={{ width: 44 }}>状态</th>
+                    <th scope="col" className={styles.th}>物料名称</th>
+                    <th scope="col" className={styles.th}>分类</th>
+                    <th scope="col" className={styles.th}>库存量</th>
+                    <th scope="col" className={styles.th}>安全库存</th>
+                    <th scope="col" className={styles.th}>库存天数</th>
+                    <th scope="col" className={styles.th}>缸号批次</th>
+                    <th scope="col" className={styles.th}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoading ? (
+                    // 骨架屏
+                    Array.from({ length: 6 }).map((_row, i) => (
+                      <tr key={i} className={styles.tr}>
+                        {Array.from({ length: 9 }).map((_col, j) => (
+                          <td key={j} className={styles.td}>
+                            <div className="skeleton" style={{ height: 18, borderRadius: 4 }} />
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : error ? (
+                    <tr>
+                      <td colSpan={9} className={styles.td}>
+                        <div className="alert alert--error" style={{ margin: 'var(--space-4)' }}>
+                          <span className="alert__icon" aria-hidden="true">❌</span>
+                          <div className="alert__body">
+                            <div className="alert__title">加载失败</div>
+                            <div className="alert__desc">{(error as Error).message}</div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredList.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className={styles.td} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--text-secondary)' }}>
+                        暂无库存数据
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredList.map((item) => {
+                      const skuId = Number(item.skuId);
+                      const stockDays = calcStockDays(item);
+                      const status = calcInventoryStatus(item, stockDays);
+                      const isExpanded = expandedKeys.has(skuId);
+                      const isStagnant = status === 'stagnant';
+                      const displayMetrics = resolveDisplayInventoryMetrics(item, useStockUnit);
+                      const showConversionFallbackHint =
+                        !useStockUnit &&
+                        displayMetrics.mode === 'stock' &&
+                        Boolean(item.purchaseUnit) &&
+                        item.purchaseUnit !== item.stockUnit;
+
+                      return (
+                        // 使用 Fragment 并传递 key，避免 React key 警告
+                        <Fragment key={skuId}>
+                          <tr
+                            className={`${styles.tr} ${isExpanded ? styles['tr--expanded-parent'] : ''}`}
+                          >
+                            {/* 展开按钮 */}
+                            <td className={styles.td}>
+                              {item.hasDyeLot && (
+                                <button
+                                  className={`${styles.expand_btn} ${isExpanded ? styles['expand_btn--expanded'] : ''}`}
+                                  onClick={() => toggleExpand(skuId)}
+                                  aria-expanded={isExpanded}
+                                  aria-label={isExpanded ? '收起缸号批次' : '展开缸号批次'}
+                                >
+                                  <span className={styles.expand_btn__arrow} aria-hidden="true">▼</span>
+                                </button>
+                              )}
+                            </td>
+
+                            {/* 状态点 */}
+                            <td className={styles.td}>
+                              <span
+                                className={`${styles.status_dot} ${STATUS_DOT_CLASS[status]}`}
+                                aria-label={STATUS_DOT_ARIA[status]}
+                                role="img"
+                              />
+                            </td>
+
+                            {/* 物料名称 */}
+                            <td className={styles.td}>
+                              <div className={styles.sku_name}>
+                                {item.skuName}
+                                {item.hasDyeLot && (
+                                  <Tag variant="dye-lot">含缸号</Tag>
+                                )}
+                              </div>
+                              <div className={styles.sku_code}>SKU: {item.skuCode}</div>
+                              <div className={styles.sub_note}>
+                                {item.warehouseCode && item.locationCode
+                                  ? `${item.warehouseCode}/${item.locationCode}${item.isDefaultLocation ? '（默认）' : ''}`
+                                  : '未绑定（需修复）'}
+                              </div>
+                            </td>
+
+                            {/* 分类 — 暂无 category2Name 直接显示，从 skuCode 前缀推断或留空 */}
+                            <td className={styles.td}>
+                              <Tag variant="neutral">
+                                {getCategoryLabel(item.skuCode)}
+                              </Tag>
+                            </td>
+
+                            {/* 库存量 */}
+                            <td className={styles.td}>
+                              <div className={styles.unit_cell}>
+                                <span
+                                  className={styles.unit_cell__num}
+                                  style={{ color: getQtyColor(status) }}
+                                >
+                                  {formatQty(displayMetrics.qtyOnHand)}
+                                </span>
+                                <span className={styles.unit_cell__unit}>{displayMetrics.unit}</span>
+                              </div>
+                              {item.hasDyeLot && (
+                                <div className={styles.sub_note}>
+                                  {/* mock: 批次数来自 dye-lots API，此处静态提示 */}
+                                  含缸号批次
+                                </div>
+                              )}
+                              {showConversionFallbackHint && (
+                                <div className={styles.sub_note}>
+                                  缺少采购单位换算系数，暂按库存单位展示
+                                </div>
+                              )}
+                            </td>
+
+                            {/* 安全库存 */}
+                            <td className={styles.td}>
+                              <span className={styles.safety_stock}>
+                                {displayMetrics.safetyStock
+                                  ? `${formatQty(displayMetrics.safetyStock)} ${displayMetrics.unit}`
+                                  : '—'}
+                              </span>
+                            </td>
+
+                            {/* 库存天数 */}
+                            <td className={styles.td}>
+                              <span className={`${styles.stock_days} ${DAYS_CLASS[status]}`}>
+                                {stockDays}天
+                                {status === 'danger' && ' ⚠'}
+                                {status === 'stagnant' && ' 📌'}
+                              </span>
+                            </td>
+
+                            {/* 缸号批次 */}
+                            <td className={styles.td}>
+                              {item.hasDyeLot ? (
+                                <button
+                                  className={styles.expand_btn_text}
+                                  onClick={() => toggleExpand(skuId)}
+                                >
+                                  查看缸号明细
+                                </button>
+                              ) : (
+                                <span className={styles.em_dash}>—</span>
+                              )}
+                            </td>
+
+                            {/* 操作 */}
+                            <td className={styles.td}>
+                              <div className={styles.actions}>
+                                <button
+                                  className={styles.btn_sm_ghost}
+                                  onClick={() =>
+                                    openTrace({
+                                      skuId,
+                                      skuCode: item.skuCode,
+                                      skuName: item.skuName,
+                                      stockUnit: item.stockUnit,
+                                      source: 'inventory',
+                                    })
+                                  }
+                                >
+                                  追溯
+                                </button>
+                                {isStagnant ? (
+                                  <button
+                                    className={`${styles.btn_sm_ghost} ${styles.btn_sm_ghost_stagnant}`}
+                                    onClick={() => openAiReduceSuggestion(item, stockDays)}
+                                  >
+                                    AI降库建议
+                                  </button>
+                                ) : (
+                                  <button
+                                    className={styles.btn_sm_primary}
+                                    onClick={() => openInbound(item)}
+                                  >
+                                    入库
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* 缸号展开行 */}
+                          {isExpanded && item.hasDyeLot && (
+                            <tr className={styles.dye_lot_row}>
+                              <td colSpan={9} style={{ padding: 0 }}>
+                                <DyeLotPanel
+                                  skuId={skuId}
+                                  skuName={item.skuName}
+                                  onViewUsage={(dyeLotNo) =>
+                                    openTrace({
+                                      skuId,
+                                      skuCode: item.skuCode,
+                                      skuName: item.skuName,
+                                      stockUnit: item.stockUnit,
+                                      source: 'inventory',
+                                      keyword: dyeLotNo,
+                                    })
+                                  }
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 图例 */}
+            <div className={styles.legend} role="note" aria-label="图例说明">
+              <div className={styles.legend__item}>
+                <span className={`${styles.status_dot} ${styles.dot_red}`} aria-hidden="true" />
+                低于安全库存
+              </div>
+              <div className={styles.legend__item}>
+                <span className={`${styles.status_dot} ${styles.dot_yellow}`} aria-hidden="true" />
+                临近安全库存（&lt;120%）
+              </div>
+              <div className={styles.legend__item}>
+                <span className={`${styles.status_dot} ${styles.dot_green}`} aria-hidden="true" />
+                库存正常
+              </div>
+              <div className={styles.legend__item}>
+                <span className={`${styles.status_dot} ${styles.dot_purple}`} aria-hidden="true" />
+                呆滞风险（&gt;90天）
+              </div>
+              <div className={styles.legend__item}>
+                <Tag variant="dye-lot">含缸号</Tag>
+                面料/皮料类，点击展开批次
+              </div>
+            </div>
+          </div>
+
+          {/* 分页 */}
+          <div className={styles.pagination}>
+            <span className={styles.pagination__info}>
+              共 {data?.total ?? 0} 条物料，第 {query.page ?? 1} / {totalPages} 页
+            </span>
+            <div className={styles.pagination__btns}>
+              <button
+                className={styles.pagination__btn_ghost}
+                onClick={() => setQuery((q) => ({ ...q, page: Math.max(1, (q.page ?? 1) - 1) }))}
+                disabled={(query.page ?? 1) <= 1}
+              >
+                上一页
+              </button>
+              {Array.from({ length: Math.min(totalPages, 5) }).map((_, i) => {
+                const p = i + 1;
+                const isActive = (query.page ?? 1) === p;
+                return (
+                  <button
+                    key={p}
+                    className={isActive ? styles.pagination__btn_primary : styles.pagination__btn_ghost}
+                    onClick={() => setQuery((q) => ({ ...q, page: p }))}
+                    aria-current={isActive ? 'page' : undefined}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+              <button
+                className={styles.pagination__btn_ghost}
+                onClick={() => setQuery((q) => ({ ...q, page: Math.min(totalPages, (q.page ?? 1) + 1) }))}
+                disabled={(query.page ?? 1) >= totalPages}
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        </section>
       </div>
 
       {/* 入库弹窗 */}
       <Modal
         open={inboundTarget !== null}
-        title={inboundTarget?.skuId ? `入库 — ${inboundTarget.skuName}` : '手动入库'}
+        title={inboundTarget && !inboundTarget.isManual ? `入库 — ${inboundTarget.skuName}` : '手动入库'}
         onClose={closeInbound}
         onConfirm={handleInboundSubmit}
         confirmLabel="确认入库"
         confirmLoading={inbound.isPending}
-        size="md"
+        size="xl"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          {/* 手动入库时显示 skuId 输入（无选择器，简化实现） */}
-          {inboundTarget?.skuId === 0 && (
+          {/* 手动入库时显示 skuCode 输入（无选择器，简化实现） */}
+          {inboundTarget?.isManual && (
             <div>
               <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: 4, fontWeight: 500 }}>
-                物料 SKU ID <span style={{ color: 'var(--color-error-600)' }}>*</span>
+                物料 SKU 编码 <span style={{ color: 'var(--color-error-600)' }}>*</span>
               </label>
               <input
-                type="number"
-                min={1}
-                step={1}
+                type="text"
                 className={styles.search_input}
-                placeholder="请输入物料 SKU ID"
-                value={inboundTarget.skuId || ''}
+                placeholder="请输入物料 SKU 编码"
+                value={inboundTarget.skuCode}
                 onChange={(e) => {
-                  const skuId = parseInt(e.target.value) || 0;
-                  setInboundTarget((t) => t ? { ...t, skuId } : null);
+                  const skuCode = e.target.value;
+                  setInboundTarget((t) => t ? { ...t, skuCode } : null);
                 }}
                 style={{ width: '100%' }}
               />
             </div>
           )}
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: 4, fontWeight: 500 }}>
+              仓库（选填）
+            </label>
+            <select
+              className={styles.filter_select}
+              value={inboundForm.warehouseId ?? ''}
+              onChange={(e) =>
+                setInboundForm((f) => ({
+                  ...f,
+                  warehouseId: e.target.value ? Number(e.target.value) : null,
+                  locationId: null,
+                }))
+              }
+              style={{ width: '100%' }}
+            >
+              <option value="">请选择仓库</option>
+              {(warehouseOptions ?? []).map((w) => (
+                <option key={w.id} value={w.id}>{w.code} · {w.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: 4, fontWeight: 500 }}>
+              库位（选填）
+            </label>
+            <select
+              className={styles.filter_select}
+              value={inboundForm.locationId ?? ''}
+              onChange={(e) =>
+                setInboundForm((f) => ({
+                  ...f,
+                  locationId: e.target.value ? Number(e.target.value) : null,
+                }))
+              }
+              style={{ width: '100%' }}
+              disabled={!inboundForm.warehouseId}
+            >
+              <option value="">{inboundForm.warehouseId ? '请选择库位' : '请先选择仓库'}</option>
+              {(locationOptions ?? []).map((l) => (
+                <option key={l.id} value={l.id}>{l.code} · {l.name}</option>
+              ))}
+            </select>
+            <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+              未选择仓库/库位时，将由后端按当前治理策略校验或兜底。
+            </div>
+          </div>
 
           {/* 入库数量 */}
           <div>
@@ -1063,20 +1428,25 @@ export default function InventoryPage() {
             </select>
           </div>
 
-          {/* 缸号（仅含缸号物料显示） */}
-          {inboundTarget?.hasDyeLot && (
+          {/* 缸号：面料物料必填；手动入库场景始终可填写，避免无法录入 */}
+          {(inboundTarget?.hasDyeLot || inboundTarget?.isManual) && (
             <div>
               <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: 4, fontWeight: 500 }}>
-                缸号
+                缸号 {inboundTarget?.hasDyeLot ? <span style={{ color: 'var(--color-error-600)' }}>*</span> : null}
               </label>
               <input
                 type="text"
                 className={styles.search_input}
-                placeholder="如：DY-2026-001（可选）"
+                placeholder={inboundTarget?.hasDyeLot ? '面料必填，如：DY-2026-001' : '非面料可留空，如：DY-2026-001'}
                 value={inboundForm.dyeLotNo}
                 onChange={(e) => setInboundForm((f) => ({ ...f, dyeLotNo: e.target.value }))}
                 style={{ width: '100%' }}
               />
+              {inboundTarget?.isManual && (
+                <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                  说明：若该 SKU 开启了缸号管理，未填写缸号会被后端校验拦截。
+                </div>
+              )}
             </div>
           )}
 
@@ -1115,7 +1485,7 @@ export default function InventoryPage() {
         open={traceTarget !== null}
         title={traceTarget ? `库存追溯 — ${traceTarget.skuName}` : '库存追溯'}
         onClose={closeTrace}
-        width={620}
+        width="min(860px, calc(100vw - 24px))"
       >
         {traceTarget && (
           <div className={styles.trace_drawer}>
@@ -1256,6 +1626,76 @@ export default function InventoryPage() {
           </div>
         )}
       </Drawer>
+
+      <Drawer
+        open={aiReduceTarget !== null}
+        title={aiReduceTarget ? `AI降库建议 — ${aiReduceTarget.skuName}` : 'AI降库建议'}
+        onClose={closeAiReduceSuggestion}
+        width="min(760px, calc(100vw - 24px))"
+      >
+        {aiReduceTarget && (
+          <div className={styles.trace_drawer}>
+            <div className={styles.trace_drawer__hero}>
+              <div>
+                <div className={styles.trace_drawer__eyebrow}>呆滞库存处置建议</div>
+                <div className={styles.trace_drawer__sku}>{aiReduceTarget.skuName}</div>
+                <div className={styles.trace_drawer__code}>
+                  {aiReduceTarget.skuCode} · 库存天数 {aiReduceTarget.stockDays} 天
+                </div>
+              </div>
+            </div>
+            <div className={styles.trace_drawer__meta}>
+              <span>在库 {formatQty(aiReduceTarget.qtyOnHand)} {aiReduceTarget.stockUnit}</span>
+              <span>可用 {formatQty(aiReduceTarget.qtyAvailable)} {aiReduceTarget.stockUnit}</span>
+              <span>安全库存 {formatQty(aiReduceTarget.safetyStock)} {aiReduceTarget.stockUnit}</span>
+            </div>
+            <div className={styles.trace_list}>
+              {buildAiReduceSuggestions(aiReduceTarget).map((advice, index) => (
+                <div key={`${aiReduceTarget.skuId}-${index}`} className={styles.trace_item}>
+                  <div className={styles.trace_item__header}>
+                    <div>
+                      <strong>{advice.title}</strong>
+                    </div>
+                  </div>
+                  <div className={styles.trace_item__notes}>{advice.detail}</div>
+                </div>
+              ))}
+            </div>
+            <div className={styles.trace_drawer__pagination} style={{ justifyContent: 'flex-start', gap: 'var(--space-2)' }}>
+              <button
+                className={styles.snapshot_card__btn}
+                onClick={() => {
+                  openTrace({
+                    skuId: aiReduceTarget.skuId,
+                    skuCode: aiReduceTarget.skuCode,
+                    skuName: aiReduceTarget.skuName,
+                    stockUnit: aiReduceTarget.stockUnit,
+                    source: 'inventory',
+                  });
+                  closeAiReduceSuggestion();
+                }}
+              >
+                查看库存追溯
+              </button>
+              {aiReduceTarget.hasDyeLot && (
+                <button
+                  className={styles.snapshot_card__btn_ghost}
+                  onClick={() => {
+                    setExpandedKeys((prev) => {
+                      const next = new Set(prev);
+                      next.add(aiReduceTarget.skuId);
+                      return next;
+                    });
+                    closeAiReduceSuggestion();
+                  }}
+                >
+                  展开缸号批次
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 }
@@ -1279,6 +1719,63 @@ function formatQty(value: string | number): string {
   return parseFloat(num.toFixed(4)).toString();
 }
 
+type DisplayInventoryMetrics = {
+  qtyOnHand: string;
+  qtyAvailable: string;
+  safetyStock: string;
+  unit: string;
+  mode: 'stock' | 'purchase';
+};
+
+function resolveDisplayInventoryMetrics(item: InventoryItem, useStockUnit: boolean): DisplayInventoryMetrics {
+  const stockMetrics: DisplayInventoryMetrics = {
+    qtyOnHand: item.qtyOnHand,
+    qtyAvailable: item.qtyAvailable,
+    safetyStock: item.safetyStock,
+    unit: item.stockUnit,
+    mode: 'stock',
+  };
+
+  if (useStockUnit) {
+    return stockMetrics;
+  }
+
+  const purchaseUnit = item.purchaseUnit?.trim();
+  if (!purchaseUnit || purchaseUnit === item.stockUnit) {
+    return {
+      ...stockMetrics,
+      unit: purchaseUnit || item.stockUnit,
+      mode: 'purchase',
+    };
+  }
+
+  const convFactor = normalizeStockConvFactor(item.stockConvFactor);
+  if (!convFactor) {
+    return stockMetrics;
+  }
+
+  return {
+    qtyOnHand: convertStockQtyToPurchaseUnit(item.qtyOnHand, convFactor),
+    qtyAvailable: convertStockQtyToPurchaseUnit(item.qtyAvailable, convFactor),
+    safetyStock: convertStockQtyToPurchaseUnit(item.safetyStock, convFactor),
+    unit: purchaseUnit,
+    mode: 'purchase',
+  };
+}
+
+function normalizeStockConvFactor(raw: InventoryItem['stockConvFactor']): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const factor = Number(raw);
+  if (!Number.isFinite(factor) || factor <= 0) return null;
+  return factor;
+}
+
+function convertStockQtyToPurchaseUnit(value: string, stockConvFactor: number): string {
+  const qty = Number(value);
+  if (!Number.isFinite(qty)) return '0';
+  return (qty / stockConvFactor).toFixed(4);
+}
+
 /** 从 SKU 编码前缀推断分类标签（无 category2Name 字段时的 fallback） */
 function getCategoryLabel(skuCode: string): string {
   const prefix = skuCode.split('-')[0]?.toUpperCase() ?? '';
@@ -1292,6 +1789,33 @@ function getCategoryLabel(skuCode: string): string {
     PNT: '漆料',
   };
   return map[prefix] ?? '其他';
+}
+
+function buildAiReduceSuggestions(target: AiReduceTarget): Array<{ title: string; detail: string }> {
+  const overstockQty = Math.max(0, parseFloat(target.qtyAvailable) - parseFloat(target.safetyStock || '0'));
+  const base = [
+    {
+      title: '先冻结补货并滚动复核',
+      detail: `建议将 ${target.skuCode} 的补货策略临时切换为按需，至少连续 2 周复核消耗后再恢复常规补货。`,
+    },
+    {
+      title: '优先消化超储库存',
+      detail: `当前可用库存高于安全库存约 ${formatQty(overstockQty)} ${target.stockUnit}，优先在新工单中消化该物料。`,
+    },
+    {
+      title: '设置去化目标与观察窗口',
+      detail: `建议设定 30 天去化目标，并按周跟踪库存天数（当前 ${target.stockDays} 天）的下降趋势。`,
+    },
+  ];
+
+  if (target.hasDyeLot) {
+    base.push({
+      title: '按最早入库缸号优先出库',
+      detail: '该物料含缸号批次，建议按先进先出优先消化最早批次，避免新老缸号长期并存。',
+    });
+  }
+
+  return base;
 }
 
 // Export stagnant color CSS variable reference (used in module)

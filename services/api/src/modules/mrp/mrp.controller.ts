@@ -13,6 +13,12 @@ const ProductionOrderIdParamSchema = z.object({
 const GlobalShortageSummaryQuerySchema = PaginationSchema.extend({
   status: z.string().optional(),
   skuId: z.coerce.number().int().positive().optional(),
+  warehouseId: z.coerce.number().int().positive().optional(),
+  locationId: z.coerce.number().int().positive().optional(),
+  onlyDefaultLocation: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
 });
 
 const GenerateSuggestionsBodySchema = z.object({
@@ -49,6 +55,9 @@ export class MrpController {
     const { list, total } = await this.svc(req).getGlobalShortageSummary({
       status: q.status,
       skuId: q.skuId,
+      warehouseId: q.warehouseId,
+      locationId: q.locationId,
+      onlyDefaultLocation: q.onlyDefaultLocation,
       page: q.page,
       pageSize: q.pageSize,
     });

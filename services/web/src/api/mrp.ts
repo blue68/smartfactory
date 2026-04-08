@@ -62,6 +62,15 @@ export interface ShortageSummary {
   [key: string]: unknown;
 }
 
+export interface ShortageSummaryQuery {
+  page?: number;
+  pageSize?: number;
+  skuId?: number;
+  warehouseId?: number;
+  locationId?: number;
+  onlyDefaultLocation?: boolean;
+}
+
 export interface PurchaseSuggestionGenerated {
   id: number;
   skuId: number;
@@ -121,7 +130,8 @@ export const mrpKeys = {
   all: ['mrp'] as const,
   shortageReport: (productionOrderId: number) =>
     [...mrpKeys.all, 'shortage-report', productionOrderId] as const,
-  shortageSummary: () => [...mrpKeys.all, 'shortage-summary'] as const,
+  shortageSummary: (query?: ShortageSummaryQuery) =>
+    [...mrpKeys.all, 'shortage-summary', query ?? {}] as const,
   dashboard: () => [...mrpKeys.all, 'dashboard'] as const,
 };
 
@@ -133,8 +143,8 @@ export const mrpApi = {
       `/api/mrp/shortage-report/${productionOrderId}`,
     ),
 
-  getShortageSummary: () =>
-    request.get<ShortageSummary>('/api/mrp/shortage-summary'),
+  getShortageSummary: (query?: ShortageSummaryQuery) =>
+    request.get<ShortageSummary>('/api/mrp/shortage-summary', query as Record<string, unknown>),
 
   generateSuggestions: (data?: GenerateSuggestionsPayload) =>
     request.post<GenerateSuggestionsResult>(
@@ -161,10 +171,10 @@ export function useShortageReport(productionOrderId: number | null) {
 }
 
 /** 获取全局缺料汇总 */
-export function useShortageSummary() {
+export function useShortageSummary(query?: ShortageSummaryQuery) {
   return useQuery({
-    queryKey: mrpKeys.shortageSummary(),
-    queryFn: () => mrpApi.getShortageSummary(),
+    queryKey: mrpKeys.shortageSummary(query),
+    queryFn: () => mrpApi.getShortageSummary(query),
   });
 }
 

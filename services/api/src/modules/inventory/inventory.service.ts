@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { parse as parseCsv } from 'csv-parse/sync';
 import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
@@ -6,6 +7,10 @@ import { ResponseCode } from '../../shared/ApiResponse';
 import { acquireLock, releaseLock, RedisKeys, RedisTTL, getRedisClient } from '../../config/redis';
 import { UnitConverter } from '../../shared/unitConverter';
 import { DyeLotAuthorizeService } from './dyeLotAuthorize.service';
+import {
+  ensureDefaultWarehouseLocation as ensureDefaultWarehouseLocationBinding,
+  resolveWarehouseLocationBinding,
+} from './warehouse-location.resolver';
 
 // ─── 类型定义 ──────────────────────────────────────────────────
 
@@ -14,7 +19,10 @@ export type TransactionType =
   | 'MATERIAL_OUT' | 'DELIVERY_OUT' | 'ADJUSTMENT_OUT' | 'STOCKTAKE_ADJUST';
 
 export interface InboundParams {
-  skuId: number;
+  skuId?: number;
+  skuCode?: string;
+  warehouseId?: number;
+  locationId?: number;
   qtyInput: string;
   inputUnit: string;
   transactionType: Extract<TransactionType, 'PURCHASE_IN' | 'PRODUCTION_IN' | 'ADJUSTMENT_IN'>;
@@ -28,6 +36,8 @@ export interface InboundParams {
 
 export interface OutboundParams {
   skuId: number;
+  warehouseId?: number;
+  locationId?: number;
   qtyInput: string;
   inputUnit: string;
   transactionType: Extract<TransactionType, 'MATERIAL_OUT' | 'DELIVERY_OUT' | 'ADJUSTMENT_OUT'>;
@@ -58,10 +68,117 @@ export interface InventorySnapshot {
   qtyInTransit: string;
   qtyAvailable: string;
   stockUnit: string;
+  purchaseUnit?: string | null;
+  stockConvFactor?: string | number | null;
   safetyStock: string;
   isBelowSafety: boolean;
   hasDyeLot: boolean;
+  warehouseId?: number | null;
+  warehouseCode?: string | null;
+  warehouseName?: string | null;
+  locationId?: number | null;
+  locationCode?: string | null;
+  locationName?: string | null;
+  isDefaultLocation?: boolean;
   dyeLots?: DyeLotDetail[];
+}
+
+interface WarehouseLocationBinding {
+  warehouseId: number;
+  locationId: number;
+  warehouseCode: string;
+  locationCode: string;
+  warningCode: string | null;
+}
+
+export interface WarehouseOption {
+  id: number;
+  code: string;
+  name: string;
+  type: string | null;
+  plantCode: string | null;
+  status: string;
+}
+
+export interface LocationOption {
+  id: number;
+  warehouseId: number;
+  code: string;
+  name: string;
+  locationType: LocationType;
+  aisleCode: string | null;
+  rackCode: string | null;
+  shelfCode: string | null;
+  binCode: string | null;
+  level: number;
+  status: string;
+}
+
+export type MasterDataStatus = 'active' | 'inactive' | 'locked' | 'archived';
+export type LocationType = 'general' | 'zone' | 'rack' | 'shelf' | 'bin';
+
+export interface CreateWarehouseParams {
+  code: string;
+  name: string;
+  type?: string;
+  plantCode?: string;
+  status: MasterDataStatus;
+}
+
+export interface UpdateWarehouseParams {
+  code?: string;
+  name?: string;
+  type?: string;
+  plantCode?: string;
+  status?: MasterDataStatus;
+}
+
+export interface CreateLocationParams {
+  warehouseId: number;
+  code: string;
+  name: string;
+  locationType: LocationType;
+  aisleCode?: string;
+  rackCode?: string;
+  shelfCode?: string;
+  binCode?: string;
+  level: number;
+  parentId?: number;
+  status: MasterDataStatus;
+}
+
+export interface UpdateLocationParams {
+  warehouseId?: number;
+  code?: string;
+  name?: string;
+  locationType?: LocationType;
+  aisleCode?: string;
+  rackCode?: string;
+  shelfCode?: string;
+  binCode?: string;
+  level?: number;
+  parentId?: number | null;
+  status?: MasterDataStatus;
+}
+
+export interface MasterDataImportFailure {
+  rowNo: number;
+  reason: string;
+  row: Record<string, string>;
+}
+
+export interface WarehouseCsvImportResult {
+  totalRows: number;
+  successCount: number;
+  failCount: number;
+  failures: MasterDataImportFailure[];
+}
+
+export interface LocationCsvImportResult {
+  totalRows: number;
+  successCount: number;
+  failCount: number;
+  failures: MasterDataImportFailure[];
 }
 
 export interface DailyInventorySnapshotRow {
@@ -128,6 +245,9 @@ type InventoryTrackedQueryRunner = InventoryQueryRunner & {
   __inventorySnapshotSkuIds?: Set<number>;
 };
 
+const MASTER_DATA_STATUS = new Set(['active', 'inactive', 'locked', 'archived']);
+const LOCATION_TYPES = new Set(['general', 'zone', 'rack', 'shelf', 'bin']);
+
 // ─── Inventory Service ─────────────────────────────────────────
 
 export class InventoryService {
@@ -175,11 +295,1077 @@ export class InventoryService {
     };
   }
 
+  private async ensureDefaultWarehouseLocation(
+    manager: InventoryQueryRunner,
+  ): Promise<{ warehouseId: number; locationId: number; warehouseCode: string; locationCode: string }> {
+    return ensureDefaultWarehouseLocationBinding(manager, this.tenantId);
+  }
+
+  private async resolveWarehouseLocation(
+    manager: InventoryQueryRunner,
+    params: { warehouseId?: number; locationId?: number },
+    sourceRef: string,
+  ): Promise<WarehouseLocationBinding> {
+    return resolveWarehouseLocationBinding({
+      manager,
+      tenantId: this.tenantId,
+      userId: this.userId,
+      warehouseId: params.warehouseId,
+      locationId: params.locationId,
+      sourceRef,
+    });
+  }
+
+  private normalizeLocationType(value?: string | null): LocationType {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    return LOCATION_TYPES.has(normalized) ? (normalized as LocationType) : 'general';
+  }
+
+  private normalizeLocationCoord(value?: string | null): string | null {
+    const normalized = String(value ?? '').trim().toUpperCase();
+    return normalized ? normalized : null;
+  }
+
+  async listWarehouses(onlyActive = true): Promise<WarehouseOption[]> {
+    const rows = await AppDataSource.query<Array<WarehouseOption>>(
+      `SELECT
+         id,
+         code,
+         name,
+         type,
+         plant_code AS plantCode,
+         status
+       FROM warehouses
+       WHERE tenant_id = ?
+         ${onlyActive ? "AND status = 'active'" : ''}
+       ORDER BY code ASC`,
+      [this.tenantId],
+    );
+    return rows.map((row) => ({
+      id: Number(row.id),
+      code: row.code,
+      name: row.name,
+      type: row.type ?? null,
+      plantCode: row.plantCode ?? null,
+      status: row.status,
+    }));
+  }
+
+  async listLocations(params: { warehouseId?: number; onlyActive?: boolean }): Promise<LocationOption[]> {
+    const conditions = ['tenant_id = ?'];
+    const q: unknown[] = [this.tenantId];
+    if (params.warehouseId) {
+      conditions.push('warehouse_id = ?');
+      q.push(params.warehouseId);
+    }
+    if (params.onlyActive ?? true) {
+      conditions.push("status = 'active'");
+    }
+
+    const rows = await AppDataSource.query<Array<LocationOption>>(
+      `SELECT
+         id,
+         warehouse_id AS warehouseId,
+         code,
+         name,
+         location_type AS locationType,
+         aisle_code AS aisleCode,
+         rack_code AS rackCode,
+         shelf_code AS shelfCode,
+         bin_code AS binCode,
+         level,
+         status
+       FROM locations
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY warehouse_id ASC, code ASC`,
+      q,
+    );
+
+    return rows.map((row) => ({
+      id: Number(row.id),
+      warehouseId: Number(row.warehouseId),
+      code: row.code,
+      name: row.name,
+      locationType: this.normalizeLocationType(row.locationType),
+      aisleCode: row.aisleCode ?? null,
+      rackCode: row.rackCode ?? null,
+      shelfCode: row.shelfCode ?? null,
+      binCode: row.binCode ?? null,
+      level: Number(row.level),
+      status: row.status,
+    }));
+  }
+
+  async createWarehouse(params: CreateWarehouseParams): Promise<WarehouseOption> {
+    const code = params.code.trim().toUpperCase();
+    const name = params.name.trim();
+    const type = params.type?.trim() ? params.type.trim() : null;
+    const plantCode = params.plantCode?.trim() ? params.plantCode.trim() : null;
+
+    const [exists] = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT id
+       FROM warehouses
+       WHERE tenant_id = ? AND code = ?
+       LIMIT 1`,
+      [this.tenantId, code],
+    );
+    if (exists) {
+      throw AppError.conflict(`仓库编码 ${code} 已存在`);
+    }
+
+    const insertMeta = await AppDataSource.query(
+      `INSERT INTO warehouses
+         (tenant_id, code, name, type, plant_code, status, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [this.tenantId, code, name, type, plantCode, params.status, this.userId, this.userId],
+    ) as unknown as { insertId?: number };
+
+    const id = Number(insertMeta.insertId ?? 0);
+    const [row] = await AppDataSource.query<Array<WarehouseOption>>(
+      `SELECT id, code, name, type, plant_code AS plantCode, status
+       FROM warehouses
+       WHERE tenant_id = ? AND id = ?
+       LIMIT 1`,
+      [this.tenantId, id],
+    );
+    if (!row) {
+      throw AppError.badRequest('仓库创建失败');
+    }
+
+    return {
+      id: Number(row.id),
+      code: row.code,
+      name: row.name,
+      type: row.type ?? null,
+      plantCode: row.plantCode ?? null,
+      status: row.status,
+    };
+  }
+
+  async updateWarehouse(id: number, params: UpdateWarehouseParams): Promise<WarehouseOption> {
+    const [existing] = await AppDataSource.query<Array<{
+      id: number;
+      code: string;
+      name: string;
+      type: string | null;
+      plantCode: string | null;
+      status: MasterDataStatus;
+    }>>(
+      `SELECT
+         id,
+         code,
+         name,
+         type,
+         plant_code AS plantCode,
+         status
+       FROM warehouses
+       WHERE tenant_id = ? AND id = ?
+       LIMIT 1`,
+      [this.tenantId, id],
+    );
+    if (!existing) {
+      throw AppError.notFound('仓库不存在');
+    }
+
+    const nextCode = params.code ? params.code.trim().toUpperCase() : existing.code;
+    const nextName = params.name ? params.name.trim() : existing.name;
+    const nextType = params.type !== undefined ? (params.type.trim() ? params.type.trim() : null) : existing.type;
+    const nextPlantCode = params.plantCode !== undefined
+      ? (params.plantCode.trim() ? params.plantCode.trim() : null)
+      : existing.plantCode;
+    const nextStatus = params.status ?? existing.status;
+
+    if (existing.code === 'DEFAULT') {
+      if (nextCode !== 'DEFAULT') {
+        throw AppError.badRequest('默认仓库编码不可修改');
+      }
+      if (nextStatus !== 'active') {
+        throw AppError.badRequest('默认仓库状态不可修改为非启用');
+      }
+    }
+
+    if (nextCode !== existing.code) {
+      const [dup] = await AppDataSource.query<Array<{ id: number }>>(
+        `SELECT id
+         FROM warehouses
+         WHERE tenant_id = ? AND code = ? AND id <> ?
+         LIMIT 1`,
+        [this.tenantId, nextCode, id],
+      );
+      if (dup) {
+        throw AppError.conflict(`仓库编码 ${nextCode} 已存在`);
+      }
+    }
+
+    await AppDataSource.query(
+      `UPDATE warehouses
+       SET code = ?, name = ?, type = ?, plant_code = ?, status = ?, updated_by = ?
+       WHERE tenant_id = ? AND id = ?`,
+      [nextCode, nextName, nextType, nextPlantCode, nextStatus, this.userId, this.tenantId, id],
+    );
+
+    return {
+      id: Number(existing.id),
+      code: nextCode,
+      name: nextName,
+      type: nextType,
+      plantCode: nextPlantCode,
+      status: nextStatus,
+    };
+  }
+
+  async deleteWarehouse(id: number): Promise<{ id: number }> {
+    const [existing] = await AppDataSource.query<Array<{ id: number; code: string }>>(
+      `SELECT id, code
+       FROM warehouses
+       WHERE tenant_id = ? AND id = ?
+       LIMIT 1`,
+      [this.tenantId, id],
+    );
+    if (!existing) {
+      throw AppError.notFound('仓库不存在');
+    }
+    if (existing.code === 'DEFAULT') {
+      throw AppError.badRequest('默认仓库不可删除');
+    }
+
+    const [locationRef] = await AppDataSource.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(1) AS cnt
+       FROM locations
+       WHERE tenant_id = ? AND warehouse_id = ?`,
+      [this.tenantId, id],
+    );
+    if (Number(locationRef?.cnt ?? 0) > 0) {
+      throw AppError.badRequest('该仓库下存在库位，请先删除或迁移库位');
+    }
+
+    const [inventoryRef] = await AppDataSource.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(1) AS cnt
+       FROM inventory
+       WHERE tenant_id = ? AND warehouse_id = ?`,
+      [this.tenantId, id],
+    );
+    if (Number(inventoryRef?.cnt ?? 0) > 0) {
+      throw AppError.badRequest('该仓库已被库存记录引用，无法删除');
+    }
+
+    const [txRef] = await AppDataSource.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(1) AS cnt
+       FROM inventory_transactions
+       WHERE tenant_id = ? AND warehouse_id = ?`,
+      [this.tenantId, id],
+    );
+    if (Number(txRef?.cnt ?? 0) > 0) {
+      throw AppError.badRequest('该仓库已被库存流水引用，无法删除');
+    }
+
+    await AppDataSource.query(
+      `DELETE FROM warehouses
+       WHERE tenant_id = ? AND id = ?`,
+      [this.tenantId, id],
+    );
+
+    return { id };
+  }
+
+  async createLocation(params: CreateLocationParams): Promise<LocationOption> {
+    const code = params.code.trim().toUpperCase();
+    const name = params.name.trim();
+    const locationType = this.normalizeLocationType(params.locationType);
+    const aisleCode = this.normalizeLocationCoord(params.aisleCode);
+    const rackCode = this.normalizeLocationCoord(params.rackCode);
+    const shelfCode = this.normalizeLocationCoord(params.shelfCode);
+    const binCode = this.normalizeLocationCoord(params.binCode);
+
+    const [warehouse] = await AppDataSource.query<Array<{ id: number; status: string }>>(
+      `SELECT id, status
+       FROM warehouses
+       WHERE tenant_id = ? AND id = ?
+       LIMIT 1`,
+      [this.tenantId, params.warehouseId],
+    );
+    if (!warehouse) {
+      throw AppError.badRequest('仓库不存在');
+    }
+
+    if (params.parentId) {
+      const [parent] = await AppDataSource.query<Array<{ id: number }>>(
+        `SELECT id
+         FROM locations
+         WHERE tenant_id = ? AND warehouse_id = ? AND id = ?
+         LIMIT 1`,
+        [this.tenantId, params.warehouseId, params.parentId],
+      );
+      if (!parent) {
+        throw AppError.badRequest('父级库位不存在');
+      }
+    }
+
+    const [dup] = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT id
+       FROM locations
+       WHERE tenant_id = ? AND warehouse_id = ? AND code = ?
+       LIMIT 1`,
+      [this.tenantId, params.warehouseId, code],
+    );
+    if (dup) {
+      throw AppError.conflict(`库位编码 ${code} 已存在`);
+    }
+
+    const insertMeta = await AppDataSource.query(
+      `INSERT INTO locations
+         (tenant_id, warehouse_id, code, name, location_type, aisle_code, rack_code, shelf_code, bin_code, level, parent_id, status, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        this.tenantId,
+        params.warehouseId,
+        code,
+        name,
+        locationType,
+        aisleCode,
+        rackCode,
+        shelfCode,
+        binCode,
+        params.level,
+        params.parentId ?? null,
+        params.status,
+        this.userId,
+        this.userId,
+      ],
+    ) as unknown as { insertId?: number };
+
+    const id = Number(insertMeta.insertId ?? 0);
+    const [row] = await AppDataSource.query<Array<LocationOption>>(
+      `SELECT
+         id,
+         warehouse_id AS warehouseId,
+         code,
+         name,
+         location_type AS locationType,
+         aisle_code AS aisleCode,
+         rack_code AS rackCode,
+         shelf_code AS shelfCode,
+         bin_code AS binCode,
+         level,
+         status
+       FROM locations
+       WHERE tenant_id = ? AND id = ?
+       LIMIT 1`,
+      [this.tenantId, id],
+    );
+    if (!row) {
+      throw AppError.badRequest('库位创建失败');
+    }
+
+    return {
+      id: Number(row.id),
+      warehouseId: Number(row.warehouseId),
+      code: row.code,
+      name: row.name,
+      locationType: this.normalizeLocationType(row.locationType),
+      aisleCode: row.aisleCode ?? null,
+      rackCode: row.rackCode ?? null,
+      shelfCode: row.shelfCode ?? null,
+      binCode: row.binCode ?? null,
+      level: Number(row.level),
+      status: row.status,
+    };
+  }
+
+  async updateLocation(id: number, params: UpdateLocationParams): Promise<LocationOption> {
+    const [existing] = await AppDataSource.query<Array<{
+      id: number;
+      warehouseId: number;
+      code: string;
+      name: string;
+      locationType: LocationType;
+      aisleCode: string | null;
+      rackCode: string | null;
+      shelfCode: string | null;
+      binCode: string | null;
+      level: number;
+      parentId: number | null;
+      status: MasterDataStatus;
+    }>>(
+      `SELECT
+         id,
+         warehouse_id AS warehouseId,
+         code,
+         name,
+         location_type AS locationType,
+         aisle_code AS aisleCode,
+         rack_code AS rackCode,
+         shelf_code AS shelfCode,
+         bin_code AS binCode,
+         level,
+         parent_id AS parentId,
+         status
+       FROM locations
+       WHERE tenant_id = ? AND id = ?
+       LIMIT 1`,
+      [this.tenantId, id],
+    );
+    if (!existing) {
+      throw AppError.notFound('库位不存在');
+    }
+
+    const nextWarehouseId = params.warehouseId ?? Number(existing.warehouseId);
+    const nextCode = params.code ? params.code.trim().toUpperCase() : existing.code;
+    const nextName = params.name ? params.name.trim() : existing.name;
+    const nextLocationType = params.locationType
+      ? this.normalizeLocationType(params.locationType)
+      : this.normalizeLocationType(existing.locationType);
+    const nextAisleCode = params.aisleCode !== undefined
+      ? this.normalizeLocationCoord(params.aisleCode)
+      : (existing.aisleCode ?? null);
+    const nextRackCode = params.rackCode !== undefined
+      ? this.normalizeLocationCoord(params.rackCode)
+      : (existing.rackCode ?? null);
+    const nextShelfCode = params.shelfCode !== undefined
+      ? this.normalizeLocationCoord(params.shelfCode)
+      : (existing.shelfCode ?? null);
+    const nextBinCode = params.binCode !== undefined
+      ? this.normalizeLocationCoord(params.binCode)
+      : (existing.binCode ?? null);
+    const nextLevel = params.level ?? Number(existing.level);
+    const nextParentId = params.parentId === undefined ? existing.parentId : params.parentId;
+    const nextStatus = params.status ?? existing.status;
+
+    if (existing.code === 'DEFAULT-UNKNOWN') {
+      if (nextCode !== 'DEFAULT-UNKNOWN') {
+        throw AppError.badRequest('默认库位编码不可修改');
+      }
+      if (nextStatus !== 'active') {
+        throw AppError.badRequest('默认库位状态不可修改为非启用');
+      }
+    }
+
+    const [warehouse] = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT id
+       FROM warehouses
+       WHERE tenant_id = ? AND id = ?
+       LIMIT 1`,
+      [this.tenantId, nextWarehouseId],
+    );
+    if (!warehouse) {
+      throw AppError.badRequest('仓库不存在');
+    }
+
+    if (nextParentId !== null && nextParentId !== undefined) {
+      if (Number(nextParentId) === id) {
+        throw AppError.badRequest('父级库位不能是自身');
+      }
+      const [parent] = await AppDataSource.query<Array<{ id: number }>>(
+        `SELECT id
+         FROM locations
+         WHERE tenant_id = ? AND warehouse_id = ? AND id = ?
+         LIMIT 1`,
+        [this.tenantId, nextWarehouseId, nextParentId],
+      );
+      if (!parent) {
+        throw AppError.badRequest('父级库位不存在');
+      }
+    }
+
+    if (nextCode !== existing.code || nextWarehouseId !== Number(existing.warehouseId)) {
+      const [dup] = await AppDataSource.query<Array<{ id: number }>>(
+        `SELECT id
+         FROM locations
+         WHERE tenant_id = ? AND warehouse_id = ? AND code = ? AND id <> ?
+         LIMIT 1`,
+        [this.tenantId, nextWarehouseId, nextCode, id],
+      );
+      if (dup) {
+        throw AppError.conflict(`库位编码 ${nextCode} 已存在`);
+      }
+    }
+
+    await AppDataSource.query(
+      `UPDATE locations
+       SET warehouse_id = ?, code = ?, name = ?, location_type = ?, aisle_code = ?, rack_code = ?, shelf_code = ?, bin_code = ?, level = ?, parent_id = ?, status = ?, updated_by = ?
+       WHERE tenant_id = ? AND id = ?`,
+      [
+        nextWarehouseId,
+        nextCode,
+        nextName,
+        nextLocationType,
+        nextAisleCode,
+        nextRackCode,
+        nextShelfCode,
+        nextBinCode,
+        nextLevel,
+        nextParentId ?? null,
+        nextStatus,
+        this.userId,
+        this.tenantId,
+        id,
+      ],
+    );
+
+    return {
+      id: Number(existing.id),
+      warehouseId: nextWarehouseId,
+      code: nextCode,
+      name: nextName,
+      locationType: nextLocationType,
+      aisleCode: nextAisleCode,
+      rackCode: nextRackCode,
+      shelfCode: nextShelfCode,
+      binCode: nextBinCode,
+      level: nextLevel,
+      status: nextStatus,
+    };
+  }
+
+  async deleteLocation(id: number): Promise<{ id: number }> {
+    const [existing] = await AppDataSource.query<Array<{ id: number; code: string }>>(
+      `SELECT id, code
+       FROM locations
+       WHERE tenant_id = ? AND id = ?
+       LIMIT 1`,
+      [this.tenantId, id],
+    );
+    if (!existing) {
+      throw AppError.notFound('库位不存在');
+    }
+    if (existing.code === 'DEFAULT-UNKNOWN') {
+      throw AppError.badRequest('默认库位不可删除');
+    }
+
+    const [children] = await AppDataSource.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(1) AS cnt
+       FROM locations
+       WHERE tenant_id = ? AND parent_id = ?`,
+      [this.tenantId, id],
+    );
+    if (Number(children?.cnt ?? 0) > 0) {
+      throw AppError.badRequest('该库位存在下级库位，无法删除');
+    }
+
+    const [inventoryRef] = await AppDataSource.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(1) AS cnt
+       FROM inventory
+       WHERE tenant_id = ? AND location_id = ?`,
+      [this.tenantId, id],
+    );
+    if (Number(inventoryRef?.cnt ?? 0) > 0) {
+      throw AppError.badRequest('该库位已被库存记录引用，无法删除');
+    }
+
+    const [txRef] = await AppDataSource.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(1) AS cnt
+       FROM inventory_transactions
+       WHERE tenant_id = ? AND location_id = ?`,
+      [this.tenantId, id],
+    );
+    if (Number(txRef?.cnt ?? 0) > 0) {
+      throw AppError.badRequest('该库位已被库存流水引用，无法删除');
+    }
+
+    await AppDataSource.query(
+      `DELETE FROM locations
+       WHERE tenant_id = ? AND id = ?`,
+      [this.tenantId, id],
+    );
+
+    return { id };
+  }
+
+  generateWarehouseImportTemplateCsv(): string {
+    return [
+      'code,name,type,plantCode,status',
+      'WH-MAIN,主仓库,physical,PLANT-01,active',
+      'WH-RM,原料仓,raw_material,PLANT-01,active',
+    ].join('\n');
+  }
+
+  generateLocationImportTemplateCsv(): string {
+    return [
+      'warehouseCode,code,name,locationType,aisleCode,rackCode,shelfCode,binCode,level,parentCode,status',
+      'WH-MAIN,A,主仓A区,zone,,,,,1,,active',
+      'WH-MAIN,A-01-02-03,A区1排2架3层,shelf,A,01,02,03,3,A,active',
+    ].join('\n');
+  }
+
+  async importWarehousesFromCsv(fileBuffer: Buffer): Promise<WarehouseCsvImportResult> {
+    const rows = this.parseCsvRows(fileBuffer);
+    const failures: MasterDataImportFailure[] = [];
+    const seenCode = new Set<string>();
+    const validRows: Array<{
+      rowNo: number;
+      code: string;
+      name: string;
+      type: string | null;
+      plantCode: string | null;
+      status: string;
+      raw: Record<string, string>;
+    }> = [];
+
+    rows.forEach((row, idx) => {
+      const rowNo = idx + 2;
+      const code = this.pickCsvValue(row, ['code', '仓库编码']).trim();
+      const name = this.pickCsvValue(row, ['name', '仓库名称']).trim();
+      const type = this.pickCsvValue(row, ['type', '仓库类型']).trim();
+      const plantCode = this.pickCsvValue(row, ['plantCode', '厂区编码']).trim();
+      const statusInput = this.pickCsvValue(row, ['status', '状态']).trim();
+      const status = (statusInput || 'active').toLowerCase();
+      const normalizedCode = code.toUpperCase();
+
+      if (!code) {
+        failures.push({ rowNo, reason: '仓库编码不能为空', row });
+        return;
+      }
+      if (!name) {
+        failures.push({ rowNo, reason: '仓库名称不能为空', row });
+        return;
+      }
+      if (!MASTER_DATA_STATUS.has(status)) {
+        failures.push({ rowNo, reason: `仓库状态非法: ${statusInput}`, row });
+        return;
+      }
+      if (seenCode.has(normalizedCode)) {
+        failures.push({ rowNo, reason: `仓库编码重复: ${code}`, row });
+        return;
+      }
+      seenCode.add(normalizedCode);
+      validRows.push({
+        rowNo,
+        code,
+        name,
+        type: type || null,
+        plantCode: plantCode || null,
+        status,
+        raw: row,
+      });
+    });
+
+    if (validRows.length > 0) {
+      await AppDataSource.transaction(async (manager) => {
+        for (const row of validRows) {
+          await manager.query(
+            `INSERT INTO warehouses
+               (tenant_id, code, name, type, plant_code, status, created_by, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+               name = VALUES(name),
+               type = VALUES(type),
+               plant_code = VALUES(plant_code),
+               status = VALUES(status),
+               updated_by = VALUES(updated_by)`,
+            [
+              this.tenantId,
+              row.code,
+              row.name,
+              row.type,
+              row.plantCode,
+              row.status,
+              this.userId,
+              this.userId,
+            ],
+          );
+        }
+      });
+    }
+
+    return {
+      totalRows: rows.length,
+      successCount: validRows.length,
+      failCount: failures.length,
+      failures,
+    };
+  }
+
+  async importLocationsFromCsv(fileBuffer: Buffer): Promise<LocationCsvImportResult> {
+    const rows = this.parseCsvRows(fileBuffer);
+    const failures: MasterDataImportFailure[] = [];
+    const validRows: Array<{
+      rowNo: number;
+      warehouseCode: string;
+      code: string;
+      name: string;
+      locationType: LocationType;
+      aisleCode: string | null;
+      rackCode: string | null;
+      shelfCode: string | null;
+      binCode: string | null;
+      level: number;
+      parentCode: string | null;
+      status: string;
+      raw: Record<string, string>;
+    }> = [];
+    const seenKey = new Set<string>();
+
+    rows.forEach((row, idx) => {
+      const rowNo = idx + 2;
+      const warehouseCode = this.pickCsvValue(row, ['warehouseCode', '仓库编码']).trim();
+      const code = this.pickCsvValue(row, ['code', '库位编码']).trim();
+      const name = this.pickCsvValue(row, ['name', '库位名称']).trim();
+      const locationTypeInput = this.pickCsvValue(row, ['locationType', '库位类型']).trim().toLowerCase();
+      const aisleCode = this.normalizeLocationCoord(this.pickCsvValue(row, ['aisleCode', '巷道编码']).trim());
+      const rackCode = this.normalizeLocationCoord(this.pickCsvValue(row, ['rackCode', '货架编码']).trim());
+      const shelfCode = this.normalizeLocationCoord(this.pickCsvValue(row, ['shelfCode', '层编码']).trim());
+      const binCode = this.normalizeLocationCoord(this.pickCsvValue(row, ['binCode', '格口编码']).trim());
+      const levelInput = this.pickCsvValue(row, ['level', '层级']).trim();
+      const parentCodeInput = this.pickCsvValue(row, ['parentCode', '父级库位编码']).trim();
+      const statusInput = this.pickCsvValue(row, ['status', '状态']).trim();
+      const status = (statusInput || 'active').toLowerCase();
+      const locationType = this.normalizeLocationType(locationTypeInput || 'general');
+      const level = levelInput ? Number(levelInput) : 1;
+      const key = `${warehouseCode.toUpperCase()}::${code.toUpperCase()}`;
+
+      if (!warehouseCode) {
+        failures.push({ rowNo, reason: '仓库编码不能为空', row });
+        return;
+      }
+      if (!code) {
+        failures.push({ rowNo, reason: '库位编码不能为空', row });
+        return;
+      }
+      if (!name) {
+        failures.push({ rowNo, reason: '库位名称不能为空', row });
+        return;
+      }
+      if (!Number.isInteger(level) || level <= 0) {
+        failures.push({ rowNo, reason: `层级非法: ${levelInput}`, row });
+        return;
+      }
+      if (!MASTER_DATA_STATUS.has(status)) {
+        failures.push({ rowNo, reason: `库位状态非法: ${statusInput}`, row });
+        return;
+      }
+      if (locationTypeInput && !LOCATION_TYPES.has(locationTypeInput)) {
+        failures.push({ rowNo, reason: `库位类型非法: ${locationTypeInput}`, row });
+        return;
+      }
+      if (seenKey.has(key)) {
+        failures.push({ rowNo, reason: `同仓库下库位编码重复: ${warehouseCode}/${code}`, row });
+        return;
+      }
+
+      seenKey.add(key);
+      validRows.push({
+        rowNo,
+        warehouseCode,
+        code,
+        name,
+        locationType,
+        aisleCode,
+        rackCode,
+        shelfCode,
+        binCode,
+        level,
+        parentCode: parentCodeInput || null,
+        status,
+        raw: row,
+      });
+    });
+
+    if (validRows.length === 0) {
+      return {
+        totalRows: rows.length,
+        successCount: 0,
+        failCount: failures.length,
+        failures,
+      };
+    }
+
+    const warehouseCodes = Array.from(
+      new Set(validRows.map((row) => row.warehouseCode.toUpperCase())),
+    );
+    const warehouseMap = await this.fetchWarehouseCodeMap(warehouseCodes);
+
+    const candidatesAfterWarehouse = validRows.filter((row) => {
+      const key = row.warehouseCode.toUpperCase();
+      if (warehouseMap.has(key)) return true;
+      failures.push({
+        rowNo: row.rowNo,
+        reason: `仓库不存在: ${row.warehouseCode}`,
+        row: row.raw,
+      });
+      return false;
+    });
+
+    if (candidatesAfterWarehouse.length === 0) {
+      return {
+        totalRows: rows.length,
+        successCount: 0,
+        failCount: failures.length,
+        failures,
+      };
+    }
+
+    const existingLocationIdMap = await this.fetchExistingLocationIdMap(warehouseCodes);
+    const candidateKeySet = new Set(
+      candidatesAfterWarehouse.map((row) => `${row.warehouseCode.toUpperCase()}::${row.code.toUpperCase()}`),
+    );
+    const rowsAfterParentCheck: typeof candidatesAfterWarehouse = [];
+
+    for (const row of candidatesAfterWarehouse) {
+      if (!row.parentCode) {
+        rowsAfterParentCheck.push(row);
+        continue;
+      }
+      if (row.parentCode.toUpperCase() === row.code.toUpperCase()) {
+        failures.push({
+          rowNo: row.rowNo,
+          reason: '父级库位不能指向自身',
+          row: row.raw,
+        });
+        continue;
+      }
+      const parentKey = `${row.warehouseCode.toUpperCase()}::${row.parentCode.toUpperCase()}`;
+      if (!existingLocationIdMap.has(parentKey) && !candidateKeySet.has(parentKey)) {
+        failures.push({
+          rowNo: row.rowNo,
+          reason: `父级库位不存在: ${row.warehouseCode}/${row.parentCode}`,
+          row: row.raw,
+        });
+        continue;
+      }
+      rowsAfterParentCheck.push(row);
+    }
+
+    const cycleKeys = this.detectLocationCycle(
+      rowsAfterParentCheck.map((row) => ({
+        key: `${row.warehouseCode.toUpperCase()}::${row.code.toUpperCase()}`,
+        parentKey: row.parentCode
+          ? `${row.warehouseCode.toUpperCase()}::${row.parentCode.toUpperCase()}`
+          : null,
+      })),
+      candidateKeySet,
+    );
+
+    const rowsToPersist = rowsAfterParentCheck.filter((row) => {
+      const key = `${row.warehouseCode.toUpperCase()}::${row.code.toUpperCase()}`;
+      if (!cycleKeys.has(key)) return true;
+      failures.push({
+        rowNo: row.rowNo,
+        reason: '库位父子层级存在循环引用',
+        row: row.raw,
+      });
+      return false;
+    });
+
+    if (rowsToPersist.length === 0) {
+      return {
+        totalRows: rows.length,
+        successCount: 0,
+        failCount: failures.length,
+        failures,
+      };
+    }
+
+    const locationIdMap = new Map(existingLocationIdMap);
+    const pending = new Map(
+      rowsToPersist.map((row) => [`${row.warehouseCode.toUpperCase()}::${row.code.toUpperCase()}`, row] as const),
+    );
+    let persistedCount = 0;
+
+    await AppDataSource.transaction(async (manager) => {
+      while (pending.size > 0) {
+        let progressed = false;
+
+        for (const [key, row] of Array.from(pending.entries())) {
+          const warehouseId = warehouseMap.get(row.warehouseCode.toUpperCase());
+          if (!warehouseId) {
+            failures.push({ rowNo: row.rowNo, reason: `仓库不存在: ${row.warehouseCode}`, row: row.raw });
+            pending.delete(key);
+            continue;
+          }
+
+          let parentId: number | null = null;
+          if (row.parentCode) {
+            const parentKey = `${row.warehouseCode.toUpperCase()}::${row.parentCode.toUpperCase()}`;
+            if (!locationIdMap.has(parentKey)) continue;
+            parentId = locationIdMap.get(parentKey) ?? null;
+          }
+
+          const upsertResult = await manager.query(
+            `INSERT INTO locations
+               (tenant_id, warehouse_id, code, name, location_type, aisle_code, rack_code, shelf_code, bin_code, level, parent_id, status, created_by, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+               name = VALUES(name),
+               location_type = VALUES(location_type),
+               aisle_code = VALUES(aisle_code),
+               rack_code = VALUES(rack_code),
+               shelf_code = VALUES(shelf_code),
+               bin_code = VALUES(bin_code),
+               level = VALUES(level),
+               parent_id = VALUES(parent_id),
+               status = VALUES(status),
+               updated_by = VALUES(updated_by),
+               id = LAST_INSERT_ID(id)`,
+            [
+              this.tenantId,
+              warehouseId,
+              row.code,
+              row.name,
+              row.locationType,
+              row.aisleCode,
+              row.rackCode,
+              row.shelfCode,
+              row.binCode,
+              row.level,
+              parentId,
+              row.status,
+              this.userId,
+              this.userId,
+            ],
+          );
+
+          const upsertMeta = Array.isArray(upsertResult) ? upsertResult[0] : upsertResult;
+          const locationId = Number((upsertMeta as { insertId?: number })?.insertId ?? 0);
+          if (locationId > 0) {
+            locationIdMap.set(key, locationId);
+          }
+          pending.delete(key);
+          persistedCount += 1;
+          progressed = true;
+        }
+
+        if (!progressed) {
+          for (const [key, row] of pending.entries()) {
+            failures.push({
+              rowNo: row.rowNo,
+              reason: `无法解析父级层级关系: ${key}`,
+              row: row.raw,
+            });
+          }
+          break;
+        }
+      }
+    });
+
+    const effectiveSuccessCount = persistedCount;
+    return {
+      totalRows: rows.length,
+      successCount: effectiveSuccessCount,
+      failCount: failures.length,
+      failures,
+    };
+  }
+
+  private parseCsvRows(fileBuffer: Buffer): Array<Record<string, string>> {
+    let records: Array<Record<string, unknown>>;
+    try {
+      records = parseCsv(fileBuffer, {
+        bom: true,
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      }) as Array<Record<string, unknown>>;
+    } catch (err) {
+      throw AppError.badRequest(`CSV 解析失败: ${(err as Error).message}`);
+    }
+    if (!records.length) {
+      throw AppError.badRequest('CSV 内容为空');
+    }
+    return records.map((record) => {
+      const normalized: Record<string, string> = {};
+      Object.entries(record).forEach(([rawKey, rawValue]) => {
+        const key = (rawKey ?? '').trim();
+        if (!key) return;
+        normalized[key] = rawValue == null ? '' : String(rawValue).trim();
+      });
+      return normalized;
+    });
+  }
+
+  private pickCsvValue(row: Record<string, string>, aliases: string[]): string {
+    for (const alias of aliases) {
+      if (Object.prototype.hasOwnProperty.call(row, alias)) {
+        return row[alias] ?? '';
+      }
+    }
+    return '';
+  }
+
+  private async fetchWarehouseCodeMap(codesUpper: string[]): Promise<Map<string, number>> {
+    if (!codesUpper.length) return new Map();
+    const placeholders = codesUpper.map(() => '?').join(', ');
+    const rows = await AppDataSource.query<Array<{ id: number; code: string }>>(
+      `SELECT id, code
+       FROM warehouses
+       WHERE tenant_id = ?
+         AND UPPER(code) IN (${placeholders})`,
+      [this.tenantId, ...codesUpper],
+    );
+    return new Map(rows.map((row) => [String(row.code).toUpperCase(), Number(row.id)]));
+  }
+
+  private async fetchExistingLocationIdMap(codesUpper: string[]): Promise<Map<string, number>> {
+    if (!codesUpper.length) return new Map();
+    const placeholders = codesUpper.map(() => '?').join(', ');
+    const rows = await AppDataSource.query<Array<{
+      id: number;
+      warehouseCode: string;
+      locationCode: string;
+    }>>(
+      `SELECT
+         l.id,
+         w.code AS warehouseCode,
+         l.code AS locationCode
+       FROM locations l
+       INNER JOIN warehouses w
+         ON w.id = l.warehouse_id
+        AND w.tenant_id = l.tenant_id
+       WHERE l.tenant_id = ?
+         AND UPPER(w.code) IN (${placeholders})`,
+      [this.tenantId, ...codesUpper],
+    );
+
+    return new Map(
+      rows.map((row) => [
+        `${String(row.warehouseCode).toUpperCase()}::${String(row.locationCode).toUpperCase()}`,
+        Number(row.id),
+      ]),
+    );
+  }
+
+  private detectLocationCycle(
+    edges: Array<{ key: string; parentKey: string | null }>,
+    candidateKeySet: Set<string>,
+  ): Set<string> {
+    const cycleKeys = new Set<string>();
+    const parentMap = new Map<string, string | null>();
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+
+    edges.forEach((edge) => {
+      parentMap.set(edge.key, edge.parentKey && candidateKeySet.has(edge.parentKey) ? edge.parentKey : null);
+    });
+
+    const dfs = (key: string, stack: string[]): void => {
+      if (visited.has(key) || cycleKeys.has(key)) return;
+      if (visiting.has(key)) {
+        const index = stack.indexOf(key);
+        const loop = index >= 0 ? stack.slice(index) : [key];
+        loop.forEach((node) => cycleKeys.add(node));
+        return;
+      }
+
+      visiting.add(key);
+      stack.push(key);
+      const parentKey = parentMap.get(key);
+      if (parentKey) dfs(parentKey, stack);
+      stack.pop();
+      visiting.delete(key);
+      visited.add(key);
+    };
+
+    Array.from(parentMap.keys()).forEach((key) => dfs(key, []));
+    return cycleKeys;
+  }
+
   // ── 库存总览（支持分类、关键字筛选） ─────────────────────
 
   async listInventory(params: {
     category1Id?: number;
     category2Id?: number;
+    warehouseId?: number;
+    locationId?: number;
+    onlyDefaultLocation?: boolean;
     keyword?: string;
     belowSafety?: boolean;
     page: number;
@@ -194,6 +1380,17 @@ export class InventoryService {
       conditions.push('(s.name LIKE ? OR s.sku_code LIKE ?)');
       qParams.push(`%${params.keyword}%`, `%${params.keyword}%`);
     }
+    if (params.warehouseId) {
+      conditions.push('inv.warehouse_id = ?');
+      qParams.push(params.warehouseId);
+    }
+    if (params.locationId) {
+      conditions.push('inv.location_id = ?');
+      qParams.push(params.locationId);
+    }
+    if (params.onlyDefaultLocation) {
+      conditions.push("(w.code = 'DEFAULT' AND l.code = 'DEFAULT-UNKNOWN')");
+    }
     if (params.belowSafety) {
       conditions.push('(inv.qty_on_hand - inv.qty_reserved) < s.safety_stock');
     }
@@ -204,12 +1401,22 @@ export class InventoryService {
     const [rows, countRows] = await Promise.all([
       AppDataSource.query<any[]>(
         `SELECT s.id AS skuId, s.sku_code AS skuCode, s.name AS skuName,
-                s.stock_unit AS stockUnit, s.safety_stock AS safetyStock, s.has_dye_lot AS hasDyeLot,
+                s.stock_unit AS stockUnit, s.purchase_unit AS purchaseUnit,
+                s.stock_conv_factor AS stockConvFactor,
+                s.safety_stock AS safetyStock, s.has_dye_lot AS hasDyeLot,
                 COALESCE(inv.qty_on_hand, 0) AS qtyOnHand,
                 COALESCE(inv.qty_reserved, 0) AS qtyReserved,
-                COALESCE(inv.qty_in_transit, 0) AS qtyInTransit
+                COALESCE(inv.qty_in_transit, 0) AS qtyInTransit,
+                inv.warehouse_id AS warehouseId,
+                w.code AS warehouseCode,
+                w.name AS warehouseName,
+                inv.location_id AS locationId,
+                l.code AS locationCode,
+                l.name AS locationName
          FROM skus s
          LEFT JOIN inventory inv ON inv.sku_id = s.id AND inv.tenant_id = s.tenant_id
+         LEFT JOIN warehouses w ON w.id = inv.warehouse_id AND w.tenant_id = inv.tenant_id
+         LEFT JOIN locations l ON l.id = inv.location_id AND l.tenant_id = inv.tenant_id
          WHERE ${where}
          ORDER BY
            (COALESCE(inv.qty_on_hand, 0) + COALESCE(inv.qty_reserved, 0) + COALESCE(inv.qty_in_transit, 0)) DESC,
@@ -220,6 +1427,8 @@ export class InventoryService {
       AppDataSource.query<Array<{ total: number }>>(
         `SELECT COUNT(*) AS total FROM skus s
          LEFT JOIN inventory inv ON inv.sku_id = s.id AND inv.tenant_id = s.tenant_id
+         LEFT JOIN warehouses w ON w.id = inv.warehouse_id AND w.tenant_id = inv.tenant_id
+         LEFT JOIN locations l ON l.id = inv.location_id AND l.tenant_id = inv.tenant_id
          WHERE ${where}`,
         qParams,
       ),
@@ -230,6 +1439,9 @@ export class InventoryService {
       qtyAvailable: new Decimal(r.qtyOnHand).minus(r.qtyReserved).toFixed(4),
       isBelowSafety: new Decimal(r.qtyOnHand).minus(r.qtyReserved).lt(new Decimal(r.safetyStock)),
       hasDyeLot: Boolean(r.hasDyeLot),
+      warehouseId: r.warehouseId ? Number(r.warehouseId) : null,
+      locationId: r.locationId ? Number(r.locationId) : null,
+      isDefaultLocation: r.warehouseCode === 'DEFAULT' && r.locationCode === 'DEFAULT-UNKNOWN',
     }));
 
     return { list, total: Number(countRows[0]?.total ?? 0) };
@@ -301,6 +1513,8 @@ export class InventoryService {
       pageSize: number;
       dateFrom?: string;
       dateTo?: string;
+      warehouseId?: number;
+      locationId?: number;
       keyword?: string;
     },
   ): Promise<{
@@ -318,6 +1532,12 @@ export class InventoryService {
       referenceType: string | null;
       referenceId: number | null;
       referenceNo: string | null;
+      warehouseId: number | null;
+      warehouseCode: string | null;
+      warehouseName: string | null;
+      locationId: number | null;
+      locationCode: string | null;
+      locationName: string | null;
       taskId: number | null;
       workOrderNo: string | null;
       processStepName: string | null;
@@ -354,6 +1574,14 @@ export class InventoryService {
       conditions.push('DATE(it.created_at) <= ?');
       queryParams.push(params.dateTo);
     }
+    if (params.warehouseId) {
+      conditions.push('it.warehouse_id = ?');
+      queryParams.push(params.warehouseId);
+    }
+    if (params.locationId) {
+      conditions.push('it.location_id = ?');
+      queryParams.push(params.locationId);
+    }
     if (params.keyword) {
       conditions.push(`(
         it.transaction_no LIKE ?
@@ -383,6 +1611,12 @@ export class InventoryService {
         it.reference_type AS referenceType,
         it.reference_id AS referenceId,
         it.reference_no AS referenceNo,
+        it.warehouse_id AS warehouseId,
+        w.code AS warehouseCode,
+        w.name AS warehouseName,
+        it.location_id AS locationId,
+        l.code AS locationCode,
+        l.name AS locationName,
         pt.id AS taskId,
         po.work_order_no AS workOrderNo,
         ps.step_name AS processStepName,
@@ -402,6 +1636,12 @@ export class InventoryService {
         ON ps.id = pt.process_step_id
       LEFT JOIN users u
         ON u.id = pt.worker_id
+      LEFT JOIN warehouses w
+        ON w.id = it.warehouse_id
+       AND w.tenant_id = it.tenant_id
+      LEFT JOIN locations l
+        ON l.id = it.location_id
+       AND l.tenant_id = it.tenant_id
       WHERE ${where}
       ORDER BY it.created_at DESC, it.id DESC
       LIMIT ? OFFSET ?
@@ -419,6 +1659,12 @@ export class InventoryService {
       LEFT JOIN production_orders po
         ON po.id = COALESCE(pt.production_order_id, it.production_order_id)
        AND po.tenant_id = it.tenant_id
+      LEFT JOIN warehouses w
+        ON w.id = it.warehouse_id
+       AND w.tenant_id = it.tenant_id
+      LEFT JOIN locations l
+        ON l.id = it.location_id
+       AND l.tenant_id = it.tenant_id
       WHERE ${where}
     `;
 
@@ -479,12 +1725,14 @@ export class InventoryService {
     }
 
     const [row] = await AppDataSource.query<any[]>(
-      `SELECT COALESCE(inv.qty_on_hand, 0) AS qtyOnHand,
-              COALESCE(inv.qty_reserved, 0) AS qtyReserved,
+      `SELECT COALESCE(SUM(inv.qty_on_hand), 0) AS qtyOnHand,
+              COALESCE(SUM(inv.qty_reserved), 0) AS qtyReserved,
               s.stock_unit AS stockUnit
        FROM skus s
        LEFT JOIN inventory inv ON inv.sku_id = s.id AND inv.tenant_id = s.tenant_id
-       WHERE s.id = ? AND s.tenant_id = ? LIMIT 1`,
+       WHERE s.id = ? AND s.tenant_id = ?
+       GROUP BY s.stock_unit
+       LIMIT 1`,
       [skuId, this.tenantId],
     );
     if (!row) throw AppError.notFound('SKU不存在');
@@ -724,6 +1972,9 @@ export class InventoryService {
 
     const items: InventoryReconcileItem[] = [];
     const updatedSkuIds: number[] = [];
+    const defaultWarehouseLocation = params.dryRun
+      ? null
+      : await this.ensureDefaultWarehouseLocation(manager);
 
     for (const skuId of skuIds) {
       const inventoryRow = inventoryMap.get(skuId);
@@ -767,18 +2018,25 @@ export class InventoryService {
       if (!params.dryRun) {
         await manager.query(
           `INSERT INTO inventory
-             (tenant_id, sku_id, qty_on_hand, qty_reserved, qty_in_transit, last_in_at)
-           VALUES (?, ?, ?, ?, ?, NOW())
+             (tenant_id, sku_id, warehouse_id, location_id, source_ref,
+              qty_on_hand, qty_reserved, qty_in_transit, last_in_at, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
            ON DUPLICATE KEY UPDATE
              qty_on_hand = VALUES(qty_on_hand),
              qty_reserved = VALUES(qty_reserved),
-             qty_in_transit = VALUES(qty_in_transit)`,
+             qty_in_transit = VALUES(qty_in_transit),
+             source_ref = COALESCE(source_ref, VALUES(source_ref)),
+             updated_by = VALUES(updated_by)`,
           [
             this.tenantId,
             skuId,
+            defaultWarehouseLocation?.warehouseId ?? null,
+            defaultWarehouseLocation?.locationId ?? null,
+            'reconcile:auto',
             expectedQtyOnHand.toFixed(4),
             (expectedQtyReserved ?? currentQtyReserved).toFixed(4),
             (expectedQtyInTransit ?? currentQtyInTransit).toFixed(4),
+            this.userId,
           ],
         );
 
@@ -874,8 +2132,15 @@ export class InventoryService {
 
   // ── 采购入库 ──────────────────────────────────────────────
 
-  async inbound(params: InboundParams): Promise<{ transactionNo: string; newQtyOnHand: string }> {
-    const sku = await this.getSkuInfo(params.skuId);
+  async inbound(params: InboundParams): Promise<{
+    transactionNo: string;
+    newQtyOnHand: string;
+    warehouseId: number;
+    locationId: number;
+    warningCode?: string;
+  }> {
+    const skuId = await this.resolveInboundSkuId(params);
+    const sku = await this.getSkuInfo(skuId);
     let trackedInventoryManager: InventoryTrackedQueryRunner | null = null;
 
     // 1. 校验面料缸号必填
@@ -884,7 +2149,7 @@ export class InventoryService {
     }
 
     // 2. 单位换算到库存单位
-    const conversions = await this.getUnitConversions(params.skuId);
+    const conversions = await this.getUnitConversions(skuId);
     const converted = UnitConverter.convert(
       params.qtyInput, params.inputUnit, conversions, sku.stockUnit,
     );
@@ -893,7 +2158,7 @@ export class InventoryService {
     //    - Redis 可用且锁空闲：正常加锁，事务内再加 DB 行锁（双重保障）
     //    - Redis 可用但锁已被占用：说明同一 SKU 正在操作，拒绝并发请求
     //    - Redis 不可用（抛出异常）：降级到纯 DB 行锁，保证高可用
-    const lockKey = RedisKeys.inventoryLock(this.tenantId, params.skuId);
+    const lockKey = RedisKeys.inventoryLock(this.tenantId, skuId);
     let lockVal: string | null = null;
     let redisLockAcquired = false;
 
@@ -910,17 +2175,38 @@ export class InventoryService {
       console.warn('[InventoryService] Redis 分布式锁不可用，降级到 DB 行锁（入库）:', (err as Error).message);
     }
 
-    let result: { transactionNo: string; newQtyOnHand: string };
+    let result: {
+      transactionNo: string;
+      newQtyOnHand: string;
+      warehouseId: number;
+      locationId: number;
+      warningCode?: string;
+    };
     try {
       result = await AppDataSource.transaction(async (manager) => {
         trackedInventoryManager = manager as InventoryTrackedQueryRunner;
+        const resolvedSourceRef = params.referenceType ?? 'api:inventory:inbound';
+        const warehouseLocation = await this.resolveWarehouseLocation(
+          manager,
+          params,
+          resolvedSourceRef,
+        );
         // 4. DB 行锁（入库时锁定 inventory 行）
         //    - Redis 锁可用时：提供跨进程互斥的第一层防护
         //    - Redis 降级时：DB 行锁作为唯一并发控制手段
         //    入库使用 SELECT ... FOR UPDATE 防止并发写冲突
         await manager.query(
-          `SELECT id FROM inventory WHERE tenant_id = ? AND sku_id = ? LIMIT 1 FOR UPDATE`,
-          [this.tenantId, params.skuId],
+          `SELECT id
+           FROM inventory
+           WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?
+           LIMIT 1
+           FOR UPDATE`,
+          [
+            this.tenantId,
+            skuId,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+          ],
         );
         // 注意：若 inventory 行尚不存在（首次入库），INSERT ... ON DUPLICATE KEY UPDATE
         // 本身具有行级 gap lock，可安全处理并发首次入库
@@ -931,29 +2217,44 @@ export class InventoryService {
         await manager.query(
           `INSERT INTO inventory_transactions
              (tenant_id, transaction_no, sku_id, transaction_type, direction,
+              warehouse_id, location_id, source_ref,
               qty_input, input_unit, qty_stock_unit, stock_unit, dye_lot_no,
-              reference_type, reference_id, reference_no, batch_cost, notes, created_by)
-           VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?,?)`,
+              reference_type, reference_id, reference_no, batch_cost, notes, created_by, updated_by)
+           VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?,?,?,?,?)`,
           [
-            this.tenantId, txNo, params.skuId, params.transactionType, 'IN',
+            this.tenantId, txNo, skuId, params.transactionType, 'IN',
+            warehouseLocation.warehouseId, warehouseLocation.locationId, resolvedSourceRef,
             params.qtyInput, params.inputUnit, converted.qty.toFixed(4), sku.stockUnit, params.dyeLotNo ?? null,
             params.referenceType ?? null, params.referenceId ?? null, params.referenceNo ?? null,
-            params.batchCost ?? null, params.notes ?? null, this.userId,
+            params.batchCost ?? null, params.notes ?? null, this.userId, this.userId,
           ],
         );
 
         // 6. 更新库存快照（UPSERT）
         await manager.query(
-          `INSERT INTO inventory (tenant_id, sku_id, qty_on_hand, qty_reserved, qty_in_transit, last_in_at)
-           VALUES (?, ?, ?, 0, 0, NOW())
+          `INSERT INTO inventory
+             (tenant_id, sku_id, warehouse_id, location_id, source_ref, qty_on_hand, qty_reserved, qty_in_transit, last_in_at, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(), ?)
            ON DUPLICATE KEY UPDATE
              qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
-             last_in_at  = NOW()`,
-          [this.tenantId, params.skuId, converted.qty.toFixed(4)],
+             warehouse_id = VALUES(warehouse_id),
+             location_id = VALUES(location_id),
+             source_ref = VALUES(source_ref),
+             last_in_at  = NOW(),
+             updated_by = VALUES(updated_by)`,
+          [
+            this.tenantId,
+            skuId,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+            resolvedSourceRef,
+            converted.qty.toFixed(4),
+            this.userId,
+          ],
         );
 
-        await this.syncDailySnapshot(manager, params.skuId);
-        this.trackInventorySnapshotCacheInvalidation(manager, [params.skuId]);
+        await this.syncDailySnapshot(manager, skuId);
+        this.trackInventorySnapshotCacheInvalidation(manager, [skuId]);
 
         // 7. 更新缸号批次库存（面料类）
         if (params.dyeLotNo) {
@@ -964,17 +2265,31 @@ export class InventoryService {
              ON DUPLICATE KEY UPDATE
                qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
                last_in_at  = NOW()`,
-            [this.tenantId, params.skuId, params.dyeLotNo, converted.qty.toFixed(4)],
+            [this.tenantId, skuId, params.dyeLotNo, converted.qty.toFixed(4)],
           );
         }
 
         // 8. 查询更新后的库存数量
         const [updated] = await manager.query<Array<{ qty: string }>>(
-          'SELECT qty_on_hand AS qty FROM inventory WHERE tenant_id = ? AND sku_id = ? LIMIT 1',
-          [this.tenantId, params.skuId],
+          `SELECT qty_on_hand AS qty
+           FROM inventory
+           WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?
+           LIMIT 1`,
+          [
+            this.tenantId,
+            skuId,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+          ],
         );
 
-        return { transactionNo: txNo, newQtyOnHand: updated?.qty ?? converted.qty.toFixed(4) };
+        return {
+          transactionNo: txNo,
+          newQtyOnHand: updated?.qty ?? converted.qty.toFixed(4),
+          warehouseId: warehouseLocation.warehouseId,
+          locationId: warehouseLocation.locationId,
+          warningCode: warehouseLocation.warningCode ?? undefined,
+        };
       });
     } finally {
       // 释放 Redis 锁（失败只打警告，不影响结果）
@@ -986,13 +2301,19 @@ export class InventoryService {
     await this.invalidateInventorySnapshotCaches(
       this.consumeTrackedInventorySnapshotSkuIds(trackedInventoryManager),
     );
-    this.checkSafetyStockAlert(params.skuId, sku).catch(console.error);
+    this.checkSafetyStockAlert(skuId, sku).catch(console.error);
     return result;
   }
 
   // ── 出库 ──────────────────────────────────────────────────
 
-  async outbound(params: OutboundParams): Promise<{ transactionNo: string; newQtyOnHand: string }> {
+  async outbound(params: OutboundParams): Promise<{
+    transactionNo: string;
+    newQtyOnHand: string;
+    warehouseId: number;
+    locationId: number;
+    warningCode?: string;
+  }> {
     const sku = await this.getSkuInfo(params.skuId);
     let trackedInventoryManager: InventoryTrackedQueryRunner | null = null;
 
@@ -1071,15 +2392,36 @@ export class InventoryService {
       console.warn('[InventoryService] Redis 分布式锁不可用，降级到 DB 行锁（出库）:', (err as Error).message);
     }
 
-    let result: { transactionNo: string; newQtyOnHand: string };
+    let result: {
+      transactionNo: string;
+      newQtyOnHand: string;
+      warehouseId: number;
+      locationId: number;
+      warningCode?: string;
+    };
     try {
       result = await AppDataSource.transaction(async (manager) => {
         trackedInventoryManager = manager as InventoryTrackedQueryRunner;
+        const resolvedSourceRef = params.referenceType ?? 'api:inventory:outbound';
+        const warehouseLocation = await this.resolveWarehouseLocation(
+          manager,
+          params,
+          resolvedSourceRef,
+        );
         // 5. 检查库存充足性，使用 SELECT ... FOR UPDATE 行锁防止超卖
         //    这是防超卖的最终安全线，无论 Redis 锁是否可用均必须执行
         const [inv] = await manager.query<Array<{ qty_on_hand: string; qty_reserved: string }>>(
-          'SELECT qty_on_hand, qty_reserved FROM inventory WHERE tenant_id = ? AND sku_id = ? LIMIT 1 FOR UPDATE',
-          [this.tenantId, params.skuId],
+          `SELECT qty_on_hand, qty_reserved
+           FROM inventory
+           WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?
+           LIMIT 1
+           FOR UPDATE`,
+          [
+            this.tenantId,
+            params.skuId,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+          ],
         );
         if (!inv) throw new AppError('库存记录不存在', ResponseCode.INVENTORY_INSUFFICIENT);
 
@@ -1122,32 +2464,51 @@ export class InventoryService {
         await manager.query(
           `INSERT INTO inventory_transactions
              (tenant_id, transaction_no, sku_id, transaction_type, direction,
+              warehouse_id, location_id, source_ref,
               qty_input, input_unit, qty_stock_unit, stock_unit, dye_lot_no,
               production_order_id, reference_type, reference_id, reference_no,
-              is_cross_dye_lot, notes, created_by)
-           VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?,?,?)`,
+              is_cross_dye_lot, notes, created_by, updated_by)
+           VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?,?,?,?,?,?)`,
           [
             this.tenantId, txNo, params.skuId, params.transactionType, 'OUT',
+            warehouseLocation.warehouseId, warehouseLocation.locationId, resolvedSourceRef,
             params.qtyInput, params.inputUnit, converted.qty.toFixed(4), sku.stockUnit,
             params.dyeLotNo ?? null,
             params.productionOrderId ?? null,
             params.referenceType ?? null, params.referenceId ?? null, params.referenceNo ?? null,
-            isCrossDyeLot ? 1 : 0, params.notes ?? null, this.userId,
+            isCrossDyeLot ? 1 : 0, params.notes ?? null, this.userId, this.userId,
           ],
         );
 
         // 8. 扣减库存快照
         await manager.query(
-          'UPDATE inventory SET qty_on_hand = qty_on_hand - ?, last_out_at = NOW() WHERE tenant_id = ? AND sku_id = ?',
-          [converted.qty.toFixed(4), this.tenantId, params.skuId],
+          `UPDATE inventory
+           SET qty_on_hand = qty_on_hand - ?, last_out_at = NOW(), updated_by = ?
+           WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?`,
+          [
+            converted.qty.toFixed(4),
+            this.userId,
+            this.tenantId,
+            params.skuId,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+          ],
         );
 
         await this.syncDailySnapshot(manager, params.skuId);
         this.trackInventorySnapshotCacheInvalidation(manager, [params.skuId]);
 
         const [updated] = await manager.query<Array<{ qty: string }>>(
-          'SELECT qty_on_hand AS qty FROM inventory WHERE tenant_id = ? AND sku_id = ? LIMIT 1',
-          [this.tenantId, params.skuId],
+          `SELECT qty_on_hand AS qty
+           FROM inventory
+           WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?
+           LIMIT 1`,
+          [
+            this.tenantId,
+            params.skuId,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+          ],
         );
 
         // 9. 若首次领料绑定缸号（生产订单）
@@ -1160,7 +2521,13 @@ export class InventoryService {
           );
         }
 
-        return { transactionNo: txNo, newQtyOnHand: updated?.qty ?? '0' };
+        return {
+          transactionNo: txNo,
+          newQtyOnHand: updated?.qty ?? '0',
+          warehouseId: warehouseLocation.warehouseId,
+          locationId: warehouseLocation.locationId,
+          warningCode: warehouseLocation.warningCode ?? undefined,
+        };
       });
     } finally {
       if (redisLockAcquired && lockVal) {
@@ -1212,6 +2579,30 @@ export class InventoryService {
     );
     if (!sku) throw AppError.notFound('SKU不存在');
     return { ...sku, hasDyeLot: Boolean(sku.hasDyeLot) };
+  }
+
+  private async resolveInboundSkuId(params: InboundParams): Promise<number> {
+    if (params.skuId && Number(params.skuId) > 0) {
+      return Number(params.skuId);
+    }
+
+    const skuCode = String(params.skuCode ?? '').trim();
+    if (!skuCode) {
+      throw AppError.badRequest('skuId 或 skuCode 至少传一个');
+    }
+
+    const [row] = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT id
+       FROM skus
+       WHERE tenant_id = ? AND sku_code = ?
+       LIMIT 1`,
+      [this.tenantId, skuCode],
+    );
+
+    if (!row?.id) {
+      throw AppError.notFound(`SKU编码不存在: ${skuCode}`);
+    }
+    return Number(row.id);
   }
 
   /**
@@ -1320,10 +2711,18 @@ export class InventoryService {
    */
   async recordWaste(params: {
     skuId: number;
+    warehouseId?: number;
+    locationId?: number;
     qty: string;
     reason: string;
     notes?: string;
-  }): Promise<{ transactionNo: string; newQtyOnHand: string }> {
+  }): Promise<{
+    transactionNo: string;
+    newQtyOnHand: string;
+    warehouseId: number;
+    locationId: number;
+    warningCode?: string;
+  }> {
     const sku = await this.getSkuInfo(params.skuId);
     let trackedInventoryManager: InventoryTrackedQueryRunner | null = null;
 
@@ -1345,14 +2744,35 @@ export class InventoryService {
 
     const wasteQty = new Decimal(params.qty);
 
-    let result: { transactionNo: string; newQtyOnHand: string };
+    let result: {
+      transactionNo: string;
+      newQtyOnHand: string;
+      warehouseId: number;
+      locationId: number;
+      warningCode?: string;
+    };
     try {
       result = await AppDataSource.transaction(async (manager) => {
         trackedInventoryManager = manager as InventoryTrackedQueryRunner;
+        const resolvedSourceRef = 'api:inventory:waste';
+        const warehouseLocation = await this.resolveWarehouseLocation(
+          manager,
+          params,
+          resolvedSourceRef,
+        );
         // DB 行锁：防止并发超扣
         const [inv] = await manager.query<Array<{ qty_on_hand: string; qty_reserved: string }>>(
-          'SELECT qty_on_hand, qty_reserved FROM inventory WHERE tenant_id = ? AND sku_id = ? LIMIT 1 FOR UPDATE',
-          [this.tenantId, params.skuId],
+          `SELECT qty_on_hand, qty_reserved
+           FROM inventory
+           WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?
+           LIMIT 1
+           FOR UPDATE`,
+          [
+            this.tenantId,
+            params.skuId,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+          ],
         );
         if (!inv) throw new AppError('库存记录不存在', ResponseCode.INVENTORY_INSUFFICIENT);
 
@@ -1370,33 +2790,57 @@ export class InventoryService {
         await manager.query(
           `INSERT INTO inventory_transactions
              (tenant_id, transaction_no, sku_id, transaction_type, direction,
+              warehouse_id, location_id, source_ref,
               qty_input, input_unit, qty_stock_unit, stock_unit,
-              notes, created_by)
-           VALUES (?,?,?,'waste_out','OUT', ?,?,?,?, ?,?)`,
+              notes, created_by, updated_by)
+           VALUES (?,?,?,'waste_out','OUT', ?,?,?, ?,?,?,?, ?)`,
           [
             this.tenantId, txNo, params.skuId,
+            warehouseLocation.warehouseId, warehouseLocation.locationId, resolvedSourceRef,
             params.qty, sku.stockUnit, wasteQty.toFixed(4), sku.stockUnit,
             params.notes ? `[${params.reason}] ${params.notes}` : params.reason,
-            this.userId,
+            this.userId, this.userId,
           ],
         );
 
         // 扣减库存快照
         await manager.query(
-          `UPDATE inventory SET qty_on_hand = qty_on_hand - ?, last_out_at = NOW()
-           WHERE tenant_id = ? AND sku_id = ?`,
-          [wasteQty.toFixed(4), this.tenantId, params.skuId],
+          `UPDATE inventory
+           SET qty_on_hand = qty_on_hand - ?, last_out_at = NOW(), updated_by = ?
+           WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?`,
+          [
+            wasteQty.toFixed(4),
+            this.userId,
+            this.tenantId,
+            params.skuId,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+          ],
         );
 
         await this.syncDailySnapshot(manager, params.skuId);
         this.trackInventorySnapshotCacheInvalidation(manager, [params.skuId]);
 
         const [updated] = await manager.query<Array<{ qty: string }>>(
-          'SELECT qty_on_hand AS qty FROM inventory WHERE tenant_id = ? AND sku_id = ? LIMIT 1',
-          [this.tenantId, params.skuId],
+          `SELECT qty_on_hand AS qty
+           FROM inventory
+           WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?
+           LIMIT 1`,
+          [
+            this.tenantId,
+            params.skuId,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+          ],
         );
 
-        return { transactionNo: txNo, newQtyOnHand: updated?.qty ?? '0' };
+        return {
+          transactionNo: txNo,
+          newQtyOnHand: updated?.qty ?? '0',
+          warehouseId: warehouseLocation.warehouseId,
+          locationId: warehouseLocation.locationId,
+          warningCode: warehouseLocation.warningCode ?? undefined,
+        };
       });
     } finally {
       if (redisLockAcquired && lockVal) {

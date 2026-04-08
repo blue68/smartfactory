@@ -303,6 +303,9 @@ export class MrpService {
   async getGlobalShortageSummary(filter?: {
     status?: string;
     skuId?: number;
+    warehouseId?: number;
+    locationId?: number;
+    onlyDefaultLocation?: boolean;
     page: number;
     pageSize: number;
   }): Promise<{ list: GlobalShortageItem[]; total: number }> {
@@ -320,6 +323,41 @@ export class MrpService {
     if (filter?.skuId) {
       conds.push('mr.sku_id = ?');
       params.push(filter.skuId);
+    }
+    if (filter?.warehouseId || filter?.locationId || filter?.onlyDefaultLocation) {
+      const inventoryConds: string[] = [
+        'inv.tenant_id = mr.tenant_id',
+        'inv.sku_id = mr.sku_id',
+      ];
+      const inventoryParams: unknown[] = [];
+
+      if (filter?.warehouseId) {
+        inventoryConds.push('inv.warehouse_id = ?');
+        inventoryParams.push(filter.warehouseId);
+      }
+      if (filter?.locationId) {
+        inventoryConds.push('inv.location_id = ?');
+        inventoryParams.push(filter.locationId);
+      }
+      if (filter?.onlyDefaultLocation) {
+        inventoryConds.push(
+          `EXISTS (
+             SELECT 1
+             FROM warehouses w
+             INNER JOIN locations l
+               ON l.id = inv.location_id
+              AND l.tenant_id = inv.tenant_id
+              AND l.warehouse_id = inv.warehouse_id
+             WHERE w.id = inv.warehouse_id
+               AND w.tenant_id = inv.tenant_id
+               AND w.code = 'DEFAULT'
+               AND l.code = 'DEFAULT-UNKNOWN'
+           )`,
+        );
+      }
+
+      conds.push(`EXISTS (SELECT 1 FROM inventory inv WHERE ${inventoryConds.join(' AND ')})`);
+      params.push(...inventoryParams);
     }
 
     const where = conds.join(' AND ');
@@ -364,14 +402,42 @@ export class MrpService {
     // 查询每个SKU的可用库存和在途量（合并计算）
     const list: GlobalShortageItem[] = await Promise.all(
       aggregateRows.map(async (row) => {
+        const inventoryConds: string[] = ['inv.tenant_id = ?', 'inv.sku_id = ?'];
+        const inventoryParams: unknown[] = [this.tenantId, row.sku_id];
+
+        if (filter?.warehouseId) {
+          inventoryConds.push('inv.warehouse_id = ?');
+          inventoryParams.push(filter.warehouseId);
+        }
+        if (filter?.locationId) {
+          inventoryConds.push('inv.location_id = ?');
+          inventoryParams.push(filter.locationId);
+        }
+
         const [inv] = await AppDataSource.query<InventoryRow[]>(
-          `SELECT
-             COALESCE(qty_on_hand, 0) AS qty_on_hand,
-             COALESCE(qty_reserved, 0) AS qty_reserved,
-             COALESCE(qty_in_transit, 0) AS qty_in_transit
-           FROM inventory
-           WHERE sku_id = ? AND tenant_id = ? LIMIT 1`,
-          [row.sku_id, this.tenantId],
+          filter?.onlyDefaultLocation
+            ? `SELECT
+                 COALESCE(SUM(inv.qty_on_hand), 0) AS qty_on_hand,
+                 COALESCE(SUM(inv.qty_reserved), 0) AS qty_reserved,
+                 COALESCE(SUM(inv.qty_in_transit), 0) AS qty_in_transit
+               FROM inventory inv
+               INNER JOIN warehouses w
+                 ON w.id = inv.warehouse_id
+                AND w.tenant_id = inv.tenant_id
+               INNER JOIN locations l
+                 ON l.id = inv.location_id
+                AND l.tenant_id = inv.tenant_id
+                AND l.warehouse_id = inv.warehouse_id
+               WHERE ${inventoryConds.join(' AND ')}
+                 AND w.code = 'DEFAULT'
+                 AND l.code = 'DEFAULT-UNKNOWN'`
+            : `SELECT
+                 COALESCE(SUM(inv.qty_on_hand), 0) AS qty_on_hand,
+                 COALESCE(SUM(inv.qty_reserved), 0) AS qty_reserved,
+                 COALESCE(SUM(inv.qty_in_transit), 0) AS qty_in_transit
+               FROM inventory inv
+               WHERE ${inventoryConds.join(' AND ')}`,
+          inventoryParams,
         );
 
         const qtyOnHand = new Decimal(inv?.qty_on_hand ?? 0);

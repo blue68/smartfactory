@@ -24,6 +24,13 @@ export const ListSettlementSchema = z.object({
   ),
 });
 
+export const ListPendingSettlementOrderSchema = z.object({
+  page:       z.coerce.number().int().min(1).default(1),
+  pageSize:   z.coerce.number().int().min(1).max(100).default(20),
+  customerId: z.coerce.number().int().positive().optional(),
+  keyword:    z.string().trim().max(100).optional(),
+});
+
 export const ReceivableQuerySchema = z.object({
   groupBy: z.enum(['customer', 'month', 'aging']).default('customer'),
 });
@@ -71,6 +78,17 @@ export interface ReceivableByAging {
   count: number;
 }
 
+export interface PendingSettlementOrder {
+  orderId: number;
+  orderNo: string;
+  customerId: number;
+  customerName: string;
+  status: 'shipped' | 'partial_shipped' | 'completed';
+  totalAmount: string;
+  expectedDelivery: string | null;
+  updatedAt: string;
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 export class SettlementService {
@@ -95,8 +113,8 @@ export class SettlementService {
       if (!orderRow) {
         throw AppError.notFound('销售订单不存在');
       }
-      if (!['shipped', 'completed'].includes(String(orderRow.status))) {
-        throw AppError.badRequest('只能为已发货或已完成的订单创建结算单');
+      if (!['shipped', 'partial_shipped', 'completed'].includes(String(orderRow.status))) {
+        throw AppError.badRequest('只能为已发货、部分发货或已完成的订单创建结算单');
       }
 
       const [existing] = await manager.query(
@@ -129,6 +147,74 @@ export class SettlementService {
     });
 
     return this.getSettlementById(newId);
+  }
+
+  // ── 待结算订单列表（已发货/已完成，且未创建有效结算单）───────────────────────
+
+  async listPendingSettlementOrders(
+    params: z.infer<typeof ListPendingSettlementOrderSchema>,
+  ): Promise<PaginatedData<PendingSettlementOrder>> {
+    const { page, pageSize, customerId, keyword } = params;
+    const offset = (page - 1) * pageSize;
+    const whereClauses = [
+      'so.tenant_id = ?',
+      "so.status IN ('shipped', 'partial_shipped', 'completed')",
+      'existing.id IS NULL',
+    ];
+    const args: unknown[] = [this.tenantId];
+
+    if (customerId) {
+      whereClauses.push('so.customer_id = ?');
+      args.push(customerId);
+    }
+    if (keyword) {
+      whereClauses.push('(so.order_no LIKE ? OR c.name LIKE ?)');
+      const likeKeyword = `%${keyword}%`;
+      args.push(likeKeyword, likeKeyword);
+    }
+    const where = whereClauses.join(' AND ');
+
+    const [[{ total }], rows] = await Promise.all([
+      AppDataSource.query(
+        `SELECT COUNT(*) AS total
+         FROM sales_orders so
+         INNER JOIN customers c ON c.id = so.customer_id AND c.tenant_id = so.tenant_id
+         LEFT JOIN settlements existing
+           ON existing.order_id = so.id
+          AND existing.tenant_id = so.tenant_id
+          AND existing.status != 'cancelled'
+         WHERE ${where}`,
+        args,
+      ) as Promise<[{ total: number }]>,
+      AppDataSource.query(
+        `SELECT
+           so.id AS order_id,
+           so.order_no,
+           so.customer_id,
+           c.name AS customer_name,
+           so.status,
+           so.total_amount,
+           so.expected_delivery,
+           so.updated_at
+         FROM sales_orders so
+         INNER JOIN customers c ON c.id = so.customer_id AND c.tenant_id = so.tenant_id
+         LEFT JOIN settlements existing
+           ON existing.order_id = so.id
+          AND existing.tenant_id = so.tenant_id
+          AND existing.status != 'cancelled'
+         WHERE ${where}
+         ORDER BY FIELD(so.status, 'completed', 'shipped', 'partial_shipped'), so.updated_at DESC
+         LIMIT ? OFFSET ?`,
+        [...args, pageSize, offset],
+      ),
+    ]);
+
+    return buildPaginated(
+      (rows as any[]).map(this.mapPendingSettlementOrder),
+      Number(total),
+      page,
+      pageSize,
+    );
   }
 
   // ── 结算单列表（分页 + 状态筛选）────────────────────────────────────────────
@@ -427,6 +513,19 @@ export class SettlementService {
       createdBy:     Number(r['created_by']),
       createdAt:     String(r['created_at']),
       updatedAt:     String(r['updated_at']),
+    };
+  }
+
+  private mapPendingSettlementOrder(r: Record<string, unknown>): PendingSettlementOrder {
+    return {
+      orderId: Number(r['order_id']),
+      orderNo: String(r['order_no'] ?? ''),
+      customerId: Number(r['customer_id']),
+      customerName: String(r['customer_name'] ?? ''),
+      status: String(r['status']) as PendingSettlementOrder['status'],
+      totalAmount: Number(r['total_amount']).toFixed(2),
+      expectedDelivery: r['expected_delivery'] != null ? String(r['expected_delivery']).slice(0, 10) : null,
+      updatedAt: String(r['updated_at']),
     };
   }
 

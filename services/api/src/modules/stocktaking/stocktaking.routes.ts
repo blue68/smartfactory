@@ -50,6 +50,20 @@ router.get(
   asyncHandler(stocktakingController.getDiff.bind(stocktakingController)),
 );
 
+// F-105: 提交待确认（warehouse/boss）
+router.post(
+  '/:id/submit',
+  requireRoles('boss', 'warehouse'),
+  asyncHandler(stocktakingController.submitTask.bind(stocktakingController)),
+);
+
+// 库存仓位对齐：盘点差异一键生成调整单（支持预览/执行）
+router.post(
+  '/:id/adjustment-order',
+  requireRoles('boss'),
+  asyncHandler(stocktakingController.createAdjustmentOrder.bind(stocktakingController)),
+);
+
 // F-105: 确认盘点（仅 boss，调整库存）
 router.post(
   '/:id/confirm',

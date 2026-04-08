@@ -35,17 +35,24 @@ import {
   useReportException,
   useResolveException,
   useSuspendTask,
+  taskApi,
 } from '@/api/productionTask';
 import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
 import Table from '@/components/common/Table';
 import Drawer from '@/components/common/Drawer';
 import type { Column } from '@/components/common/Table';
+import {
+  exportProductionTaskDocument,
+  openPrintWindow,
+  printProductionTaskDocument,
+} from '@/utils/productionTaskDocument';
 import styles from './TaskPage.module.css';
 
 // ─── 类型定义 ─────────────────────────────────────────────
 
 type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'exception' | 'suspended';
+type TaskType = 'finished' | 'semi_finished';
 
 type ExceptionType = '设备故障' | '物料缺失' | '质量异常' | '其他';
 
@@ -55,7 +62,10 @@ interface TaskException {
   description: string;
   severity: string;
   createdAt: string;
-  resolvedAt?: string;
+  resolvedAt?: string | null;
+  resolution?: string | null;
+  reporterName?: string | null;
+  resolverName?: string | null;
 }
 
 interface ProductionTask {
@@ -78,10 +88,22 @@ interface ProductionTask {
   skuCode?: string;
   skuName?: string;
   status: TaskStatus;
+  taskType?: TaskType;
   priority?: number;
+  priorityScore?: number;
+  priorityLevel?: 'critical' | 'high' | 'medium' | 'normal';
+  priorityLabel?: string;
+  priorityReason?: string;
+  downstreamTaskCount?: number;
+  activeDownstreamTaskCount?: number;
+  dependencyBlocked?: boolean | 0 | 1;
   isOvertime?: boolean;
   maxHours?: number;
   actualHours?: number;
+  createdAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  updatedAt?: string | null;
   unitPrice?: number;
   workerGrade?: string;
   workerGradeConfigured?: boolean;
@@ -94,16 +116,64 @@ interface ProductionTask {
       requiredQty: string;
       completedQty: string;
       status: string;
+      skuId: number | null;
+      skuCode: string | null;
+      skuName: string | null;
+      unit: string | null;
     }>;
   };
+  inputMaterials?: Array<{
+    itemType: 'material';
+    sourceLabel: string;
+    skuId: number;
+    skuCode: string | null;
+    skuName: string | null;
+    unit: string | null;
+    requiredQty: string;
+    issuedQty: string;
+    qtyAvailable: string;
+    shortageQty: string;
+    isShortage: boolean | 0 | 1 | '0' | '1';
+    inventoryTxId: number | null;
+  }>;
+  inputItems?: Array<{
+    itemType: 'semi_finished' | 'material';
+    sourceLabel: string;
+    skuId: number;
+    skuCode: string | null;
+    skuName: string | null;
+    unit: string | null;
+    requiredQty: string;
+    fulfilledQty: string;
+    qtyAvailable: string;
+    shortageQty: string;
+    isShortage: boolean | 0 | 1 | '0' | '1';
+    status: string | null;
+    operationId: number | null;
+    stepName: string | null;
+    inventoryTxId: number | null;
+  }>;
+  outputItems?: Array<{
+    itemType: 'finished' | 'semi_finished';
+    skuId: number;
+    skuCode: string | null;
+    skuName: string | null;
+    unit: string | null;
+    plannedQty: string;
+    actualQty: string;
+  }>;
   materialTransactions?: Array<{
     id: number;
     ioType: 'input' | 'output';
     skuId: number;
     skuCode: string | null;
     skuName: string | null;
+    stockUnit: string | null;
     plannedQty: string;
     actualQty: string;
+    qtyAvailable: string;
+    shortageQty: string;
+    isShortage: boolean | 0 | 1 | '0' | '1';
     inventoryTxId: number | null;
     transactionNo: string | null;
     transactionType: string | null;
@@ -178,6 +248,29 @@ function isHighPriority(task: ProductionTask): boolean {
   return typeof task.priority === 'number' && task.priority >= 80;
 }
 
+function getPriorityLevel(task: Pick<ProductionTask, 'priorityLevel' | 'priorityScore' | 'priority'>): 'critical' | 'high' | 'medium' | 'normal' {
+  if (task.priorityLevel) return task.priorityLevel;
+  const score = Number(task.priorityScore ?? task.priority ?? 50);
+  if (score >= 110) return 'critical';
+  if (score >= 85) return 'high';
+  if (score >= 60) return 'medium';
+  return 'normal';
+}
+
+function getPriorityLabel(task: Pick<ProductionTask, 'priorityLabel' | 'priorityLevel' | 'priorityScore' | 'priority'>): string {
+  if (task.priorityLabel) return task.priorityLabel;
+  switch (getPriorityLevel(task)) {
+    case 'critical': return '关键优先';
+    case 'high': return '高优先';
+    case 'medium': return '优先';
+    default: return '普通';
+  }
+}
+
+function isDependencyBlocked(task: Pick<ProductionTask, 'dependencyBlocked'>): boolean {
+  return task.dependencyBlocked === true || task.dependencyBlocked === 1;
+}
+
 function formatDate(dateStr: string | undefined): string {
   if (!dateStr) return '—';
   try {
@@ -196,6 +289,43 @@ function formatQty(value: string | number | undefined | null): string {
   const numeric = Number(value ?? 0);
   if (!Number.isFinite(numeric)) return '0';
   return Number.isInteger(numeric) ? `${numeric}` : numeric.toFixed(2);
+}
+
+function formatQtyWithUnit(
+  value: string | number | undefined | null,
+  unit?: string | null,
+): string {
+  const formattedQty = formatQty(value);
+  return unit ? `${formattedQty} ${unit}` : formattedQty;
+}
+
+function isMaterialShortage(item: Pick<NonNullable<ProductionTask['materialTransactions']>[number], 'isShortage'>): boolean {
+  return item.isShortage === true || item.isShortage === '1' || item.isShortage === 1;
+}
+
+function getInputItemTone(item: Pick<NonNullable<ProductionTask['inputItems']>[number], 'requiredQty' | 'qtyAvailable' | 'isShortage'>): 'danger' | 'warning' | 'healthy' {
+  if (isMaterialShortage(item)) return 'danger';
+  const required = Number(item.requiredQty ?? 0);
+  const available = Number(item.qtyAvailable ?? 0);
+  if (required > 0 && available <= required * 1.2) return 'warning';
+  return 'healthy';
+}
+
+function getTaskPrimaryName(task: Pick<ProductionTask, 'outputSkuName' | 'productName' | 'skuName'>): string {
+  return task.outputSkuName || task.productName || task.skuName || '—';
+}
+
+function getTaskSecondaryName(task: Pick<ProductionTask, 'outputSkuName' | 'productName' | 'skuName'>): string | null {
+  const finalProductName = task.productName || task.skuName || null;
+  if (!task.outputSkuName || !finalProductName || task.outputSkuName === finalProductName) {
+    return null;
+  }
+  return `所属成品：${finalProductName}`;
+}
+
+function isSemiFinishedTask(task: Pick<ProductionTask, 'outputSkuName' | 'productName' | 'skuName'>): boolean {
+  const finalProductName = task.productName || task.skuName || null;
+  return Boolean(task.outputSkuName && finalProductName && task.outputSkuName !== finalProductName);
 }
 
 // ─── countUp hook ─────────────────────────────────────────
@@ -246,7 +376,8 @@ export default function TaskPage() {
   const { hasAnyRole } = useAuthStore();
 
   // 是否是主管/管理员视角（可以处理异常）
-  const isSupervisor = hasAnyRole([UserRole.SUPERVISOR, UserRole.BOSS]);
+  const isSupervisor = hasAnyRole([UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.BOSS]);
+  const canOperateTask = hasAnyRole([UserRole.ADMIN, UserRole.WORKER, UserRole.SUPERVISOR, UserRole.BOSS]);
 
   useEffect(() => { setPageTitle('生产任务管理'); }, [setPageTitle]);
 
@@ -260,6 +391,7 @@ export default function TaskPage() {
   const [dateError, setDateError] = useState('');
 
   const [processFilter, setProcessFilter] = useState('');
+  const [taskTypeFilter, setTaskTypeFilter] = useState<TaskType | ''>('');
 
   // R06-G07: 300ms debounce（设计稿要求）
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
@@ -301,6 +433,11 @@ export default function TaskPage() {
     setPage(1);
   }, []);
 
+  const handleTaskTypeFilterChange = useCallback((v: TaskType | '') => {
+    setTaskTypeFilter(v);
+    setPage(1);
+  }, []);
+
   // ── 数据查询 ──────────────────────────────────────────────
   const filter = {
     page,
@@ -310,6 +447,7 @@ export default function TaskPage() {
     dateFrom: dateFrom || undefined,
     dateTo:   (dateTo && !dateError) ? dateTo : undefined,
     processId: processFilter ? Number(processFilter) : undefined,
+    taskType: taskTypeFilter || undefined,
   };
 
   const { data: rawData, isLoading, isError } = useTaskList(filter);
@@ -356,6 +494,10 @@ export default function TaskPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const { data: taskDetailRaw, isLoading: detailLoading } = useTaskDetail(selectedTaskId);
   const taskDetail = taskDetailRaw as ProductionTask | undefined;
+  const [documentAction, setDocumentAction] = useState<{
+    taskId: number;
+    type: 'export' | 'print';
+  } | null>(null);
 
   const openDrawer = useCallback((task: ProductionTask) => {
     setSelectedTaskId(task.id);
@@ -364,6 +506,46 @@ export default function TaskPage() {
   const closeDrawer = useCallback(() => {
     setSelectedTaskId(null);
   }, []);
+
+  const loadTaskDocument = useCallback(async (taskId: number): Promise<ProductionTask> => {
+    if (taskDetail && taskDetail.id === taskId) {
+      return taskDetail;
+    }
+    return taskApi.detail(taskId) as Promise<ProductionTask>;
+  }, [taskDetail]);
+
+  const handleExportDocument = useCallback(async (taskId: number) => {
+    setDocumentAction({ taskId, type: 'export' });
+    try {
+      const detail = await loadTaskDocument(taskId);
+      exportProductionTaskDocument(detail);
+      showToast({ type: 'success', message: `任务 #${taskId} 工单已导出` });
+    } catch {
+      showToast({ type: 'error', message: '工单导出失败，请稍后重试' });
+    } finally {
+      setDocumentAction(null);
+    }
+  }, [loadTaskDocument, showToast]);
+
+  const handlePrintDocument = useCallback(async (taskId: number) => {
+    const printWindow = openPrintWindow();
+    if (!printWindow) {
+      showToast({ type: 'error', message: '浏览器拦截了打印窗口，请允许本站弹出新窗口后重试' });
+      return;
+    }
+    setDocumentAction({ taskId, type: 'print' });
+    try {
+      const detail = await loadTaskDocument(taskId);
+      await printProductionTaskDocument(detail, printWindow);
+      showToast({ type: 'success', message: `任务 #${taskId} 打印清单已生成` });
+    } catch (error) {
+      printWindow.close();
+      const message = error instanceof Error ? error.message : '打印失败，请稍后重试';
+      showToast({ type: 'error', message });
+    } finally {
+      setDocumentAction(null);
+    }
+  }, [loadTaskDocument, showToast]);
 
   // ── 完成任务弹窗状态 ──────────────────────────────────────
   const [completeOpen, setCompleteOpen]       = useState(false);
@@ -604,9 +786,17 @@ export default function TaskPage() {
     },
     {
       key:   'productName',
-      title: '产品名称',
-      width: 140,
-      render: (_, record) => record.productName || record.skuName || '—',
+      title: '当前产出',
+      width: 180,
+      render: (_, record) => {
+        const secondaryName = getTaskSecondaryName(record);
+        return (
+          <div className={styles.processCell}>
+            <strong>{getTaskPrimaryName(record)}</strong>
+            <span>{secondaryName || '成品任务'}</span>
+          </div>
+        );
+      },
     },
     {
       key:   'processName',
@@ -646,43 +836,73 @@ export default function TaskPage() {
     {
       key:   'priority',
       title: '优先级',
-      width: 90,
-      render: (_, record) => (
-        isHighPriority(record)
-          ? <span className={styles.priorityBadgeHigh}>高优先级</span>
-          : <span className={styles.priorityBadgeNormal}>普通</span>
-      ),
+      width: 180,
+      render: (_, record) => {
+        const level = getPriorityLevel(record);
+        return (
+          <div className={styles.priorityCell}>
+            <span className={styles[`priorityBadge--${level}`]}>
+              {getPriorityLabel(record)}
+            </span>
+            <span className={styles.priorityMeta}>
+              {record.priorityReason || (isHighPriority(record) ? '工单基础优先级较高' : '常规优先级')}
+            </span>
+          </div>
+        );
+      },
     },
     {
       key:   '_actions',
       title: '操作',
-      width: 200,
+      width: 340,
       render: (_, record) => (
         <div className={styles.actionGroup}>
           <Button variant="ghost" size="sm" onClick={() => openDrawer(record)}>详情</Button>
-          {record.status === 'pending' && (
+          <Button
+            variant="ghost"
+            size="sm"
+            loading={documentAction?.taskId === record.id && documentAction.type === 'export'}
+            onClick={() => void handleExportDocument(record.id)}
+          >
+            导出工单
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            loading={documentAction?.taskId === record.id && documentAction.type === 'print'}
+            onClick={() => void handlePrintDocument(record.id)}
+          >
+            打印工单
+          </Button>
+          {canOperateTask && record.status === 'pending' && (
             <Button
               variant="primary"
               size="sm"
               loading={startMutation.isPending && startMutation.variables === record.id}
+              disabled={isDependencyBlocked(record)}
+              title={isDependencyBlocked(record) ? '存在未完成前置依赖，暂不能开始' : undefined}
               onClick={() => void handleStart(record)}
             >
               开始
             </Button>
           )}
-          {record.status === 'in_progress' && (
+          {canOperateTask && record.status === 'in_progress' && (
             <Button
               variant="success"
               size="sm"
+              disabled={isDependencyBlocked(record)}
+              title={isDependencyBlocked(record) ? '存在未完成前置依赖，暂不能完工上报' : undefined}
               onClick={() => openCompleteModal(record)}
             >
               完成
             </Button>
           )}
-          {(record.status === 'pending' || record.status === 'in_progress') && (
+          {canOperateTask && (record.status === 'pending' || record.status === 'in_progress') && (
             <Button
               variant="danger"
               size="sm"
+              disabled={isDependencyBlocked(record)}
+              title={isDependencyBlocked(record) ? '存在未完成前置依赖，暂不能上报异常' : undefined}
               onClick={() => openExceptionModal(record)}
             >
               上报异常
@@ -796,6 +1016,17 @@ export default function TaskPage() {
           ))}
         </select>
 
+        <select
+          className={styles.select}
+          value={taskTypeFilter}
+          onChange={(e) => handleTaskTypeFilterChange(e.target.value as TaskType | '')}
+          aria-label="任务类型筛选"
+        >
+          <option value="">全部任务类型</option>
+          <option value="finished">成品任务</option>
+          <option value="semi_finished">半成品任务</option>
+        </select>
+
         <div className={styles.dateRangeWrap}>
           <label className={styles.dateRangeLabel} htmlFor="date-from">日期</label>
           <input
@@ -861,11 +1092,12 @@ export default function TaskPage() {
         open={selectedTaskId !== null}
         title="任务详情"
         onClose={closeDrawer}
-        width={640}
+        width="min(1080px, 92vw)"
         footer={
           taskDetail ? (
             <TaskDrawerFooter
               task={taskDetail as ProductionTask}
+              canOperateTask={canOperateTask}
               isSupervisor={isSupervisor}
               startLoading={startMutation.isPending}
               completeLoading={completeMutation.isPending}
@@ -881,6 +1113,10 @@ export default function TaskPage() {
         <TaskDetailContent
           task={taskDetail as ProductionTask | undefined}
           loading={detailLoading}
+          exportLoading={documentAction?.taskId === selectedTaskId && documentAction.type === 'export'}
+          printLoading={documentAction?.taskId === selectedTaskId && documentAction.type === 'print'}
+          onExport={(taskId) => void handleExportDocument(taskId)}
+          onPrint={(taskId) => void handlePrintDocument(taskId)}
         />
       </Drawer>
 
@@ -1008,9 +1244,20 @@ function StatCard({ label, value, icon, iconClass, variant = 'default', active, 
 interface TaskDetailContentProps {
   task: ProductionTask | undefined;
   loading: boolean;
+  exportLoading: boolean;
+  printLoading: boolean;
+  onExport: (taskId: number) => void;
+  onPrint: (taskId: number) => void;
 }
 
-function TaskDetailContent({ task, loading }: TaskDetailContentProps) {
+function TaskDetailContent({
+  task,
+  loading,
+  exportLoading,
+  printLoading,
+  onExport,
+  onPrint,
+}: TaskDetailContentProps) {
   if (loading) {
     return (
       <div className={styles.drawerLoading}>
@@ -1027,12 +1274,36 @@ function TaskDetailContent({ task, loading }: TaskDetailContentProps) {
   }
 
   const overtime = isTaskOvertime(task);
+  const primaryName = getTaskPrimaryName(task);
+  const secondaryName = getTaskSecondaryName(task);
+  const semiFinishedTask = task.taskType
+    ? task.taskType === 'semi_finished'
+    : isSemiFinishedTask(task);
   const predecessors = task.dependencySummary?.predecessors ?? [];
+  const inputItems = task.inputItems ?? [];
+  const outputItems = task.outputItems ?? [];
   const inputTransactions = task.materialTransactions?.filter((item) => item.ioType === 'input') ?? [];
   const outputTransactions = task.materialTransactions?.filter((item) => item.ioType === 'output') ?? [];
 
   return (
     <div className={styles.drawerContent}>
+      <section className={styles.drawerSection}>
+        <div className={styles.documentActionBar}>
+          <div>
+            <h3 className={styles.drawerSectionTitle}>任务工单</h3>
+            <p className={styles.documentActionHint}>导出清单或直接打印给现场工人执行。</p>
+          </div>
+          <div className={styles.documentActionButtons}>
+            <Button variant="ghost" size="sm" loading={exportLoading} onClick={() => onExport(task.id)}>
+              导出工单
+            </Button>
+            <Button variant="secondary" size="sm" loading={printLoading} onClick={() => onPrint(task.id)}>
+              打印工单
+            </Button>
+          </div>
+        </div>
+      </section>
+
       <section className={styles.drawerSection}>
         <h3 className={styles.drawerSectionTitle}>执行概览</h3>
         <div className={styles.executionOverview}>
@@ -1040,7 +1311,7 @@ function TaskDetailContent({ task, loading }: TaskDetailContentProps) {
           <MetricCard label="计划数量" value={formatQty(task.plannedQty)} />
           <MetricCard label="已完成" value={formatQty(task.completedQty ?? 0)} />
           <MetricCard label="实际工时" value={task.actualHours != null ? `${task.actualHours}h` : '未上报'} />
-          <MetricCard label="产出半成品" value={task.outputSkuName || '未配置'} accent="teal" />
+          <MetricCard label={semiFinishedTask ? '当前半成品' : '当前产出'} value={primaryName} accent="teal" />
           <MetricCard label="工资结果" value={task.wageReport ? `¥${task.wageReport.subtotal}` : '待生成'} accent="amber" />
         </div>
       </section>
@@ -1051,9 +1322,11 @@ function TaskDetailContent({ task, loading }: TaskDetailContentProps) {
           <DetailItem label="任务日期" value={task.taskDate || '—'} />
           <DetailItem label="工单号" value={task.orderNo || '—'} />
           <DetailItem label="任务编号" value={formatTaskLabel(task)} />
-          <DetailItem label="产品名称" value={task.productName || task.skuName || '—'} />
+          <DetailItem label="所属成品" value={task.productName || task.skuName || '—'} />
           <DetailItem label="工序名称" value={task.processName || '—'} />
-          <DetailItem label="产出 SKU" value={task.outputSkuName || '未配置'} />
+          <DetailItem label="当前产出" value={primaryName} />
+          <DetailItem label="任务类型" value={semiFinishedTask ? '半成品任务' : '成品任务'} />
+          {secondaryName && <DetailItem label="说明" value={secondaryName} />}
           <DetailItem label="工作站" value={task.workstationName || '—'} />
           <DetailItem label="工人" value={task.workerName || '—'} />
           <DetailItem
@@ -1086,9 +1359,17 @@ function TaskDetailContent({ task, loading }: TaskDetailContentProps) {
                       {blocked ? '未满足' : '已满足'}
                     </span>
                   </div>
+                  {(item.skuName || item.skuCode) ? (
+                    <div className={styles.dependencyCard__summary}>
+                      <span className={styles.ioTypeBadge}>半成品</span>
+                      <span>{item.skuName || item.skuCode}</span>
+                      {item.skuCode && item.skuName ? <span>{item.skuCode}</span> : null}
+                    </div>
+                  ) : null}
                   <div className={styles.dependencyCard__meta}>
-                    <span>需求 {formatQty(item.requiredQty)}</span>
-                    <span>已完成 {formatQty(item.completedQty)}</span>
+                    <span>SKU {item.skuCode || '—'}</span>
+                    <span>需求 {formatQtyWithUnit(item.requiredQty, item.unit)}</span>
+                    <span>已完成 {formatQtyWithUnit(item.completedQty, item.unit)}</span>
                     <span>状态 {item.status}</span>
                   </div>
                 </div>
@@ -1096,6 +1377,86 @@ function TaskDetailContent({ task, loading }: TaskDetailContentProps) {
             })}
           </div>
         )}
+      </section>
+
+      <section className={styles.drawerSection}>
+        <h3 className={styles.drawerSectionTitle}>任务输入 / 输出清单</h3>
+        <div className={styles.ioGrid}>
+          <div className={styles.taskIOPanel}>
+            <div className={styles.tracePanel__title}>输入项</div>
+            {inputItems.length === 0 ? (
+              <p className={styles.drawerEmptyText}>当前任务没有输入项配置</p>
+            ) : (
+              <div className={styles.taskIOList}>
+                {inputItems.map((item) => {
+                  const tone = getInputItemTone(item);
+                  return (
+                    <div key={`input-${item.itemType}-${item.skuId}-${item.operationId ?? 'na'}`} className={styles.taskIOItem}>
+                      <div className={styles.taskIOItem__header}>
+                        <strong>{item.skuName || item.skuCode || `SKU#${item.skuId}`}</strong>
+                        <span
+                          className={[
+                            styles.ioTypeBadge,
+                            item.itemType === 'semi_finished'
+                              ? styles['ioTypeBadge--semi']
+                              : styles['ioTypeBadge--material'],
+                          ].join(' ')}
+                        >
+                          {item.itemType === 'semi_finished' ? '半成品输入' : '原材料输入'}
+                        </span>
+                      </div>
+                      <div className={styles.taskIOItem__meta}>
+                        <span>SKU {item.skuCode || '—'}</span>
+                        <span>{item.stepName ? `来源工序 ${item.stepName}` : `来源 ${item.sourceLabel}`}</span>
+                        <span>需求 {formatQtyWithUnit(item.requiredQty, item.unit)}</span>
+                      </div>
+                      <div className={styles.taskIOItem__meta}>
+                        <span>{item.itemType === 'semi_finished' ? '已齐套' : '已投'} {formatQtyWithUnit(item.fulfilledQty, item.unit)}</span>
+                        <span>可用数量 {formatQtyWithUnit(item.qtyAvailable, item.unit)}</span>
+                        <span className={styles[`taskIOStock--${tone}`]}>
+                          {Number(item.shortageQty ?? 0) > 0 ? `缺口 ${formatQtyWithUnit(item.shortageQty, item.unit)}` : '库存充足'}
+                        </span>
+                        <span>{item.status || '—'}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className={styles.taskIOPanel}>
+            <div className={styles.tracePanel__title}>输出项</div>
+            {outputItems.length === 0 ? (
+              <p className={styles.drawerEmptyText}>当前任务没有输出项配置</p>
+            ) : (
+              <div className={styles.taskIOList}>
+                {outputItems.map((item) => (
+                  <div key={`output-${item.skuId}-${item.itemType}`} className={styles.taskIOItem}>
+                    <div className={styles.taskIOItem__header}>
+                      <strong>{item.skuName || item.skuCode || `SKU#${item.skuId}`}</strong>
+                      <span
+                        className={[
+                          styles.ioTypeBadge,
+                          item.itemType === 'semi_finished'
+                            ? styles['ioTypeBadge--semi']
+                            : styles['ioTypeBadge--finished'],
+                        ].join(' ')}
+                      >
+                        {item.itemType === 'semi_finished' ? '半成品输出' : '成品输出'}
+                      </span>
+                    </div>
+                    <div className={styles.taskIOItem__meta}>
+                      <span>SKU {item.skuCode || `#${item.skuId}`}</span>
+                      <span>计划产出 {formatQtyWithUnit(item.plannedQty, item.unit)}</span>
+                      <span>实际产出 {formatQtyWithUnit(item.actualQty, item.unit)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </section>
 
       <section className={styles.drawerSection}>
@@ -1286,6 +1647,7 @@ function MaterialTracePanel({
 
 interface TaskDrawerFooterProps {
   task: ProductionTask;
+  canOperateTask: boolean;
   isSupervisor: boolean;
   startLoading: boolean;
   completeLoading: boolean;
@@ -1298,6 +1660,7 @@ interface TaskDrawerFooterProps {
 
 function TaskDrawerFooter({
   task,
+  canOperateTask,
   isSupervisor,
   startLoading,
   completeLoading,
@@ -1307,6 +1670,13 @@ function TaskDrawerFooter({
   onResolve,
   onSuspend,
 }: TaskDrawerFooterProps) {
+  if (!canOperateTask) {
+    return null;
+  }
+
+  const dependencyBlocked = Boolean(task.dependencySummary?.blocked);
+  const blockingReason = task.dependencySummary?.blockingReason || '存在未完成前置依赖';
+
   if (task.status === 'pending') {
     return (
       <div className={styles.drawerFooterActions}>
@@ -1314,6 +1684,8 @@ function TaskDrawerFooter({
           variant="primary"
           size="md"
           loading={startLoading}
+          disabled={dependencyBlocked}
+          title={dependencyBlocked ? `${blockingReason}，暂不能开始` : undefined}
           onClick={onStart}
           style={{ width: '100%' }}
         >
@@ -1330,6 +1702,8 @@ function TaskDrawerFooter({
           variant="success"
           size="md"
           loading={completeLoading}
+          disabled={dependencyBlocked}
+          title={dependencyBlocked ? `${blockingReason}，暂不能完工上报` : undefined}
           onClick={onComplete}
           style={{ flex: 1 }}
         >
@@ -1338,6 +1712,8 @@ function TaskDrawerFooter({
         <Button
           variant="danger"
           size="md"
+          disabled={dependencyBlocked}
+          title={dependencyBlocked ? `${blockingReason}，暂不能上报异常` : undefined}
           onClick={onException}
           style={{ flex: 1 }}
         >
@@ -1453,7 +1829,7 @@ function CompleteTaskModal({
       confirmVariant="success"
       confirmLoading={loading}
       /* confirmDisabled not in ModalProps — use CSS opacity on inner form instead */
-      size="sm"
+      size="lg"
     >
       {task && (
         <div className={styles.modalForm}>
@@ -1466,25 +1842,31 @@ function CompleteTaskModal({
           )}
 
           <div className={`${styles.modalFormInner} ${gradeUnconfigured ? styles.modalFormDisabled : ''}`}>
-            <div className={styles.modalTaskInfo}>
-              <span className={styles.modalTaskLabel}>任务</span>
-              <span className={styles.modalTaskValue}>{formatTaskLabel(task)}</span>
-              <span className={styles.modalTaskSep}>·</span>
-              <span className={styles.modalTaskValue}>{task.processName}</span>
-              <span className={styles.modalTaskSep}>·</span>
-              <span className={styles.modalTaskSecondary}>计划 {task.plannedQty} 件</span>
-            </div>
+            <section className={styles.completeHero}>
+              <div className={styles.modalTaskInfo}>
+                <span className={styles.modalTaskLabel}>任务</span>
+                <span className={styles.modalTaskValue}>{formatTaskLabel(task)}</span>
+                <span className={styles.modalTaskSep}>·</span>
+                <span className={styles.modalTaskValue}>{task.processName}</span>
+                <span className={styles.modalTaskSep}>·</span>
+                <span className={styles.modalTaskSecondary}>计划 {task.plannedQty} 件</span>
+              </div>
 
-            <div className={styles.completeSummary}>
-              <div className={styles.completeSummaryCard}>
-                <span>产出半成品</span>
-                <strong>{task.outputSkuName || '未配置产出'}</strong>
+              <div className={styles.completeSummary}>
+                <div className={styles.completeSummaryCard}>
+                  <span>{isSemiFinishedTask(task) ? '当前半成品' : '当前产出'}</span>
+                  <strong>{getTaskPrimaryName(task)}</strong>
+                </div>
+                <div className={styles.completeSummaryCard}>
+                  <span>依赖状态</span>
+                  <strong>{task.dependencySummary?.blocked ? '仍有阻塞' : '可正常完工'}</strong>
+                </div>
+                <div className={styles.completeSummaryCard}>
+                  <span>本次计划完成</span>
+                  <strong>{formatQtyWithUnit(task.plannedQty, '件')}</strong>
+                </div>
               </div>
-              <div className={styles.completeSummaryCard}>
-                <span>依赖状态</span>
-                <strong>{task.dependencySummary?.blocked ? '仍有阻塞' : '可正常完工'}</strong>
-              </div>
-            </div>
+            </section>
 
             {/* 超时预警横幅 */}
             {isOvertimeWarning && (
@@ -1494,120 +1876,133 @@ function CompleteTaskModal({
               </div>
             )}
 
-            <div className={styles.formRow}>
-              <div className={styles.formGroup}>
-                <label htmlFor="complete-qty" className={styles.formLabel}>
-                  完成件数 <span className={styles.formRequired} aria-label="必填">*</span>
-                </label>
-                <input
-                  id="complete-qty"
-                  type="number"
-                  min="1"
-                  step="1"
-                  className={`${styles.formInput} ${error ? styles.formInputError : ''}`}
-                  placeholder={`计划 ${task.plannedQty} 件`}
-                  value={qty}
-                  onChange={(e) => onQtyChange(e.target.value)}
-                  aria-describedby={error ? 'complete-qty-error' : undefined}
-                  autoFocus
-                  disabled={gradeUnconfigured}
-                />
-                {error && (
-                  <p id="complete-qty-error" className={styles.formError} role="alert">
-                    {error}
-                  </p>
-                )}
-              </div>
+            <div className={styles.completeModalGrid}>
+              <section className={styles.completeFormPanel}>
+                <div className={styles.completePanelHeader}>
+                  <h3 className={styles.completePanelTitle}>报工信息</h3>
+                  <p className={styles.completePanelHint}>先填写本次产出与工时，再补充损耗和备注。</p>
+                </div>
 
-              <div className={styles.formGroup}>
-                <label htmlFor="complete-hours" className={styles.formLabel}>
-                  实际工时（小时）<span className={styles.formRequired} aria-label="必填">*</span>
-                </label>
-                <input
-                  id="complete-hours"
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  className={`${styles.formInput} ${hoursError ? styles.formInputError : ''} ${isOvertimeWarning ? styles.formInputWarning : ''}`}
-                  placeholder="请输入实际工时"
-                  value={hours}
-                  onChange={(e) => onHoursChange(e.target.value)}
-                  aria-describedby={hoursError ? 'complete-hours-error' : undefined}
-                  disabled={gradeUnconfigured}
-                />
-                {hoursError && (
-                  <p id="complete-hours-error" className={styles.formError} role="alert">
-                    {hoursError}
-                  </p>
-                )}
-              </div>
-            </div>
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label htmlFor="complete-qty" className={styles.formLabel}>
+                      完成件数 <span className={styles.formRequired} aria-label="必填">*</span>
+                    </label>
+                    <input
+                      id="complete-qty"
+                      type="number"
+                      min="1"
+                      step="1"
+                      className={`${styles.formInput} ${error ? styles.formInputError : ''}`}
+                      placeholder={`计划 ${task.plannedQty} 件`}
+                      value={qty}
+                      onChange={(e) => onQtyChange(e.target.value)}
+                      aria-describedby={error ? 'complete-qty-error' : undefined}
+                      autoFocus
+                      disabled={gradeUnconfigured}
+                    />
+                    {error && (
+                      <p id="complete-qty-error" className={styles.formError} role="alert">
+                        {error}
+                      </p>
+                    )}
+                  </div>
 
-            {/* 废品/损耗数量 */}
-            <div className={styles.formGroup}>
-              <label htmlFor="complete-scrap" className={styles.formLabel}>
-                废品数量（件）<span style={{ color: '#9ca3af', fontWeight: 400, marginLeft: '0.25rem' }}>选填</span>
-              </label>
-              <input
-                id="complete-scrap"
-                type="number"
-                min="0"
-                step="1"
-                className={styles.formInput}
-                placeholder="0"
-                value={scrapQty}
-                onChange={(e) => onScrapQtyChange(e.target.value)}
-                disabled={gradeUnconfigured}
-              />
-              <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.25rem' }}>
-                废品数量将记录为实际损耗，用于成本核算
-              </p>
-            </div>
-
-            {/* 工资预览卡片 */}
-            {task.unitPrice != null && (
-              <div className={styles.wagePreview}>
-                <div className={styles.wagePreviewTitle}>工资预览</div>
-                <div className={styles.wagePreviewGrid}>
-                  <div className={styles.wagePreviewItem}>
-                    <span className={styles.wagePreviewLabel}>工人等级</span>
-                    <span className={styles.wagePreviewValue}>
-                      {task.workerGrade || (gradeUnconfigured ? '未配置' : '—')}
-                    </span>
-                  </div>
-                  <div className={styles.wagePreviewItem}>
-                    <span className={styles.wagePreviewLabel}>计件单价</span>
-                    <span className={styles.wagePreviewValue}>¥{task.unitPrice}/件</span>
-                  </div>
-                  <div className={styles.wagePreviewItem}>
-                    <span className={styles.wagePreviewLabel}>计算公式</span>
-                    <span className={styles.wagePreviewValue}>
-                      {qtyNum > 0 ? `${qtyNum} 件 × ¥${task.unitPrice}` : '—'}
-                    </span>
-                  </div>
-                  <div className={`${styles.wagePreviewItem} ${styles.wagePreviewTotal}`}>
-                    <span className={styles.wagePreviewLabel}>预计工资</span>
-                    <span className={styles.wagePreviewAmount}>
-                      {estimatedWage ? `¥${estimatedWage}` : '—'}
-                    </span>
+                  <div className={styles.formGroup}>
+                    <label htmlFor="complete-hours" className={styles.formLabel}>
+                      实际工时（小时）<span className={styles.formRequired} aria-label="必填">*</span>
+                    </label>
+                    <input
+                      id="complete-hours"
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      className={`${styles.formInput} ${hoursError ? styles.formInputError : ''} ${isOvertimeWarning ? styles.formInputWarning : ''}`}
+                      placeholder="请输入实际工时"
+                      value={hours}
+                      onChange={(e) => onHoursChange(e.target.value)}
+                      aria-describedby={hoursError ? 'complete-hours-error' : undefined}
+                      disabled={gradeUnconfigured}
+                    />
+                    {hoursError && (
+                      <p id="complete-hours-error" className={styles.formError} role="alert">
+                        {hoursError}
+                      </p>
+                    )}
                   </div>
                 </div>
-              </div>
-            )}
 
-            <div className={styles.formGroup}>
-              <label htmlFor="complete-notes" className={styles.formLabel}>
-                备注（选填）
-              </label>
-              <textarea
-                id="complete-notes"
-                className={styles.formTextarea}
-                rows={3}
-                placeholder="请填写完成说明、质量情况等..."
-                value={notes}
-                onChange={(e) => onNotesChange(e.target.value)}
-                disabled={gradeUnconfigured}
-              />
+                <div className={styles.formGroup}>
+                  <label htmlFor="complete-scrap" className={styles.formLabel}>
+                    废品数量（件）<span className={styles.formOptional}>选填</span>
+                  </label>
+                  <input
+                    id="complete-scrap"
+                    type="number"
+                    min="0"
+                    step="1"
+                    className={styles.formInput}
+                    placeholder="0"
+                    value={scrapQty}
+                    onChange={(e) => onScrapQtyChange(e.target.value)}
+                    disabled={gradeUnconfigured}
+                  />
+                  <p className={styles.formAssistText}>
+                    废品数量将记录为实际损耗，用于成本核算。
+                  </p>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label htmlFor="complete-notes" className={styles.formLabel}>
+                    备注<span className={styles.formOptional}>选填</span>
+                  </label>
+                  <textarea
+                    id="complete-notes"
+                    className={styles.formTextarea}
+                    rows={4}
+                    placeholder="请填写完成说明、质量情况等..."
+                    value={notes}
+                    onChange={(e) => onNotesChange(e.target.value)}
+                    disabled={gradeUnconfigured}
+                  />
+                </div>
+              </section>
+
+              {task.unitPrice != null && (
+                <aside className={styles.completeSidePanel}>
+                  <div className={styles.completePanelHeader}>
+                    <h3 className={styles.completePanelTitle}>工资预览</h3>
+                    <p className={styles.completePanelHint}>根据当前输入实时估算本次报工工资。</p>
+                  </div>
+
+                  <div className={styles.wagePreview}>
+                    <div className={styles.wagePreviewGrid}>
+                      <div className={styles.wagePreviewItem}>
+                        <span className={styles.wagePreviewLabel}>工人等级</span>
+                        <span className={styles.wagePreviewValue}>
+                          {task.workerGrade || (gradeUnconfigured ? '未配置' : '—')}
+                        </span>
+                      </div>
+                      <div className={styles.wagePreviewItem}>
+                        <span className={styles.wagePreviewLabel}>计件单价</span>
+                        <span className={styles.wagePreviewValue}>¥{task.unitPrice}/件</span>
+                      </div>
+                      <div className={styles.wagePreviewItem}>
+                        <span className={styles.wagePreviewLabel}>计算公式</span>
+                        <span className={styles.wagePreviewValue}>
+                          {qtyNum > 0 ? `${qtyNum} 件 × ¥${task.unitPrice}` : '—'}
+                        </span>
+                      </div>
+                      <div className={`${styles.wagePreviewItem} ${styles.wagePreviewTotal}`}>
+                        <span className={styles.wagePreviewLabel}>预计工资</span>
+                        <span className={styles.wagePreviewAmount}>
+                          {estimatedWage ? `¥${estimatedWage}` : '—'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              )}
             </div>
           </div>
         </div>
@@ -1679,6 +2074,7 @@ function ExceptionModal({
                   key={et.value}
                   type="button"
                   title={et.desc}
+                  aria-pressed={exceptionType === et.value}
                   className={[
                     styles.exceptionTypeCard,
                     exceptionType === et.value ? styles.exceptionTypeCardActive : '',
@@ -1700,6 +2096,7 @@ function ExceptionModal({
             <div className={styles.yesNoGroup}>
               <button
                 type="button"
+                aria-pressed={affectsProgress === true}
                 className={[
                   styles.yesNoBtn,
                   affectsProgress === true ? styles.yesNoBtnActive : '',
@@ -1710,6 +2107,7 @@ function ExceptionModal({
               </button>
               <button
                 type="button"
+                aria-pressed={affectsProgress === false}
                 className={[
                   styles.yesNoBtn,
                   affectsProgress === false ? styles.yesNoBtnActive : '',

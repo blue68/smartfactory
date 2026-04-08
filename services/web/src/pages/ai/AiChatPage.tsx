@@ -30,7 +30,10 @@ import { getAccessToken } from '@/utils/request';
 import AiThinkingState, { type ThinkingStep } from '@/components/ai/AiThinkingState';
 import StreamText from '@/components/ai/StreamText';
 import ConfidenceTag from '@/components/common/ConfidenceTag';
+import Button from '@/components/common/Button';
+import Modal from '@/components/common/Modal';
 import { Confidence } from '@/types/enums';
+import { useAppStore } from '@/stores/appStore';
 import styles from './AiChatPage.module.css';
 
 // ─────────────────────────────────────────────
@@ -70,11 +73,17 @@ interface Conversation {
   messages: Message[];
 }
 
+interface ChatUiSettings {
+  enterToSend: boolean;
+  quickRepliesEnabled: boolean;
+}
+
 // ─────────────────────────────────────────────
 // 常量
 // ─────────────────────────────────────────────
 
 const STORAGE_KEY = 'sf_ai_conversations';
+const SETTINGS_STORAGE_KEY = 'sf_ai_chat_settings';
 
 const QUICK_QUESTIONS = [
   { icon: '⚠', text: '今日库存预警有哪些？' },
@@ -136,6 +145,28 @@ function loadConversations(): Conversation[] {
     })) as Conversation[];
   } catch {
     return [];
+  }
+}
+
+function loadChatUiSettings(): ChatUiSettings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return { enterToSend: true, quickRepliesEnabled: true };
+    const parsed = JSON.parse(raw) as Partial<ChatUiSettings>;
+    return {
+      enterToSend: parsed.enterToSend ?? true,
+      quickRepliesEnabled: parsed.quickRepliesEnabled ?? true,
+    };
+  } catch {
+    return { enterToSend: true, quickRepliesEnabled: true };
+  }
+}
+
+function saveChatUiSettings(settings: ChatUiSettings): void {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // ignore storage failures
   }
 }
 
@@ -270,6 +301,7 @@ function DateDivider({ label }: { label: string }) {
 
 export default function AiChatPage() {
   const navigate = useNavigate();
+  const showToast = useAppStore((state) => state.showToast);
   // ── 会话状态 ──
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     const loaded = loadConversations();
@@ -293,6 +325,9 @@ export default function AiChatPage() {
   const [thinking, setThinking] = useState(false);
   const [countdown, setCountdown] = useState(THINKING_COUNTDOWN_INIT);
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>(THINKING_STEPS_INIT);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chatSettings, setChatSettings] = useState<ChatUiSettings>(loadChatUiSettings);
 
   // ── Refs ──
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -308,6 +343,10 @@ export default function AiChatPage() {
   useEffect(() => {
     saveConversations(conversations);
   }, [conversations]);
+
+  useEffect(() => {
+    saveChatUiSettings(chatSettings);
+  }, [chatSettings]);
 
   // ── 自动滚动 ──
   useEffect(() => {
@@ -516,7 +555,15 @@ export default function AiChatPage() {
 
   // ── 键盘：Enter 发送 ──
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key !== 'Enter') return;
+
+    if (chatSettings.enterToSend && !e.shiftKey) {
+      e.preventDefault();
+      void sendMessage(input);
+      return;
+    }
+
+    if (!chatSettings.enterToSend && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       void sendMessage(input);
     }
@@ -561,6 +608,19 @@ export default function AiChatPage() {
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
   };
+
+  const handleOpenHelp = useCallback(() => {
+    setHelpOpen(true);
+  }, []);
+
+  const handleOpenSettings = useCallback(() => {
+    setSettingsOpen(true);
+  }, []);
+
+  const handleApplySettings = useCallback(() => {
+    setSettingsOpen(false);
+    showToast({ type: 'success', message: 'AI 助手设置已保存' });
+  }, [showToast]);
 
   const hasMessages = messages.length > 0;
   const contextTokens = estimateTokens(messages);
@@ -713,10 +773,20 @@ export default function AiChatPage() {
         </nav>
 
         <div className={styles['ai-chat__sidebar-footer']}>
-          <button className={styles['ai-chat__sidebar-footer-btn']} aria-label="帮助">
+          <button
+            className={styles['ai-chat__sidebar-footer-btn']}
+            aria-label="帮助"
+            type="button"
+            onClick={handleOpenHelp}
+          >
             ? 帮助
           </button>
-          <button className={styles['ai-chat__sidebar-footer-btn']} aria-label="设置">
+          <button
+            className={styles['ai-chat__sidebar-footer-btn']}
+            aria-label="设置"
+            type="button"
+            onClick={handleOpenSettings}
+          >
             ⚙ 设置
           </button>
         </div>
@@ -856,7 +926,7 @@ export default function AiChatPage() {
         </div>
 
         {/* 快捷回复 Chips */}
-        {hasMessages && !thinking && (
+        {hasMessages && !thinking && chatSettings.quickRepliesEnabled && (
           <div className={styles['ai-chat__quick-replies']} aria-label="快捷回复建议">
             {QUICK_REPLY_CHIPS.map((chip) => (
               <button
@@ -880,7 +950,7 @@ export default function AiChatPage() {
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="输入问题，如：当前缺料情况…"
+            placeholder={chatSettings.enterToSend ? '输入问题，如：当前缺料情况…' : '输入问题，按 Ctrl/Cmd + Enter 发送'}
             maxLength={500}
             disabled={thinking}
             aria-label="向 AI 助手提问"
@@ -896,6 +966,79 @@ export default function AiChatPage() {
           </button>
         </div>
       </main>
+
+      <Modal
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        title="AI 助手帮助"
+        hideFooter
+        size="md"
+      >
+        <div className={styles['ai-chat__modal-content']}>
+          <section className={styles['ai-chat__modal-section']}>
+            <h3>使用说明</h3>
+            <ul>
+              <li>可直接输入库存、采购、排产、质检等业务问题。</li>
+              <li>支持点击常见问题卡片快速发起提问。</li>
+              <li>支持导出对话结果，便于留存分析记录。</li>
+            </ul>
+          </section>
+          <section className={styles['ai-chat__modal-section']}>
+            <h3>快捷键</h3>
+            <ul>
+              <li>{chatSettings.enterToSend ? 'Enter 发送消息' : 'Ctrl/Cmd + Enter 发送消息'}</li>
+              <li>Esc 关闭弹窗</li>
+            </ul>
+          </section>
+          <div className={styles['ai-chat__modal-actions']}>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setHelpOpen(false);
+                setInput('请给我一份今日库存预警与采购动作建议');
+                inputRef.current?.focus();
+              }}
+            >
+              插入示例问题
+            </Button>
+            <Button variant="ghost" onClick={() => setHelpOpen(false)}>
+              关闭
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        title="AI 助手设置"
+        onConfirm={handleApplySettings}
+        confirmLabel="保存设置"
+        size="md"
+      >
+        <div className={styles['ai-chat__modal-content']}>
+          <section className={styles['ai-chat__modal-section']}>
+            <label className={styles['ai-chat__setting-row']}>
+              <input
+                type="checkbox"
+                checked={chatSettings.enterToSend}
+                onChange={(e) => setChatSettings((prev) => ({ ...prev, enterToSend: e.target.checked }))}
+              />
+              <span>启用 Enter 发送消息（关闭后使用 Ctrl/Cmd + Enter）</span>
+            </label>
+            <label className={styles['ai-chat__setting-row']}>
+              <input
+                type="checkbox"
+                checked={chatSettings.quickRepliesEnabled}
+                onChange={(e) =>
+                  setChatSettings((prev) => ({ ...prev, quickRepliesEnabled: e.target.checked }))
+                }
+              />
+              <span>显示快捷回复建议</span>
+            </label>
+          </section>
+        </div>
+      </Modal>
     </div>
   );
 }

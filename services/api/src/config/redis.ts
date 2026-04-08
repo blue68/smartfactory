@@ -91,6 +91,12 @@ export const RedisKeys = {
    */
   userRefreshTokenSet: (tenantId: number, userId: number) =>
     `rt:user:${tenantId}:${userId}`,
+  inventoryWarehouseMetric: (
+    tenantId: number,
+    date: string,
+    metric: 'missing_param_requests' | 'invalid_location_requests' | 'default_location_fallback_writes',
+    sourceRef: string,
+  ) => `metrics:inv_wh:${tenantId}:${date}:${metric}:${sourceRef}`,
 } as const;
 
 /**
@@ -107,6 +113,8 @@ export const RedisTTL = {
   LOCK: 5,
   /** SEC-004: Refresh Token 有效期，与 JWT 签发时保持一致：7 天 */
   REFRESH_TOKEN: 7 * 24 * 3600,
+  /** 仓库/库位治理指标（日维度） */
+  METRICS_DAILY: 45 * 24 * 3600,
 } as const;
 
 /**

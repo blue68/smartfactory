@@ -56,6 +56,7 @@ when_to_run:
 - 改缺料看板页的缺料聚合、风险分层、工单联动详情、工单级采购建议按钮、或缺料页到采购建议的浏览器交互：至少跑 `npm run test:production-shortage:ui:smoke`；若影响“为当前工单生成采购建议”这类真实写路径，再跑 `npm run test:production-shortage:ui:regression`。
 - 改库存总览页的日结快照、实时库存追溯、手动入库、以及字符串 `skuId` 到浏览器提交流的兼容处理：至少跑 `npm run test:inventory:ui:smoke`。
 - 若影响库存追溯的快照入口来源、追溯筛选/清空、实时流水读模型、或更长的库存浏览器联动链路，再跑 `npm run test:inventory:ui:regression`。
+- 若同时改动“缺料看板默认仓位治理入口”与“库存页治理模式（仅看默认仓位/退出治理模式/重置筛选）”，额外跑 `PLAYWRIGHT_APP_BASE_URL=http://127.0.0.1:5173 npm run test:inventory-warehouse:ui:governance`。
 - 改库存盘点页的任务列表、查看明细、创建盘点、确认盘点、或库存盘点与库存流水/日结快照的浏览器联动：至少跑 `npm run test:stocktaking:ui:smoke`；若影响在盘任务确认、差异库存调整、或更长的盘点写路径，再跑 `npm run test:stocktaking:ui:regression`。
 - 改来料质检页的任务列表、质检单详情抽屉、页内新建质检单、提交质检结论、或来料质检与入库/退货副作用的浏览器联动：至少跑 `npm run test:incoming-inspection:ui:smoke`；若影响部分合格提交、入库与退货双副作用、或更长的质检写路径，再跑 `npm run test:incoming-inspection:ui:regression`。
 - 改销售结算页的应收汇总、草稿确认、标记已付、以及角色权限按钮联动：至少跑 `npm run test:settlement:ui:smoke`。
@@ -106,6 +107,7 @@ recommended_commands:
 - 库存总览前端 Playwright 冒烟：`npm run test:inventory:ui:smoke`
 - 库存总览前端 Playwright 回归：`npm run test:inventory:ui:regression`
 - 库存总览前端 Playwright 全量：`npm run test:inventory:ui`
+- 库存仓位治理前端 Playwright 聚合回归：`PLAYWRIGHT_APP_BASE_URL=http://127.0.0.1:5173 npm run test:inventory-warehouse:ui:governance`
 - 库存盘点前端 Playwright 冒烟：`npm run test:stocktaking:ui:smoke`
 - 库存盘点前端 Playwright 回归：`npm run test:stocktaking:ui:regression`
 - 库存盘点前端 Playwright 全量：`npm run test:stocktaking:ui`

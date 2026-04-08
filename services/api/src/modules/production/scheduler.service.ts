@@ -6,6 +6,7 @@ import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import { ProductionPhase1Service } from './production-phase1.service';
 import { WorkflowEngineService } from './workflow-engine.service';
+import { resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
 
 // ─── 类型定义 ──────────────────────────────────────────────────
 
@@ -792,6 +793,12 @@ export class SchedulerService {
           const completedQty = new Decimal(order.qty_completed);
           const inventoryNote = `生产工单 ${order.work_order_no} 全部任务完工，成品自动入库`;
           const stockUnit = String(order.stock_unit ?? 'pcs');
+          const warehouseLocation = await resolveWarehouseLocationBinding({
+            manager,
+            tenantId: this.tenantId,
+            userId: this.userId,
+            sourceRef: 'production:scheduler:complete',
+          });
 
           const [existingTxRow] = await manager.query<Array<{ cnt: string }>>(
             `SELECT COUNT(*) AS cnt
@@ -823,15 +830,20 @@ export class SchedulerService {
           await manager.query(
             `INSERT INTO inventory_transactions
                (tenant_id, transaction_no, sku_id, transaction_type, direction,
+                warehouse_id, location_id, source_ref,
                 qty_input, input_unit, qty_stock_unit, stock_unit,
-                reference_type, reference_id, reference_no, notes, created_by)
+                reference_type, reference_id, reference_no, notes, created_by, updated_by)
              VALUES (?,?,?,'PRODUCTION_IN','IN',
+                     ?,?,?, 
                      ?,?,?,?,
-                     'production_order',?,?,?,?)`,
+                     'production_order',?,?,?, ?, ?)`,
             [
               this.tenantId,
               txNo,
               order.sku_id,
+              warehouseLocation.warehouseId,
+              warehouseLocation.locationId,
+              'production:scheduler:complete',
               completedQty.toFixed(4),     // qty_input（原始数量，已是库存单位）
               stockUnit,
               completedQty.toFixed(4),     // qty_stock_unit
@@ -840,17 +852,32 @@ export class SchedulerService {
               order.work_order_no,
               inventoryNote,
               this.userId,
+              this.userId,
             ],
           );
 
           // 4. UPSERT 库存快照：增加 qty_on_hand（首次则新建行）
           await manager.query(
-            `INSERT INTO inventory (tenant_id, sku_id, qty_on_hand, qty_reserved, qty_in_transit, last_in_at)
-             VALUES (?, ?, ?, 0, 0, NOW())
+            `INSERT INTO inventory
+               (tenant_id, sku_id, warehouse_id, location_id, source_ref,
+                qty_on_hand, qty_reserved, qty_in_transit, last_in_at, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(), ?)
              ON DUPLICATE KEY UPDATE
                qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
-               last_in_at  = NOW()`,
-            [this.tenantId, order.sku_id, completedQty.toFixed(4)],
+               warehouse_id = VALUES(warehouse_id),
+               location_id = VALUES(location_id),
+               source_ref = VALUES(source_ref),
+               last_in_at  = NOW(),
+               updated_by = VALUES(updated_by)`,
+            [
+              this.tenantId,
+              order.sku_id,
+              warehouseLocation.warehouseId,
+              warehouseLocation.locationId,
+              'production:scheduler:complete',
+              completedQty.toFixed(4),
+              this.userId,
+            ],
           );
 
           await this.syncInventoryDailySnapshot(manager, order.sku_id);

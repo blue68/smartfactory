@@ -19,6 +19,7 @@ jest.mock('../../src/modules/settlement/settlement.controller', () => ({
     getReceivable: jest.fn(),
     exportCsv: jest.fn(),
     createSettlement: jest.fn(),
+    listPendingOrders: jest.fn(),
     listSettlements: jest.fn(),
     getSettlement: jest.fn(),
     confirmSettlement: jest.fn(),
@@ -55,12 +56,14 @@ describe('settlement.routes wiring', () => {
 
     expect(routePaths.indexOf('/receivable')).toBeLessThan(routePaths.indexOf('/:id'));
     expect(routePaths.indexOf('/export/csv')).toBeLessThan(routePaths.indexOf('/:id'));
+    expect(routePaths.indexOf('/pending-orders')).toBeLessThan(routePaths.indexOf('/:id'));
   });
 
   it('declares expected role guards', () => {
     expect(getRouteRoles('/receivable', 'get')).toEqual(['boss', 'supervisor']);
     expect(getRouteRoles('/export/csv', 'get')).toEqual(['boss', 'supervisor']);
     expect(getRouteRoles('/', 'post')).toEqual(['boss', 'supervisor']);
+    expect(getRouteRoles('/pending-orders', 'get')).toEqual(['boss', 'supervisor', 'sales']);
     expect(getRouteRoles('/', 'get')).toEqual(['boss', 'supervisor', 'sales']);
     expect(getRouteRoles('/:id/confirm', 'put')).toEqual(['boss']);
     expect(getRouteRoles('/:id/pay', 'put')).toEqual(['boss']);

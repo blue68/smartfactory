@@ -611,6 +611,8 @@ export class SalesOrderService {
     id: number,
     trackingNo?: string,
     shippedItemsInput?: Array<{ orderItemId: number; shippedQty: number }>,
+    warehouseId?: number,
+    locationId?: number,
   ): Promise<void> {
     const order = await this._loadOrder(id);
     const SHIPPABLE_STATUSES: SalesOrderStatus[] = ['in_production', 'produced', 'partial_shipped'];
@@ -685,6 +687,8 @@ export class SalesOrderService {
 
     const shipResult = await this._salesFlowService().shipOrder(id, {
       trackingNo,
+      warehouseId,
+      locationId,
       shippedItems,
     });
 

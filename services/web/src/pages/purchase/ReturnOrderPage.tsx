@@ -9,6 +9,7 @@ import {
   type ReturnOrder,
   type ReturnOrderItem,
 } from '@/api/returnOrder';
+import { useWarehouseOptions, useLocationOptions } from '@/api/inventory';
 import { useAppStore } from '@/stores/appStore';
 import Drawer from '@/components/common/Drawer';
 import Modal from '@/components/common/Modal';
@@ -277,6 +278,8 @@ export default function ReturnOrderPage() {
   const [completeTarget, setCompleteTarget] = useState<ReturnOrder | null>(null);
   const [trackingNo, setTrackingNo] = useState('');
   const [shipNotes, setShipNotes] = useState('');
+  const [shipWarehouseId, setShipWarehouseId] = useState<number | ''>('');
+  const [shipLocationId, setShipLocationId] = useState<number | ''>('');
   const [completeNotes, setCompleteNotes] = useState('');
 
   const { data, isLoading } = useReturnOrderList({
@@ -290,6 +293,11 @@ export default function ReturnOrderPage() {
   const confirmMutation = useConfirmReturnOrder();
   const shipMutation = useShipReturnOrder();
   const completeMutation = useCompleteReturnOrder();
+  const { data: warehouseOptions = [] } = useWarehouseOptions(true);
+  const { data: locationOptions = [] } = useLocationOptions(
+    shipWarehouseId === '' ? undefined : Number(shipWarehouseId),
+    true,
+  );
 
   useEffect(() => {
     setPageTitle('退货管理');
@@ -324,7 +332,24 @@ export default function ReturnOrderPage() {
     setShipTarget(record);
     setTrackingNo('');
     setShipNotes('');
+    setShipWarehouseId('');
+    setShipLocationId('');
   }, []);
+
+  useEffect(() => {
+    if (!shipTarget || warehouseOptions.length === 0 || shipWarehouseId !== '') return;
+    setShipWarehouseId(Number(warehouseOptions[0].id));
+  }, [shipTarget, warehouseOptions, shipWarehouseId]);
+
+  useEffect(() => {
+    if (!shipTarget) return;
+    setShipLocationId('');
+  }, [shipWarehouseId, shipTarget]);
+
+  useEffect(() => {
+    if (!shipTarget || locationOptions.length === 0 || shipLocationId !== '') return;
+    setShipLocationId(Number(locationOptions[0].id));
+  }, [shipTarget, locationOptions, shipLocationId]);
 
   const openCompleteModal = useCallback((record: ReturnOrder) => {
     setCompleteTarget(record);
@@ -333,18 +358,26 @@ export default function ReturnOrderPage() {
 
   const submitShip = async () => {
     if (!shipTarget) return;
+    if (shipWarehouseId === '' || shipLocationId === '') {
+      showToast({ type: 'warning', message: '请选择仓库和库位' });
+      return;
+    }
     try {
       await shipMutation.mutateAsync({
         id: shipTarget.id,
         data: {
           trackingNo: trackingNo.trim() || undefined,
           notes: shipNotes.trim() || undefined,
+          warehouseId: Number(shipWarehouseId),
+          locationId: Number(shipLocationId),
         },
       });
       showToast({ type: 'success', message: `退货单 ${shipTarget.returnNo} 已标记发出` });
       setShipTarget(null);
       setTrackingNo('');
       setShipNotes('');
+      setShipWarehouseId('');
+      setShipLocationId('');
     } catch (error) {
       showToast({ type: 'error', message: (error as Error).message || '标记发出失败' });
     }
@@ -721,7 +754,11 @@ export default function ReturnOrderPage() {
 
       <Modal
         open={shipTarget !== null}
-        onClose={() => setShipTarget(null)}
+        onClose={() => {
+          setShipTarget(null);
+          setShipWarehouseId('');
+          setShipLocationId('');
+        }}
         onConfirm={() => void submitShip()}
         confirmLabel="确认发出"
         confirmLoading={shipMutation.isPending}
@@ -737,6 +774,45 @@ export default function ReturnOrderPage() {
               onChange={(event) => setTrackingNo(event.target.value)}
               placeholder="选填，记录发出物流单号"
             />
+          </label>
+          <label className={styles.formField}>
+            <span>发出仓库</span>
+            <select
+              className={styles.select}
+              value={shipWarehouseId === '' ? '' : String(shipWarehouseId)}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setShipWarehouseId(nextValue ? Number(nextValue) : '');
+              }}
+            >
+              <option value="">请选择仓库</option>
+              {warehouseOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.code} · {option.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.formField}>
+            <span>发出库位</span>
+            <select
+              className={styles.select}
+              value={shipLocationId === '' ? '' : String(shipLocationId)}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setShipLocationId(nextValue ? Number(nextValue) : '');
+              }}
+              disabled={shipWarehouseId === ''}
+            >
+              <option value="">
+                {shipWarehouseId === '' ? '请先选择仓库' : '请选择库位'}
+              </option>
+              {locationOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.code} · {option.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label className={styles.formField}>
             <span>发出备注</span>

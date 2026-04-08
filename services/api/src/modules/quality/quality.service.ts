@@ -139,10 +139,22 @@ export class QualityService {
   // ── 创建验货单 ────────────────────────────────────────────
 
   async createInspection(params: {
-    productionOrderId: number;
+    productionOrderNo: string;
     inspectionDate: string;
     qtyInspected: string;
   }): Promise<{ id: number; inspectionNo: string }> {
+    const [order] = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT id
+       FROM production_orders
+       WHERE tenant_id = ? AND work_order_no = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+      [this.tenantId, params.productionOrderNo],
+    );
+    if (!order) {
+      throw AppError.notFound('生产工单号不存在', ResponseCode.PRODUCTION_ORDER_NOT_FOUND);
+    }
+
     const inspectionNo = `QC${Date.now()}${Math.floor(Math.random() * 999).toString().padStart(3, '0')}`;
 
     const result = await AppDataSource.query(
@@ -151,37 +163,163 @@ export class QualityService {
           inspection_date, qty_inspected, qty_passed, qty_failed, status, created_by, updated_by)
        VALUES (?,?,?,?,?,?,0,0,'draft',?,?)`,
       [
-        this.tenantId, inspectionNo, params.productionOrderId, this.userId,
+        this.tenantId, inspectionNo, order.id, this.userId,
         params.inspectionDate, params.qtyInspected, this.userId, this.userId,
       ],
     );
     return { id: Number(result.insertId), inspectionNo };
   }
 
+  async listProductionOrderOptions(params: {
+    keyword?: string;
+    limit: number;
+  }): Promise<Array<{
+    id: number;
+    workOrderNo: string;
+    skuName: string;
+    salesOrderNo: string;
+    status: string;
+    plannedStart: string | null;
+    plannedEnd: string | null;
+  }>> {
+    const conds = ['po.tenant_id = ?', "po.status <> 'cancelled'"];
+    const queryParams: unknown[] = [this.tenantId];
+    const keyword = params.keyword?.trim();
+
+    if (keyword) {
+      const like = `%${keyword}%`;
+      conds.push('(po.work_order_no LIKE ? OR s.name LIKE ? OR so.order_no LIKE ?)');
+      queryParams.push(like, like, like);
+    }
+
+    const where = conds.join(' AND ');
+    const rows = await AppDataSource.query<Array<{
+      id: number;
+      work_order_no: string;
+      sku_name: string;
+      sales_order_no: string;
+      status: string;
+      planned_start: string | null;
+      planned_end: string | null;
+    }>>(
+      `SELECT po.id,
+              po.work_order_no,
+              s.name AS sku_name,
+              so.order_no AS sales_order_no,
+              po.status,
+              po.planned_start,
+              po.planned_end
+       FROM production_orders po
+       INNER JOIN skus s ON s.id = po.sku_id
+       INNER JOIN sales_orders so ON so.id = po.sales_order_id
+       WHERE ${where}
+       ORDER BY
+         CASE po.status
+           WHEN 'in_progress' THEN 1
+           WHEN 'scheduled' THEN 2
+           WHEN 'pending' THEN 3
+           WHEN 'completed' THEN 4
+           ELSE 5
+         END,
+         po.updated_at DESC
+       LIMIT ?`,
+      [...queryParams, params.limit],
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      workOrderNo: row.work_order_no,
+      skuName: row.sku_name,
+      salesOrderNo: row.sales_order_no,
+      status: row.status,
+      plannedStart: row.planned_start,
+      plannedEnd: row.planned_end,
+    }));
+  }
+
+  async listInspectionOptions(params: {
+    keyword?: string;
+    limit: number;
+  }): Promise<Array<{
+    id: number;
+    inspectionNo: string;
+    inspectionDate: string;
+    workOrderNo: string;
+    skuName: string;
+    status: string;
+  }>> {
+    const conds = ['ir.tenant_id = ?'];
+    const queryParams: unknown[] = [this.tenantId];
+    const keyword = params.keyword?.trim();
+
+    if (keyword) {
+      const like = `%${keyword}%`;
+      conds.push('(ir.inspection_no LIKE ? OR po.work_order_no LIKE ? OR s.name LIKE ?)');
+      queryParams.push(like, like, like);
+    }
+
+    const where = conds.join(' AND ');
+    const rows = await AppDataSource.query<Array<{
+      id: number;
+      inspection_no: string;
+      inspection_date: string;
+      work_order_no: string;
+      sku_name: string;
+      status: string;
+    }>>(
+      `SELECT ir.id,
+              ir.inspection_no,
+              ir.inspection_date,
+              po.work_order_no,
+              s.name AS sku_name,
+              ir.status
+       FROM inspection_records ir
+       INNER JOIN production_orders po ON po.id = ir.production_order_id
+       INNER JOIN skus s ON s.id = po.sku_id
+       WHERE ${where}
+       ORDER BY ir.id DESC
+       LIMIT ?`,
+      [...queryParams, params.limit],
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      inspectionNo: row.inspection_no,
+      inspectionDate: row.inspection_date,
+      workOrderNo: row.work_order_no,
+      skuName: row.sku_name,
+      status: row.status,
+    }));
+  }
+
   // ── 录入质量问题 ─────────────────────────────────────────
 
   async recordQualityIssue(params: {
-    inspectionId: number;
+    inspectionNo: string;
     componentName: string;
     issueTypes: string[];
     severity: 'minor' | 'normal' | 'severe';
     description?: string;
     images?: string[];
   }): Promise<{ issueId: number }> {
-    // 校验验货单存在且属于本租户
-    const [insp] = await AppDataSource.query<Array<{ id: number; qty_failed: number }>>(
-      'SELECT id, qty_failed FROM inspection_records WHERE id = ? AND tenant_id = ? LIMIT 1',
-      [params.inspectionId, this.tenantId],
+    const [inspection] = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT id
+       FROM inspection_records
+       WHERE tenant_id = ? AND inspection_no = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+      [this.tenantId, params.inspectionNo],
     );
-    if (!insp) throw AppError.notFound('验货单不存在');
+    if (!inspection) throw AppError.notFound('验货单号不存在');
 
+    // 校验验货单存在且属于本租户
     const result = await AppDataSource.query(
       `INSERT INTO quality_issues
          (tenant_id, inspection_id, component_name, issue_types, severity,
           description, images, created_by, updated_by)
        VALUES (?,?,?,?,?,?,?,?,?)`,
       [
-        this.tenantId, params.inspectionId, params.componentName,
+        this.tenantId, inspection.id, params.componentName,
         JSON.stringify(params.issueTypes), params.severity,
         params.description ?? null,
         params.images ? JSON.stringify(params.images) : null,
@@ -194,7 +332,7 @@ export class QualityService {
       `UPDATE inspection_records
        SET qty_failed = qty_failed + 1, updated_by = ?
        WHERE id = ? AND tenant_id = ?`,
-      [this.userId, params.inspectionId, this.tenantId],
+      [this.userId, inspection.id, this.tenantId],
     );
 
     return { issueId: Number(result.insertId) };
@@ -540,7 +678,7 @@ export class QualityService {
     id: number; inspectionId: number; inspectionNo: string;
     productionOrderId: number; productionOrderNo: string;
     componentName: string; issueTypes: string[]; severity: string;
-    description: string | null; createdAt: Date;
+    description: string | null; images: string[] | null; createdAt: Date;
   }>; total: number }> {
     const conds = ['qi.tenant_id = ?'];
     const p: unknown[] = [this.tenantId];
@@ -563,12 +701,12 @@ export class QualityService {
         id: number; inspection_id: number; inspection_no: string;
         production_order_id: number; production_order_no: string;
         component_name: string; issue_types: string; severity: string;
-        description: string | null; created_at: Date;
+        description: string | null; images: string | null; created_at: Date;
       }>>(
         `SELECT qi.id, qi.inspection_id, ir.inspection_no,
                 ir.production_order_id, po.work_order_no AS production_order_no,
                 qi.component_name, qi.issue_types, qi.severity,
-                qi.description, qi.created_at
+                qi.description, qi.images, qi.created_at
          FROM quality_issues qi
          INNER JOIN inspection_records ir ON ir.id = qi.inspection_id
          INNER JOIN production_orders po ON po.id = ir.production_order_id
@@ -592,6 +730,7 @@ export class QualityService {
       issueTypes: this.parseJsonStringArray(r.issue_types),
       severity: r.severity,
       description: r.description,
+      images: this.parseOptionalJsonStringArray(r.images),
       createdAt: r.created_at,
     }));
 

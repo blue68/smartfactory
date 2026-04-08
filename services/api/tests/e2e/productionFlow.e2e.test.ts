@@ -1226,6 +1226,7 @@ describe('E2E: 质量检验与溯源', () => {
   const qualityScheduleDate = '2026-04-08';
   let productionOrderId: number;
   let inspectionId: number;
+  let inspectionNo = '';
   let issueId: number;
 
   beforeAll(async () => {
@@ -1235,11 +1236,22 @@ describe('E2E: 质量检验与溯源', () => {
   });
 
   test('Step 12: qc 可创建验货单、登记缺陷并完成验货', async () => {
+    const pool = getDbPool();
+    const [orderRows] = await pool.query<Array<RowDataPacket & { work_order_no: string }>>(
+      `SELECT work_order_no
+       FROM production_orders
+       WHERE id = ? AND tenant_id = ?
+       LIMIT 1`,
+      [productionOrderId, TEST_TENANT_ID],
+    );
+    const productionOrderNo = String(orderRows[0]?.work_order_no ?? '');
+    expect(productionOrderNo).not.toBe('');
+
     const createRes = await request(BASE_URL)
       .post('/api/quality/inspections')
       .set(authHeader('qc'))
       .send({
-        productionOrderId,
+        productionOrderNo,
         inspectionDate: qualityScheduleDate,
         qtyInspected: '5',
       });
@@ -1247,7 +1259,9 @@ describe('E2E: 质量检验与溯源', () => {
     expect(createRes.status).toBe(201);
     expect(createRes.body.code).toBe(0);
     inspectionId = Number(createRes.body.data.id);
+    inspectionNo = String(createRes.body.data.inspectionNo ?? '');
     expect(inspectionId).toBeGreaterThan(0);
+    expect(inspectionNo).not.toBe('');
 
     const listRes = await request(BASE_URL)
       .get(`/api/quality/inspections?page=1&pageSize=20&productionOrderId=${productionOrderId}`)
@@ -1262,7 +1276,7 @@ describe('E2E: 质量检验与溯源', () => {
       .post('/api/quality/inspections/issues')
       .set(authHeader('qc'))
       .send({
-        inspectionId,
+        inspectionNo,
         componentName: 'E2E成品外观',
         issueTypes: ['appearance'],
         severity: 'normal',
@@ -1282,7 +1296,6 @@ describe('E2E: 质量检验与溯源', () => {
     expect(completeRes.status).toBe(200);
     expect(completeRes.body.code).toBe(0);
 
-    const pool = getDbPool();
     const [inspectionRows] = await pool.query<Array<RowDataPacket & {
       status: string;
       qty_failed: string;

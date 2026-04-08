@@ -87,6 +87,46 @@ describe('Settlement service regressions', () => {
     expect(manager.query).toHaveBeenCalledTimes(2);
   });
 
+  it('allows creating settlement for partial_shipped sales order', async () => {
+    const manager = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce([
+          { id: 9, order_no: 'SO-9', customer_id: 4, total_amount: '800.00', status: 'partial_shipped' },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ insertId: 72 }]),
+    };
+    mockAppDataSource.transaction.mockImplementation(async (cb: any) => cb(manager));
+    jest.spyOn(generateNoModule, 'generateNo').mockResolvedValue('ST-72');
+    mockAppDataSource.query.mockResolvedValueOnce([
+      {
+        id: 72,
+        settlement_no: 'ST-72',
+        customer_id: 4,
+        customer_name: '华南客户',
+        order_id: 9,
+        order_no: 'SO-9',
+        total_amount: '800.00',
+        status: 'draft',
+        due_date: null,
+        confirmed_by: null,
+        confirmed_at: null,
+        paid_at: null,
+        notes: null,
+        created_by: 100,
+        created_at: '2026-03-31 11:00:00',
+        updated_at: '2026-03-31 11:00:00',
+      },
+    ]);
+
+    const svc = new SettlementService({ tenantId: 9, userId: 100 });
+    const result = await svc.createSettlement({ orderId: 9 });
+
+    expect(result.orderId).toBe(9);
+    expect(result.status).toBe('draft');
+  });
+
   it('locks settlement row before confirming and updates draft to confirmed', async () => {
     const manager = {
       query: jest

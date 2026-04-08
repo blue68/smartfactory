@@ -45,6 +45,26 @@ type ComponentRow = ProductionOrderComponent;
 type OperationRow = ProductionOrderOperation;
 const EMPTY_ORDER_ROWS: OrderRow[] = [];
 
+interface SnapshotStep {
+  id?: number | string;
+  stepNo?: number | string;
+  step_no?: number | string;
+  stepName?: string;
+  step_name?: string;
+  workstationType?: string | null;
+  workstation_type?: string | null;
+  standardHours?: number | string | null;
+  standard_hours?: number | string | null;
+  maxHours?: number | string | null;
+  max_hours?: number | string | null;
+}
+
+interface ProcessSnapshotData {
+  templateName?: string;
+  snapshotAt?: string;
+  steps?: SnapshotStep[];
+}
+
 // ── Constants ──────────────────────────────────────────────────────
 
 const STATUS_MAP: Record<string, { label: string; cls: string; dot?: string }> = {
@@ -98,6 +118,35 @@ function formatQty(value: number | string | null | undefined): string {
   return Number.isInteger(numeric) ? `${numeric}` : numeric.toFixed(2);
 }
 
+function formatDecimal(value: number | string | null | undefined, digits = 4): string {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return '0';
+  return numeric.toFixed(digits);
+}
+
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  const hours = `${date.getHours()}`.padStart(2, '0');
+  const minutes = `${date.getMinutes()}`.padStart(2, '0');
+  const seconds = `${date.getSeconds()}`.padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function componentTypeLabel(type: ComponentRow['componentType']): string {
   switch (type) {
     case 'fg': return '成品';
@@ -105,6 +154,55 @@ function componentTypeLabel(type: ComponentRow['componentType']): string {
     case 'rm': return '原材料';
     default: return '组件';
   }
+}
+
+function normalizeStatusKey(status?: string | null): string {
+  return String(status ?? '').trim().toLowerCase();
+}
+
+function operationStatusLabel(status?: string | null): string {
+  switch (normalizeStatusKey(status)) {
+    case 'completed':
+      return '已完成';
+    case 'in_progress':
+    case 'started':
+      return '进行中';
+    case 'scheduled':
+      return '已排产';
+    case 'released':
+      return '已释放';
+    case 'pending':
+      return '待开始';
+    case 'cancelled':
+      return '已取消';
+    default:
+      return status || '—';
+  }
+}
+
+function describeComponentPath(component: ComponentRow, componentMap: Map<number, ComponentRow>): string {
+  const chain: string[] = [];
+  const visited = new Set<number>();
+  let current: ComponentRow | undefined = component;
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    chain.unshift(`${componentTypeLabel(current.componentType)} · ${current.resolvedSkuName ?? current.skuName}`);
+    current = current.parentComponentId ? componentMap.get(current.parentComponentId) : undefined;
+  }
+  return chain.join(' > ');
+}
+
+function normalizeProcessSnapshot(detail: Record<string, unknown>): ProcessSnapshotData | null {
+  const raw = detail.processSnapshot ?? detail.process_snapshot;
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as ProcessSnapshotData;
+    } catch {
+      return null;
+    }
+  }
+  return raw as ProcessSnapshotData;
 }
 
 // ── Progress Pill 内联组件 ──────────────────────────────────────────
@@ -152,10 +250,10 @@ function BomStatusBar({ materialStatus }: { materialStatus?: string }) {
 
 function MaterialTable({ materials }: { materials: MaterialRow[] }) {
   if (!materials.length) {
-    return <div style={{ color: '#9ca3af', fontSize: '0.875rem', textAlign: 'center', padding: '2rem 0' }}>暂无物料需求数据</div>;
+    return <div className={styles.tableEmptyState}>暂无物料需求数据</div>;
   }
   return (
-    <div style={{ overflowX: 'auto', border: '1px solid #E2E8F0', borderRadius: 10, boxShadow: '0 1px 2px rgba(15,23,42,.04)' }}>
+    <div className={styles.tableCard}>
       <table className={styles.bomTable}>
         <thead>
           <tr>
@@ -187,13 +285,13 @@ function MaterialTable({ materials }: { materials: MaterialRow[] }) {
                   <span className={styles.matName}>{m.skuName}</span>
                 </td>
                 <td className={styles.colUnit}>{m.purchaseUnit ?? '—'}</td>
-                <td className={styles.colNum}>{m.qtyRequired}</td>
-                <td className={styles.colNum}>{m.currentStock}</td>
-                <td className={styles.colNum}>{m.inTransit}</td>
+                <td className={styles.colNum}>{formatDecimal(m.qtyRequired, 4)}</td>
+                <td className={styles.colNum}>{formatDecimal(m.currentStock, 4)}</td>
+                <td className={styles.colNum}>{formatDecimal(m.inTransit, 6)}</td>
                 <td className={styles.colNum}>
                   {shortage > 0
-                    ? <span className={styles.shortagePositive}>{m.qtyShortage}</span>
-                    : <span className={styles.shortageZero}>{m.qtyShortage}</span>
+                    ? <span className={styles.shortagePositive}>{formatDecimal(m.qtyShortage, 4)}</span>
+                    : <span className={styles.shortageZero}>{formatDecimal(m.qtyShortage, 4)}</span>
                   }
                 </td>
                 <td className={styles.colStatus}>
@@ -208,18 +306,8 @@ function MaterialTable({ materials }: { materials: MaterialRow[] }) {
   );
 }
 
-// ── 工艺快照组件 ────────────────────────────────────────────────────
-
-interface SnapshotStep {
-  stepNo: number;
-  name: string;
-  workstationType?: string;
-  standardHours?: number | string;
-  maxHours?: number | string;
-}
-
 function ProcessSnapshot({ detail }: { detail: Record<string, unknown> }) {
-  const snapshot = detail.processSnapshot as { templateName?: string; snapshotAt?: string; steps?: SnapshotStep[] } | null | undefined;
+  const snapshot = normalizeProcessSnapshot(detail);
 
   if (!snapshot) {
     return (
@@ -236,36 +324,45 @@ function ProcessSnapshot({ detail }: { detail: Record<string, unknown> }) {
       <div className={styles.snapshotBanner}>
         <strong>模板：</strong>{snapshot.templateName ?? '—'}
         {snapshot.snapshotAt && (
-          <span style={{ marginLeft: '1rem', color: '#64748b' }}>
-            快照时间：{new Date(snapshot.snapshotAt).toLocaleString('zh-CN')}
+          <span className={styles.snapshotBanner__meta}>
+            快照时间：{formatDateTime(snapshot.snapshotAt)}
           </span>
         )}
       </div>
       {snapshot.steps && snapshot.steps.length > 0 ? (
-        <table className={styles.bomTable}>
-          <thead>
-            <tr>
-              <th>序号</th>
-              <th>工序名称</th>
-              <th>工种</th>
-              <th className={styles.alignRight}>标准工时(h)</th>
-              <th className={styles.alignRight}>极限工时(h)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {snapshot.steps.map((s) => (
-              <tr key={s.stepNo}>
-                <td style={{ color: '#94a3b8', fontFamily: 'monospace' }}>{s.stepNo}</td>
-                <td style={{ fontWeight: 500 }}>{s.name}</td>
-                <td style={{ color: '#475569' }}>{s.workstationType ?? '—'}</td>
-                <td style={{ textAlign: 'right', color: '#475569' }}>{s.standardHours ?? '—'}</td>
-                <td style={{ textAlign: 'right', color: '#475569' }}>{s.maxHours ?? '—'}</td>
+        <div className={styles.tableCard}>
+          <table className={styles.bomTable}>
+            <thead>
+              <tr>
+                <th className={styles.colCode}>序号</th>
+                <th>工序名称</th>
+                <th>工种</th>
+                <th className={`${styles.colNum} ${styles.alignRight}`}>标准工时(H)</th>
+                <th className={`${styles.colNum} ${styles.alignRight}`}>极限工时(H)</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {snapshot.steps.map((s, index) => {
+                const stepNo = s.stepNo ?? s.step_no ?? index + 1;
+                const stepName = s.stepName ?? s.step_name ?? '—';
+                const workstationType = s.workstationType ?? s.workstation_type ?? '—';
+                const standardHours = s.standardHours ?? s.standard_hours;
+                const maxHours = s.maxHours ?? s.max_hours;
+                return (
+                  <tr key={String(s.id ?? stepNo)}>
+                    <td className={styles.tableMonoCell}>{stepNo}</td>
+                    <td className={styles.tableStrongCell}>{stepName}</td>
+                    <td className={styles.tableMutedCell}>{workstationType}</td>
+                    <td className={styles.colNum}>{standardHours ?? '—'}</td>
+                    <td className={styles.colNum}>{maxHours ?? '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       ) : (
-        <div style={{ color: '#9ca3af', fontSize: '0.875rem', textAlign: 'center', padding: '1rem' }}>快照中无工序步骤</div>
+        <div className={styles.tableEmptyState}>快照中无工序步骤</div>
       )}
     </div>
   );
@@ -303,7 +400,9 @@ function ComponentStructure({ components }: { components: ComponentRow[] }) {
   }, { total: 0, fg: 0, wip: 0, rm: 0, resolved: 0 });
 
   const childrenByParent = new Map<number | null, ComponentRow[]>();
+  const componentMap = new Map<number, ComponentRow>();
   components.forEach((component) => {
+    componentMap.set(component.id, component);
     const key = component.parentComponentId ?? null;
     const bucket = childrenByParent.get(key) ?? [];
     bucket.push(component);
@@ -333,9 +432,9 @@ function ComponentStructure({ components }: { components: ComponentRow[] }) {
                 冻结 SKU：{component.resolvedSkuName ?? component.skuName}
               </div>
             )}
-            {component.bomPath && (
-              <div className={styles.componentNode__path}>路径 {component.bomPath}</div>
-            )}
+            <div className={styles.componentNode__path}>
+              结构路径：{describeComponentPath(component, componentMap)}
+            </div>
           </div>
           {renderNodes(component.id, depth + 1)}
         </div>
@@ -401,8 +500,8 @@ function OperationLane({
           <div key={operation.id} className={styles.operationCard}>
             <div className={styles.operationCard__eyebrow}>
               <span>工序 {operation.stepNo}</span>
-              <span className={`${styles.operationStatus} ${styles[`operationStatus--${operation.status}`] ?? ''}`}>
-                {operation.status}
+              <span className={`${styles.operationStatus} ${styles[`operationStatus--${normalizeStatusKey(operation.status)}`] ?? ''}`}>
+                {operationStatusLabel(operation.status)}
               </span>
             </div>
             <div className={styles.operationCard__title}>{operation.stepName}</div>
@@ -434,7 +533,7 @@ function OperationLane({
                 {relatedTasks.slice(0, 3).map((task) => (
                   <div key={task.id} className={styles.operationTask}>
                     <strong>{task.taskNo ?? `任务 #${task.id}`}</strong>
-                    <span>{task.workerName || '待分配'} · {task.taskDate?.slice(0, 10) ?? '未排日'}</span>
+                    <span>{task.workerName || '待分配'} · {formatDate(task.taskDate) ?? '未排日'}</span>
                   </div>
                 ))}
                 {relatedTasks.length > 3 && (
@@ -891,7 +990,7 @@ export default function ProductionOrderPage() {
         open={selectedId !== null}
         onClose={() => setSelectedId(null)}
         title={detail?.workOrderNo ?? '工单详情'}
-        width={780}
+        width="min(1180px, 92vw)"
       >
         {detail && (
           <>
@@ -955,8 +1054,8 @@ export default function ProductionOrderPage() {
                   <dt>工单号</dt><dd>{detail.workOrderNo}</dd>
                   <dt>关联销售单</dt><dd>{detail.salesOrderNo ?? '-'}</dd>
                   <dt>产品名称</dt><dd>{detail.skuName}</dd>
-                  <dt>计划数量</dt><dd>{detail.qtyPlanned}</dd>
-                  <dt>已完成数量</dt><dd>{detail.qtyCompleted}</dd>
+                  <dt>计划数量</dt><dd>{formatDecimal(detail.qtyPlanned, 4)}</dd>
+                  <dt>已完成数量</dt><dd>{formatDecimal(detail.qtyCompleted, 4)}</dd>
                   <dt>工单状态</dt>
                   <dd>
                     <span className={`${styles.badge} ${STATUS_MAP[detail.status]?.cls ?? styles.badgePending}`}>
@@ -964,8 +1063,8 @@ export default function ProductionOrderPage() {
                     </span>
                   </dd>
                   <dt>完成进度</dt><dd>{detail.progressPct ?? 0}%</dd>
-                  <dt>计划开始</dt><dd>{String(detail.plannedStart ?? '-').slice(0, 10)}</dd>
-                  <dt>计划完工</dt><dd>{String(detail.plannedEnd ?? '-').slice(0, 10)}</dd>
+                  <dt>计划开始</dt><dd>{formatDate(detail.plannedStart)}</dd>
+                  <dt>计划完工</dt><dd>{formatDate(detail.plannedEnd)}</dd>
                   <dt>物料状态</dt>
                   <dd>
                     {detail.materialStatus === 'ready'    ? '✓ 全部齐套' :

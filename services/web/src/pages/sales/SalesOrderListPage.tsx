@@ -20,6 +20,8 @@ import {
   useCompleteSalesOrder,
   useCloseSalesOrder,
   useCreateProductionOrders,
+  checkInventory,
+  checkSalesOrderCapacity,
 } from '@/api/salesOrder';
 import type {
   SalesOrder,
@@ -27,9 +29,11 @@ import type {
   SalesOrderStatus,
   SalesOrderListQuery,
   CreateSalesOrderPayload,
+  CapacityConflictingOrder,
 } from '@/api/salesOrder';
 import { useCustomerOptions } from '@/api/customer';
 import { useSkuList } from '@/api/sku';
+import { useWarehouseOptions, useLocationOptions } from '@/api/inventory';
 import { useAuthStore } from '@/stores/authStore';
 import { UserRole } from '@/types/enums';
 import styles from './SalesOrderListPage.module.css';
@@ -108,103 +112,40 @@ interface StatusTimelineProps {
 }
 
 function StatusTimeline({ currentStatus }: StatusTimelineProps) {
-  // For 'closed', show all steps as completed (green) and add a callout below.
   const isClosed = currentStatus === 'closed';
   const effectiveStatus: SalesOrderStatus = isClosed ? 'completed' : currentStatus;
   const currentIndex = TIMELINE_STEPS.findIndex((s) => s.key === effectiveStatus);
 
   return (
-    <div>
-      <div className={styles.statusTimeline}>
-        {TIMELINE_STEPS.map((step, idx) => {
-          const isCompleted = idx < currentIndex;
-          const isActive    = idx === currentIndex && !isClosed;
-
-          // Dot appearance
-          let dotBg: string;
-          let dotBorder: string;
-          let dotContent: React.ReactNode;
-
-          if (isClosed || isCompleted) {
-            dotBg     = 'var(--color-success-600, #16a34a)';
-            dotBorder = 'var(--color-success-600, #16a34a)';
-            dotContent = (
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                <path d="M2 5.5l2.2 2.2L8 3" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            );
-          } else if (isActive) {
-            dotBg     = 'var(--color-primary-600, #2563eb)';
-            dotBorder = 'var(--color-primary-600, #2563eb)';
-            dotContent = (
+    <div className={styles.timelineBar}>
+      {TIMELINE_STEPS.map((step, idx) => {
+        const isCompleted = idx < currentIndex || isClosed;
+        const isActive    = idx === currentIndex && !isClosed;
+        return (
+          <div key={step.key} className={styles.timelinePill}>
+            <span
+              className={`${styles.timelineDot} ${
+                isCompleted ? styles.timelineDotDone : isActive ? styles.timelineDotActive : styles.timelineDotIdle
+              }`}
+            />
+            <span
+              className={`${styles.timelineLabel} ${
+                isCompleted ? styles.timelineLabelDone : isActive ? styles.timelineLabelActive : styles.timelineLabelIdle
+              }`}
+            >
+              {step.label}
+            </span>
+            {idx < TIMELINE_STEPS.length - 1 && (
               <span
-                style={{
-                  display: 'block',
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  background: '#fff',
-                }}
+                className={`${styles.timelineConnector} ${
+                  idx < currentIndex ? styles.timelineConnectorDone : styles.timelineConnectorIdle
+                }`}
               />
-            );
-          } else {
-            dotBg     = '#fff';
-            dotBorder = 'var(--color-gray-300, #d1d5db)';
-            dotContent = null;
-          }
-
-          // Line after this step is green only if both this step and the next
-          // are completed (i.e., the line is fully "passed").
-          const lineCompleted = isClosed || idx < currentIndex - 1 || (isCompleted && idx === currentIndex - 1);
-          const lineColor = lineCompleted
-            ? 'var(--color-success-600, #16a34a)'
-            : 'var(--color-gray-300, #d1d5db)';
-
-          return (
-            <div key={step.key} className={styles.timelineStepWrapper}>
-              {/* Step node */}
-              <div className={styles.timelineStep}>
-                <div
-                  className={styles.timelineDot}
-                  style={{
-                    background: dotBg,
-                    borderColor: dotBorder,
-                  }}
-                >
-                  {dotContent}
-                </div>
-                <span
-                  className={styles.timelineLabel}
-                  style={{
-                    color: (isClosed || isCompleted)
-                      ? 'var(--color-success-600, #16a34a)'
-                      : isActive
-                        ? 'var(--color-primary-600, #2563eb)'
-                        : 'var(--color-gray-400, #9ca3af)',
-                    fontWeight: isActive ? 600 : 400,
-                  }}
-                >
-                  {step.label}
-                </span>
-              </div>
-
-              {/* Connector line — only between steps */}
-              {idx < TIMELINE_STEPS.length - 1 && (
-                <div
-                  className={styles.timelineLine}
-                  style={{ background: lineColor }}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {isClosed && (
-        <div className={styles.timelineClosedNote}>
-          此订单已关闭
-        </div>
-      )}
+            )}
+          </div>
+        );
+      })}
+      {isClosed && <span className={styles.timelineCallout}>已关闭</span>}
     </div>
   );
 }
@@ -273,6 +214,261 @@ function emptyLineItem(): DraftLineItem {
   return { skuId: '', productCode: '', productName: '', quantity: 1, unit: '件', unitPrice: 0 };
 }
 
+function buildAssessmentLinesFromDraftItems(items: DraftLineItem[]): AssessmentLineInput[] {
+  return items
+    .map((item) => ({
+      skuId: Number(item.skuId),
+      productCode: item.productCode ?? '',
+      productName: item.productName ?? '',
+      quantity: Number(item.quantity),
+    }))
+    .filter((item) => Number.isInteger(item.skuId) && item.skuId > 0 && item.quantity > 0);
+}
+
+function buildAssessmentLinesFromOrderItems(items: SalesOrderItem[]): AssessmentLineInput[] {
+  return items
+    .map((item) => ({
+      skuId: Number(item.productId),
+      productCode: item.productCode ?? '',
+      productName: item.productName ?? '',
+      quantity: Number(item.qtyOrdered ?? item.quantity ?? 0),
+    }))
+    .filter((item) => Number.isInteger(item.skuId) && item.skuId > 0 && item.quantity > 0);
+}
+
+interface AssessmentLineInput {
+  skuId: number;
+  productCode: string;
+  productName: string;
+  quantity: number;
+}
+
+interface AssessmentShortageLine {
+  skuId: number;
+  productCode: string;
+  productName: string;
+  requiredQty: number;
+  availableQty: number;
+  stockUnit: string;
+}
+
+interface DeliveryCapacityAssessment {
+  expectedDelivery: string;
+  latestEstimatedCompletionDate: string | null;
+  delayDays: number;
+  capacityAvailable: boolean;
+  inventorySufficient: boolean;
+  currentLoadTotal: number;
+  maxCapacityTotal: number;
+  overloadedLines: string[];
+  shortageLines: AssessmentShortageLine[];
+  conflictingOrders: CapacityConflictingOrder[];
+  failedLineCount: number;
+}
+
+function isISODateString(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(date.getTime());
+}
+
+function getDelayDays(fromDate: string, toDate: string): number {
+  const from = new Date(`${fromDate}T00:00:00`).getTime();
+  const to = new Date(`${toDate}T00:00:00`).getTime();
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return 0;
+  return Math.ceil((to - from) / 86400000);
+}
+
+async function buildDeliveryCapacityAssessment(
+  lines: AssessmentLineInput[],
+  expectedDelivery: string,
+): Promise<DeliveryCapacityAssessment> {
+  const validLines = lines.filter((line) => Number.isInteger(line.skuId) && line.skuId > 0 && line.quantity > 0);
+  if (validLines.length === 0 || !isISODateString(expectedDelivery)) {
+    return {
+      expectedDelivery,
+      latestEstimatedCompletionDate: null,
+      delayDays: 0,
+      capacityAvailable: true,
+      inventorySufficient: true,
+      currentLoadTotal: 0,
+      maxCapacityTotal: 0,
+      overloadedLines: [],
+      shortageLines: [],
+      conflictingOrders: [],
+      failedLineCount: 0,
+    };
+  }
+
+  const lineResults = await Promise.all(
+    validLines.map(async (line) => {
+      try {
+        const [inventory, capacity] = await Promise.all([
+          checkInventory(line.skuId, line.quantity),
+          checkSalesOrderCapacity({
+            skuId: line.skuId,
+            quantity: Math.max(1, Math.round(line.quantity)),
+            expectedDelivery,
+          }),
+        ]);
+        return { line, inventory, capacity, failed: false as const };
+      } catch {
+        return { line, inventory: null, capacity: null, failed: true as const };
+      }
+    }),
+  );
+
+  const shortageLines: AssessmentShortageLine[] = lineResults
+    .filter((item) => item.inventory && !item.inventory.sufficient)
+    .map((item) => ({
+      skuId: item.line.skuId,
+      productCode: item.line.productCode,
+      productName: item.line.productName,
+      requiredQty: item.line.quantity,
+      availableQty: item.inventory?.available ?? 0,
+      stockUnit: item.inventory?.stockUnit ?? '件',
+    }));
+
+  const overloadedLines = lineResults
+    .filter((item) => item.capacity && !item.capacity.available)
+    .map((item) => item.line.productName || item.line.productCode || `SKU#${item.line.skuId}`);
+
+  const conflictMap = new Map<number, CapacityConflictingOrder>();
+  lineResults.forEach((item) => {
+    item.capacity?.conflictingOrders?.forEach((order) => {
+      if (!conflictMap.has(order.id)) {
+        conflictMap.set(order.id, order);
+      }
+    });
+  });
+
+  const estimatedDates = lineResults
+    .map((item) => item.capacity?.estimatedCompletionDate)
+    .filter((date): date is string => Boolean(date) && isISODateString(String(date)));
+
+  const latestEstimatedCompletionDate = estimatedDates.length > 0
+    ? estimatedDates.sort()[estimatedDates.length - 1] ?? null
+    : null;
+
+  return {
+    expectedDelivery,
+    latestEstimatedCompletionDate,
+    delayDays: latestEstimatedCompletionDate ? getDelayDays(expectedDelivery, latestEstimatedCompletionDate) : 0,
+    capacityAvailable: overloadedLines.length === 0,
+    inventorySufficient: shortageLines.length === 0,
+    currentLoadTotal: lineResults.reduce((sum, item) => sum + (item.capacity?.currentLoad ?? 0), 0),
+    maxCapacityTotal: lineResults.reduce((sum, item) => sum + (item.capacity?.maxCapacity ?? 0), 0),
+    overloadedLines,
+    shortageLines,
+    conflictingOrders: Array.from(conflictMap.values()).slice(0, 6),
+    failedLineCount: lineResults.filter((item) => item.failed).length,
+  };
+}
+
+interface DeliveryCapacityPanelProps {
+  title: string;
+  expectedDelivery: string;
+  loading: boolean;
+  error: string;
+  assessment: DeliveryCapacityAssessment | null;
+  approvalContext?: boolean;
+}
+
+function DeliveryCapacityPanel({
+  title,
+  expectedDelivery,
+  loading,
+  error,
+  assessment,
+  approvalContext = false,
+}: DeliveryCapacityPanelProps) {
+  const canEvaluate = isISODateString(expectedDelivery);
+  const loadRatio = assessment && assessment.maxCapacityTotal > 0
+    ? Math.min(999, Math.round((assessment.currentLoadTotal / assessment.maxCapacityTotal) * 100))
+    : null;
+
+  const approvalTip = assessment
+    ? assessment.delayDays > 0 || !assessment.capacityAvailable || !assessment.inventorySufficient
+      ? '存在延期或资源风险，建议审批前与销售和计划协同复核。'
+      : '当前风险可控，可进入审批流程。'
+    : '';
+
+  return (
+    <div className={styles.assessmentPanel}>
+      <div className={styles.assessmentHeader}>
+        <h4 className={styles.assessmentTitle}>{title}</h4>
+        <span className={styles.assessmentTag}>实时计算</span>
+      </div>
+
+      {!canEvaluate && (
+        <div className={styles.assessmentHint}>请选择交期后自动评估。</div>
+      )}
+      {canEvaluate && loading && (
+        <div className={styles.assessmentHint}>正在计算交期与产能，请稍候...</div>
+      )}
+      {canEvaluate && !loading && error && (
+        <div className={styles.assessmentError}>{error}</div>
+      )}
+      {canEvaluate && !loading && assessment && (
+        <>
+          <div className={styles.assessmentGrid}>
+            <div className={styles.assessmentItem}>
+              <span className={styles.assessmentLabel}>预估最早交期</span>
+              <span className={`${styles.assessmentValue} ${assessment.delayDays > 0 ? styles.assessmentValueWarn : ''}`}>
+                {assessment.latestEstimatedCompletionDate ?? expectedDelivery}
+              </span>
+              {assessment.delayDays > 0 && (
+                <span className={styles.assessmentMeta}>较期望交期延后 {assessment.delayDays} 天</span>
+              )}
+            </div>
+
+            <div className={styles.assessmentItem}>
+              <span className={styles.assessmentLabel}>产能负荷</span>
+              <span className={styles.assessmentValue}>
+                {loadRatio === null ? '—' : `${loadRatio}%`}
+              </span>
+              <span className={styles.assessmentMeta}>
+                {assessment.capacityAvailable ? '当前产能可承接' : `存在超载 SKU：${assessment.overloadedLines.slice(0, 2).join('、')}`}
+              </span>
+            </div>
+
+            <div className={styles.assessmentItem}>
+              <span className={styles.assessmentLabel}>库存可用性</span>
+              <span className={`${styles.assessmentValue} ${!assessment.inventorySufficient ? styles.assessmentValueWarn : ''}`}>
+                {assessment.inventorySufficient ? '可满足' : `${assessment.shortageLines.length} 个 SKU 库存不足`}
+              </span>
+              {!assessment.inventorySufficient && assessment.shortageLines[0] && (
+                <span className={styles.assessmentMeta}>
+                  例如：{assessment.shortageLines[0].productName} 可用 {assessment.shortageLines[0].availableQty} / 需求 {assessment.shortageLines[0].requiredQty}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {assessment.conflictingOrders.length > 0 && (
+            <div className={styles.assessmentConflictBox}>
+              <span className={styles.assessmentConflictLabel}>冲突工单：</span>
+              <span className={styles.assessmentConflictValue}>
+                {assessment.conflictingOrders.map((item) => item.orderNo).join('、')}
+              </span>
+            </div>
+          )}
+
+          {assessment.failedLineCount > 0 && (
+            <div className={styles.assessmentHint}>有 {assessment.failedLineCount} 个 SKU 评估失败，已按可用结果展示。</div>
+          )}
+
+          {approvalContext && (
+            <div className={`${styles.assessmentApprovalTip} ${assessment.delayDays > 0 || !assessment.capacityAvailable || !assessment.inventorySufficient ? styles.assessmentApprovalTipWarn : ''}`}>
+              审批建议：{approvalTip}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Create Order Modal
 // ---------------------------------------------------------------------------
@@ -306,6 +502,10 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const [assessmentError, setAssessmentError] = useState('');
+  const [assessment, setAssessment] = useState<DeliveryCapacityAssessment | null>(null);
+  const assessmentReqRef = useRef(0);
 
   const buildDraftItemsFromOrder = useCallback((order: SalesOrder): DraftLineItem[] => {
     const orderItems = order.items ?? [];
@@ -333,6 +533,9 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
   const handleReset = useCallback(() => {
     if (initialOrder) {
       populateFromOrder(initialOrder);
+      setAssessmentLoading(false);
+      setAssessmentError('');
+      setAssessment(null);
       return;
     }
     setCustomerId('');
@@ -342,6 +545,9 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
     setItems([emptyLineItem()]);
     setNotes('');
     setError('');
+    setAssessmentLoading(false);
+    setAssessmentError('');
+    setAssessment(null);
   }, [initialOrder, populateFromOrder]);
 
   const handleClose = useCallback(() => {
@@ -402,6 +608,43 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
     if (!open) return;
     handleReset();
   }, [open, handleReset]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const expectedDelivery = deliveryDate ? String(deliveryDate).slice(0, 10) : '';
+    if (!isISODateString(expectedDelivery)) {
+      setAssessmentLoading(false);
+      setAssessmentError('');
+      setAssessment(null);
+      return;
+    }
+
+    const lineInputs = buildAssessmentLinesFromDraftItems(items);
+    const currentReqId = ++assessmentReqRef.current;
+    const timer = window.setTimeout(() => {
+      setAssessmentLoading(true);
+      setAssessmentError('');
+      void buildDeliveryCapacityAssessment(lineInputs, expectedDelivery)
+        .then((result) => {
+          if (assessmentReqRef.current !== currentReqId) return;
+          setAssessment(result);
+        })
+        .catch((e: unknown) => {
+          if (assessmentReqRef.current !== currentReqId) return;
+          setAssessment(null);
+          setAssessmentError(e instanceof Error ? e.message : '交期与产能评估失败，请稍后重试');
+        })
+        .finally(() => {
+          if (assessmentReqRef.current !== currentReqId) return;
+          setAssessmentLoading(false);
+        });
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [open, deliveryDate, items]);
 
   const handleSkuChange = (idx: number, rawSkuId: string) => {
     const skuId = Number(rawSkuId) || '';
@@ -644,6 +887,14 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
         </div>
       </div>
 
+      <DeliveryCapacityPanel
+        title="交期与产能评估"
+        expectedDelivery={deliveryDate}
+        loading={assessmentLoading}
+        error={assessmentError}
+        assessment={assessment}
+      />
+
       <div className={styles.formGroup}>
         <label className={styles.formLabel}>备注</label>
         <textarea
@@ -756,9 +1007,22 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh, onEdit }: OrderDetailD
 
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
+  const [shipModalOpen, setShipModalOpen] = useState(false);
   const [closeReason, setCloseReason] = useState('');
+  const [shipTrackingNo, setShipTrackingNo] = useState('');
+  const [shipWarehouseId, setShipWarehouseId] = useState<number | ''>('');
+  const [shipLocationId, setShipLocationId] = useState<number | ''>('');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const [assessmentError, setAssessmentError] = useState('');
+  const [assessment, setAssessment] = useState<DeliveryCapacityAssessment | null>(null);
+  const assessmentReqRef = useRef(0);
+  const { data: warehouseOptions = [] } = useWarehouseOptions(true);
+  const { data: locationOptions = [] } = useLocationOptions(
+    shipWarehouseId === '' ? undefined : Number(shipWarehouseId),
+    true,
+  );
 
   const handleAction = async (fn: () => Promise<unknown>) => {
     try {
@@ -787,6 +1051,89 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh, onEdit }: OrderDetailD
     await handleAction(() => closeOrder.mutateAsync({ id: orderId, reason: closeReason.trim() }));
     setCloseModalOpen(false);
     setCloseReason('');
+  };
+
+  useEffect(() => {
+    if (!shipModalOpen || warehouseOptions.length === 0 || shipWarehouseId !== '') return;
+    setShipWarehouseId(Number(warehouseOptions[0].id));
+  }, [shipModalOpen, warehouseOptions, shipWarehouseId]);
+
+  useEffect(() => {
+    if (!shipModalOpen) return;
+    setShipLocationId('');
+  }, [shipWarehouseId, shipModalOpen]);
+
+  useEffect(() => {
+    if (!shipModalOpen || locationOptions.length === 0 || shipLocationId !== '') return;
+    setShipLocationId(Number(locationOptions[0].id));
+  }, [shipModalOpen, locationOptions, shipLocationId]);
+
+  useEffect(() => {
+    if (!order || order.status !== 'pending_approval') {
+      setAssessmentLoading(false);
+      setAssessmentError('');
+      setAssessment(null);
+      return;
+    }
+
+    const expectedDelivery = String(order.deliveryDate ?? '').slice(0, 10);
+    if (!isISODateString(expectedDelivery)) {
+      setAssessmentLoading(false);
+      setAssessmentError('');
+      setAssessment(null);
+      return;
+    }
+
+    const lineInputs = buildAssessmentLinesFromOrderItems(order.items ?? []);
+    const currentReqId = ++assessmentReqRef.current;
+    const timer = window.setTimeout(() => {
+      setAssessmentLoading(true);
+      setAssessmentError('');
+      void buildDeliveryCapacityAssessment(lineInputs, expectedDelivery)
+        .then((result) => {
+          if (assessmentReqRef.current !== currentReqId) return;
+          setAssessment(result);
+        })
+        .catch((e: unknown) => {
+          if (assessmentReqRef.current !== currentReqId) return;
+          setAssessment(null);
+          setAssessmentError(e instanceof Error ? e.message : '审批评估失败，请稍后重试');
+        })
+        .finally(() => {
+          if (assessmentReqRef.current !== currentReqId) return;
+          setAssessmentLoading(false);
+        });
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [order]);
+
+  const openShipModal = () => {
+    setShipModalOpen(true);
+    setShipTrackingNo('');
+    setShipWarehouseId('');
+    setShipLocationId('');
+    setActionError('');
+  };
+
+  const handleShip = async () => {
+    if (!orderId) return;
+    if (shipWarehouseId === '' || shipLocationId === '') {
+      setActionError('发货时必须选择仓库和库位');
+      return;
+    }
+    await handleAction(() => shipOrder.mutateAsync({
+      id: orderId,
+      trackingNo: shipTrackingNo.trim() || undefined,
+      warehouseId: Number(shipWarehouseId),
+      locationId: Number(shipLocationId),
+    }));
+    setShipModalOpen(false);
+    setShipTrackingNo('');
+    setShipWarehouseId('');
+    setShipLocationId('');
   };
 
   const renderActions = (o: SalesOrder) => {
@@ -874,7 +1221,7 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh, onEdit }: OrderDetailD
                 size="sm"
                 variant="secondary"
                 loading={actionLoading}
-                onClick={() => handleAction(() => shipOrder.mutateAsync({ id }))}
+                onClick={openShipModal}
               >
                 标记发货
               </Button>
@@ -900,7 +1247,7 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh, onEdit }: OrderDetailD
                 size="sm"
                 variant="primary"
                 loading={actionLoading}
-                onClick={() => handleAction(() => shipOrder.mutateAsync({ id }))}
+                onClick={openShipModal}
               >
                 标记发货
               </Button>
@@ -955,7 +1302,7 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh, onEdit }: OrderDetailD
         open={orderId !== null}
         onClose={onClose}
         title="订单详情"
-        width={560}
+        width="min(1100px, 92vw)"
       >
         {loading && (
           <div className={styles.drawerLoading}>加载中...</div>
@@ -1045,6 +1392,19 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh, onEdit }: OrderDetailD
               </table>
             </div>
 
+            {order.status === 'pending_approval' && (
+              <div className={styles.drawerSection}>
+                <DeliveryCapacityPanel
+                  title="交期与产能评估（审批参考）"
+                  expectedDelivery={String(order.deliveryDate ?? '').slice(0, 10)}
+                  loading={assessmentLoading}
+                  error={assessmentError}
+                  assessment={assessment}
+                  approvalContext
+                />
+              </div>
+            )}
+
             {/* Actions */}
             <div className={styles.drawerSection}>
               <div className={styles.drawerSectionTitle}>状态操作</div>
@@ -1095,6 +1455,70 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh, onEdit }: OrderDetailD
             onChange={(e) => setCloseReason(e.target.value)}
             placeholder="请填写关闭订单的原因..."
           />
+        </div>
+      </Modal>
+
+      <Modal
+        open={shipModalOpen}
+        title="标记发货"
+        onClose={() => {
+          setShipModalOpen(false);
+          setShipTrackingNo('');
+          setShipWarehouseId('');
+          setShipLocationId('');
+        }}
+        onConfirm={() => void handleShip()}
+        confirmLabel="确认发货"
+        confirmLoading={actionLoading}
+        size="md"
+      >
+        <div className={styles.formGrid}>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>物流单号</label>
+            <input
+              className={styles.modalInput}
+              value={shipTrackingNo}
+              onChange={(event) => setShipTrackingNo(event.target.value)}
+              placeholder="选填，记录物流单号"
+            />
+          </div>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>发货仓库 *</label>
+            <select
+              className={styles.modalSelect}
+              value={shipWarehouseId === '' ? '' : String(shipWarehouseId)}
+              onChange={(event) => {
+                const next = event.target.value;
+                setShipWarehouseId(next ? Number(next) : '');
+              }}
+            >
+              <option value="">请选择仓库</option>
+              {warehouseOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.code} · {option.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>发货库位 *</label>
+            <select
+              className={styles.modalSelect}
+              value={shipLocationId === '' ? '' : String(shipLocationId)}
+              onChange={(event) => {
+                const next = event.target.value;
+                setShipLocationId(next ? Number(next) : '');
+              }}
+              disabled={shipWarehouseId === ''}
+            >
+              <option value="">{shipWarehouseId === '' ? '请先选择仓库' : '请选择库位'}</option>
+              {locationOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.code} · {option.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </Modal>
     </>

@@ -56,6 +56,8 @@ const CancelOrderSchema = z.object({
 // BE-P2-007: 发货 schema
 const ShipOrderSchema = z.object({
   trackingNo: z.string().max(128).optional(),
+  warehouseId: z.number().int().positive().optional(),
+  locationId: z.number().int().positive().optional(),
   shippedItems: z
     .array(
       z.object({

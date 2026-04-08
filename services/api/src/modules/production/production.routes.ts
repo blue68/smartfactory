@@ -104,33 +104,33 @@ router.get('/tasks/worker/:workerId',  asyncHandler(productionController.getWork
 // BE-06-01: 任务详情
 router.get('/tasks/:taskId', asyncHandler(productionController.getTask.bind(productionController)));
 router.post('/tasks/:id/start',
-  requireRoles('worker', 'supervisor'),
+  requireRoles('worker', 'supervisor', 'boss', 'admin'),
   asyncHandler(productionController.startTask.bind(productionController)),
 );
 router.post('/tasks/:id/complete',
-  requireRoles('worker', 'supervisor'),
+  requireRoles('worker', 'supervisor', 'boss', 'admin'),
   asyncHandler(productionController.completeTask.bind(productionController)),
 );
 router.post('/tasks/:id/complete-v2',
-  requireRoles('worker', 'supervisor'),
+  requireRoles('worker', 'supervisor', 'boss', 'admin'),
   asyncHandler(productionController.completeTaskV2.bind(productionController)),
 );
 // P0-06: 暂停 / 恢复任务
 router.post('/tasks/:id/suspend',
-  requireRoles('supervisor', 'boss'),
+  requireRoles('supervisor', 'boss', 'admin'),
   asyncHandler(productionController.suspendTask.bind(productionController)),
 );
 router.post('/tasks/:id/resume',
-  requireRoles('supervisor', 'boss'),
+  requireRoles('supervisor', 'boss', 'admin'),
   asyncHandler(productionController.resumeTask.bind(productionController)),
 );
 
 router.post('/tasks/:id/exception',
-  requireRoles('worker', 'supervisor', 'boss'),
+  requireRoles('worker', 'supervisor', 'boss', 'admin'),
   asyncHandler(productionController.reportException.bind(productionController)),
 );
 router.post('/tasks/:id/resolve-exception',
-  requireRoles('supervisor', 'boss'),
+  requireRoles('supervisor', 'boss', 'admin'),
   asyncHandler(productionController.resolveException.bind(productionController)),
 );
 

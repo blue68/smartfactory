@@ -89,9 +89,11 @@ describe('production.routes phase1 wiring', () => {
     expect(getRouteLayer('/orders/:id/operations', 'get')).toBeTruthy();
   });
 
-  it('mounts complete-v2 task endpoint with worker/supervisor guard', () => {
+  it('mounts task execution endpoints with worker/supervisor/boss/admin guard', () => {
+    expect(getRouteLayer('/tasks/:id/start', 'post')).toBeTruthy();
+    expect(getRouteRoles('/tasks/:id/start', 'post')).toEqual(['worker', 'supervisor', 'boss', 'admin']);
     expect(getRouteLayer('/tasks/:id/complete-v2', 'post')).toBeTruthy();
-    expect(getRouteRoles('/tasks/:id/complete-v2', 'post')).toEqual(['worker', 'supervisor']);
+    expect(getRouteRoles('/tasks/:id/complete-v2', 'post')).toEqual(['worker', 'supervisor', 'boss', 'admin']);
   });
 
   it('keeps fixed task routes ahead of /tasks/:taskId and mounts task detail route', () => {

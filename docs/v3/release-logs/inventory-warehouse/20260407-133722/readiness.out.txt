@@ -1,0 +1,11 @@
+[inventory-warehouse-readiness] tenant_id=1
+status=BLOCKED
+total_warehouses=1
+active_warehouses=1
+total_locations=1
+active_locations=1
+active_non_default_warehouses=0
+active_non_default_locations=0
+mapping_csv_total_rows=45
+mapping_csv_filled_rows=0
+blocking_reasons=NO_ACTIVE_NON_DEFAULT_WAREHOUSE,NO_ACTIVE_NON_DEFAULT_LOCATION,NO_FILLED_MAPPING_ROWS

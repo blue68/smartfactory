@@ -72,6 +72,60 @@ interface ScheduleSuggestionItemRow {
   status: string;
   created_at: string;
   updated_at: string;
+  // 联表字段（查询明细时附带）
+  sku_code?: string | null;
+  sku_name?: string | null;
+  supplier_name?: string | null;
+  work_order_no?: string | null;
+  production_sku_name?: string | null;
+  sales_order_no?: string | null;
+  expected_delivery?: string | null;
+}
+
+type SuggestionItemStatus = 'pending' | 'accepted' | 'rejected' | 'applied';
+type SuggestionSource = 'ai_schedule' | 'shortage_trigger' | 'manual';
+type ScheduleJobStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+interface PurchaseSuggestionItemDTO {
+  id: number;
+  skuCode: string;
+  skuName: string;
+  suggestedQty: string;
+  unit: string;
+  supplierName: string | null;
+  estimatedAmount: string | null;
+  reason: string;
+  neededByDate: string | null;
+  status: SuggestionItemStatus;
+  source: SuggestionSource;
+}
+
+interface WorkOrderSuggestionItemDTO {
+  id: number;
+  workOrderNo: string;
+  skuName: string;
+  totalScore: number;
+  rank: number;
+  deadlineScore: number;
+  priorityScore: number;
+  materialReadinessScore: number;
+  recommendedWorkerId: number | null;
+  recommendedWorkerName: string | null;
+  recommendedWorkerSkill: string | null;
+  status: SuggestionItemStatus;
+}
+
+interface SuggestionBatchDTO {
+  batchId: string;
+  calculatedAt: string;
+  purchaseItems: PurchaseSuggestionItemDTO[];
+  productionItems: WorkOrderSuggestionItemDTO[];
+  isColdStart: boolean;
+  summary: {
+    totalPurchaseItems: number;
+    totalProductionItems: number;
+    estimatedTotalAmount: string | null;
+  };
 }
 
 // ─── ScheduleSuggestionService ─────────────────────────────────────────────────
@@ -101,7 +155,7 @@ export class ScheduleSuggestionService {
    */
   async triggerCalculation(
     triggerType: 'manual' | 'cron' | 'event' = 'manual',
-  ): Promise<{ batchId: number; batchNo: string; jobId: string | null }> {
+  ): Promise<{ batchId: number; batchNo: string; jobId: string }> {
     const batchNo = await generateNo('schedule_batch', this.tenantId);
 
     // 插入批次记录
@@ -132,14 +186,21 @@ export class ScheduleSuggestionService {
       },
     );
 
-    // 将 jobId 回写到批次记录
-    const jobId = job?.id ?? null;
-    if (jobId) {
-      await AppDataSource.query(
-        `UPDATE schedule_suggestions SET job_id = ?, updated_by = ?
-         WHERE id = ? AND tenant_id = ?`,
-        [jobId, this.userId, batchId, this.tenantId],
-      );
+    // 将 jobId 回写到批次记录；当 Redis/BullMQ 不可用时同步降级执行计算
+    const jobId =
+      job?.id != null
+        ? String(job.id)
+        : `schedule-suggestion-sync-${batchId}-${Date.now()}`;
+
+    await AppDataSource.query(
+      `UPDATE schedule_suggestions SET job_id = ?, updated_by = ?
+       WHERE id = ? AND tenant_id = ?`,
+      [jobId, this.userId, batchId, this.tenantId],
+    );
+
+    // Redis 不可用时，fallback emitter 当前未注册建议计算消费者，改为同步执行，保证“触发计算”可用
+    if (!job) {
+      await this.executeCalculation(batchId, this.tenantId);
     }
 
     return { batchId, batchNo, jobId };
@@ -289,10 +350,7 @@ export class ScheduleSuggestionService {
    * - purchase 角色：仅返回 item_type='purchase' 的明细
    * - supervisor/boss：返回全部明细
    */
-  async getLatest(): Promise<{
-    batch: ScheduleSuggestionRow | null;
-    items: ScheduleSuggestionItemRow[];
-  }> {
+  async getLatest(): Promise<SuggestionBatchDTO | null> {
     const [batch] = await AppDataSource.query<ScheduleSuggestionRow[]>(
       `SELECT * FROM schedule_suggestions
        WHERE tenant_id = ? AND status = 'completed'
@@ -301,41 +359,10 @@ export class ScheduleSuggestionService {
       [this.tenantId],
     );
 
-    if (!batch) {
-      return { batch: null, items: [] };
-    }
+    if (!batch) return null;
 
-    // 角色过滤：purchase 角色只看采购建议
-    const isPurchaseOnly =
-      this.roles.includes('purchase') &&
-      !this.roles.includes('supervisor') &&
-      !this.roles.includes('boss');
-
-    // CR-S4-001 fix: 使用参数化查询代替字符串拼接
-    const itemParams: unknown[] = [batch.id, this.tenantId];
-    let itemTypeFilter = '';
-    if (isPurchaseOnly) {
-      itemTypeFilter = 'AND ssi.item_type = ?';
-      itemParams.push('purchase');
-    }
-
-    const items = await AppDataSource.query<ScheduleSuggestionItemRow[]>(
-      `SELECT ssi.*,
-              s.sku_code, s.name AS sku_name,
-              sup.name AS supplier_name,
-              po.work_order_no
-       FROM schedule_suggestion_items ssi
-       LEFT JOIN skus s ON s.id = ssi.sku_id AND s.tenant_id = ssi.tenant_id
-       LEFT JOIN suppliers sup ON sup.id = ssi.suggested_supplier_id
-       LEFT JOIN production_orders po
-         ON po.id = ssi.production_order_id AND po.tenant_id = ssi.tenant_id
-       WHERE ssi.suggestion_id = ? AND ssi.tenant_id = ?
-       ${itemTypeFilter}
-       ORDER BY COALESCE(ssi.suggested_rank, 9999) ASC, ssi.id ASC`,
-      itemParams,
-    );
-
-    return { batch, items };
+    const items = await this.queryBatchItems(batch.id, this.isPurchaseOnlyRole());
+    return this.mapBatchToDTO(batch, items);
   }
 
   // ─── getStatus ───────────────────────────────────────────────────────────────
@@ -346,8 +373,11 @@ export class ScheduleSuggestionService {
    * - 可附加 BullMQ jobId 查询队列状态
    */
   async getStatus(jobId?: string): Promise<{
-    batch: ScheduleSuggestionRow | null;
-    jobState: string | null;
+    jobId: string;
+    status: ScheduleJobStatus;
+    progress?: number;
+    errorMessage?: string;
+    batchId?: string;
   }> {
     let batch: ScheduleSuggestionRow | null = null;
 
@@ -382,7 +412,23 @@ export class ScheduleSuggestionService {
       }
     }
 
-    return { batch, jobState };
+    const status = this.resolveCalculationStatus(batch?.status, jobState);
+    const responseJobId = (jobId ?? batch?.job_id ?? '').toString();
+
+    return {
+      jobId: responseJobId,
+      status,
+      progress:
+        status === 'completed'
+          ? 100
+          : status === 'running'
+          ? 60
+          : status === 'pending'
+          ? 10
+          : undefined,
+      errorMessage: batch?.error_message ?? undefined,
+      batchId: batch ? String(batch.id) : undefined,
+    };
   }
 
   // ─── getHistory ──────────────────────────────────────────────────────────────
@@ -418,10 +464,7 @@ export class ScheduleSuggestionService {
   /**
    * 获取历史批次详情（含明细列表）
    */
-  async getHistoryDetail(suggestionId: number): Promise<{
-    batch: ScheduleSuggestionRow;
-    items: ScheduleSuggestionItemRow[];
-  }> {
+  async getHistoryDetail(suggestionId: number): Promise<SuggestionBatchDTO> {
     const [batch] = await AppDataSource.query<ScheduleSuggestionRow[]>(
       `SELECT * FROM schedule_suggestions
        WHERE id = ? AND tenant_id = ? LIMIT 1`,
@@ -431,22 +474,8 @@ export class ScheduleSuggestionService {
       throw AppError.notFound(`调度批次 #${suggestionId} 不存在`, ResponseCode.NOT_FOUND);
     }
 
-    const items = await AppDataSource.query<ScheduleSuggestionItemRow[]>(
-      `SELECT ssi.*,
-              s.sku_code, s.name AS sku_name,
-              sup.name AS supplier_name,
-              po.work_order_no
-       FROM schedule_suggestion_items ssi
-       LEFT JOIN skus s ON s.id = ssi.sku_id AND s.tenant_id = ssi.tenant_id
-       LEFT JOIN suppliers sup ON sup.id = ssi.suggested_supplier_id
-       LEFT JOIN production_orders po
-         ON po.id = ssi.production_order_id AND po.tenant_id = ssi.tenant_id
-       WHERE ssi.suggestion_id = ? AND ssi.tenant_id = ?
-       ORDER BY COALESCE(ssi.suggested_rank, 9999) ASC, ssi.id ASC`,
-      [suggestionId, this.tenantId],
-    );
-
-    return { batch, items };
+    const items = await this.queryBatchItems(suggestionId, this.isPurchaseOnlyRole());
+    return this.mapBatchToDTO(batch, items);
   }
 
   // ─── acceptItem ──────────────────────────────────────────────────────────────
@@ -616,6 +645,189 @@ export class ScheduleSuggestionService {
   }
 
   // ─── 私有辅助方法 ────────────────────────────────────────────────────────────
+
+  private isPurchaseOnlyRole(): boolean {
+    return (
+      this.roles.includes('purchase') &&
+      !this.roles.includes('supervisor') &&
+      !this.roles.includes('boss')
+    );
+  }
+
+  private async queryBatchItems(
+    suggestionId: number,
+    purchaseOnly: boolean,
+  ): Promise<ScheduleSuggestionItemRow[]> {
+    const params: unknown[] = [suggestionId, this.tenantId];
+    let itemTypeFilter = '';
+    if (purchaseOnly) {
+      itemTypeFilter = 'AND ssi.item_type = ?';
+      params.push('purchase');
+    }
+
+    return AppDataSource.query<ScheduleSuggestionItemRow[]>(
+      `SELECT ssi.*,
+              s.sku_code,
+              s.name AS sku_name,
+              sup.name AS supplier_name,
+              po.work_order_no,
+              so.expected_delivery,
+              so.order_no AS sales_order_no,
+              psku.name AS production_sku_name
+       FROM schedule_suggestion_items ssi
+       LEFT JOIN skus s ON s.id = ssi.sku_id AND s.tenant_id = ssi.tenant_id
+       LEFT JOIN suppliers sup ON sup.id = ssi.suggested_supplier_id
+       LEFT JOIN production_orders po
+         ON po.id = ssi.production_order_id AND po.tenant_id = ssi.tenant_id
+       LEFT JOIN sales_orders so
+         ON so.id = po.sales_order_id AND so.tenant_id = po.tenant_id
+       LEFT JOIN skus psku
+         ON psku.id = po.sku_id AND psku.tenant_id = po.tenant_id
+       WHERE ssi.suggestion_id = ? AND ssi.tenant_id = ?
+       ${itemTypeFilter}
+       ORDER BY COALESCE(ssi.suggested_rank, 9999) ASC, ssi.id ASC`,
+      params,
+    );
+  }
+
+  private mapBatchToDTO(
+    batch: ScheduleSuggestionRow,
+    items: ScheduleSuggestionItemRow[],
+  ): SuggestionBatchDTO {
+    const source: SuggestionSource =
+      batch.trigger_type === 'event'
+        ? 'shortage_trigger'
+        : batch.trigger_type === 'manual'
+        ? 'manual'
+        : 'ai_schedule';
+
+    const purchaseRows = items.filter((item) => item.item_type === 'purchase');
+    const productionRows = items.filter((item) => item.item_type === 'production');
+
+    const purchaseItems: PurchaseSuggestionItemDTO[] = purchaseRows.map((item) => ({
+      id: Number(item.id),
+      skuCode: item.sku_code ?? (item.sku_id ? `SKU-${item.sku_id}` : '—'),
+      skuName: item.sku_name ?? (item.sku_id ? `SKU#${item.sku_id}` : '未知物料'),
+      suggestedQty: item.suggested_qty ?? '0',
+      unit: item.purchase_unit ?? '',
+      supplierName: item.supplier_name ?? null,
+      estimatedAmount: item.capital_cost ?? null,
+      reason: this.buildPurchaseReason(item),
+      neededByDate: null,
+      status: this.normalizeItemStatus(item.status),
+      source,
+    }));
+
+    const productionItems: WorkOrderSuggestionItemDTO[] = productionRows.map((item, index) => {
+      const workers = this.parseJsonArray(item.suggested_workers);
+      const firstWorker = workers[0];
+
+      return {
+        id: Number(item.id),
+        workOrderNo: item.work_order_no ?? (item.production_order_id ? `WO#${item.production_order_id}` : '未知工单'),
+        skuName: item.production_sku_name ?? item.sku_name ?? '未关联产品',
+        totalScore: Number(item.total_score ?? 0),
+        rank: Number(item.suggested_rank ?? index + 1),
+        deadlineScore: Number(item.deadline_score ?? 0),
+        priorityScore: Number(item.priority_score ?? 0),
+        materialReadinessScore: Number(item.material_score ?? 0),
+        recommendedWorkerId: this.readNumber(firstWorker, ['workerId', 'worker_id']),
+        recommendedWorkerName: this.readString(firstWorker, ['workerName', 'name', 'worker_name']),
+        recommendedWorkerSkill: this.readString(firstWorker, ['skillLevel', 'skill_level', 'skill']),
+        status: this.normalizeItemStatus(item.status),
+      };
+    });
+
+    const estimatedTotalAmount = purchaseItems.reduce((sum, item) => {
+      const value = Number(item.estimatedAmount ?? 0);
+      return sum + (Number.isNaN(value) ? 0 : value);
+    }, 0);
+
+    return {
+      batchId: String(batch.id),
+      calculatedAt: batch.calc_finished_at ?? batch.updated_at ?? batch.created_at,
+      purchaseItems,
+      productionItems,
+      isColdStart: batch.trigger_type !== 'manual',
+      summary: {
+        totalPurchaseItems: purchaseItems.length,
+        totalProductionItems: productionItems.length,
+        estimatedTotalAmount: estimatedTotalAmount > 0 ? estimatedTotalAmount.toFixed(2) : null,
+      },
+    };
+  }
+
+  private buildPurchaseReason(item: ScheduleSuggestionItemRow): string {
+    const unit = item.purchase_unit ?? '';
+    const shortage = item.shortage_qty ?? '0';
+    const safetyStock = item.safety_stock_qty ?? '0';
+    const currentStock = item.current_stock_qty ?? '0';
+    return `净缺口 ${shortage}${unit}，安全库存 ${safetyStock}${unit}，当前库存 ${currentStock}${unit}`;
+  }
+
+  private normalizeItemStatus(status: string): SuggestionItemStatus {
+    if (status === 'modified') return 'accepted';
+    if (status === 'accepted' || status === 'rejected' || status === 'applied') return status;
+    return 'pending';
+  }
+
+  private resolveCalculationStatus(
+    batchStatus?: string | null,
+    jobState?: string | null,
+  ): ScheduleJobStatus {
+    if (batchStatus === 'completed') return 'completed';
+    if (batchStatus === 'failed') return 'failed';
+    if (batchStatus === 'calculating') return 'running';
+    if (batchStatus === 'pending') return 'pending';
+
+    if (!jobState) return 'pending';
+    if (jobState === 'completed') return 'completed';
+    if (jobState === 'failed') return 'failed';
+    if (jobState === 'active') return 'running';
+    return 'pending';
+  }
+
+  private parseJsonArray(value: unknown): Record<string, unknown>[] {
+    if (Array.isArray(value)) {
+      return value.filter((item) => item && typeof item === 'object') as Record<string, unknown>[];
+    }
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((item) => item && typeof item === 'object') as Record<string, unknown>[];
+        }
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  private readString(
+    obj: Record<string, unknown> | undefined,
+    keys: string[],
+  ): string | null {
+    if (!obj) return null;
+    for (const key of keys) {
+      const value = obj[key];
+      if (typeof value === 'string' && value.trim()) return value;
+    }
+    return null;
+  }
+
+  private readNumber(
+    obj: Record<string, unknown> | undefined,
+    keys: string[],
+  ): number | null {
+    if (!obj) return null;
+    for (const key of keys) {
+      const value = obj[key];
+      const num = typeof value === 'number' ? value : Number(value);
+      if (!Number.isNaN(num) && Number.isFinite(num)) return num;
+    }
+    return null;
+  }
 
   private async findItem(itemId: number): Promise<ScheduleSuggestionItemRow> {
     const [item] = await AppDataSource.query<ScheduleSuggestionItemRow[]>(

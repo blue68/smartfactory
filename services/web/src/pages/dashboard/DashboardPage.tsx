@@ -392,7 +392,7 @@ export default function DashboardPage() {
   };
 
   const handleSuggestionFeedback = () => {
-    navigate('/purchase/suggestions');
+    navigate('/purchase/purchase-suggestions');
   };
 
   const lastSyncTimestamp = Math.max(
@@ -616,7 +616,7 @@ export default function DashboardPage() {
       <ScheduleSuggestionWidget
         batch={scheduleBatch}
         isLoading={scheduleLoading}
-        onNavigate={() => navigate('/schedule/suggestions')}
+        onNavigate={() => navigate('/schedule-suggestions')}
       />
 
       {/* ── 5. 待审批 AI 采购建议 ── */}
@@ -630,7 +630,7 @@ export default function DashboardPage() {
             <a
               href="#"
               className={styles.card_link}
-              onClick={e => { e.preventDefault(); navigate('/purchase/suggestions'); }}
+              onClick={e => { e.preventDefault(); navigate('/purchase/purchase-suggestions'); }}
             >
               查看全部建议 →
             </a>

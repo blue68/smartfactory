@@ -53,7 +53,7 @@ describe('Incoming inspection regressions', () => {
         }
         if (sql.includes('INSERT INTO purchase_receipt_items')) return { insertId: 601 };
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 701 };
-        if (sql.includes('INSERT INTO inventory (')) return { affectedRows: 1 };
+        if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
         if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
         if (sql.includes('SUM(COALESCE(qty_ordered, 0)) AS total_ordered')) {
@@ -89,22 +89,34 @@ describe('Incoming inspection regressions', () => {
     );
 
     const inventoryUpsertCall = manager.query.mock.calls.find(([sql]) =>
-      String(sql).includes('INSERT INTO inventory ('),
+      /INSERT INTO inventory\s*\(/.test(String(sql)),
     ) as unknown[] | undefined;
     expect(String(inventoryUpsertCall?.[0])).toContain('qty_in_transit = GREATEST(qty_in_transit - VALUES(qty_on_hand), 0)');
-    expect(inventoryUpsertCall?.[1]).toEqual([7, 301, '24.0000', 11]);
+    expect(inventoryUpsertCall?.[1]).toEqual([
+      7,
+      301,
+      1,
+      1,
+      'incoming_inspection:submit',
+      '24.0000',
+      11,
+    ]);
     const inventoryTxCall = manager.query.mock.calls.find(([sql]) =>
       String(sql).includes('INSERT INTO inventory_transactions'),
     ) as unknown[] | undefined;
     expect(inventoryTxCall?.[1]).toEqual([
       7,
       301,
+      1,
+      1,
       '24.0000',
       'purchase_receipt',
       501,
       'RC250324-00001',
+      'incoming_inspection:submit',
       '质检入库 IQC#10',
       null,
+      11,
       11,
     ]);
     const snapshotCall = manager.query.mock.calls.find(([sql]) =>
@@ -327,7 +339,7 @@ describe('Incoming inspection regressions', () => {
         if (sql.includes('INSERT INTO inventory_transactions')) {
           return { insertId: 801 };
         }
-        if (sql.includes('INSERT INTO inventory (')) {
+        if (/INSERT INTO inventory\s*\(/.test(sql)) {
           return { affectedRows: 1 };
         }
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) {
@@ -413,7 +425,7 @@ describe('Incoming inspection regressions', () => {
         if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: 'kg' }];
         if (sql.includes('INSERT INTO purchase_receipt_items')) return { insertId: 901 };
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1001 };
-        if (sql.includes('INSERT INTO inventory (')) return { affectedRows: 1 };
+        if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
         if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
         if (sql.includes('SELECT id, status FROM purchase_orders')) return [{ id: 100, status: 'confirmed' }];
@@ -490,7 +502,7 @@ describe('Incoming inspection regressions', () => {
         if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: 'kg' }];
         if (sql.includes('INSERT INTO purchase_receipt_items')) return { insertId: 911 };
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1011 };
-        if (sql.includes('INSERT INTO inventory (')) return { affectedRows: 1 };
+        if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
         if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
         if (sql.includes('SELECT id, status FROM purchase_orders')) return [{ id: 100, status: 'confirmed' }];
@@ -741,7 +753,7 @@ describe('Incoming inspection regressions', () => {
         if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: 'kg' }];
         if (sql.includes('INSERT INTO purchase_receipt_items')) return { insertId: 931 };
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1031 };
-        if (sql.includes('INSERT INTO inventory (')) return { affectedRows: 1 };
+        if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_dye_lots')) return { affectedRows: 1 };
         if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
@@ -946,7 +958,7 @@ describe('Incoming inspection regressions', () => {
         if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: 'kg' }];
         if (sql.includes('INSERT INTO purchase_receipt_items')) return { insertId: 921 };
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1021 };
-        if (sql.includes('INSERT INTO inventory (')) return { affectedRows: 1 };
+        if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
         if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
         if (sql.includes('SELECT id, status FROM purchase_orders')) return [{ id: 100, status: 'confirmed' }];

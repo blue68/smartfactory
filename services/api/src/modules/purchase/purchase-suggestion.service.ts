@@ -196,7 +196,10 @@ export class PurchaseSuggestionService {
    * - 按 supplier_id 分组，每组生成一张 PO 含多个明细行
    * - 更新建议 status = 'executed'
    */
-  async batchCreatePOFromSuggestions(suggestionIds: number[]): Promise<BatchToPOResult> {
+  async batchCreatePOFromSuggestions(
+    suggestionIds: number[],
+    fallbackSupplierId?: number,
+  ): Promise<BatchToPOResult> {
     if (suggestionIds.length === 0) {
       throw AppError.badRequest('至少选择一条采购建议', ResponseCode.INVALID_PARAMS);
     }
@@ -211,6 +214,22 @@ export class PurchaseSuggestionService {
 
     const placeholders = uniqueSuggestionIds.map(() => '?').join(',');
     const result = await AppDataSource.transaction(async (manager) => {
+      if (fallbackSupplierId !== undefined) {
+        const [supplier] = await manager.query<Array<{ id: number }>>(
+          `SELECT id
+           FROM suppliers
+           WHERE id = ? AND tenant_id = ?
+           LIMIT 1`,
+          [fallbackSupplierId, this.tenantId],
+        );
+        if (!supplier) {
+          throw AppError.notFound(
+            `指定供应商不存在或不属于当前租户：${fallbackSupplierId}`,
+            ResponseCode.NOT_FOUND,
+          );
+        }
+      }
+
       const suggestions = await manager.query<SuggestionRow[]>(
         `SELECT *
          FROM purchase_suggestions
@@ -247,7 +266,30 @@ export class PurchaseSuggestionService {
         );
       }
 
-      // 按 supplier_id 分组（无供应商的单独分组）
+      const noSupplierSuggs = suggestions.filter((s) => s.suggested_supplier_id === null);
+      if (noSupplierSuggs.length > 0) {
+        if (fallbackSupplierId === undefined) {
+          const ids = noSupplierSuggs.map((s) => s.id).join(', ');
+          throw AppError.badRequest(
+            `以下采购建议未指定供应商，无法转单：${ids}`,
+            ResponseCode.INVALID_PARAMS,
+          );
+        }
+
+        const noSupplierIds = noSupplierSuggs.map((s) => s.id);
+        const noSupplierPlaceholders = noSupplierIds.map(() => '?').join(',');
+        await manager.query(
+          `UPDATE purchase_suggestions
+           SET suggested_supplier_id = ?, updated_by = ?, updated_at = NOW()
+           WHERE id IN (${noSupplierPlaceholders}) AND tenant_id = ?`,
+          [fallbackSupplierId, this.userId, ...noSupplierIds, this.tenantId],
+        );
+        noSupplierSuggs.forEach((s) => {
+          s.suggested_supplier_id = fallbackSupplierId;
+        });
+      }
+
+      // 按 supplier_id 分组（此时必须都存在供应商）
       const groupMap = new Map<number | null, SuggestionRow[]>();
       for (const sugg of suggestions) {
         const key = sugg.suggested_supplier_id;
@@ -257,8 +299,8 @@ export class PurchaseSuggestionService {
       }
 
       if (groupMap.has(null)) {
-        const noSupplierSuggs = groupMap.get(null)!;
-        const ids = noSupplierSuggs.map((s) => s.id).join(', ');
+        const unresolved = groupMap.get(null)!;
+        const ids = unresolved.map((s) => s.id).join(', ');
         throw AppError.badRequest(
           `以下采购建议未指定供应商，无法转单：${ids}`,
           ResponseCode.INVALID_PARAMS,

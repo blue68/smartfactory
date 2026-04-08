@@ -679,6 +679,67 @@
   z-index: var(--z-modal, 400);
 }
 
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.38);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  z-index: calc(var(--z-modal, 400) + 1);
+}
+
+.supplierDialog {
+  width: min(36rem, 100%);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.supplierDialogHeader,
+.supplierDialogFooter {
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.supplierDialogHeader {
+  border-bottom: 1px solid var(--border);
+}
+
+.supplierDialogFooter {
+  border-top: 1px solid var(--border);
+}
+
+.supplierDialogBody {
+  padding: 1rem 1.25rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.supplierDialogDescription,
+.supplierDialogHint {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.supplierMissingList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.supplierSelect {
+  width: 100%;
+}
+
 .reviewPanel {
   width: min(31.25rem, 100%);
   max-height: calc(100vh - 2rem);

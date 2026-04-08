@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
 import {
   useInspectionList,
@@ -30,6 +31,7 @@ import {
   usePurchaseDeliveryDetail,
   usePurchaseOrderDetail,
 } from '@/api/purchase';
+import { useWarehouseOptions, useLocationOptions } from '@/api/inventory';
 import Table from '@/components/common/Table';
 import type { Column } from '@/components/common/Table';
 import Modal from '@/components/common/Modal';
@@ -226,6 +228,8 @@ const DEFAULT_CREATE_FORM: CreateForm = {
 
 interface SubmitForm {
   overallResult: 'pass' | 'fail' | 'conditional_pass' | '';
+  warehouseId: number | '';
+  locationId: number | '';
   notes: string;
 }
 
@@ -557,6 +561,8 @@ export default function IncomingInspectionPage() {
   const [submitOpen, setSubmitOpen] = useState(false);
   const [submitForm, setSubmitForm] = useState<SubmitForm>({
     overallResult: '',
+    warehouseId: '',
+    locationId: '',
     notes: '',
   });
 
@@ -602,9 +608,38 @@ export default function IncomingInspectionPage() {
   const createDeliveryNoteId = createFromDelivery ? Number(createForm.deliveryNoteId) || null : null;
   const { data: createOrder } = usePurchaseOrderDetail(createOpen ? createPoId : null);
   const { data: createDelivery } = usePurchaseDeliveryDetail(createOpen ? createDeliveryNoteId : null);
+  const purchaseOrderListQuery = useQuery({
+    queryKey: ['incoming-inspection', 'create-po-options'],
+    enabled: createOpen && !createFromDelivery,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => purchaseApi.getOrders({ page: 1, pageSize: 200 }),
+  });
+  const selectedCreatePoId = useMemo(() => {
+    const poInput = createForm.poId.trim();
+    if (!poInput) return null;
+    const fallbackPoId = Number(poInput);
+    if (Number.isInteger(fallbackPoId) && !poInput.includes('-')) {
+      return fallbackPoId;
+    }
+    const matchedOrder = (purchaseOrderListQuery.data?.list ?? []).find(
+      (order) => normalizeBusinessNo(order.poNo) === normalizeBusinessNo(poInput),
+    );
+    return matchedOrder ? Number(matchedOrder.id) || null : null;
+  }, [createForm.poId, purchaseOrderListQuery.data?.list]);
+  const purchaseDeliveryListQuery = useQuery({
+    queryKey: ['incoming-inspection', 'create-delivery-options', selectedCreatePoId],
+    enabled: createOpen && !createFromDelivery && selectedCreatePoId !== null && selectedCreatePoId > 0,
+    staleTime: 2 * 60 * 1000,
+    queryFn: () => purchaseApi.getDeliveries({ poId: selectedCreatePoId ?? undefined, page: 1, pageSize: 200 }),
+  });
   const createMutation = useCreateInspection();
   const updateItemsMutation = useUpdateInspectionItems();
   const submitMutation = useSubmitInspection();
+  const { data: warehouseOptions = [] } = useWarehouseOptions(true);
+  const { data: locationOptions = [] } = useLocationOptions(
+    submitForm.warehouseId === '' ? undefined : Number(submitForm.warehouseId),
+    true,
+  );
   const [editableItems, setEditableItems] = useState<EditableInspectionItem[]>([]);
 
   // Use mock data as fallback
@@ -666,8 +701,51 @@ export default function IncomingInspectionPage() {
     && editableReceiptInsight.hasAcceptedSampleReceipt;
 
   useEffect(() => {
+    if (!submitOpen || warehouseOptions.length === 0 || submitForm.warehouseId !== '') return;
+    setSubmitForm((prev) => ({
+      ...prev,
+      warehouseId: Number(warehouseOptions[0].id),
+      locationId: '',
+    }));
+  }, [submitOpen, warehouseOptions, submitForm.warehouseId]);
+
+  useEffect(() => {
+    if (!submitOpen || submitForm.warehouseId === '') return;
+    setSubmitForm((prev) => ({ ...prev, locationId: '' }));
+  }, [submitForm.warehouseId, submitOpen]);
+
+  useEffect(() => {
+    if (!submitOpen || locationOptions.length === 0 || submitForm.locationId !== '') return;
+    setSubmitForm((prev) => ({
+      ...prev,
+      locationId: Number(locationOptions[0].id),
+    }));
+  }, [submitOpen, locationOptions, submitForm.locationId]);
+
+  useEffect(() => {
     setEditableItems(buildEditableInspectionItems(detailItems));
   }, [detailItems, selectedId, drawerOpen]);
+
+  const purchaseOrderOptions = useMemo(() => {
+    const keywordValue = normalizeBusinessNo(createForm.poId);
+    const baseList = purchaseOrderListQuery.data?.list ?? [];
+    const matched = keywordValue
+      ? baseList.filter((order) => (
+          normalizeBusinessNo(order.poNo).includes(keywordValue)
+          || normalizeBusinessNo(String(order.supplierName ?? '')).includes(keywordValue)
+        ))
+      : baseList;
+    return matched.slice(0, 80);
+  }, [createForm.poId, purchaseOrderListQuery.data?.list]);
+
+  const purchaseDeliveryOptions = useMemo(() => {
+    const keywordValue = normalizeBusinessNo(createForm.deliveryNoteId);
+    const baseList = purchaseDeliveryListQuery.data?.list ?? [];
+    const matched = keywordValue
+      ? baseList.filter((delivery) => normalizeBusinessNo(delivery.deliveryNo).includes(keywordValue))
+      : baseList;
+    return matched.slice(0, 120);
+  }, [createForm.deliveryNoteId, purchaseDeliveryListQuery.data?.list]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -686,6 +764,10 @@ export default function IncomingInspectionPage() {
       showToast({ type: 'warning', message: '请填写必填字段' });
       return;
     }
+    if (!createForm.deliveryNoteId.trim()) {
+      showToast({ type: 'warning', message: '请填写或选择送货单号' });
+      return;
+    }
     try {
       let resolvedPoId: number | null = null;
       const poInput = createForm.poId.trim();
@@ -696,11 +778,18 @@ export default function IncomingInspectionPage() {
         if (Number.isInteger(fallbackPoId) && !poInput.includes('-')) {
           resolvedPoId = fallbackPoId;
         } else {
-          const orders = await purchaseApi.getOrders({ page: 1, pageSize: 200 });
-          const matchedOrder = orders.list.find(
+          const matchedOrder = (purchaseOrderListQuery.data?.list ?? []).find(
             (order) => normalizeBusinessNo(order.poNo) === normalizeBusinessNo(poInput),
           );
-          resolvedPoId = matchedOrder ? Number(matchedOrder.id) || null : null;
+          if (matchedOrder) {
+            resolvedPoId = Number(matchedOrder.id) || null;
+          } else {
+            const orders = await purchaseApi.getOrders({ page: 1, pageSize: 200 });
+            const fallbackMatchedOrder = orders.list.find(
+              (order) => normalizeBusinessNo(order.poNo) === normalizeBusinessNo(poInput),
+            );
+            resolvedPoId = fallbackMatchedOrder ? Number(fallbackMatchedOrder.id) || null : null;
+          }
         }
       }
 
@@ -711,28 +800,34 @@ export default function IncomingInspectionPage() {
 
       let resolvedDeliveryNoteId: number | undefined;
       const deliveryInput = createForm.deliveryNoteId.trim();
-      if (deliveryInput) {
-        if (createFromDelivery) {
-          resolvedDeliveryNoteId = Number(deliveryInput) || undefined;
+      if (createFromDelivery) {
+        resolvedDeliveryNoteId = Number(deliveryInput) || undefined;
+      } else {
+        const fallbackDeliveryId = Number(deliveryInput);
+        if (Number.isInteger(fallbackDeliveryId) && !deliveryInput.includes('-')) {
+          resolvedDeliveryNoteId = fallbackDeliveryId;
         } else {
-          const fallbackDeliveryId = Number(deliveryInput);
-          if (Number.isInteger(fallbackDeliveryId) && !deliveryInput.includes('-')) {
-            resolvedDeliveryNoteId = fallbackDeliveryId;
+          const matchedDelivery = (purchaseDeliveryListQuery.data?.list ?? []).find(
+            (delivery) =>
+              normalizeBusinessNo(delivery.deliveryNo) === normalizeBusinessNo(deliveryInput),
+          );
+          if (matchedDelivery) {
+            resolvedDeliveryNoteId = Number(matchedDelivery.id) || undefined;
           } else {
             const deliveries = await purchaseApi.getDeliveries({
               poId: resolvedPoId,
               page: 1,
               pageSize: 200,
             });
-            const matchedDelivery = deliveries.list.find(
+            const fallbackMatchedDelivery = deliveries.list.find(
               (delivery) =>
                 normalizeBusinessNo(delivery.deliveryNo) === normalizeBusinessNo(deliveryInput),
             );
-            if (!matchedDelivery) {
+            if (!fallbackMatchedDelivery) {
               showToast({ type: 'warning', message: '未找到对应的送货单号' });
               return;
             }
-            resolvedDeliveryNoteId = Number(matchedDelivery.id) || undefined;
+            resolvedDeliveryNoteId = Number(fallbackMatchedDelivery.id) || undefined;
           }
         }
       }
@@ -759,15 +854,21 @@ export default function IncomingInspectionPage() {
       showToast({ type: 'warning', message: '请选择质检结论' });
       return;
     }
+    if (submitForm.warehouseId === '' || submitForm.locationId === '') {
+      showToast({ type: 'warning', message: '请选择入库仓库和库位' });
+      return;
+    }
     try {
       const payload: SubmitInspectionPayload = {
         overallResult: submitForm.overallResult,
+        warehouseId: Number(submitForm.warehouseId),
+        locationId: Number(submitForm.locationId),
         notes: submitForm.notes || undefined,
       };
       await submitMutation.mutateAsync({ id: selectedId, data: payload });
       showToast({ type: 'success', message: '质检结论已提交' });
       setSubmitOpen(false);
-      setSubmitForm({ overallResult: '', notes: '' });
+      setSubmitForm({ overallResult: '', warehouseId: '', locationId: '', notes: '' });
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
     }
@@ -1784,10 +1885,31 @@ export default function IncomingInspectionPage() {
               <input
                 id="create-poId"
                 className={styles.form_input}
+                list="incoming-inspection-po-options"
                 value={createForm.poId}
                 onChange={(e) => setCreateForm((f) => ({ ...f, poId: e.target.value }))}
-                placeholder="请输入采购订单号"
+                placeholder="请输入或选择采购订单号"
               />
+            )}
+            {!createFromDelivery && (
+              <>
+                <datalist id="incoming-inspection-po-options">
+                  {purchaseOrderOptions.map((order) => (
+                    <option
+                      key={order.id}
+                      value={order.poNo}
+                      label={`${order.poNo} · ${order.supplierName ?? '未知供应商'} · ${order.status}`}
+                    />
+                  ))}
+                </datalist>
+                <div className={styles.form_help}>
+                  {purchaseOrderListQuery.isLoading
+                    ? '正在加载采购订单候选...'
+                    : purchaseOrderListQuery.isError
+                    ? '采购订单候选加载失败，可手动输入采购订单号'
+                    : `已加载 ${purchaseOrderListQuery.data?.list.length ?? 0} 条采购订单，可输入关键字筛选`}
+                </div>
+              </>
             )}
           </div>
 
@@ -1807,12 +1929,35 @@ export default function IncomingInspectionPage() {
               <input
                 id="create-deliveryNoteId"
                 className={styles.form_input}
+                list="incoming-inspection-delivery-options"
                 value={createForm.deliveryNoteId}
                 onChange={(e) =>
                   setCreateForm((f) => ({ ...f, deliveryNoteId: e.target.value }))
                 }
-                placeholder="选填，输入送货单号"
+                placeholder="请输入或选择送货单号"
               />
+            )}
+            {!createFromDelivery && (
+              <>
+                <datalist id="incoming-inspection-delivery-options">
+                  {purchaseDeliveryOptions.map((delivery) => (
+                    <option
+                      key={delivery.id}
+                      value={delivery.deliveryNo}
+                      label={`${delivery.deliveryNo} · ${delivery.status} · ${delivery.deliveryDate}`}
+                    />
+                  ))}
+                </datalist>
+                <div className={styles.form_help}>
+                  {selectedCreatePoId === null
+                    ? '请先输入或选择采购订单号，再加载对应送货单候选'
+                    : purchaseDeliveryListQuery.isLoading
+                    ? '正在加载送货单候选...'
+                    : purchaseDeliveryListQuery.isError
+                    ? '送货单候选加载失败，可手动输入送货单号'
+                    : `已加载 ${purchaseDeliveryListQuery.data?.list.length ?? 0} 条送货单候选，可输入关键字筛选`}
+                </div>
+              </>
             )}
           </div>
 
@@ -1851,7 +1996,10 @@ export default function IncomingInspectionPage() {
       <Modal
         open={submitOpen}
         title="提交质检结论"
-        onClose={() => { setSubmitOpen(false); setSubmitForm({ overallResult: '', notes: '' }); }}
+        onClose={() => {
+          setSubmitOpen(false);
+          setSubmitForm({ overallResult: '', warehouseId: '', locationId: '', notes: '' });
+        }}
         onConfirm={() => void handleSubmitConclusion()}
         confirmLabel="提交结论"
         confirmLoading={submitMutation.isPending}
@@ -1917,6 +2065,60 @@ export default function IncomingInspectionPage() {
               onChange={(e) => setSubmitForm((f) => ({ ...f, notes: e.target.value }))}
               placeholder="请输入质检备注或说明..."
             />
+          </div>
+
+          <div className={styles.form_field}>
+            <label htmlFor="submit-warehouse" className={styles.form_label}>
+              入库仓库 <span className={styles.required}>*</span>
+            </label>
+            <select
+              id="submit-warehouse"
+              className={styles.form_input}
+              value={submitForm.warehouseId === '' ? '' : String(submitForm.warehouseId)}
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                setSubmitForm((prev) => ({
+                  ...prev,
+                  warehouseId: nextValue ? Number(nextValue) : '',
+                  locationId: '',
+                }));
+              }}
+            >
+              <option value="">请选择仓库</option>
+              {warehouseOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.code} · {option.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.form_field}>
+            <label htmlFor="submit-location" className={styles.form_label}>
+              入库库位 <span className={styles.required}>*</span>
+            </label>
+            <select
+              id="submit-location"
+              className={styles.form_input}
+              value={submitForm.locationId === '' ? '' : String(submitForm.locationId)}
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                setSubmitForm((prev) => ({
+                  ...prev,
+                  locationId: nextValue ? Number(nextValue) : '',
+                }));
+              }}
+              disabled={submitForm.warehouseId === ''}
+            >
+              <option value="">
+                {submitForm.warehouseId === '' ? '请先选择仓库' : '请选择库位'}
+              </option>
+              {locationOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.code} · {option.name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </Modal>

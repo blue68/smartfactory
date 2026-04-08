@@ -56,6 +56,33 @@ interface MaterialRequirementRow {
   inTransit: string;
 }
 
+interface ProcessSnapshotRow {
+  templateId?: number | null;
+  templateName?: string;
+  version?: string;
+  snapshotAt?: string;
+  steps?: Array<{
+    id?: number | string;
+    processStepId?: number | string;
+    stepNo?: number | string;
+    step_no?: number | string;
+    stepName?: string;
+    step_name?: string;
+    workstationType?: string | null;
+    workstation_type?: string | null;
+    workstationId?: number | null;
+    workstation_id?: number | null;
+    standardHours?: string | null;
+    standard_hours?: string | null;
+    maxHours?: string | null;
+    max_hours?: string | null;
+    outputType?: string | null;
+    output_type?: string | null;
+    outputSkuId?: number | null;
+    output_sku_id?: number | null;
+  }>;
+}
+
 // ─── 公共接口 ────────────────────────────────────────────────────────────────
 
 export interface CreatedOrder {
@@ -500,6 +527,7 @@ export class ProductionOrderService {
               po.priority, po.planned_start AS plannedStart, po.planned_end AS plannedEnd,
               po.actual_start AS actualStart, po.actual_end AS actualEnd,
               po.notes, po.created_at AS createdAt, po.updated_at AS updatedAt,
+              po.process_snapshot AS processSnapshot,
               s.name AS skuName, s.sku_code AS skuCode,
               so.order_no AS salesOrderNo, so.expected_delivery,
               ROUND(po.qty_completed / NULLIF(po.qty_planned, 0) * 100, 1) AS progressPct,
@@ -516,7 +544,22 @@ export class ProductionOrderService {
       throw AppError.notFound('生产工单不存在', ResponseCode.PRODUCTION_ORDER_NOT_FOUND);
     }
 
-    const order = rows[0];
+    const order = rows[0] as Record<string, unknown> & {
+      processSnapshot?: string | ProcessSnapshotRow | null;
+    };
+
+    let processSnapshot: ProcessSnapshotRow | null = null;
+    if (order.processSnapshot) {
+      if (typeof order.processSnapshot === 'string') {
+        try {
+          processSnapshot = JSON.parse(order.processSnapshot) as ProcessSnapshotRow;
+        } catch {
+          processSnapshot = null;
+        }
+      } else {
+        processSnapshot = order.processSnapshot;
+      }
+    }
 
     // 工序任务列表
     const tasks = await AppDataSource.query(
@@ -538,7 +581,7 @@ export class ProductionOrderService {
     // 物料需求列表
     const materials = await this.getMaterialRequirements(id);
 
-    return { ...order, tasks, materials };
+    return { ...order, processSnapshot, tasks, materials };
   }
 
   // ── 取消工单 ─────────────────────────────────────────────────────────────

@@ -75,6 +75,8 @@ export interface UpdateInspectionItemsPayload {
 
 export interface SubmitInspectionPayload {
   overallResult: 'pass' | 'fail' | 'conditional_pass';
+  warehouseId?: number;
+  locationId?: number;
   notes?: string;
 }
 

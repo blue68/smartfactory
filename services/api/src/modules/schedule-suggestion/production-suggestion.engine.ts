@@ -108,7 +108,7 @@ export class ProductionSuggestionEngine {
     const orders: OrderRow[] = await AppDataSource.query(
       `SELECT po.id, po.work_order_no, po.sku_id, po.qty_planned,
               po.planned_end, po.sales_order_id,
-              s.sku_name,
+              s.name AS sku_name,
               so.order_no, so.order_type, so.priority, so.expected_delivery
        FROM production_orders po
        LEFT JOIN skus s ON s.id = po.sku_id AND s.tenant_id = po.tenant_id
@@ -334,7 +334,7 @@ export class ProductionSuggestionEngine {
 
     // 查询每个工单的 BOM 物料需求及库存满足情况
     // 通过 production_orders.bom_header_id 关联 bom_items，
-    // 再与 inventory_summary（或 skus.current_stock）对比
+    // 再与 inventory 可用量（qty_on_hand - qty_reserved）对比
     const rows: Array<{
       production_order_id: number;
       total_materials: number;
@@ -348,10 +348,12 @@ export class ProductionSuggestionEngine {
            THEN 1 ELSE 0
          END) AS materials_in_stock
        FROM production_orders po
-       INNER JOIN bom_items bi ON bi.header_id = po.bom_header_id AND bi.tenant_id = po.tenant_id
+       INNER JOIN bom_items bi ON bi.bom_header_id = po.bom_header_id AND bi.tenant_id = po.tenant_id
        LEFT JOIN (
-         SELECT tenant_id, sku_id, SUM(qty_available) AS qty_available
-         FROM inventory_summary
+         SELECT tenant_id,
+                sku_id,
+                SUM(GREATEST(COALESCE(qty_on_hand, 0) - COALESCE(qty_reserved, 0), 0)) AS qty_available
+         FROM inventory
          WHERE tenant_id = ?
          GROUP BY tenant_id, sku_id
        ) inv ON inv.sku_id = bi.material_sku_id AND inv.tenant_id = po.tenant_id

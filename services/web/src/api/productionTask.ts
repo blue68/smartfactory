@@ -2,7 +2,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import request from '@/utils/request';
 import type {
   ProductionTaskDependencySummary,
+  ProductionTaskInputItem,
+  ProductionTaskInputMaterial,
   ProductionTaskMaterialTransaction,
+  ProductionTaskOutputItem,
   ProductionTaskWageReport,
 } from '@/types/models';
 
@@ -21,6 +24,7 @@ export interface TaskListQuery {
   dateFrom?: string;
   dateTo?: string;
   processId?: number;
+  taskType?: 'finished' | 'semi_finished';
 }
 
 export interface TaskException {
@@ -29,7 +33,10 @@ export interface TaskException {
   description: string;
   severity: string;
   createdAt: string;
-  resolvedAt?: string;
+  resolvedAt?: string | null;
+  resolution?: string | null;
+  reporterName?: string | null;
+  resolverName?: string | null;
 }
 
 export interface TaskStats {
@@ -49,6 +56,7 @@ export interface ProductionTask {
   taskNo?: string;
   taskDate: string;
   status: 'pending' | 'in_progress' | 'completed' | 'exception' | 'suspended';
+  taskType?: 'finished' | 'semi_finished';
   statusLabel?: string;
   plannedQty: number;
   completedQty: number;
@@ -66,13 +74,27 @@ export interface ProductionTask {
   skuCode?: string;
   skuName?: string;
   priority?: number;
+  priorityScore?: number;
+  priorityLevel?: 'critical' | 'high' | 'medium' | 'normal';
+  priorityLabel?: string;
+  priorityReason?: string;
+  downstreamTaskCount?: number;
+  activeDownstreamTaskCount?: number;
+  dependencyBlocked?: boolean | 0 | 1;
   isOvertime?: boolean;
   maxHours?: number;
   actualHours?: number;
+  createdAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  updatedAt?: string | null;
   unitPrice?: number;
   workerGrade?: string;
   workerGradeConfigured?: boolean;
   dependencySummary?: ProductionTaskDependencySummary;
+  inputItems?: ProductionTaskInputItem[];
+  inputMaterials?: ProductionTaskInputMaterial[];
+  outputItems?: ProductionTaskOutputItem[];
   materialTransactions?: ProductionTaskMaterialTransaction[];
   wageReport?: ProductionTaskWageReport | null;
   exceptions?: TaskException[];

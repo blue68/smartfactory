@@ -9,6 +9,7 @@ import { generateNo } from '../../shared/generateNo';
 import { UnitConverter } from '../../shared/unitConverter';
 import { MrpService } from '../mrp/mrp.service';
 import { recalculatePurchaseOrderStatus } from '../purchase/purchase-order-status.util';
+import { resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
 
 // ─── 参数类型定义 ─────────────────────────────────────────────────
 
@@ -46,6 +47,8 @@ export interface UpdateInspectionItemInput {
 
 export interface SubmitInspectionParams {
   overallResult: 'pass' | 'fail' | 'conditional_pass';
+  warehouseId?: number;
+  locationId?: number;
   notes?: string;
 }
 
@@ -1404,7 +1407,7 @@ export class IncomingInspectionService {
       );
 
       if (passedItems.length > 0 && !record.receipt_triggered) {
-        await this.handlePassedItems(manager, id, record, passedItems);
+        await this.handlePassedItems(manager, id, record, passedItems, params);
       }
 
       // ── 不合格品处理（BD-004）：disposition=return 自动生成退货单 ───
@@ -1429,6 +1432,7 @@ export class IncomingInspectionService {
     inspectionId: number,
     record: any,
     passedItems: any[],
+    submitParams?: Pick<SubmitInspectionParams, 'warehouseId' | 'locationId'>,
   ): Promise<void> {
     const [purchaseOrder] = await manager.query<Array<{ id: number; status: string }>>(
       `SELECT id, status FROM purchase_orders
@@ -1506,6 +1510,14 @@ export class IncomingInspectionService {
     const receivedSkuIds = new Set<number>();
     const supportsInventoryUpdatedBy = await this.hasInventoryUpdatedByColumn(manager);
     const supportsInventoryQtyChange = await this.hasInventoryTransactionQtyChangeColumn(manager);
+    const warehouseLocation = await resolveWarehouseLocationBinding({
+      manager,
+      tenantId: this.tenantId,
+      userId: this.userId,
+      warehouseId: submitParams?.warehouseId,
+      locationId: submitParams?.locationId,
+      sourceRef: 'incoming_inspection:submit',
+    });
 
     for (const item of passedItems) {
       const qtyPassed = this.resolveAcceptedReceiptQty(item);
@@ -1567,18 +1579,22 @@ export class IncomingInspectionService {
       if (supportsInventoryQtyChange) {
         txResult = await manager.query(
           `INSERT INTO inventory_transactions
-             (tenant_id, sku_id, transaction_type, qty_change, reference_type,
-              reference_id, reference_no, notes, dye_lot_no, created_by)
-           VALUES (?,?,'PURCHASE_IN',?,?,?,?,?,?,?)`,
+             (tenant_id, sku_id, transaction_type, warehouse_id, location_id, qty_change, reference_type,
+              reference_id, reference_no, source_ref, notes, dye_lot_no, created_by, updated_by)
+           VALUES (?,?,'PURCHASE_IN',?,?,?,?,?,?,?,?,?,?,?)`,
           [
             this.tenantId,
             item.sku_id,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
             convertedQty.toFixed(4),
             'purchase_receipt',
             receiptId,
             receiptNo,
+            'incoming_inspection:submit',
             `质检入库 IQC#${inspectionId}`,
             dyeLotNo,
+            this.userId,
             this.userId,
           ],
         );
@@ -1587,13 +1603,17 @@ export class IncomingInspectionService {
         txResult = await manager.query(
           `INSERT INTO inventory_transactions
              (tenant_id, transaction_no, sku_id, transaction_type, direction,
+              warehouse_id, location_id, source_ref,
               qty_input, input_unit, qty_stock_unit, stock_unit,
-              reference_type, reference_id, reference_no, notes, dye_lot_no, created_by)
-           VALUES (?,?,?,'PURCHASE_IN','IN',?,?,?,?,?,?,?,?,?,?)`,
+              reference_type, reference_id, reference_no, notes, dye_lot_no, created_by, updated_by)
+           VALUES (?,?,?,'PURCHASE_IN','IN',?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             this.tenantId,
             txNo,
             item.sku_id,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+            'incoming_inspection:submit',
             qtyPassed.toString(),
             purchaseUnit,
             convertedQty.toFixed(4),
@@ -1604,6 +1624,7 @@ export class IncomingInspectionService {
             `质检入库 IQC#${inspectionId}`,
             dyeLotNo,
             this.userId,
+            this.userId,
           ],
         );
       }
@@ -1612,23 +1633,46 @@ export class IncomingInspectionService {
       // 更新 inventory.qty_on_hand（upsert）
       if (supportsInventoryUpdatedBy) {
         await manager.query(
-          `INSERT INTO inventory (tenant_id, sku_id, qty_on_hand, qty_reserved, qty_in_transit, updated_by)
-           VALUES (?, ?, ?, 0, 0, ?)
+          `INSERT INTO inventory
+             (tenant_id, sku_id, warehouse_id, location_id, source_ref, qty_on_hand, qty_reserved, qty_in_transit, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
            ON DUPLICATE KEY UPDATE
              qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
              qty_in_transit = GREATEST(qty_in_transit - VALUES(qty_on_hand), 0),
+             warehouse_id = VALUES(warehouse_id),
+             location_id = VALUES(location_id),
+             source_ref = VALUES(source_ref),
              updated_by = VALUES(updated_by)`,
-          [this.tenantId, item.sku_id, convertedQty.toFixed(4), this.userId],
+          [
+            this.tenantId,
+            item.sku_id,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+            'incoming_inspection:submit',
+            convertedQty.toFixed(4),
+            this.userId,
+          ],
         );
       } else {
         await manager.query(
-          `INSERT INTO inventory (tenant_id, sku_id, qty_on_hand, qty_reserved, qty_in_transit, last_in_at)
-           VALUES (?, ?, ?, 0, 0, NOW(3))
+          `INSERT INTO inventory
+             (tenant_id, sku_id, warehouse_id, location_id, source_ref, qty_on_hand, qty_reserved, qty_in_transit, last_in_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(3))
            ON DUPLICATE KEY UPDATE
              qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
              qty_in_transit = GREATEST(qty_in_transit - VALUES(qty_on_hand), 0),
+             warehouse_id = VALUES(warehouse_id),
+             location_id = VALUES(location_id),
+             source_ref = VALUES(source_ref),
              last_in_at = NOW(3)`,
-          [this.tenantId, item.sku_id, convertedQty.toFixed(4)],
+          [
+            this.tenantId,
+            item.sku_id,
+            warehouseLocation.warehouseId,
+            warehouseLocation.locationId,
+            'incoming_inspection:submit',
+            convertedQty.toFixed(4),
+          ],
         );
       }
       await this.syncDailySnapshot(manager, item.sku_id);

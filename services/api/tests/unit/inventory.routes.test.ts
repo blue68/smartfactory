@@ -25,6 +25,18 @@ jest.mock('../../src/modules/inventory/inventory.service', () => ({
 jest.mock('../../src/modules/inventory/inventory.controller', () => ({
   inventoryController: {
     list: jest.fn(),
+    listWarehouses: jest.fn(),
+    listLocations: jest.fn(),
+    createWarehouse: jest.fn(),
+    updateWarehouse: jest.fn(),
+    deleteWarehouse: jest.fn(),
+    createLocation: jest.fn(),
+    updateLocation: jest.fn(),
+    deleteLocation: jest.fn(),
+    downloadWarehouseImportTemplateCsv: jest.fn(),
+    importWarehousesCsv: jest.fn(),
+    downloadLocationImportTemplateCsv: jest.fn(),
+    importLocationsCsv: jest.fn(),
     getSummary: jest.fn(),
     checkAvailability: jest.fn(),
     listDailySnapshots: jest.fn(),
@@ -73,12 +85,22 @@ describe('inventory.routes wiring', () => {
     expect(routePaths.indexOf('/summary')).toBeLessThan(routePaths.indexOf('/:skuId/dye-lots'));
     expect(routePaths.indexOf('/check')).toBeLessThan(routePaths.indexOf('/:skuId/dye-lots'));
     expect(routePaths.indexOf('/daily-snapshots')).toBeLessThan(routePaths.indexOf('/:skuId/dye-lots'));
+    expect(routePaths.indexOf('/warehouses/import-template/csv')).toBeLessThan(routePaths.indexOf('/:skuId/dye-lots'));
+    expect(routePaths.indexOf('/locations/import-template/csv')).toBeLessThan(routePaths.indexOf('/:skuId/dye-lots'));
     expect(routePaths.indexOf('/reconcile')).toBeLessThan(routePaths.indexOf('/:skuId/dye-lots'));
     expect(routePaths.indexOf('/repair')).toBeLessThan(routePaths.indexOf('/:skuId/dye-lots'));
   });
 
   it('declares expected role guards for reconcile/repair and key inventory routes', () => {
     expect(getRouteRoles('/daily-snapshots', 'get')).toBeUndefined();
+    expect(getRouteRoles('/warehouses', 'post')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteRoles('/warehouses/:id', 'put')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteRoles('/warehouses/:id', 'delete')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteRoles('/locations', 'post')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteRoles('/locations/:id', 'put')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteRoles('/locations/:id', 'delete')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteRoles('/warehouses/import-csv', 'post')).toEqual(['supervisor', 'boss']);
+    expect(getRouteRoles('/locations/import-csv', 'post')).toEqual(['supervisor', 'boss']);
     expect(getRouteRoles('/snapshots/rebuild', 'post')).toEqual(['supervisor', 'boss']);
     expect(getRouteRoles('/reconcile', 'post')).toEqual(['supervisor', 'boss']);
     expect(getRouteRoles('/repair', 'post')).toEqual(['supervisor', 'boss']);

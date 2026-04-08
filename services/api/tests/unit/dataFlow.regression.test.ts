@@ -492,6 +492,127 @@ describe('Data flow regressions', () => {
     });
   });
 
+  describe('MrpService.getGlobalShortageSummary filters', () => {
+    it('applies warehouse/location filters to aggregate and inventory queries', async () => {
+      mockAppDataSource.query.mockImplementation(async (sql: string, params: unknown[]) => {
+        if (sql.includes('GROUP BY mr.sku_id')) {
+          return [
+            {
+              sku_id: 501,
+              sku_code: 'RM-501',
+              sku_name: '原料-501',
+              stock_unit: 'kg',
+              total_qty_required: '150.0000',
+              total_qty_shortage: '30.0000',
+              affected_order_count: 2,
+              order_ids: '11,12',
+            },
+          ];
+        }
+        if (sql.includes('COUNT(DISTINCT mr.sku_id) AS total')) {
+          return [{ total: 1 }];
+        }
+        if (sql.includes('FROM inventory inv') && sql.includes('SUM(inv.qty_on_hand)')) {
+          expect(params).toEqual([7, 501, 9, 99]);
+          return [{ qty_on_hand: '120.0000', qty_reserved: '20.0000', qty_in_transit: '15.0000' }];
+        }
+        throw new Error(`unexpected query: ${sql} ${JSON.stringify(params)}`);
+      });
+
+      const svc = new MrpService({ tenantId: 7, userId: 11 });
+      const result = await svc.getGlobalShortageSummary({
+        page: 1,
+        pageSize: 20,
+        warehouseId: 9,
+        locationId: 99,
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.list).toEqual([
+        expect.objectContaining({
+          skuId: 501,
+          totalQtyRequired: '150.0000',
+          totalQtyShortage: '30.0000',
+          totalQtyAvailable: '100.0000',
+          totalQtyInTransit: '15.0000',
+          affectedOrderIds: [11, 12],
+        }),
+      ]);
+
+      const aggregateCall = mockAppDataSource.query.mock.calls.find(([sql]) =>
+        String(sql).includes('GROUP BY mr.sku_id'),
+      ) as unknown[] | undefined;
+      expect(aggregateCall).toBeTruthy();
+      expect(String(aggregateCall?.[0])).toContain('EXISTS (SELECT 1 FROM inventory inv');
+      expect(String(aggregateCall?.[0])).toContain('inv.warehouse_id = ?');
+      expect(String(aggregateCall?.[0])).toContain('inv.location_id = ?');
+      expect(aggregateCall?.[1]).toEqual([7, 9, 99, 20, 0]);
+
+      const countCall = mockAppDataSource.query.mock.calls.find(([sql]) =>
+        String(sql).includes('COUNT(DISTINCT mr.sku_id) AS total'),
+      ) as unknown[] | undefined;
+      expect(countCall?.[1]).toEqual([7, 9, 99]);
+    });
+
+    it('applies onlyDefaultLocation filter to aggregate and inventory queries', async () => {
+      mockAppDataSource.query.mockImplementation(async (sql: string, params: unknown[]) => {
+        if (sql.includes('GROUP BY mr.sku_id')) {
+          return [
+            {
+              sku_id: 601,
+              sku_code: 'RM-601',
+              sku_name: '默认仓位原料',
+              stock_unit: 'kg',
+              total_qty_required: '80.0000',
+              total_qty_shortage: '18.0000',
+              affected_order_count: 1,
+              order_ids: '22',
+            },
+          ];
+        }
+        if (sql.includes('COUNT(DISTINCT mr.sku_id) AS total')) {
+          return [{ total: 1 }];
+        }
+        if (sql.includes('FROM inventory inv') && sql.includes('INNER JOIN warehouses w')) {
+          expect(String(sql)).toContain("w.code = 'DEFAULT'");
+          expect(String(sql)).toContain("l.code = 'DEFAULT-UNKNOWN'");
+          expect(params).toEqual([7, 601]);
+          return [{ qty_on_hand: '40.0000', qty_reserved: '5.0000', qty_in_transit: '4.0000' }];
+        }
+        throw new Error(`unexpected query: ${sql} ${JSON.stringify(params)}`);
+      });
+
+      const svc = new MrpService({ tenantId: 7, userId: 11 });
+      const result = await svc.getGlobalShortageSummary({
+        page: 1,
+        pageSize: 20,
+        onlyDefaultLocation: true,
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.list[0]).toEqual(
+        expect.objectContaining({
+          skuId: 601,
+          totalQtyAvailable: '35.0000',
+          totalQtyInTransit: '4.0000',
+          affectedOrderIds: [22],
+        }),
+      );
+
+      const aggregateCall = mockAppDataSource.query.mock.calls.find(([sql]) =>
+        String(sql).includes('GROUP BY mr.sku_id'),
+      ) as unknown[] | undefined;
+      expect(String(aggregateCall?.[0])).toContain("w.code = 'DEFAULT'");
+      expect(String(aggregateCall?.[0])).toContain("l.code = 'DEFAULT-UNKNOWN'");
+      expect(aggregateCall?.[1]).toEqual([7, 20, 0]);
+
+      const countCall = mockAppDataSource.query.mock.calls.find(([sql]) =>
+        String(sql).includes('COUNT(DISTINCT mr.sku_id) AS total'),
+      ) as unknown[] | undefined;
+      expect(countCall?.[1]).toEqual([7]);
+    });
+  });
+
   describe('SalesService.updateOrder', () => {
     function buildConstraintReport(overallResult: 'pass' | 'warning' | 'block' = 'warning') {
       return {
@@ -1411,13 +1532,21 @@ describe('Data flow regressions', () => {
 
       const shipOrderSpy = jest
         .spyOn(SalesService.prototype, 'shipOrder')
-        .mockResolvedValue({ deliveryId: 1, deliveryNo: 'DO-1', orderStatus: 'shipped' });
+        .mockResolvedValue({
+          deliveryId: 1,
+          deliveryNo: 'DO-1',
+          orderStatus: 'shipped',
+          warehouseId: 1,
+          locationId: 1,
+        });
 
       const svc = new SalesOrderService({ tenantId: 5, userId: 8 });
       await svc.ship(3, 'TRACK-001');
 
       expect(shipOrderSpy).toHaveBeenCalledWith(3, {
         trackingNo: 'TRACK-001',
+        warehouseId: undefined,
+        locationId: undefined,
         shippedItems: [
           { orderItemId: 11, shippedQty: 6 },
           { orderItemId: 12, shippedQty: 3 },
@@ -1442,7 +1571,13 @@ describe('Data flow regressions', () => {
 
       const shipOrderSpy = jest
         .spyOn(SalesService.prototype, 'shipOrder')
-        .mockResolvedValue({ deliveryId: 3, deliveryNo: 'DO-3', orderStatus: 'partial_shipped' });
+        .mockResolvedValue({
+          deliveryId: 3,
+          deliveryNo: 'DO-3',
+          orderStatus: 'partial_shipped',
+          warehouseId: 1,
+          locationId: 1,
+        });
 
       const svc = new SalesOrderService({ tenantId: 5, userId: 8 });
       await svc.ship(13, 'TRACK-013', [
@@ -1451,6 +1586,8 @@ describe('Data flow regressions', () => {
 
       expect(shipOrderSpy).toHaveBeenCalledWith(13, {
         trackingNo: 'TRACK-013',
+        warehouseId: undefined,
+        locationId: undefined,
         shippedItems: [{ orderItemId: 31, shippedQty: 2 }],
       });
     });
@@ -1471,7 +1608,13 @@ describe('Data flow regressions', () => {
 
       const shipOrderSpy = jest
         .spyOn(SalesService.prototype, 'shipOrder')
-        .mockResolvedValue({ deliveryId: 4, deliveryNo: 'DO-4', orderStatus: 'shipped' });
+        .mockResolvedValue({
+          deliveryId: 4,
+          deliveryNo: 'DO-4',
+          orderStatus: 'shipped',
+          warehouseId: 1,
+          locationId: 1,
+        });
 
       const svc = new SalesOrderService({ tenantId: 5, userId: 8 });
       await svc.ship(23, 'TRACK-023', [
@@ -1480,6 +1623,8 @@ describe('Data flow regressions', () => {
 
       expect(shipOrderSpy).toHaveBeenCalledWith(23, {
         trackingNo: 'TRACK-023',
+        warehouseId: undefined,
+        locationId: undefined,
         shippedItems: [{ orderItemId: 41, shippedQty: 5 }],
       });
     });

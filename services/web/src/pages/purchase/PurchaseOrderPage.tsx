@@ -691,7 +691,7 @@ export default function PurchaseOrderPage() {
           <div className={styles.heroEyebrow}>Purchase Operations</div>
           <h1 className={styles.heroTitle}>采购订单履约中心</h1>
           <p className={styles.heroSubtitle}>
-            结合产品原型中的采购审批链路，本页将关注点集中在到货节奏、尾单风险和异常关闭处理，不再只是静态订单列表。
+            查看集中到货节奏、尾单风险和异常关闭处理。
           </p>
 
           <div className={styles.heroMeta}>

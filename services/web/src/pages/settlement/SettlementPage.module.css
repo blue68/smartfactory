@@ -374,6 +374,107 @@
   text-align: center;
 }
 
+/* ── 待结算订单 ───────────────────────────────── */
+.pending_section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.pending_header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.pending_title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.pending_desc {
+  margin: 6px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.pending_meta {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.pending_loading,
+.pending_error,
+.pending_empty {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.pending_error {
+  color: var(--color-error-600, #dc2626);
+}
+
+.pending_table_wrap {
+  overflow-x: auto;
+}
+
+.pending_table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.pending_table th,
+.pending_table td {
+  padding: var(--space-3) var(--space-2);
+  text-align: left;
+  border-bottom: 1px solid var(--color-gray-100);
+  vertical-align: middle;
+}
+
+.pending_table th {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--color-gray-50, #f9fafb);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pending_order_no {
+  font-family: var(--font-family-mono, monospace);
+  color: var(--color-primary-700);
+  font-weight: 600;
+}
+
+.pending_amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--color-warning-700, #b45309);
+}
+
+.pending_pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.pending_page_info {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
 /* ── 表格容器 ─────────────────────────────────── */
 .table_wrap {
   background: var(--bg-card);
@@ -636,6 +737,13 @@
   .aging_row {
     grid-template-columns: 1fr;
     gap: var(--space-2);
+  }
+  .pending_header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .pending_pagination {
+    justify-content: flex-start;
   }
   .table thead th:nth-child(5),
   .table tbody td:nth-child(5) { display: none; }

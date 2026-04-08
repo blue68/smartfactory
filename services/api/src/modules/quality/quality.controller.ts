@@ -5,18 +5,28 @@ import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
 
 const CreateInspectionSchema = z.object({
-  productionOrderId: z.number().int().positive(),
+  productionOrderNo: z.string().trim().min(1).max(100),
   inspectionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   qtyInspected: z.string().regex(/^\d+(\.\d{1,4})?$/),
 });
 
 const RecordIssueSchema = z.object({
-  inspectionId: z.number().int().positive(),
+  inspectionNo: z.string().trim().min(1).max(100),
   componentName: z.string().min(1).max(200),
   issueTypes: z.array(z.enum(['appearance', 'dimension', 'function', 'material'])).min(1),
   severity: z.enum(['minor', 'normal', 'severe']),
   description: z.string().max(500).optional(),
   images: z.array(z.string()).max(3).optional(),
+});
+
+const ProductionOrderOptionsSchema = z.object({
+  keyword: z.string().trim().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+const InspectionOptionsSchema = z.object({
+  keyword: z.string().trim().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
 const CompleteInspectionSchema = z.object({
@@ -41,6 +51,18 @@ export class QualityController {
     const body = CreateInspectionSchema.parse(req.body);
     const data = await this.svc(req).createInspection(body);
     created(res, data, '验货单已创建');
+  }
+
+  async listProductionOrderOptions(req: Request, res: Response): Promise<void> {
+    const query = ProductionOrderOptionsSchema.parse(req.query);
+    const data = await this.svc(req).listProductionOrderOptions(query);
+    success(res, data);
+  }
+
+  async listInspectionOptions(req: Request, res: Response): Promise<void> {
+    const query = InspectionOptionsSchema.parse(req.query);
+    const data = await this.svc(req).listInspectionOptions(query);
+    success(res, data);
   }
 
   async recordIssue(req: Request, res: Response): Promise<void> {

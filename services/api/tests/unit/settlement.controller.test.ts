@@ -115,6 +115,55 @@ describe('SettlementController.listSettlements', () => {
   });
 });
 
+describe('SettlementController.listPendingOrders', () => {
+  it('passes customerId and keyword filters to service', async () => {
+    MockService.prototype.listPendingSettlementOrders = jest.fn().mockResolvedValue({
+      list: [],
+      total: 0,
+      page: 1,
+      pageSize: 8,
+    });
+
+    const req = createReq({
+      query: {
+        page: '1',
+        pageSize: '8',
+        customerId: '12',
+        keyword: 'SO-202604',
+      },
+    });
+    const res = createRes();
+
+    await settlementController.listPendingOrders(req, res);
+
+    expect(MockService.prototype.listPendingSettlementOrders).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 8,
+      customerId: 12,
+      keyword: 'SO-202604',
+    });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('maps invalid query to 400 response', async () => {
+    const req = createReq({
+      query: {
+        page: '0',
+      },
+    });
+    const res = createRes();
+
+    await runWithErrorHandler(() => settlementController.listPendingOrders(req, res), req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 1001,
+      }),
+    );
+  });
+});
+
 describe('SettlementController.exportCsv', () => {
   it('writes CSV headers and rows from service data', async () => {
     MockService.prototype.listSettlementExportRows = jest.fn().mockResolvedValue([
@@ -158,6 +207,8 @@ describe('SettlementController.exportCsv', () => {
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv; charset=utf-8');
     expect(res.write).toHaveBeenCalledWith(expect.stringContaining('结算单号'));
     expect(res.write).toHaveBeenCalledWith(expect.stringContaining('ST-101'));
+    expect(res.write).toHaveBeenCalledWith(expect.stringContaining('草稿'));
+    expect(res.write).toHaveBeenCalledWith(expect.stringContaining('2026-03-24 09:00:00'));
     expect(res.end).toHaveBeenCalled();
   });
 });

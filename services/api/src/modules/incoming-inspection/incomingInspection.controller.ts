@@ -44,6 +44,8 @@ const SubmitInspectionSchema = z.object({
   overallResult: z.enum(['pass', 'fail', 'conditional_pass'], {
     errorMap: () => ({ message: '总体结论须为 pass / fail / conditional_pass' }),
   }),
+  warehouseId: z.coerce.number().int().positive().optional(),
+  locationId: z.coerce.number().int().positive().optional(),
   notes: z.string().max(500).optional(),
 });
 

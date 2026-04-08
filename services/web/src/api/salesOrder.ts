@@ -126,6 +126,22 @@ export interface RejectPayload {
   reason: string;
 }
 
+export interface CapacityConflictingOrder {
+  id: number;
+  orderNo: string;
+  skuName: string;
+  quantity: number;
+  deadline: string;
+}
+
+export interface SalesOrderCapacityCheckResult {
+  available: boolean;
+  currentLoad: number;
+  maxCapacity: number;
+  estimatedCompletionDate: string;
+  conflictingOrders: CapacityConflictingOrder[];
+}
+
 // ─────────────────────────────────────────────
 // API 函数
 // ─────────────────────────────────────────────
@@ -183,6 +199,8 @@ export async function shipSalesOrder(
   id: number,
   payload?: {
     trackingNo?: string;
+    warehouseId?: number;
+    locationId?: number;
     shippedItems?: Array<{ orderItemId: number; shippedQty: number }>;
   },
 ): Promise<void> {
@@ -234,6 +252,15 @@ export async function fetchOrderStats(): Promise<OrderStats> {
 /** GET /api/inventory/check — 库存实时查询 */
 export async function checkInventory(skuId: number, qty?: number): Promise<{ available: number; sufficient: boolean; stockUnit: string }> {
   return request.get<{ available: number; sufficient: boolean; stockUnit: string }>('/api/inventory/check', { skuId, qty });
+}
+
+/** GET /api/sales-orders/capacity-check — 下单前产能预检 */
+export async function checkSalesOrderCapacity(params: {
+  skuId: number;
+  quantity: number;
+  expectedDelivery: string;
+}): Promise<SalesOrderCapacityCheckResult> {
+  return request.get<SalesOrderCapacityCheckResult>(`${BASE}/capacity-check`, params as Record<string, unknown>);
 }
 
 // ─────────────────────────────────────────────
@@ -352,12 +379,16 @@ export function useShipSalesOrder() {
     mutationFn: ({
       id,
       trackingNo,
+      warehouseId,
+      locationId,
       shippedItems,
     }: {
       id: number;
       trackingNo?: string;
+      warehouseId?: number;
+      locationId?: number;
       shippedItems?: Array<{ orderItemId: number; shippedQty: number }>;
-    }) => shipSalesOrder(id, { trackingNo, shippedItems }),
+    }) => shipSalesOrder(id, { trackingNo, warehouseId, locationId, shippedItems }),
     onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ['sales-orders'] });
       qc.invalidateQueries({ queryKey: ['sales-order', id] });

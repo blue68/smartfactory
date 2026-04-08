@@ -19,6 +19,10 @@ import type {
   OutboundPayload,
   StockTransactionResult,
   InventoryListQuery,
+  WarehouseOption,
+  LocationOption,
+  WarehouseCsvImportResult,
+  LocationCsvImportResult,
 } from '@/types/models';
 import type { PaginatedData } from '@/types/api';
 
@@ -51,6 +55,9 @@ function serializeQuery(query: InventoryListQuery): Record<string, unknown> {
   if (query.category2Id !== undefined) params.category2Id = query.category2Id;
   if (query.keyword !== undefined && query.keyword !== '') params.keyword = query.keyword;
   if (query.belowSafety !== undefined) params.belowSafety = String(query.belowSafety);
+  if (query.warehouseId !== undefined) params.warehouseId = query.warehouseId;
+  if (query.locationId !== undefined) params.locationId = query.locationId;
+  if (query.onlyDefaultLocation !== undefined) params.onlyDefaultLocation = String(query.onlyDefaultLocation);
   return params;
 }
 
@@ -70,6 +77,8 @@ function serializeTransactionQuery(query: InventoryTransactionTraceQuery): Recor
   if (query.pageSize !== undefined) params.pageSize = query.pageSize;
   if (query.dateFrom) params.dateFrom = query.dateFrom;
   if (query.dateTo) params.dateTo = query.dateTo;
+  if (query.warehouseId !== undefined) params.warehouseId = query.warehouseId;
+  if (query.locationId !== undefined) params.locationId = query.locationId;
   if (query.keyword !== undefined && query.keyword !== '') params.keyword = query.keyword;
   return params;
 }
@@ -90,6 +99,122 @@ export const inventoryApi = {
 
   getSummary: () =>
     request.get<InventorySummary>('/api/inventory/summary'),
+
+  getWarehouses: (onlyActive = true) =>
+    request.get<WarehouseOption[]>('/api/inventory/warehouses', { onlyActive: String(onlyActive) }),
+
+  getLocations: (warehouseId?: number, onlyActive = true) =>
+    request.get<LocationOption[]>('/api/inventory/locations', {
+      warehouseId,
+      onlyActive: String(onlyActive),
+    }),
+
+  createWarehouse: (payload: { code: string; name: string; type?: string; status?: string; plantCode?: string }) =>
+    request.post<WarehouseOption>('/api/inventory/warehouses', payload),
+
+  updateWarehouse: (
+    id: number,
+    payload: { code?: string; name?: string; type?: string; status?: string; plantCode?: string },
+  ) => request.put<WarehouseOption>(`/api/inventory/warehouses/${id}`, payload),
+
+  deleteWarehouse: (id: number) =>
+    request.delete<{ id: number }>(`/api/inventory/warehouses/${id}`),
+
+  createLocation: (
+    payload: {
+      warehouseId: number;
+      code: string;
+      name: string;
+      locationType?: 'general' | 'zone' | 'rack' | 'shelf' | 'bin';
+      aisleCode?: string;
+      rackCode?: string;
+      shelfCode?: string;
+      binCode?: string;
+      level?: number;
+      parentId?: number;
+      status?: string;
+    },
+  ) => request.post<LocationOption>('/api/inventory/locations', payload),
+
+  updateLocation: (
+    id: number,
+    payload: {
+      warehouseId?: number;
+      code?: string;
+      name?: string;
+      locationType?: 'general' | 'zone' | 'rack' | 'shelf' | 'bin';
+      aisleCode?: string;
+      rackCode?: string;
+      shelfCode?: string;
+      binCode?: string;
+      level?: number;
+      parentId?: number | null;
+      status?: string;
+    },
+  ) => request.put<LocationOption>(`/api/inventory/locations/${id}`, payload),
+
+  deleteLocation: (id: number) =>
+    request.delete<{ id: number }>(`/api/inventory/locations/${id}`),
+
+  importWarehousesCsv: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request.post<WarehouseCsvImportResult>(
+      '/api/inventory/warehouses/import-csv',
+      form,
+      { headers: { 'Content-Type': undefined as unknown as string } },
+    );
+  },
+
+  importLocationsCsv: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request.post<LocationCsvImportResult>(
+      '/api/inventory/locations/import-csv',
+      form,
+      { headers: { 'Content-Type': undefined as unknown as string } },
+    );
+  },
+
+  downloadWarehouseImportTemplateCsv: async (): Promise<void> => {
+    const token = getAccessToken();
+    const baseURL = config.apiBaseUrl;
+    const res = await axios.get(`${baseURL}/api/inventory/warehouses/import-template/csv`, {
+      responseType: 'blob',
+      withCredentials: true,
+      timeout: 30_000,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const blob = new Blob([res.data as BlobPart], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'warehouse-import-template.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  downloadLocationImportTemplateCsv: async (): Promise<void> => {
+    const token = getAccessToken();
+    const baseURL = config.apiBaseUrl;
+    const res = await axios.get(`${baseURL}/api/inventory/locations/import-template/csv`, {
+      responseType: 'blob',
+      withCredentials: true,
+      timeout: 30_000,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const blob = new Blob([res.data as BlobPart], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'location-import-template.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 
   getTransactions: (skuId: number, query: InventoryTransactionTraceQuery) =>
     request.get<InventoryTransactionTraceResult>(
@@ -166,6 +291,140 @@ export function useInventorySummary(enabled = true) {
     queryFn: () => inventoryApi.getSummary(),
     enabled,
     staleTime: 60_000,
+  });
+}
+
+export function useWarehouseOptions(onlyActive = true) {
+  return useQuery({
+    queryKey: [...inventoryKeys.all, 'warehouses', onlyActive] as const,
+    queryFn: () => inventoryApi.getWarehouses(onlyActive),
+    staleTime: 60_000,
+  });
+}
+
+export function useLocationOptions(warehouseId?: number, onlyActive = true) {
+  return useQuery({
+    queryKey: [...inventoryKeys.all, 'locations', warehouseId ?? 0, onlyActive] as const,
+    queryFn: () => inventoryApi.getLocations(warehouseId, onlyActive),
+    staleTime: 60_000,
+  });
+}
+
+export function useImportWarehousesCsv() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => inventoryApi.importWarehousesCsv(file),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: inventoryKeys.all });
+    },
+  });
+}
+
+export function useImportLocationsCsv() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => inventoryApi.importLocationsCsv(file),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: inventoryKeys.all });
+    },
+  });
+}
+
+export function useCreateWarehouse() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { code: string; name: string; type?: string; status?: string; plantCode?: string }) =>
+      inventoryApi.createWarehouse(payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: inventoryKeys.all });
+    },
+  });
+}
+
+export function useUpdateWarehouse() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: number;
+      payload: { code?: string; name?: string; type?: string; status?: string; plantCode?: string };
+    }) => inventoryApi.updateWarehouse(id, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: inventoryKeys.all });
+    },
+  });
+}
+
+export function useDeleteWarehouse() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => inventoryApi.deleteWarehouse(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: inventoryKeys.all });
+    },
+  });
+}
+
+export function useCreateLocation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      warehouseId: number;
+      code: string;
+      name: string;
+      locationType?: 'general' | 'zone' | 'rack' | 'shelf' | 'bin';
+      aisleCode?: string;
+      rackCode?: string;
+      shelfCode?: string;
+      binCode?: string;
+      level?: number;
+      parentId?: number;
+      status?: string;
+    }) =>
+      inventoryApi.createLocation(payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: inventoryKeys.all });
+    },
+  });
+}
+
+export function useUpdateLocation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: number;
+      payload: {
+        warehouseId?: number;
+        code?: string;
+        name?: string;
+        locationType?: 'general' | 'zone' | 'rack' | 'shelf' | 'bin';
+        aisleCode?: string;
+        rackCode?: string;
+        shelfCode?: string;
+        binCode?: string;
+        level?: number;
+        parentId?: number | null;
+        status?: string;
+      };
+    }) => inventoryApi.updateLocation(id, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: inventoryKeys.all });
+    },
+  });
+}
+
+export function useDeleteLocation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => inventoryApi.deleteLocation(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: inventoryKeys.all });
+    },
   });
 }
 

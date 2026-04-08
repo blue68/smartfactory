@@ -61,6 +61,8 @@ const CloseSchema = z.object({
 
 const ShipSchema = z.object({
   trackingNo: z.string().max(128).optional(),
+  warehouseId: z.coerce.number().int().positive().optional(),
+  locationId: z.coerce.number().int().positive().optional(),
   shippedItems: z.array(z.object({
     orderItemId: z.coerce.number().int().positive(),
     shippedQty: z.coerce.number().positive(),
@@ -189,8 +191,13 @@ export class SalesOrderController {
   /** POST /sales-orders/:id/ship */
   async ship(req: Request, res: Response): Promise<void> {
     const id = Number(req.params.id);
-    const { trackingNo, shippedItems } = ShipSchema.parse(req.body ?? {});
-    await this.svc(req).ship(id, trackingNo, shippedItems);
+    const {
+      trackingNo,
+      warehouseId,
+      locationId,
+      shippedItems,
+    } = ShipSchema.parse(req.body ?? {});
+    await this.svc(req).ship(id, trackingNo, shippedItems, warehouseId, locationId);
     success(res, null, '订单已发货');
   }
 
