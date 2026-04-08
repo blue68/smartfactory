@@ -3,6 +3,12 @@ import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 import { AppError } from '../shared/AppError';
 import { ResponseCode } from '../shared/ApiResponse';
+import {
+  buildFallbackPermissionSnapshot,
+  type AccessScopeLevel,
+  type PermissionSnapshot,
+} from '../modules/access-control/access-control.config';
+import { accessControlService } from '../modules/access-control/access-control.service';
 
 // BLK-002: JWT_SECRET 强制校验 — 生产环境由 index.ts 启动时拦截
 // 开发环境若未配置也使用弱默认值（已在 index.ts 打印 warn）
@@ -14,6 +20,14 @@ if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
 }
 
 export { JWT_REFRESH_SECRET };
+
+function toIdNumber(value: unknown, fallback: number | null = null): number | null {
+  if (value == null) {
+    return fallback;
+  }
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : fallback;
+}
 
 /**
  * Refresh Token 有效期（秒）
@@ -29,6 +43,9 @@ export interface JwtPayload {
   tenantId: number;
   username: string;
   roles: string[];
+  scopeLevel?: AccessScopeLevel;
+  originTenantId?: number;
+  contextTenantId?: number | null;
   iat?: number;
   exp?: number;
 }
@@ -40,6 +57,9 @@ export interface JwtPayload {
 export interface RefreshTokenPayload {
   userId: number;
   tenantId: number;
+  scopeLevel?: AccessScopeLevel;
+  originTenantId?: number;
+  contextTenantId?: number | null;
   type: 'refresh';
   jti: string;
   iat?: number;
@@ -64,8 +84,12 @@ declare global {
       user: JwtPayload;
       tenantId: number;
       userId: number;
+      originTenantId: number;
+      contextTenantId: number | null;
+      scopeLevel: AccessScopeLevel;
       /** JWT payload 中解析出的用户角色列表，由 authMiddleware 写入 */
       roles: string[];
+      permissionSnapshot?: PermissionSnapshot;
     }
   }
 }
@@ -86,9 +110,35 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
     if (payload.type === 'refresh') {
       throw AppError.unauthorized('Refresh Token 不能用于 API 认证');
     }
-    req.user = payload;
-    req.tenantId = payload.tenantId;
-    req.userId = payload.userId;
+    const tenantId = toIdNumber(payload.tenantId);
+    const userId = toIdNumber(payload.userId);
+    const originTenantId = toIdNumber(payload.originTenantId, tenantId);
+    const contextTenantId = payload.contextTenantId === null
+      ? null
+      : toIdNumber(payload.contextTenantId, tenantId);
+
+    if (tenantId == null || userId == null || originTenantId == null) {
+      throw AppError.unauthorized('认证令牌中的身份信息无效');
+    }
+
+    req.user = {
+      ...payload,
+      userId,
+      tenantId,
+      originTenantId,
+      contextTenantId,
+    };
+    req.tenantId = tenantId;
+    req.userId = userId;
+    req.originTenantId = originTenantId;
+    req.contextTenantId = contextTenantId;
+    req.scopeLevel = payload.scopeLevel ?? 'tenant';
+    req.roles = payload.roles;
+    req.permissionSnapshot = buildFallbackPermissionSnapshot(payload.roles, {
+      scopeLevel: req.scopeLevel,
+      originTenantId,
+      contextTenantId,
+    });
     next();
   } catch (err) {
     if (err instanceof AppError) {
@@ -116,6 +166,61 @@ export function requireRoles(...allowedRoles: string[]) {
   };
 }
 
+export function requirePermissions(...requiredPermissions: string[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    void (async () => {
+      const roleCodes = await accessControlService.resolveUserRoleCodes(req.userId, req.originTenantId);
+      req.roles = roleCodes;
+      req.user.roles = roleCodes;
+      const snapshot = await accessControlService.buildPermissionSnapshot(
+        req.tenantId,
+        roleCodes,
+        {
+          scopeLevel: req.scopeLevel,
+          originTenantId: req.originTenantId,
+          contextTenantId: req.contextTenantId,
+        },
+      );
+      req.permissionSnapshot = snapshot;
+
+      const hasPermission = requiredPermissions.some((permission) =>
+        snapshot.actionCodes.includes(permission),
+      );
+
+      if (!hasPermission) {
+        throw AppError.forbidden(`该操作需要以下权限之一：${requiredPermissions.join(', ')}`);
+      }
+      next();
+    })().catch(next);
+  };
+}
+
+export function requireTenantFeature(...featureCodes: string[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    void (async () => {
+      const roleCodes = await accessControlService.resolveUserRoleCodes(req.userId, req.originTenantId);
+      req.roles = roleCodes;
+      req.user.roles = roleCodes;
+      const snapshot = await accessControlService.buildPermissionSnapshot(
+        req.tenantId,
+        roleCodes,
+        {
+          scopeLevel: req.scopeLevel,
+          originTenantId: req.originTenantId,
+          contextTenantId: req.contextTenantId,
+        },
+      );
+      req.permissionSnapshot = snapshot;
+
+      const matched = featureCodes.every((feature) => snapshot.featureFlags.includes(feature));
+      if (!matched) {
+        throw AppError.forbidden(`当前租户未启用以下功能：${featureCodes.join(', ')}`);
+      }
+      next();
+    })().catch(next);
+  };
+}
+
 /**
  * 签发 Access Token
  */
@@ -133,10 +238,23 @@ export function signToken(payload: Omit<JwtPayload, 'iat' | 'exp'>): string {
 export function signRefreshToken(
   userId: number,
   tenantId: number,
+  options: {
+    scopeLevel?: AccessScopeLevel;
+    originTenantId?: number;
+    contextTenantId?: number | null;
+  } = {},
 ): { token: string; jti: string } {
   const jti = randomUUID();
   const token = jwt.sign(
-    { userId, tenantId, type: 'refresh', jti } satisfies Omit<RefreshTokenPayload, 'iat' | 'exp'>,
+    {
+      userId,
+      tenantId,
+      scopeLevel: options.scopeLevel ?? 'tenant',
+      originTenantId: options.originTenantId ?? tenantId,
+      contextTenantId: options.contextTenantId ?? tenantId,
+      type: 'refresh',
+      jti,
+    } satisfies Omit<RefreshTokenPayload, 'iat' | 'exp'>,
     JWT_REFRESH_SECRET,
     { expiresIn: REFRESH_TOKEN_TTL_SECONDS },
   );

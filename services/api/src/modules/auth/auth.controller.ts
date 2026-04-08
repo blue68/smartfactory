@@ -10,9 +10,22 @@ import { REFRESH_TOKEN_TTL_SECONDS } from '../../middleware/auth';
 // ─────────────────────────────────────────────
 
 const LoginSchema = z.object({
+  loginMode: z.enum(['tenant', 'platform']).optional(),
   username: z.string().min(1, '用户名不能为空'),
   password: z.string().min(1, '密码不能为空'),
-  tenantCode: z.string().min(1, '租户编码不能为空'),
+  tenantCode: z.string().optional(),
+}).superRefine((value, ctx) => {
+  if ((value.loginMode ?? 'tenant') === 'tenant' && !value.tenantCode?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['tenantCode'],
+      message: '租户编码不能为空',
+    });
+  }
+});
+
+const SwitchTenantSchema = z.object({
+  targetTenantId: z.coerce.number().int().positive('目标租户不能为空'),
 });
 
 const WechatLoginSchema = z.object({
@@ -67,6 +80,7 @@ function clearRefreshCookie(res: Response): void {
 export class AuthController {
   readonly loginValidator = validate('body', LoginSchema);
   readonly wechatLoginValidator = validate('body', WechatLoginSchema);
+  readonly switchTenantValidator = validate('body', SwitchTenantSchema);
 
   /**
    * POST /api/auth/login
@@ -81,6 +95,7 @@ export class AuthController {
     // response body 中不暴露 refresh token
     success(res, {
       accessToken: result.accessToken,
+      permissionSnapshot: result.permissionSnapshot,
       user: result.user,
     }, '登录成功');
   }
@@ -97,6 +112,7 @@ export class AuthController {
 
     success(res, {
       accessToken: result.accessToken,
+      permissionSnapshot: result.permissionSnapshot,
       user: result.user,
     }, '微信登录成功');
   }
@@ -118,7 +134,10 @@ export class AuthController {
     // 旋转：写入新的 refresh token Cookie
     res.cookie(REFRESH_COOKIE_NAME, result.refreshToken, buildRefreshCookieOptions());
 
-    success(res, { accessToken: result.accessToken }, '令牌已刷新');
+    success(res, {
+      accessToken: result.accessToken,
+      permissionSnapshot: result.permissionSnapshot,
+    }, '令牌已刷新');
   }
 
   /**
@@ -138,6 +157,40 @@ export class AuthController {
 
     clearRefreshCookie(res);
     success(res, null, '已退出登录');
+  }
+
+  async switchTenant(req: Request, res: Response): Promise<void> {
+    const result = await authService.switchTenantContext({
+      userId: req.userId,
+      username: req.user.username,
+      originTenantId: req.originTenantId,
+      roles: req.roles,
+      scopeLevel: req.scopeLevel,
+      targetTenantId: Number((req.body as z.infer<typeof SwitchTenantSchema>).targetTenantId),
+    });
+
+    res.cookie(REFRESH_COOKIE_NAME, result.refreshToken, buildRefreshCookieOptions());
+    success(res, {
+      accessToken: result.accessToken,
+      permissionSnapshot: result.permissionSnapshot,
+      user: result.user,
+    }, '已进入目标租户上下文');
+  }
+
+  async exitTenantContext(req: Request, res: Response): Promise<void> {
+    const result = await authService.exitTenantContext({
+      userId: req.userId,
+      originTenantId: req.originTenantId,
+      contextTenantId: req.contextTenantId,
+      scopeLevel: req.scopeLevel,
+    });
+
+    res.cookie(REFRESH_COOKIE_NAME, result.refreshToken, buildRefreshCookieOptions());
+    success(res, {
+      accessToken: result.accessToken,
+      permissionSnapshot: result.permissionSnapshot,
+      user: result.user,
+    }, '已退出租户上下文');
   }
 }
 

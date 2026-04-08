@@ -8,11 +8,29 @@ import {
   signRefreshToken,
   verifyRefreshToken,
 } from '../../middleware/auth';
+import { accessControlService } from '../access-control/access-control.service';
+import type {
+  AccessScopeLevel,
+  PermissionSnapshot,
+} from '../access-control/access-control.config';
 
 export interface LoginParams {
+  loginMode?: 'tenant' | 'platform';
   username: string;
   password: string;
-  tenantCode: string;
+  tenantCode?: string;
+}
+
+interface AuthUserContext {
+  id: number;
+  username: string;
+  realName: string;
+  roles: string[];
+  tenantId: number;
+  tenantName: string;
+  scopeLevel: AccessScopeLevel;
+  originTenantId: number;
+  contextTenantId: number | null;
 }
 
 /**
@@ -26,14 +44,8 @@ export interface LoginResult {
    * 不得将此字段透传到 response body。
    */
   refreshToken: string;
-  user: {
-    id: number;
-    username: string;
-    realName: string;
-    roles: string[];
-    tenantId: number;
-    tenantName: string;
-  };
+  permissionSnapshot: PermissionSnapshot;
+  user: AuthUserContext;
 }
 
 /**
@@ -43,9 +55,14 @@ export interface RefreshResult {
   accessToken: string;
   /** 新 Refresh Token，Controller 负责更新 Cookie */
   refreshToken: string;
+  permissionSnapshot: PermissionSnapshot;
 }
 
 export class AuthService {
+  private toIdNumber(value: number | string | null | undefined): number {
+    return Number(value ?? 0);
+  }
+
   // ─────────────────────────────────────────────
   // 私有：Redis Refresh Token 操作
   // ─────────────────────────────────────────────
@@ -138,17 +155,134 @@ export class AuthService {
   // 公共：认证逻辑
   // ─────────────────────────────────────────────
 
+  private async tableExists(tableName: string): Promise<boolean> {
+    const [row] = await AppDataSource.query<Array<{ total: number }>>(
+      `SELECT COUNT(*) AS total
+         FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+          AND table_name = ?`,
+      [tableName],
+    );
+    return Number(row?.total ?? 0) > 0;
+  }
+
+  private async writePlatformContextAuditLog(params: {
+    operatorId: number;
+    operatorName: string;
+    tenantId: number;
+    action: 'switch_tenant' | 'exit_tenant_context';
+    targetTenantId: number | null;
+    targetTenantCode?: string | null;
+    fromScopeLevel: AccessScopeLevel;
+    toScopeLevel: AccessScopeLevel;
+  }): Promise<void> {
+    if (!(await this.tableExists('access_audit_logs'))) {
+      return;
+    }
+
+    await AppDataSource.query(
+      `INSERT INTO access_audit_logs
+         (tenant_id, module, action, target_type, target_id, target_code, before_json, after_json, diff_json, operator_id, operator_name, trace_id, created_at)
+       VALUES (?, 'platform_context', ?, 'tenant_context', ?, ?, ?, ?, ?, ?, ?, NULL, NOW(3))`,
+      [
+        params.tenantId,
+        params.action,
+        params.targetTenantId,
+        params.targetTenantCode ?? null,
+        JSON.stringify({ scopeLevel: params.fromScopeLevel }),
+        JSON.stringify({ scopeLevel: params.toScopeLevel, targetTenantId: params.targetTenantId }),
+        JSON.stringify({
+          fromScopeLevel: params.fromScopeLevel,
+          toScopeLevel: params.toScopeLevel,
+          targetTenantId: params.targetTenantId,
+        }),
+        params.operatorId,
+        params.operatorName,
+      ],
+    );
+  }
+
+  private async issueAuthResult(params: {
+    userId: number;
+    username: string;
+    realName: string;
+    roles: string[];
+    tokenTenantId: number;
+    tenantName: string;
+    scopeLevel: AccessScopeLevel;
+    originTenantId: number;
+    contextTenantId: number | null;
+  }): Promise<LoginResult> {
+    const userId = this.toIdNumber(params.userId);
+    const tokenTenantId = this.toIdNumber(params.tokenTenantId);
+    const originTenantId = this.toIdNumber(params.originTenantId);
+    const contextTenantId = params.contextTenantId == null
+      ? null
+      : this.toIdNumber(params.contextTenantId);
+    const { roles } = params;
+    const tokenPayload = {
+      userId,
+      tenantId: tokenTenantId,
+      username: params.username,
+      roles,
+      scopeLevel: params.scopeLevel,
+      originTenantId,
+      contextTenantId,
+    };
+
+    const { token: refreshToken, jti } = signRefreshToken(userId, tokenTenantId, {
+      scopeLevel: params.scopeLevel,
+      originTenantId,
+      contextTenantId,
+    });
+
+    await this.registerRefreshJti(jti, userId, originTenantId);
+
+    return {
+      accessToken: signToken(tokenPayload),
+      refreshToken,
+      permissionSnapshot: await accessControlService.buildPermissionSnapshot(
+        tokenTenantId,
+        roles,
+        {
+          scopeLevel: params.scopeLevel,
+          originTenantId,
+          contextTenantId,
+        },
+      ),
+      user: {
+        id: userId,
+        username: params.username,
+        realName: params.realName,
+        roles,
+        tenantId: tokenTenantId,
+        tenantName: params.tenantName,
+        scopeLevel: params.scopeLevel,
+        originTenantId,
+        contextTenantId,
+      },
+    };
+  }
+
   /**
    * 账号密码登录
-   * 查询链：tenants → users → user_roles → roles
+   * 查询链：tenants → users → user_role_assignments/user_roles → roles
    */
   async login(params: LoginParams): Promise<LoginResult> {
+    if ((params.loginMode ?? 'tenant') === 'platform') {
+      return this.platformLogin(params);
+    }
+
     const db = AppDataSource;
+
+    if (!params.tenantCode?.trim()) {
+      throw new AppError('租户编码不能为空', ResponseCode.INVALID_PARAMS, 400);
+    }
 
     // 1. 查租户
     const [tenant] = await db.query<Array<{ id: number; name: string; status: string }>>(
       'SELECT id, name, status FROM tenants WHERE code = ? LIMIT 1',
-      [params.tenantCode],
+      [params.tenantCode.trim()],
     );
     if (!tenant) {
       throw AppError.notFound('租户不存在', ResponseCode.NOT_FOUND);
@@ -194,13 +328,7 @@ export class AuthService {
     await getRedisClient().del(failKey).catch(() => {});
 
     // 4. 查角色
-    const roles = await db.query<Array<{ code: string }>>(
-      `SELECT r.code FROM roles r
-       INNER JOIN user_roles ur ON ur.role_id = r.id
-       WHERE ur.user_id = ? AND ur.tenant_id = ?`,
-      [user.id, tenant.id],
-    );
-    const roleCodes = roles.map((r) => r.code);
+    const roleCodes = await accessControlService.resolveUserRoleCodes(user.id, tenant.id);
 
     // 5. 更新最后登录时间（异步，不阻塞响应）
     db.query('UPDATE users SET last_login_at = NOW() WHERE id = ?', [user.id]).catch(
@@ -208,30 +336,62 @@ export class AuthService {
     );
 
     // 6. 签发 Token
-    const tokenPayload = {
+    return this.issueAuthResult({
       userId: user.id,
-      tenantId: tenant.id,
       username: user.username,
+      realName: user.real_name,
       roles: roleCodes,
-    };
+      tokenTenantId: tenant.id,
+      tenantName: tenant.name,
+      scopeLevel: 'tenant',
+      originTenantId: tenant.id,
+      contextTenantId: tenant.id,
+    });
+  }
 
-    const { token: refreshToken, jti } = signRefreshToken(user.id, tenant.id);
+  private async platformLogin(params: LoginParams): Promise<LoginResult> {
+    const db = AppDataSource;
+    const [user] = await db.query<
+      Array<{ id: number; username: string; real_name: string; password_hash: string; status: string }>
+    >(
+      'SELECT id, username, real_name, password_hash, status FROM users WHERE tenant_id = 0 AND username = ? LIMIT 1',
+      [params.username],
+    );
+    if (!user) {
+      throw new AppError('用户名或密码错误', ResponseCode.UNAUTHORIZED, 401);
+    }
+    if (user.status === 'locked') {
+      throw new AppError('账号已被锁定，请联系管理员', ResponseCode.FORBIDDEN, 403);
+    }
+    if (user.status === 'inactive') {
+      throw new AppError('账号已停用', ResponseCode.FORBIDDEN, 403);
+    }
 
-    // SEC-004: 写入 Redis jti 记录
-    await this.registerRefreshJti(jti, user.id, tenant.id);
+    const passwordMatch = await bcrypt.compare(params.password, user.password_hash);
+    if (!passwordMatch) {
+      throw new AppError('用户名或密码错误', ResponseCode.UNAUTHORIZED, 401);
+    }
 
-    return {
-      accessToken: signToken(tokenPayload),
-      refreshToken,
-      user: {
-        id: user.id,
-        username: user.username,
-        realName: user.real_name,
-        roles: roleCodes,
-        tenantId: tenant.id,
-        tenantName: tenant.name,
-      },
-    };
+    const roleCodes = await accessControlService.resolveUserRoleCodes(user.id, 0);
+    if (!roleCodes.includes('platform_super_admin')) {
+      throw new AppError('当前账号不允许使用平台登录', ResponseCode.FORBIDDEN, 403);
+    }
+
+    db.query('UPDATE users SET last_login_at = NOW() WHERE id = ?', [user.id]).catch(
+      (err) => console.error('[AuthService] 更新平台登录时间失败:', err),
+    );
+
+    return this.issueAuthResult({
+      userId: user.id,
+      username: user.username,
+      realName: user.real_name,
+      roles: roleCodes,
+      tokenTenantId: 0,
+      tenantName: 'Platform',
+      scopeLevel: 'platform',
+      originTenantId: 0,
+      contextTenantId: null,
+    });
   }
 
   /**
@@ -258,38 +418,18 @@ export class AuthService {
       throw new AppError('该微信账号未绑定系统用户，请联系管理员', ResponseCode.NOT_FOUND, 404);
     }
 
-    const roles = await db.query<Array<{ code: string }>>(
-      `SELECT r.code FROM roles r
-       INNER JOIN user_roles ur ON ur.role_id = r.id
-       WHERE ur.user_id = ? AND ur.tenant_id = ?`,
-      [user.id, tenant.id],
-    );
-    const roleCodes = roles.map((r) => r.code);
-
-    const tokenPayload = {
+    const roleCodes = await accessControlService.resolveUserRoleCodes(user.id, tenant.id);
+    return this.issueAuthResult({
       userId: user.id,
-      tenantId: tenant.id,
       username: user.username,
+      realName: user.real_name,
       roles: roleCodes,
-    };
-
-    const { token: refreshToken, jti } = signRefreshToken(user.id, tenant.id);
-
-    // SEC-004: 写入 Redis jti 记录
-    await this.registerRefreshJti(jti, user.id, tenant.id);
-
-    return {
-      accessToken: signToken(tokenPayload),
-      refreshToken,
-      user: {
-        id: user.id,
-        username: user.username,
-        realName: user.real_name,
-        roles: roleCodes,
-        tenantId: tenant.id,
-        tenantName: tenant.name,
-      },
-    };
+      tokenTenantId: tenant.id,
+      tenantName: tenant.name,
+      scopeLevel: 'tenant',
+      originTenantId: tenant.id,
+      contextTenantId: tenant.id,
+    });
   }
 
   /**
@@ -318,39 +458,164 @@ export class AuthService {
 
     // 3. 查询用户是否仍然有效
     const db = AppDataSource;
+    const originTenantId = this.toIdNumber(payload.originTenantId ?? payload.tenantId);
+    const contextTenantId = this.toIdNumber(payload.contextTenantId ?? payload.tenantId);
+    const scopeLevel = payload.scopeLevel ?? 'tenant';
+
     const [user] = await db.query<
-      Array<{ id: number; username: string; tenant_id: number; status: string }>
+      Array<{ id: number; username: string; real_name: string; tenant_id: number; status: string }>
     >(
-      'SELECT id, username, tenant_id, status FROM users WHERE id = ? AND tenant_id = ? LIMIT 1',
-      [payload.userId, payload.tenantId],
+      'SELECT id, username, real_name, tenant_id, status FROM users WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [payload.userId, originTenantId],
     );
     if (!user || user.status !== 'active') {
       // 用户失效，顺手吊销该 jti（含反向索引清理）
-      await this.revokeRefreshJti(payload.jti, payload.userId, payload.tenantId);
+      await this.revokeRefreshJti(payload.jti, payload.userId, originTenantId);
       throw new AppError('用户不存在或已停用', ResponseCode.UNAUTHORIZED, 401);
     }
 
-    const roles = await db.query<Array<{ code: string }>>(
-      `SELECT r.code FROM roles r
-       INNER JOIN user_roles ur ON ur.role_id = r.id
-       WHERE ur.user_id = ? AND ur.tenant_id = ?`,
-      [user.id, user.tenant_id],
-    );
-
     // 4. SEC-004: 签发新 refresh token，旋转：先删旧 jti（含反向索引清理），再写新 jti
-    const { token: newRefreshToken, jti: newJti } = signRefreshToken(user.id, user.tenant_id);
-    await this.revokeRefreshJti(payload.jti, user.id, user.tenant_id);
-    await this.registerRefreshJti(newJti, user.id, user.tenant_id);
+    const { token: newRefreshToken, jti: newJti } = signRefreshToken(user.id, contextTenantId, {
+      scopeLevel,
+      originTenantId,
+      contextTenantId,
+    });
+    await this.revokeRefreshJti(payload.jti, user.id, originTenantId);
+    await this.registerRefreshJti(newJti, user.id, originTenantId);
+
+    const roleCodes = await accessControlService.resolveUserRoleCodes(user.id, originTenantId);
 
     return {
       accessToken: signToken({
-        userId: user.id,
-        tenantId: user.tenant_id,
+        userId: this.toIdNumber(user.id),
+        tenantId: contextTenantId,
         username: user.username,
-        roles: roles.map((r) => r.code),
+        roles: roleCodes,
+        scopeLevel,
+        originTenantId,
+        contextTenantId,
       }),
       refreshToken: newRefreshToken,
+      permissionSnapshot: await accessControlService.buildPermissionSnapshot(
+        contextTenantId,
+        roleCodes,
+        {
+          scopeLevel,
+          originTenantId,
+          contextTenantId,
+        },
+      ),
     };
+  }
+
+  async switchTenantContext(params: {
+    userId: number;
+    username: string;
+    originTenantId: number;
+    roles: string[];
+    scopeLevel: AccessScopeLevel;
+    targetTenantId: number;
+  }): Promise<LoginResult> {
+    if (params.originTenantId !== 0 || !params.roles.includes('platform_super_admin')) {
+      throw new AppError('仅 platform_super_admin 可切换租户上下文', ResponseCode.FORBIDDEN, 403);
+    }
+
+    const [user] = await AppDataSource.query<
+      Array<{ id: number; username: string; real_name: string; status: string }>
+    >(
+      'SELECT id, username, real_name, status FROM users WHERE id = ? AND tenant_id = 0 LIMIT 1',
+      [params.userId],
+    );
+    if (!user || user.status !== 'active') {
+      throw new AppError('平台账号不存在或已停用', ResponseCode.UNAUTHORIZED, 401);
+    }
+
+    const [tenant] = await AppDataSource.query<Array<{ id: number; code: string; name: string; status: string }>>(
+      'SELECT id, code, name, status FROM tenants WHERE id = ? LIMIT 1',
+      [params.targetTenantId],
+    );
+    if (!tenant) {
+      throw AppError.notFound('目标租户不存在', ResponseCode.NOT_FOUND);
+    }
+    if (tenant.status !== 'active') {
+      throw new AppError('目标租户已停用，无法进入', ResponseCode.FORBIDDEN, 403);
+    }
+
+    const roleCodes = await accessControlService.resolveUserRoleCodes(user.id, 0);
+    if (!roleCodes.includes('platform_super_admin')) {
+      throw new AppError('当前账号已不具备平台超级管理员权限', ResponseCode.FORBIDDEN, 403);
+    }
+
+    await this.writePlatformContextAuditLog({
+      operatorId: user.id,
+      operatorName: user.real_name || user.username,
+      tenantId: tenant.id,
+      action: 'switch_tenant',
+      targetTenantId: tenant.id,
+      targetTenantCode: tenant.code,
+      fromScopeLevel: params.scopeLevel,
+      toScopeLevel: 'tenant',
+    });
+
+    return this.issueAuthResult({
+      userId: user.id,
+      username: user.username,
+      realName: user.real_name,
+      roles: roleCodes,
+      tokenTenantId: tenant.id,
+      tenantName: tenant.name,
+      scopeLevel: 'tenant',
+      originTenantId: 0,
+      contextTenantId: tenant.id,
+    });
+  }
+
+  async exitTenantContext(params: {
+    userId: number;
+    originTenantId: number;
+    contextTenantId: number | null;
+    scopeLevel: AccessScopeLevel;
+  }): Promise<LoginResult> {
+    if (params.originTenantId !== 0) {
+      throw new AppError('仅平台账号支持退出租户上下文', ResponseCode.FORBIDDEN, 403);
+    }
+
+    const [user] = await AppDataSource.query<
+      Array<{ id: number; username: string; real_name: string; status: string }>
+    >(
+      'SELECT id, username, real_name, status FROM users WHERE id = ? AND tenant_id = 0 LIMIT 1',
+      [params.userId],
+    );
+    if (!user || user.status !== 'active') {
+      throw new AppError('平台账号不存在或已停用', ResponseCode.UNAUTHORIZED, 401);
+    }
+
+    const roleCodes = await accessControlService.resolveUserRoleCodes(user.id, 0);
+    if (!roleCodes.includes('platform_super_admin')) {
+      throw new AppError('当前账号已不具备平台超级管理员权限', ResponseCode.FORBIDDEN, 403);
+    }
+
+    await this.writePlatformContextAuditLog({
+      operatorId: user.id,
+      operatorName: user.real_name || user.username,
+      tenantId: params.contextTenantId ?? 0,
+      action: 'exit_tenant_context',
+      targetTenantId: params.contextTenantId,
+      fromScopeLevel: params.scopeLevel,
+      toScopeLevel: 'platform',
+    });
+
+    return this.issueAuthResult({
+      userId: user.id,
+      username: user.username,
+      realName: user.real_name,
+      roles: roleCodes,
+      tokenTenantId: 0,
+      tenantName: 'Platform',
+      scopeLevel: 'platform',
+      originTenantId: 0,
+      contextTenantId: null,
+    });
   }
 
   /**
@@ -362,8 +627,9 @@ export class AuthService {
     try {
       const payload = verifyRefreshToken(refreshTokenStr);
       if (payload.jti) {
+        const originTenantId = payload.originTenantId ?? payload.tenantId;
         // 传入 userId/tenantId，同步清理反向索引
-        await this.revokeRefreshJti(payload.jti, payload.userId, payload.tenantId);
+        await this.revokeRefreshJti(payload.jti, payload.userId, originTenantId);
       }
     } catch {
       // Token 已过期或无效，无需处理（Cookie 仍会被 Controller 清除）

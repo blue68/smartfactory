@@ -15,9 +15,12 @@
   "dependencies": {
     "@tanstack/react-query": "^5.40.0",
     "@tanstack/react-query-devtools": "^5.40.0",
+    "@types/qrcode": "^1.5.6",
+    "antd": "^5.29.3",
     "axios": "^1.7.2",
     "dayjs": "^1.11.11",
     "decimal.js": "^10.4.3",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.23.1",

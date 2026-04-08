@@ -4,11 +4,39 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+ENV_BACKUP_FILE=""
+RESTORE_ENV_ON_EXIT=0
+
 log() {
   printf '[real-browser-ui-ci] %s\n' "$*"
 }
 
+backup_existing_env() {
+  if [[ -f .env ]]; then
+    ENV_BACKUP_FILE="$(mktemp "${TMPDIR:-/tmp}/smartfactory-real-browser-ui-env.XXXXXX")"
+    cp .env "$ENV_BACKUP_FILE"
+    RESTORE_ENV_ON_EXIT=1
+    log "backed up existing .env to $ENV_BACKUP_FILE"
+  fi
+}
+
+restore_existing_env() {
+  if [[ "$RESTORE_ENV_ON_EXIT" -eq 1 && -n "$ENV_BACKUP_FILE" && -f "$ENV_BACKUP_FILE" ]]; then
+    cp "$ENV_BACKUP_FILE" .env
+    rm -f "$ENV_BACKUP_FILE"
+    log "restored original .env"
+  fi
+}
+
 write_ci_env() {
+  if [[ -f .env ]]; then
+    log "loading existing .env defaults"
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+  fi
+
   log "writing CI .env"
   cat > .env <<EOF
 APP_NAME=${APP_NAME:-SmartFactory}
@@ -29,6 +57,9 @@ OPENAI_API_KEY=${OPENAI_API_KEY:-}
 EOF
 }
 
+trap restore_existing_env EXIT
+
+backup_existing_env
 write_ci_env
 
 log "rebuilding local stack"

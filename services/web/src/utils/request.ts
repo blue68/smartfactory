@@ -19,6 +19,7 @@ import { ApiCode, ApiError, type ApiResponse } from '@/types/api';
 // Refresh Token 已改为 HttpOnly Cookie，由浏览器自动携带
 // ─────────────────────────────────────────────
 const TOKEN_KEY = '__sf_at';
+const PERMISSION_SNAPSHOT_KEY = 'sf_permission_snapshot';
 
 export function getAccessToken(): string | null {
   try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
@@ -31,6 +32,7 @@ export function saveAccessToken(token: string): void {
 export function clearTokens(): void {
   try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
   localStorage.removeItem(config.userKey);
+  localStorage.removeItem(PERMISSION_SNAPSHOT_KEY);
 }
 
 // ─────────────────────────────────────────────
@@ -115,7 +117,7 @@ function processQueue(token: string | null): void {
 async function refreshAccessToken(): Promise<string | null> {
   try {
     // Refresh Token 由浏览器通过 HttpOnly Cookie 自动携带，无需手动传入 body
-    const res = await axios.post<ApiResponse<{ accessToken: string }>>(
+    const res = await axios.post<ApiResponse<{ accessToken: string; permissionSnapshot?: unknown }>>(
       `${config.apiBaseUrl}/api/auth/refresh`,
       undefined,
       { timeout: 10_000, withCredentials: true },
@@ -123,6 +125,12 @@ async function refreshAccessToken(): Promise<string | null> {
     if (res.data.code === ApiCode.SUCCESS) {
       const newToken = res.data.data.accessToken;
       saveAccessToken(newToken);
+      if (res.data.data.permissionSnapshot) {
+        localStorage.setItem(
+          PERMISSION_SNAPSHOT_KEY,
+          JSON.stringify(camelizeKeys(res.data.data.permissionSnapshot)),
+        );
+      }
       return newToken;
     }
     return null;

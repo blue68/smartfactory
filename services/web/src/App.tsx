@@ -23,6 +23,7 @@ import CustomerPage from '@/pages/sales/CustomerPage';
 import SalesOrderListPage from '@/pages/sales/SalesOrderListPage';
 import TaskPage from '@/pages/production/TaskPage';
 import CategoryConfigPage from '@/pages/master-data/CategoryConfigPage';
+import WarehouseLocationPage from '@/pages/master-data/WarehouseLocationPage';
 import WageReportPage from '@/pages/report/WageReportPage';
 import MyWagePage from '@/pages/report/MyWagePage';
 import LoginPage from '@/pages/auth/LoginPage';
@@ -41,6 +42,15 @@ import StocktakingPage from '@/pages/stocktaking/StocktakingPage';
 import SettlementPage from '@/pages/settlement/SettlementPage';
 import AnalyticsPage from '@/pages/analytics/AnalyticsPage';
 import NotFoundPage from '@/pages/NotFoundPage';
+import TenantConfigPage from '@/pages/system/TenantConfigPage';
+import MenuFeaturePage from '@/pages/system/MenuFeaturePage';
+import RoleConfigPage from '@/pages/system/RoleConfigPage';
+import UserConfigPage from '@/pages/system/UserConfigPage';
+import RoleGrantPage from '@/pages/system/RoleGrantPage';
+import UserRoleAssignmentPage from '@/pages/system/UserRoleAssignmentPage';
+import SystemAuditPage from '@/pages/system/SystemAuditPage';
+import PlatformHomePage from '@/pages/system/PlatformHomePage';
+import { UserRole } from '@/types/enums';
 
 /** 认证守卫：未登录跳转 /login */
 function RequireAuth() {
@@ -50,6 +60,77 @@ function RequireAuth() {
   }
   return <Outlet />;
 }
+
+function DefaultHomeRedirect() {
+  const user = useAuthStore((s) => s.user);
+  return <Navigate to={user?.scopeLevel === 'platform' ? '/platform/home' : '/dashboard'} replace />;
+}
+
+function RequirePlatformScope() {
+  const user = useAuthStore((s) => s.user);
+  if (user?.scopeLevel !== 'platform') {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <Outlet />;
+}
+
+function DashboardRoute() {
+  const user = useAuthStore((s) => s.user);
+  if (user?.scopeLevel === 'platform') {
+    return <Navigate to="/platform/home" replace />;
+  }
+  return <DashboardPage />;
+}
+
+function AiChatRoute() {
+  const user = useAuthStore((s) => s.user);
+  if (user?.scopeLevel === 'platform') {
+    return <Navigate to="/platform/home" replace />;
+  }
+  return <AiChatPage />;
+}
+
+function RequireMenuAccess({
+  menuCode,
+  fallbackRoles,
+}: {
+  menuCode: string;
+  fallbackRoles: UserRole[];
+}) {
+  const user = useAuthStore((s) => s.user);
+  const permissionSnapshot = useAuthStore((s) => s.permissionSnapshot);
+
+  const hasAccess = permissionSnapshot
+    ? permissionSnapshot.menuCodes.includes(menuCode)
+    : user?.roles?.some((role) => fallbackRoles.includes(role)) ?? false;
+
+  if (!hasAccess) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <Outlet />;
+}
+
+function RequireActionAccess({
+  actionCode,
+  fallbackRoles,
+}: {
+  actionCode: string;
+  fallbackRoles: UserRole[];
+}) {
+  const user = useAuthStore((s) => s.user);
+  const permissionSnapshot = useAuthStore((s) => s.permissionSnapshot);
+
+  const hasAccess = permissionSnapshot
+    ? permissionSnapshot.actionCodes.includes(actionCode)
+    : user?.roles?.some((role) => fallbackRoles.includes(role)) ?? false;
+
+  if (!hasAccess) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <Outlet />;
+}
+
+const SYSTEM_ADMIN_ROLES = [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR];
 
 export default function App() {
   return (
@@ -61,8 +142,11 @@ export default function App() {
         {/* 受保护路由 */}
         <Route element={<RequireAuth />}>
           <Route element={<AppLayout />}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route index element={<DefaultHomeRedirect />} />
+            <Route path="/dashboard" element={<DashboardRoute />} />
+            <Route element={<RequirePlatformScope />}>
+              <Route path="/platform/home" element={<PlatformHomePage />} />
+            </Route>
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/purchase/suggestions" element={<SuggestionPage />} />
             <Route path="/purchase/match" element={<MatchPage />} />
@@ -79,6 +163,7 @@ export default function App() {
             <Route path="/master-data/sku-process" element={<SkuProcessPage />} />
             <Route path="/purchase/prices" element={<PricePage />} />
             <Route path="/master-data/sku-category" element={<CategoryConfigPage />} />
+            <Route path="/master-data/warehouse-location" element={<WarehouseLocationPage />} />
             <Route path="/report/wages" element={<WageReportPage />} />
             <Route path="/report/my-wages" element={<MyWagePage />} />
             <Route path="/production/orders" element={<ProductionOrderPage />} />
@@ -91,11 +176,81 @@ export default function App() {
             <Route path="/purchase/returns" element={<ReturnOrderPage />} />
             <Route path="/purchase/settlements" element={<PurchaseSettlementPage />} />
             <Route path="/schedule-suggestions" element={<ScheduleSuggestionPage />} />
-            <Route path="/ai-chat" element={<AiChatPage />} />
+            <Route path="/ai-chat" element={<AiChatRoute />} />
             <Route path="/notifications" element={<NotificationPage />} />
             <Route path="/stocktaking" element={<StocktakingPage />} />
             <Route path="/settlement" element={<SettlementPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route
+              element={(
+                <RequireMenuAccess
+                  menuCode="system.tenant.config"
+                  fallbackRoles={SYSTEM_ADMIN_ROLES}
+                />
+              )}
+            >
+              <Route path="/system/tenants" element={<TenantConfigPage />} />
+            </Route>
+            <Route
+              element={(
+                <RequireMenuAccess
+                  menuCode="system.menu.config"
+                  fallbackRoles={SYSTEM_ADMIN_ROLES}
+                />
+              )}
+            >
+              <Route path="/system/menus" element={<MenuFeaturePage />} />
+            </Route>
+            <Route
+              element={(
+                <RequireMenuAccess
+                  menuCode="system.role.config"
+                  fallbackRoles={SYSTEM_ADMIN_ROLES}
+                />
+              )}
+            >
+              <Route path="/system/roles" element={<RoleConfigPage />} />
+            </Route>
+            <Route
+              element={(
+                <RequireMenuAccess
+                  menuCode="system.user.config"
+                  fallbackRoles={SYSTEM_ADMIN_ROLES}
+                />
+              )}
+            >
+              <Route path="/system/users" element={<UserConfigPage />} />
+            </Route>
+            <Route
+              element={(
+                <RequireMenuAccess
+                  menuCode="system.role.permission.config"
+                  fallbackRoles={SYSTEM_ADMIN_ROLES}
+                />
+              )}
+            >
+              <Route path="/system/role-permissions" element={<RoleGrantPage />} />
+            </Route>
+            <Route
+              element={(
+                <RequireMenuAccess
+                  menuCode="system.user.role.assignment"
+                  fallbackRoles={SYSTEM_ADMIN_ROLES}
+                />
+              )}
+            >
+              <Route path="/system/user-role-assignments" element={<UserRoleAssignmentPage />} />
+            </Route>
+            <Route
+              element={(
+                <RequireActionAccess
+                  actionCode="system.audit.view"
+                  fallbackRoles={[UserRole.ADMIN, UserRole.BOSS]}
+                />
+              )}
+            >
+              <Route path="/system/audit-logs" element={<SystemAuditPage />} />
+            </Route>
           </Route>
         </Route>
 

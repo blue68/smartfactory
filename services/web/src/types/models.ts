@@ -24,6 +24,7 @@ import type {
   TransactionType,
   UserRole,
 } from './enums';
+import type { PermissionSnapshot } from './accessControl';
 
 // ─────────────────────────────────────────────
 // 认证 & 用户
@@ -35,18 +36,24 @@ export interface User {
   roles: UserRole[];
   tenantId: number;
   tenantName: string;
+  scopeLevel: 'platform' | 'tenant';
+  originTenantId: number;
+  contextTenantId: number | null;
 }
 
 export interface AuthData {
   accessToken: string;
   /** refreshToken 已改为 HttpOnly Cookie，不再在 response body 中返回 */
   user: User;
+  /** 权限快照：迁移期可能为空 */
+  permissionSnapshot?: PermissionSnapshot;
 }
 
 export interface LoginPayload {
+  loginMode?: 'tenant' | 'platform';
   username: string;
   password: string;
-  tenantCode: string;
+  tenantCode?: string;
 }
 
 // ─────────────────────────────────────────────
@@ -246,6 +253,8 @@ export interface InventoryItem {
   skuCode: string;
   skuName: string;
   stockUnit: string;
+  purchaseUnit?: string | null;
+  stockConvFactor?: number | string | null;
   safetyStock: string;
   qtyOnHand: string;
   qtyReserved: string;
@@ -253,6 +262,56 @@ export interface InventoryItem {
   qtyAvailable: string;
   isBelowSafety: boolean;
   hasDyeLot: boolean;
+  warehouseId?: number | null;
+  warehouseCode?: string | null;
+  warehouseName?: string | null;
+  locationId?: number | null;
+  locationCode?: string | null;
+  locationName?: string | null;
+  isDefaultLocation?: boolean;
+}
+
+export interface WarehouseOption {
+  id: number;
+  code: string;
+  name: string;
+  type: string | null;
+  plantCode: string | null;
+  status: string;
+}
+
+export interface LocationOption {
+  id: number;
+  warehouseId: number;
+  code: string;
+  name: string;
+  locationType: 'general' | 'zone' | 'rack' | 'shelf' | 'bin';
+  aisleCode: string | null;
+  rackCode: string | null;
+  shelfCode: string | null;
+  binCode: string | null;
+  level: number;
+  status: string;
+}
+
+export interface MasterDataImportFailure {
+  rowNo: number;
+  reason: string;
+  row: Record<string, string>;
+}
+
+export interface WarehouseCsvImportResult {
+  totalRows: number;
+  successCount: number;
+  failCount: number;
+  failures: MasterDataImportFailure[];
+}
+
+export interface LocationCsvImportResult {
+  totalRows: number;
+  successCount: number;
+  failCount: number;
+  failures: MasterDataImportFailure[];
 }
 
 export interface SkuAvailability {
@@ -272,7 +331,10 @@ export interface DyeLot {
 }
 
 export interface InboundPayload {
-  skuId: number;
+  skuCode: string;
+  skuId?: number;
+  warehouseId?: number;
+  locationId?: number;
   qtyInput: string;
   inputUnit: string;
   transactionType: TransactionType;
@@ -286,6 +348,8 @@ export interface InboundPayload {
 
 export interface OutboundPayload {
   skuId: number;
+  warehouseId?: number;
+  locationId?: number;
   qtyInput: string;
   inputUnit: string;
   transactionType: TransactionType;
@@ -299,6 +363,9 @@ export interface OutboundPayload {
 export interface StockTransactionResult {
   transactionNo: string;
   newQtyOnHand: string;
+  warehouseId?: number;
+  locationId?: number;
+  warningCode?: string;
 }
 
 export interface InventoryListQuery {
@@ -306,6 +373,9 @@ export interface InventoryListQuery {
   pageSize?: number;
   category1Id?: number;
   category2Id?: number;
+  warehouseId?: number;
+  locationId?: number;
+  onlyDefaultLocation?: boolean;
   keyword?: string;
   belowSafety?: boolean;
 }
@@ -353,6 +423,12 @@ export interface InventoryTransactionTraceItem {
   referenceType: string | null;
   referenceId: number | null;
   referenceNo: string | null;
+  warehouseId: number | null;
+  warehouseCode: string | null;
+  warehouseName: string | null;
+  locationId: number | null;
+  locationCode: string | null;
+  locationName: string | null;
   taskId: number | null;
   workOrderNo: string | null;
   processStepName: string | null;
@@ -365,6 +441,8 @@ export interface InventoryTransactionTraceQuery {
   pageSize?: number;
   dateFrom?: string;
   dateTo?: string;
+  warehouseId?: number;
+  locationId?: number;
   keyword?: string;
 }
 
@@ -773,8 +851,26 @@ export interface ProductionOrder {
   qtyCompleted: string;
   progressPct: number;
   status: ProductionOrderStatus;
+  materialStatus?: 'unchecked' | 'shortage' | 'partial' | 'ready' | string;
   plannedStart: string;
   plannedEnd: string;
+  processSnapshot?: {
+    templateName?: string;
+    snapshotAt?: string;
+    steps?: Array<{
+      id?: number | string;
+      stepNo?: number | string;
+      step_no?: number | string;
+      stepName?: string;
+      step_name?: string;
+      workstationType?: string | null;
+      workstation_type?: string | null;
+      standardHours?: number | string | null;
+      standard_hours?: number | string | null;
+      maxHours?: number | string | null;
+      max_hours?: number | string | null;
+    }>;
+  } | null;
   tasks?: ProductionTask[];
 }
 
@@ -838,6 +934,10 @@ export interface ProductionTaskDependency {
   requiredQty: string;
   completedQty: string;
   status: string;
+  skuId: number | null;
+  skuCode: string | null;
+  skuName: string | null;
+  unit: string | null;
 }
 
 export interface ProductionTaskDependencySummary {
@@ -852,8 +952,12 @@ export interface ProductionTaskMaterialTransaction {
   skuId: number;
   skuCode: string | null;
   skuName: string | null;
+  stockUnit: string | null;
   plannedQty: string;
   actualQty: string;
+  qtyAvailable: string;
+  shortageQty: string;
+  isShortage: boolean | 0 | 1 | '0' | '1';
   inventoryTxId: number | null;
   transactionNo: string | null;
   transactionType: string | null;
@@ -861,6 +965,49 @@ export interface ProductionTaskMaterialTransaction {
   transactionQty: string | null;
   transactionTime: string | null;
   referenceNo: string | null;
+}
+
+export interface ProductionTaskInputMaterial {
+  itemType: 'material';
+  sourceLabel: string;
+  skuId: number;
+  skuCode: string | null;
+  skuName: string | null;
+  unit: string | null;
+  requiredQty: string;
+  issuedQty: string;
+  qtyAvailable: string;
+  shortageQty: string;
+  isShortage: boolean | 0 | 1 | '0' | '1';
+  inventoryTxId: number | null;
+}
+
+export interface ProductionTaskInputItem {
+  itemType: 'semi_finished' | 'material';
+  sourceLabel: string;
+  skuId: number;
+  skuCode: string | null;
+  skuName: string | null;
+  unit: string | null;
+  requiredQty: string;
+  fulfilledQty: string;
+  qtyAvailable: string;
+  shortageQty: string;
+  isShortage: boolean | 0 | 1 | '0' | '1';
+  status: string | null;
+  operationId: number | null;
+  stepName: string | null;
+  inventoryTxId: number | null;
+}
+
+export interface ProductionTaskOutputItem {
+  itemType: 'finished' | 'semi_finished';
+  skuId: number;
+  skuCode: string | null;
+  skuName: string | null;
+  unit: string | null;
+  plannedQty: string;
+  actualQty: string;
 }
 
 export interface ProductionTaskWageReport {

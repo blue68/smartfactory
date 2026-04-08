@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authController } from './auth.controller';
 import { asyncHandler } from '../../app';
+import { authMiddleware } from '../../middleware/auth';
 
 const router = Router();
 
@@ -22,6 +23,17 @@ router.post('/wechat-login',
 
 router.post('/refresh',
   asyncHandler(authController.refreshToken.bind(authController)),
+);
+
+router.post('/switch-tenant',
+  authMiddleware,
+  authController.switchTenantValidator,
+  asyncHandler(authController.switchTenant.bind(authController)),
+);
+
+router.post('/exit-tenant-context',
+  authMiddleware,
+  asyncHandler(authController.exitTenantContext.bind(authController)),
 );
 
 router.post('/logout',

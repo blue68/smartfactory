@@ -9,6 +9,11 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "redeploy:local": "bash scripts/redeploy-local.sh",
+    "bootstrap:platform-admin": "bash scripts/bootstrap-platform-super-admin.sh",
+    "test:permission-control:bootstrap": "bash scripts/verify-platform-super-admin-bootstrap.sh",
+    "test:permission-control:ui:ci:smoke": "bash scripts/run-permission-control-ui-ci-check.sh smoke",
+    "test:permission-control:ui:ci:regression": "bash scripts/run-permission-control-ui-ci-check.sh regression",
+    "test:permission-control:ui:ci": "bash scripts/run-permission-control-ui-ci-check.sh full",
     "test:api:integration": "TEST_DEFAULT_TARGET=tests/integration/ bash scripts/run-api-integration.sh",
     "test:api:e2e": "TEST_DEFAULT_TARGET=tests/e2e/ TEST_TIMEOUT_MS=90000 bash scripts/run-api-integration.sh",
     "test:web:ui:mock": "npx playwright test tests/settlement.spec.ts tests/salesOrder.spec.ts tests/purchaseDelivery.spec.ts tests/processConfig.spec.ts --project=chromium",
@@ -31,6 +36,7 @@
     "test:inventory:ui": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/inventory.real.spec.ts --project=chromium",
     "test:inventory:ui:smoke": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/inventory.real.spec.ts --project=chromium --grep @inventory-smoke",
     "test:inventory:ui:regression": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/inventory.real.spec.ts --project=chromium --grep @inventory-regression",
+    "test:inventory-warehouse:ui:governance": "npx playwright test tests/productionShortage.real.spec.ts tests/inventory.real.spec.ts --project=chromium --grep @inventory-warehouse-governance",
     "test:process-config:ui": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/processConfig.real.spec.ts --project=chromium",
     "test:process-config:ui:smoke": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/processConfig.real.spec.ts --project=chromium --grep @process-config-smoke",
     "test:process-config:ui:regression": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/processConfig.real.spec.ts --project=chromium --grep @process-config-regression",
@@ -51,7 +57,10 @@
     "test:purchase-suggestion:ui:regression": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/purchaseSuggestion.real.spec.ts --project=chromium --grep @purchase-suggestion-regression",
     "test:stocktaking:ui": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/stocktaking.real.spec.ts --project=chromium",
     "test:stocktaking:ui:smoke": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/stocktaking.real.spec.ts --project=chromium --grep @stocktaking-smoke",
-    "test:stocktaking:ui:regression": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/stocktaking.real.spec.ts --project=chromium --grep @stocktaking-regression"
+    "test:stocktaking:ui:regression": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/stocktaking.real.spec.ts --project=chromium --grep @stocktaking-regression",
+    "test:permission-control:ui": "PLAYWRIGHT_SKIP_WEBSERVER=1 PLAYWRIGHT_APP_BASE_URL=http://127.0.0.1:80 npx playwright test tests/permissionControl.real.spec.ts --project=chromium",
+    "test:permission-control:ui:smoke": "PLAYWRIGHT_SKIP_WEBSERVER=1 PLAYWRIGHT_APP_BASE_URL=http://127.0.0.1:80 npx playwright test tests/permissionControl.real.spec.ts --project=chromium --grep @permission-control-smoke",
+    "test:permission-control:ui:regression": "PLAYWRIGHT_SKIP_WEBSERVER=1 PLAYWRIGHT_APP_BASE_URL=http://127.0.0.1:80 npx playwright test tests/permissionControl.real.spec.ts --project=chromium --grep @permission-control-regression"
   },
   "keywords": [],
   "author": "",

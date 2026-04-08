@@ -39,6 +39,7 @@ import notificationRoutes from './modules/notification/notification.routes';
 import stocktakingRoutes from './modules/stocktaking/stocktaking.routes';
 // F-707 销售财务结算模块
 import settlementRoutes from './modules/settlement/settlement.routes';
+import accessControlRoutes from './modules/access-control/access-control.routes';
 
 const app = express();
 
@@ -54,7 +55,16 @@ const allowedOrigins: string[] = (process.env.CORS_ORIGINS ?? '')
   .filter(Boolean);
 
 if (allowedOrigins.length === 0) {
-  allowedOrigins.push('http://localhost:5173', 'http://localhost:3000');
+  allowedOrigins.push(
+    'http://localhost',
+    'http://localhost:80',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1',
+    'http://127.0.0.1:80',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+  );
 }
 
 const corsOptions: CorsOptions = {
@@ -198,6 +208,7 @@ app.use('/api/notifications',        notificationRoutes);
 app.use('/api/stocktaking',          stocktakingRoutes);
 // F-707 销售财务结算路由
 app.use('/api/settlements',          settlementRoutes);
+app.use('/api/access-control',       accessControlRoutes);
 
 // ── 404 处理 ────────────────────────────────────────────────
 app.use((_req, res) => {

@@ -10,6 +10,7 @@ import App from './App';
 import { useAuthStore } from '@/stores/authStore';
 import { useAppStore } from '@/stores/appStore';
 import { onGlobalLoading } from '@/utils/request';
+import 'antd/dist/reset.css';
 import '@/styles/variables.css';
 import '@/styles/global.css';
 

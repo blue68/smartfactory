@@ -6,6 +6,9 @@ import { useState, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import { useAuth } from '@/hooks/useAuth';
+import { useAuthStore } from '@/stores/authStore';
+import { authApi } from '@/api/auth';
+import { UserRole } from '@/types/enums';
 import Breadcrumb, { BreadcrumbItem } from '@/components/common/Breadcrumb';
 import styles from './Header.module.css';
 
@@ -18,6 +21,7 @@ interface HeaderProps {
  * 格式：{ label, group } — group 作为中间层级
  */
 const PATH_MAP: Record<string, { label: string; group: string }> = {
+  '/platform/home':              { label: '平台工作台',   group: '平台' },
   '/dashboard':                  { label: '老板驾驶舱',   group: '概览' },
   '/purchase/suggestions':       { label: 'AI 采购建议', group: '采购' },
   '/purchase/match':             { label: '三单匹配',    group: '采购' },
@@ -31,6 +35,7 @@ const PATH_MAP: Record<string, { label: string; group: string }> = {
   '/inventory':                  { label: '库存总览',    group: '仓库' },
   '/quality/trace':              { label: '质量溯源',    group: '质量' },
   '/master-data/sku':            { label: 'SKU 主数据',  group: '主数据' },
+  '/master-data/warehouse-location': { label: '仓库库位配置', group: '主数据' },
   '/master-data/bom':            { label: 'BOM 管理',   group: '主数据' },
   '/master-data/supplier':       { label: '供应商管理',  group: '主数据' },
   '/master-data/process-config': { label: '工序配置',    group: '主数据' },
@@ -53,17 +58,27 @@ function buildBreadcrumbs(pathname: string): BreadcrumbItem[] {
 }
 
 export default function Header({ onAiSearch }: HeaderProps) {
-  const { toggleSidebar, sidebarCollapsed, pageTitle, toggleAiPanel } = useAppStore();
+  const { toggleSidebar, sidebarCollapsed, pageTitle, toggleAiPanel, showToast } = useAppStore();
   const { user, logout } = useAuth();
+  const setAuth = useAuthStore((s) => s.setAuth);
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [exitingTenant, setExitingTenant] = useState(false);
 
   const breadcrumbItems = useMemo(
     () => buildBreadcrumbs(location.pathname),
     [location.pathname],
   );
+  const isPlatformSuperAdmin = user?.roles?.includes(UserRole.PLATFORM_SUPER_ADMIN) ?? false;
+  const isManagedTenantContext = isPlatformSuperAdmin && user?.originTenantId === 0 && user?.contextTenantId !== null;
+  const hideAiEntry = user?.scopeLevel === 'platform';
+  const contextLabel = user?.scopeLevel === 'platform'
+    ? '平台态'
+    : isManagedTenantContext
+      ? `代管租户 · ${user?.tenantName}`
+      : `租户态 · ${user?.tenantName}`;
 
   const handleSearchSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -76,6 +91,21 @@ export default function Header({ onAiSearch }: HeaderProps) {
     },
     [searchQuery, toggleAiPanel, onAiSearch],
   );
+
+  const handleExitTenantContext = useCallback(async () => {
+    setExitingTenant(true);
+    try {
+      const data = await authApi.exitTenantContext();
+      setAuth(data.user, data.accessToken, data.permissionSnapshot ?? null);
+      setUserMenuOpen(false);
+      // 当前页通常是租户态专属页面，先落平台态登录信息，再强制跳到平台仍可访问的入口，避免被守卫重定向到 /dashboard。
+      window.location.replace('/system/tenants');
+    } catch (error) {
+      showToast({ type: 'error', message: (error as Error).message || '退出租户上下文失败' });
+    } finally {
+      setExitingTenant(false);
+    }
+  }, [setAuth, showToast]);
 
   return (
     <header className={styles.topbar} role="banner">
@@ -96,41 +126,50 @@ export default function Header({ onAiSearch }: HeaderProps) {
       </div>
 
       {/* 中部：AI 全局搜索框 */}
-      <form
-        className={`${styles.topbar__search} ${searchFocused ? styles['topbar__search--focused'] : ''}`}
-        onSubmit={handleSearchSubmit}
-        role="search"
-      >
-        <span className={styles.topbar__search_icon} aria-hidden="true">🤖</span>
-        <input
-          type="search"
-          className={styles.topbar__search_input}
-          placeholder="问 AI 任何问题..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onFocus={() => setSearchFocused(true)}
-          onBlur={() => setSearchFocused(false)}
-          aria-label="AI 智能搜索"
-        />
-        {searchQuery && (
-          <button type="submit" className={styles.topbar__search_submit} aria-label="提交搜索">
-            →
-          </button>
-        )}
-      </form>
+      {!hideAiEntry && (
+        <form
+          className={`${styles.topbar__search} ${searchFocused ? styles['topbar__search--focused'] : ''}`}
+          onSubmit={handleSearchSubmit}
+          role="search"
+        >
+          <span className={styles.topbar__search_icon} aria-hidden="true">🤖</span>
+          <input
+            type="search"
+            className={styles.topbar__search_input}
+            placeholder="问 AI 任何问题..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            aria-label="AI 智能搜索"
+          />
+          {searchQuery && (
+            <button type="submit" className={styles.topbar__search_submit} aria-label="提交搜索">
+              →
+            </button>
+          )}
+        </form>
+      )}
 
       {/* 右侧：AI 面板 + 通知 + 用户 */}
       <div className={styles.topbar__right}>
+        {user && (
+          <div className={styles.topbar__user_name} title={contextLabel}>
+            {contextLabel}
+          </div>
+        )}
         {/* AI 对话按钮 */}
-        <button
-          className={styles.topbar__ai_btn}
-          onClick={toggleAiPanel}
-          aria-label="打开 AI 助手"
-          title="AI 助手"
-        >
-          <span aria-hidden="true">💬</span>
-          <span className={styles.topbar__ai_label}>AI 助手</span>
-        </button>
+        {!hideAiEntry && (
+          <button
+            className={styles.topbar__ai_btn}
+            onClick={toggleAiPanel}
+            aria-label="打开 AI 助手"
+            title="AI 助手"
+          >
+            <span aria-hidden="true">💬</span>
+            <span className={styles.topbar__ai_label}>AI 助手</span>
+          </button>
+        )}
 
         {/* 用户菜单 */}
         <div className={styles.topbar__user}>
@@ -165,6 +204,18 @@ export default function Header({ onAiSearch }: HeaderProps) {
                 <li role="none">
                   <hr className={styles.topbar__menu_divider} />
                 </li>
+                {isManagedTenantContext && (
+                  <li role="none">
+                    <button
+                      className={styles.topbar__menu_item}
+                      role="menuitem"
+                      onClick={() => void handleExitTenantContext()}
+                      disabled={exitingTenant}
+                    >
+                      <span aria-hidden="true">↩</span> 返回平台态
+                    </button>
+                  </li>
+                )}
                 <li role="none">
                   <button
                     className={styles.topbar__menu_item}

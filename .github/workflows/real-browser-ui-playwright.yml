@@ -6,6 +6,10 @@ on:
       job_name:
         required: true
         type: string
+      pre_test_command:
+        required: false
+        default: ""
+        type: string
       test_command:
         required: true
         type: string
@@ -31,6 +35,10 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - uses: ./.github/actions/setup-real-browser-ui-ci
+
+      - name: Run pre-test command
+        if: ${{ inputs.pre_test_command != '' }}
+        run: ${{ inputs.pre_test_command }}
 
       - name: Run real-browser UI Playwright
         run: ${{ inputs.test_command }}

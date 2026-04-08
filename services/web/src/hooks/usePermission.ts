@@ -9,12 +9,12 @@ import { UserRole } from '@/types/enums';
 /** 功能权限映射：操作 → 允许的角色列表 */
 const PERMISSION_MAP = {
   // 仪表盘
-  'dashboard:view': [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER, UserRole.SALES],
+  'dashboard:view': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER, UserRole.SALES],
 
   // SKU 主数据
-  'sku:view': [UserRole.BOSS, UserRole.PURCHASER, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
-  'sku:create': [UserRole.BOSS, UserRole.PURCHASER],
-  'sku:edit': [UserRole.BOSS, UserRole.PURCHASER],
+  'sku:view': [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
+  'sku:create': [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER],
+  'sku:edit': [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER],
 
   // BOM
   'bom:view': [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
@@ -56,12 +56,12 @@ const PERMISSION_MAP = {
   'sales:order:urgent-analyze': [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
 
   // 生产工单
-  'production:order:view': [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
-  'production:order:create': [UserRole.BOSS, UserRole.SUPERVISOR],
-  'production:schedule:view': [UserRole.BOSS, UserRole.SUPERVISOR],
-  'production:schedule:generate': [UserRole.BOSS, UserRole.SUPERVISOR],
-  'production:schedule:confirm': [UserRole.BOSS, UserRole.SUPERVISOR],
-  'production:task:complete': [UserRole.WORKER, UserRole.SUPERVISOR],
+  'production:order:view': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
+  'production:order:create': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  'production:schedule:view': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  'production:schedule:generate': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  'production:schedule:confirm': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  'production:task:complete': [UserRole.ADMIN, UserRole.WORKER, UserRole.SUPERVISOR, UserRole.BOSS],
 
   // 质量
   'quality:view': [
