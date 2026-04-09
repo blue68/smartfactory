@@ -36,18 +36,16 @@ describe('SalesOrderService regressions', () => {
     (SalesOrderService as any).approvalNotesColumnSupported = null;
   });
 
-  it('closes draft orders without touching approval_notes when the legacy column is absent', async () => {
-    mockAppDataSource.getRepository.mockReturnValue({
-      findOne: jest.fn().mockResolvedValue({
+  it('closes draft orders without reading or touching approval_notes when the legacy column is absent', async () => {
+    mockAppDataSource.query
+      .mockResolvedValueOnce([{ cnt: 0 }])
+      .mockResolvedValueOnce([{
         id: 41,
         tenantId: 9999,
         orderNo: 'SO-LEGACY-001',
         status: 'draft',
-      }),
-    } as any);
-
-    mockAppDataSource.query
-      .mockResolvedValueOnce([{ cnt: 0 }])
+        createdBy: 99001,
+      }])
       .mockResolvedValueOnce({ affectedRows: 1 })
       .mockResolvedValueOnce({ insertId: 1 });
 
@@ -56,8 +54,46 @@ describe('SalesOrderService regressions', () => {
     await expect(svc.close(41, '客户取消，关闭草稿订单')).resolves.toBeUndefined();
 
     expect(String(mockAppDataSource.query.mock.calls[0][0])).toContain('information_schema.columns');
-    expect(String(mockAppDataSource.query.mock.calls[1][0])).toContain("SET status = ?, updated_by = ?");
+    expect(String(mockAppDataSource.query.mock.calls[1][0])).toContain('FROM sales_orders so');
     expect(String(mockAppDataSource.query.mock.calls[1][0])).not.toContain('approval_notes');
-    expect(mockAppDataSource.query.mock.calls[1][1]).toEqual(['closed', 99001, 41, 9999]);
+    expect(String(mockAppDataSource.query.mock.calls[2][0])).toContain("SET status = ?, updated_by = ?");
+    expect(String(mockAppDataSource.query.mock.calls[2][0])).not.toContain('approval_notes');
+    expect(mockAppDataSource.query.mock.calls[2][1]).toEqual(['closed', 99001, 41, 9999]);
+  });
+
+  it('loads order detail without selecting approval_notes when the legacy column is absent', async () => {
+    mockAppDataSource.query
+      .mockResolvedValueOnce([{ cnt: 0 }])
+      .mockResolvedValueOnce([{
+        id: 41,
+        tenantId: 9999,
+        orderNo: 'SO-LEGACY-001',
+        customerId: 7,
+        orderDate: '2026-04-10',
+        deliveryDate: '2026-04-20',
+        isUrgent: 0,
+        status: 'draft',
+        totalAmount: '100.00',
+        approvalStatus: 'not_required',
+        approvalNotes: null,
+        customerName: '华东直营样板客户',
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const svc = new SalesOrderService({ tenantId: 9999, userId: 99001 });
+
+    const detail = await svc.getById(41);
+
+    expect(String(mockAppDataSource.query.mock.calls[1][0])).toContain('NULL AS approvalNotes');
+    expect(String(mockAppDataSource.query.mock.calls[1][0])).not.toContain('so.approval_notes AS approvalNotes');
+    expect(detail).toMatchObject({
+      id: 41,
+      orderNo: 'SO-LEGACY-001',
+      status: 'draft',
+      approvalNotes: null,
+    });
   });
 });

@@ -146,6 +146,36 @@ export class SalesOrderService {
     );
   }
 
+  private async _orderColumnSelect(alias = 'so', approvalNotesAlias = 'approvalNotes'): Promise<string> {
+    const approvalNotesSelect = await this._hasApprovalNotesColumn()
+      ? `${alias}.approval_notes AS ${approvalNotesAlias}`
+      : `NULL AS ${approvalNotesAlias}`;
+
+    return [
+      `${alias}.id`,
+      `${alias}.tenant_id AS tenantId`,
+      `${alias}.order_no AS orderNo`,
+      `${alias}.customer_id AS customerId`,
+      `${alias}.order_type AS orderType`,
+      `${alias}.status`,
+      `${alias}.priority`,
+      `${alias}.expected_delivery AS deliveryDate`,
+      `${alias}.estimated_delivery AS estimatedDelivery`,
+      `${alias}.total_amount AS totalAmount`,
+      `${alias}.constraint_passed AS constraintPassed`,
+      `${alias}.approval_status AS approvalStatus`,
+      `${alias}.approved_by AS approvedBy`,
+      `${alias}.approved_at AS approvedAt`,
+      approvalNotesSelect,
+      `${alias}.sales_person_id AS salesPersonId`,
+      `${alias}.notes`,
+      `${alias}.created_by AS createdBy`,
+      `${alias}.updated_by AS updatedBy`,
+      `${alias}.created_at AS createdAt`,
+      `${alias}.updated_at AS updatedAt`,
+    ].join(', ');
+  }
+
   private async _writeAuditLog(
     executor: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
     params: {
@@ -260,16 +290,11 @@ export class SalesOrderService {
   // ── 2. 详情（含明细行 + 客户名）──────────────────────────────────────────
 
   async getById(id: number): Promise<Record<string, unknown>> {
+    const orderColumns = await this._orderColumnSelect('so', 'approvalNotes');
     const [orderRow] = await AppDataSource.query<Array<Record<string, unknown>>>(
-      `SELECT so.id, so.tenant_id AS tenantId, so.order_no AS orderNo,
-              so.customer_id AS customerId, DATE(so.created_at) AS orderDate,
-              so.expected_delivery AS deliveryDate,
+      `SELECT ${orderColumns},
+              DATE(so.created_at) AS orderDate,
               (so.order_type = 'urgent') AS isUrgent,
-              so.status, so.total_amount AS totalAmount,
-              so.approved_by AS approvedBy, so.approved_at AS approvedAt,
-              so.approval_status AS approvalStatus, so.approval_notes AS approvalNotes,
-              so.notes, so.created_by AS createdBy, so.updated_by AS updatedBy,
-              so.created_at AS createdAt, so.updated_at AS updatedAt,
               COALESCE(c.name, CONCAT('客户#', so.customer_id)) AS customerName,
               approver.real_name AS approvedByName
        FROM sales_orders so
@@ -339,8 +364,14 @@ export class SalesOrderService {
   // ── 私有：仅加载订单主行（用于状态操作）──────────────────────────────────
 
   private async _loadOrder(id: number): Promise<SalesOrderEntity> {
-    const repo = AppDataSource.getRepository(SalesOrderEntity);
-    const order = await repo.findOne({ where: { id, tenantId: this.tenantId } });
+    const orderColumns = await this._orderColumnSelect('so', 'approvalNotes');
+    const [order] = await AppDataSource.query<Array<SalesOrderEntity>>(
+      `SELECT ${orderColumns}
+         FROM sales_orders so
+        WHERE so.id = ? AND so.tenant_id = ?
+        LIMIT 1`,
+      [id, this.tenantId],
+    );
     if (!order) {
       throw AppError.notFound('销售订单不存在', ResponseCode.ORDER_NOT_FOUND);
     }

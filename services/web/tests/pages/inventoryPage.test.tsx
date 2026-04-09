@@ -620,4 +620,60 @@ describe('InventoryPage', () => {
       expect(lastCall?.[1]).toMatchObject({ keyword: 'LOT-001' });
     });
   });
+
+  it('缸号批次明细的剩余库存应显示当前 SKU 的库存单位', async () => {
+    mocks.useInventoryList.mockReturnValue({
+      data: {
+        list: [
+          {
+            skuId: 3002,
+            skuCode: 'RM-00058',
+            skuName: '棉麻混纺（本白）',
+            stockUnit: 'm',
+            qtyOnHand: '5003.0000',
+            qtyReserved: '0.0000',
+            qtyInTransit: '0.0000',
+            qtyAvailable: '5003.0000',
+            safetyStock: '30.0000',
+            isBelowSafety: false,
+            hasDyeLot: true,
+            warehouseId: 1,
+            locationId: 11,
+            warehouseCode: 'DEFAULT',
+            locationCode: 'DEFAULT-UNKNOWN',
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+      },
+      isLoading: false,
+      error: null,
+    });
+    mocks.useDyeLots.mockReturnValue({
+      data: [
+        {
+          dyeLotNo: '11111',
+          firstInAt: '2026-04-10',
+          lastInAt: '2026-04-10',
+          qtyOnHand: '2000.0000',
+          qtyReserved: '0.0000',
+          qtyAvailable: '2000.0000',
+        },
+      ],
+      isLoading: false,
+    });
+
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看缸号明细' }));
+
+    const table = await screen.findByRole('table', { name: '缸号批次详情' });
+    const lotRow = within(table).getByText('11111').closest('tr');
+    expect(lotRow).not.toBeNull();
+    expect(within(lotRow as HTMLElement).getByText('2000.0000')).toBeInTheDocument();
+    expect(within(lotRow as HTMLElement).getByText(/\bm\b/)).toBeInTheDocument();
+    expect(screen.queryByText('平方米')).not.toBeInTheDocument();
+  });
 });

@@ -94,10 +94,12 @@ const DAYS_CLASS: Record<InventoryStatus, string> = {
 function DyeLotPanel({
   skuId,
   skuName,
+  stockUnit,
   onViewUsage,
 }: {
   skuId: number;
   skuName: string;
+  stockUnit: string;
   onViewUsage?: (dyeLotNo: string) => void;
 }) {
   const { data, isLoading } = useDyeLots(skuId);
@@ -162,7 +164,7 @@ function DyeLotPanel({
                   <strong style={{ color: isAlmostEmpty ? 'var(--color-error-600)' : 'inherit' }}>
                     {lot.qtyAvailable}
                   </strong>{' '}
-                  平方米
+                  {stockUnit || '件'}
                 </td>
                 <td>
                   {isAlmostEmpty ? (
@@ -1231,6 +1233,7 @@ export default function InventoryPage() {
                                 <DyeLotPanel
                                   skuId={skuId}
                                   skuName={item.skuName}
+                                  stockUnit={item.stockUnit}
                                   onViewUsage={(dyeLotNo) =>
                                     openTrace({
                                       skuId,

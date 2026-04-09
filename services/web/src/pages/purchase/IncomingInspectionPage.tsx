@@ -136,6 +136,7 @@ interface EditableInspectionDyeLotSegment {
   qtySampled: string;
   qtyPassed: string;
   qtyFailed: string;
+  acceptedStockQty: string;
   result: 'pass' | 'fail' | 'conditional_pass' | '';
   disposition: 'accept' | 'return' | 'rework' | 'scrap';
   notes: string;
@@ -149,10 +150,13 @@ interface EditableInspectionItem {
   skuName?: string;
   dyeLotNo?: string | null;
   hasDyeLot?: boolean;
+  purchaseUnit?: string;
+  stockUnit?: string;
   qtyDelivered: string;
   qtySampled: string;
   qtyPassed: string;
   qtyFailed: string;
+  acceptedStockQty: string;
   result: 'pass' | 'fail' | 'conditional_pass' | '';
   disposition: 'accept' | 'return' | 'rework' | 'scrap';
   notes: string;
@@ -180,6 +184,23 @@ function createDyeLotSegmentKey(): string {
   return `segment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeUnitLabel(unit?: string | null): string {
+  const trimmed = String(unit ?? '').trim();
+  if (!trimmed) return '';
+  const lower = trimmed.toLowerCase();
+  if (trimmed === '米' || ['m', 'meter', 'meters', 'metre', 'metres'].includes(lower)) {
+    return '米';
+  }
+  if (trimmed === '卷' || ['roll', 'rolls'].includes(lower)) {
+    return '卷';
+  }
+  return trimmed;
+}
+
+function isRollMeterItem(purchaseUnit?: string | null, stockUnit?: string | null): boolean {
+  return normalizeUnitLabel(purchaseUnit) === '卷' && normalizeUnitLabel(stockUnit) === '米';
+}
+
 function aggregateInspectionItems(items: IncomingInspectionItem[]): AggregatedInspectionItem[] {
   const grouped = new Map<string, AggregatedInspectionItem>();
 
@@ -201,6 +222,7 @@ function aggregateInspectionItems(items: IncomingInspectionItem[]): AggregatedIn
         qtySampled: formatQtyInput(qtySampled),
         qtyPassed: formatQtyInput(qtyPassed),
         qtyFailed: formatQtyInput(qtyFailed),
+        acceptedStockQty: String(item.acceptedStockQty ?? ''),
         sourceItemIds: [Number(item.id)],
         sourceDeliveredQtys: [String(item.qtyDelivered ?? '0')],
       });
@@ -211,6 +233,7 @@ function aggregateInspectionItems(items: IncomingInspectionItem[]): AggregatedIn
     existing.qtySampled = formatQtyInput(parseQty(existing.qtySampled) + qtySampled);
     existing.qtyPassed = formatQtyInput(parseQty(existing.qtyPassed) + qtyPassed);
     existing.qtyFailed = formatQtyInput(parseQty(existing.qtyFailed) + qtyFailed);
+    existing.acceptedStockQty = formatQtyInput(parseQty(existing.acceptedStockQty ?? '0') + parseQty(item.acceptedStockQty ?? '0'));
     existing.sourceItemIds.push(Number(item.id));
     existing.sourceDeliveredQtys.push(String(item.qtyDelivered ?? '0'));
 
@@ -278,6 +301,31 @@ function distributePassedFailedAcrossSourceRows(
   }));
 }
 
+function distributeMeasuredQtyAcrossSourceRows(
+  totalMeasuredQty: number,
+  capacities: number[],
+): string[] {
+  if (totalMeasuredQty <= 0) {
+    return capacities.map(() => '');
+  }
+
+  const totalCapacity = capacities.reduce((sum, capacity) => sum + capacity, 0);
+  if (totalCapacity <= 0) {
+    return capacities.map(() => '');
+  }
+
+  let remaining = totalMeasuredQty;
+  return capacities.map((capacity, index) => {
+    if (index === capacities.length - 1) {
+      return formatQtyInput(remaining);
+    }
+
+    const allocation = Number(((totalMeasuredQty * capacity) / totalCapacity).toFixed(4));
+    remaining = Number((remaining - allocation).toFixed(4));
+    return formatQtyInput(allocation);
+  });
+}
+
 function getReceiptDispositionInsight(
   items: Array<Pick<EditableInspectionItem, 'qtyDelivered' | 'qtySampled' | 'qtyPassed' | 'disposition' | 'dyeLotSegments'>>,
 ): ReceiptDispositionInsight {
@@ -337,9 +385,12 @@ function buildEditableInspectionItems(items: IncomingInspectionItem[]): Editable
     qtySampled: String(item.qtySampled ?? '0'),
     qtyPassed: String(item.qtyPassed ?? '0'),
     qtyFailed: String(item.qtyFailed ?? '0'),
+    acceptedStockQty: String(item.acceptedStockQty ?? ''),
     result: (item.result ?? '') as EditableInspectionItem['result'],
     disposition: (item.disposition ?? 'accept') as EditableInspectionItem['disposition'],
     notes: String(item.notes ?? ''),
+    purchaseUnit: item.purchaseUnit,
+    stockUnit: item.stockUnit,
   }));
 
   const dyeGrouped = new Map<string, EditableInspectionItem>();
@@ -359,6 +410,7 @@ function buildEditableInspectionItems(items: IncomingInspectionItem[]): Editable
         qtySampled: formatQtyInput(parseQty(item.qtySampled)),
         qtyPassed: formatQtyInput(parseQty(item.qtyPassed)),
         qtyFailed: formatQtyInput(parseQty(item.qtyFailed)),
+        acceptedStockQty: String(item.acceptedStockQty ?? ''),
         result: (item.result ?? '') as EditableInspectionDyeLotSegment['result'],
         disposition: (item.disposition ?? 'accept') as EditableInspectionDyeLotSegment['disposition'],
         notes: String(item.notes ?? ''),
@@ -375,9 +427,12 @@ function buildEditableInspectionItems(items: IncomingInspectionItem[]): Editable
         qtySampled: segment.qtySampled,
         qtyPassed: segment.qtyPassed,
         qtyFailed: segment.qtyFailed,
+        acceptedStockQty: segment.acceptedStockQty,
         result: '',
         disposition: 'accept',
         notes: '',
+        purchaseUnit: item.purchaseUnit,
+        stockUnit: item.stockUnit,
         dyeLotSegments: [segment],
       });
       continue;
@@ -389,6 +444,7 @@ function buildEditableInspectionItems(items: IncomingInspectionItem[]): Editable
     existing.qtySampled = formatQtyInput(parseQty(existing.qtySampled) + parseQty(item.qtySampled));
     existing.qtyPassed = formatQtyInput(parseQty(existing.qtyPassed) + parseQty(item.qtyPassed));
     existing.qtyFailed = formatQtyInput(parseQty(existing.qtyFailed) + parseQty(item.qtyFailed));
+    existing.acceptedStockQty = formatQtyInput(parseQty(existing.acceptedStockQty) + parseQty(item.acceptedStockQty ?? '0'));
 
     const normalizedDyeLot = String(item.dyeLotNo ?? '').trim();
     const existingSegment = existing.dyeLotSegments?.find((segment) => segment.dyeLotNo.trim() === normalizedDyeLot);
@@ -399,6 +455,7 @@ function buildEditableInspectionItems(items: IncomingInspectionItem[]): Editable
       existingSegment.qtySampled = formatQtyInput(parseQty(existingSegment.qtySampled) + parseQty(item.qtySampled));
       existingSegment.qtyPassed = formatQtyInput(parseQty(existingSegment.qtyPassed) + parseQty(item.qtyPassed));
       existingSegment.qtyFailed = formatQtyInput(parseQty(existingSegment.qtyFailed) + parseQty(item.qtyFailed));
+      existingSegment.acceptedStockQty = formatQtyInput(parseQty(existingSegment.acceptedStockQty) + parseQty(item.acceptedStockQty ?? '0'));
       if (existingSegment.result !== (item.result ?? '')) {
         existingSegment.result = '';
       }
@@ -420,6 +477,7 @@ function buildEditableInspectionItems(items: IncomingInspectionItem[]): Editable
       qtySampled: formatQtyInput(parseQty(item.qtySampled)),
       qtyPassed: formatQtyInput(parseQty(item.qtyPassed)),
       qtyFailed: formatQtyInput(parseQty(item.qtyFailed)),
+      acceptedStockQty: String(item.acceptedStockQty ?? ''),
       result: (item.result ?? '') as EditableInspectionDyeLotSegment['result'],
       disposition: (item.disposition ?? 'accept') as EditableInspectionDyeLotSegment['disposition'],
       notes: String(item.notes ?? ''),
@@ -806,6 +864,7 @@ export default function IncomingInspectionPage() {
         qtySampled: '0.0000',
         qtyPassed: '0.0000',
         qtyFailed: '0.0000',
+        acceptedStockQty: '',
         result: '',
         disposition: 'accept',
         notes: '',
@@ -876,6 +935,29 @@ export default function IncomingInspectionPage() {
       return;
     }
 
+    const missingMeasuredQtyItem = editableItems.find((item) => {
+      if (item.hasDyeLot && item.dyeLotSegments?.length) {
+        return isRollMeterItem(item.purchaseUnit, item.stockUnit)
+          && item.dyeLotSegments.some((segment) =>
+            segment.disposition === 'accept'
+            && parseQty(segment.qtyPassed) > 0
+            && parseQty(segment.acceptedStockQty) <= 0,
+          );
+      }
+
+      return isRollMeterItem(item.purchaseUnit, item.stockUnit)
+        && item.disposition === 'accept'
+        && parseQty(item.qtyPassed) > 0
+        && parseQty(item.acceptedStockQty) <= 0;
+    });
+    if (missingMeasuredQtyItem) {
+      showToast({
+        type: 'warning',
+        message: `${missingMeasuredQtyItem.skuCode ?? missingMeasuredQtyItem.skuName ?? '该物料'} 需要填写实际米数后再保存质检明细`,
+      });
+      return;
+    }
+
     try {
       const payloadItems: UpdateInspectionItemsPayload['items'] = editableItems.flatMap<UpdateInspectionItemsPayload['items'][number]>((item) => {
         if (item.hasDyeLot && item.dyeLotSegments?.length) {
@@ -885,6 +967,7 @@ export default function IncomingInspectionPage() {
             qtysampled: segment.qtySampled || '0',
             qtyPassed: segment.qtyPassed || '0',
             qtyFailed: segment.qtyFailed || '0',
+            acceptedStockQty: segment.acceptedStockQty.trim() || undefined,
             dyeLotNo: segment.dyeLotNo.trim() || undefined,
             result: segment.result as 'pass' | 'fail' | 'conditional_pass',
             disposition: segment.disposition,
@@ -903,6 +986,7 @@ export default function IncomingInspectionPage() {
             qtysampled: item.qtySampled || '0',
             qtyPassed: item.qtyPassed || '0',
             qtyFailed: item.qtyFailed || '0',
+            acceptedStockQty: item.acceptedStockQty.trim() || undefined,
             dyeLotNo: normalizedDyeLotNo || undefined,
             result: item.result as 'pass' | 'fail' | 'conditional_pass',
             disposition: item.disposition,
@@ -916,6 +1000,10 @@ export default function IncomingInspectionPage() {
           parseQty(item.qtyFailed),
           sourceCapacities,
         );
+        const measuredAllocations = distributeMeasuredQtyAcrossSourceRows(
+          parseQty(item.acceptedStockQty),
+          sourceCapacities,
+        );
 
         return item.sourceItemIds.map((sourceId, index) => ({
           id: sourceId,
@@ -924,6 +1012,7 @@ export default function IncomingInspectionPage() {
           qtysampled: sampledAllocations[index],
           qtyPassed: passFailAllocations[index].qtyPassed,
           qtyFailed: passFailAllocations[index].qtyFailed,
+          acceptedStockQty: measuredAllocations[index] || undefined,
           dyeLotNo: normalizedDyeLotNo || undefined,
           result: item.result as 'pass' | 'fail' | 'conditional_pass',
           disposition: item.disposition,
@@ -1452,6 +1541,9 @@ export default function IncomingInspectionPage() {
                         const sampledQty = parseQty(item.qtySampled);
                         const isFullInspection = deliveredQty > 0 && sampledQty === deliveredQty;
                         const isAcceptDisposition = item.disposition === 'accept';
+                        const purchaseUnitLabel = normalizeUnitLabel(item.purchaseUnit) || '件';
+                        const stockUnitLabel = normalizeUnitLabel(item.stockUnit) || '件';
+                        const needsMeasuredMeters = isRollMeterItem(item.purchaseUnit, item.stockUnit);
                         const hasAcceptedSampleReceipt = sampledQty > 0
                           && sampledQty < deliveredQty
                           && isAcceptDisposition
@@ -1466,8 +1558,11 @@ export default function IncomingInspectionPage() {
                           {item.hasDyeLot ? (
                             <div className={styles.inlineMeta}>缸号管理物料，请按实际来料缸号拆分分段后分别录入抽检与处置结果。</div>
                           ) : null}
+                          {needsMeasuredMeters ? (
+                            <div className={styles.inlineMeta}>该物料按卷采购、按米入库。请为每个来料分段填写卷数，并补充实际入库米数。</div>
+                          ) : null}
                         </div>
-                        <div className={styles.editableItemQty}>到货数量 {item.qtyDelivered}</div>
+                        <div className={styles.editableItemQty}>到货数量 {item.qtyDelivered} {purchaseUnitLabel}</div>
                       </div>
 
                       {item.hasDyeLot && item.dyeLotSegments?.length ? (
@@ -1477,6 +1572,8 @@ export default function IncomingInspectionPage() {
                               同一 SKU 可按不同缸号拆分多条来料分段。所有缸号分段的到货数量合计必须等于该 SKU 的总到货数量
                               {' '}
                               {item.qtyDelivered}
+                              {' '}
+                              {purchaseUnitLabel}
                               。
                             </div>
                             <Button
@@ -1533,7 +1630,7 @@ export default function IncomingInspectionPage() {
                                       </div>
                                     </div>
                                     <div className={styles.form_field}>
-                                      <label className={styles.form_label}>该缸到货数量</label>
+                                      <label className={styles.form_label}>该缸到货数量（{purchaseUnitLabel}）</label>
                                       <input
                                         className={styles.form_input}
                                         value={segment.qtyDelivered}
@@ -1541,7 +1638,7 @@ export default function IncomingInspectionPage() {
                                       />
                                     </div>
                                     <div className={styles.form_field}>
-                                      <label className={styles.form_label}>抽检数量</label>
+                                      <label className={styles.form_label}>抽检数量（{purchaseUnitLabel}）</label>
                                       <input
                                         className={styles.form_input}
                                         value={segment.qtySampled}
@@ -1549,7 +1646,7 @@ export default function IncomingInspectionPage() {
                                       />
                                     </div>
                                     <div className={styles.form_field}>
-                                      <label className={styles.form_label}>合格数量</label>
+                                      <label className={styles.form_label}>合格数量（{purchaseUnitLabel}）</label>
                                       <input
                                         className={styles.form_input}
                                         value={segment.qtyPassed}
@@ -1561,8 +1658,22 @@ export default function IncomingInspectionPage() {
                                           : '抽检时，这里填写的是该缸本次确认入库数量；可按整缸来料或实际认可数量填写。'}
                                       </div>
                                     </div>
+                                    {needsMeasuredMeters ? (
+                                      <div className={styles.form_field}>
+                                        <label className={styles.form_label}>实际入库米数（{stockUnitLabel}）</label>
+                                        <input
+                                          className={styles.form_input}
+                                          value={segment.acceptedStockQty}
+                                          onChange={(e) => setDyeLotSegmentField(item.id, segment.segmentKey, 'acceptedStockQty', e.target.value.replace(/[^\d.]/g, ''))}
+                                          placeholder={`请输入该卷实际入库${stockUnitLabel}`}
+                                        />
+                                        <div className={styles.form_help}>
+                                          当采购单位为“卷”而库存单位为“米”时，这里填写每卷实际可入库的米数，库存将按该米数入账。
+                                        </div>
+                                      </div>
+                                    ) : null}
                                     <div className={styles.form_field}>
-                                      <label className={styles.form_label}>不合格数量</label>
+                                      <label className={styles.form_label}>不合格数量（{purchaseUnitLabel}）</label>
                                       <input
                                         className={styles.form_input}
                                         value={segment.qtyFailed}
@@ -1633,7 +1744,7 @@ export default function IncomingInspectionPage() {
                         <>
                           <div className={styles.editableItemGrid}>
                             <div className={styles.form_field}>
-                              <label className={styles.form_label}>抽检数量</label>
+                              <label className={styles.form_label}>抽检数量（{purchaseUnitLabel}）</label>
                               <input
                                 className={styles.form_input}
                                 value={item.qtySampled}
@@ -1641,7 +1752,7 @@ export default function IncomingInspectionPage() {
                               />
                             </div>
                             <div className={styles.form_field}>
-                              <label className={styles.form_label}>合格数量</label>
+                              <label className={styles.form_label}>合格数量（{purchaseUnitLabel}）</label>
                               <input
                                 className={styles.form_input}
                                 value={item.qtyPassed}
@@ -1653,8 +1764,22 @@ export default function IncomingInspectionPage() {
                                   : '抽检时，这里填写的是本次确认入库数量；可按整批来料或实际认可数量填写。'}
                               </div>
                             </div>
+                            {needsMeasuredMeters ? (
+                              <div className={styles.form_field}>
+                                <label className={styles.form_label}>实际入库米数（{stockUnitLabel}）</label>
+                                <input
+                                  className={styles.form_input}
+                                  value={item.acceptedStockQty}
+                                  onChange={(e) => setEditableField(item.id, 'acceptedStockQty', e.target.value.replace(/[^\d.]/g, ''))}
+                                  placeholder={`请输入实际入库${stockUnitLabel}`}
+                                />
+                                <div className={styles.form_help}>
+                                  当前物料按卷采购、按米入库。这里填写本批次最终入库的实际米数。
+                                </div>
+                              </div>
+                            ) : null}
                             <div className={styles.form_field}>
-                              <label className={styles.form_label}>不合格数量</label>
+                              <label className={styles.form_label}>不合格数量（{purchaseUnitLabel}）</label>
                               <input
                                 className={styles.form_input}
                                 value={item.qtyFailed}

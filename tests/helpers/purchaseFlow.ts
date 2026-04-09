@@ -115,7 +115,7 @@ function buildUser(role: TestRole) {
   };
 }
 
-function authHeaders(role: TestRole): Record<string, string> {
+export function authHeaders(role: TestRole): Record<string, string> {
   return { Authorization: `Bearer ${signToken(role)}` };
 }
 
@@ -131,7 +131,7 @@ async function parseApiData<T>(response: APIResponse): Promise<T> {
   return json.data as T;
 }
 
-function apiUrl(path: string): string {
+export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 }
 

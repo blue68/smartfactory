@@ -21,6 +21,7 @@ const InspectionItemSchema = z.object({
   qtysampled: z.string().regex(/^\d+(\.\d{1,4})?$/, '数量格式不合法'),
   qtyPassed: z.string().regex(/^\d+(\.\d{1,4})?$/, '数量格式不合法'),
   qtyFailed: z.string().regex(/^\d+(\.\d{1,4})?$/, '数量格式不合法'),
+  acceptedStockQty: z.string().regex(/^\d+(\.\d{1,4})?$/, '数量格式不合法').optional(),
   dyeLotNo: z.string().trim().max(100).optional(),
   result: z.enum(['pass', 'fail', 'conditional_pass']),
   defectTypes: z.array(z.unknown()).optional(),

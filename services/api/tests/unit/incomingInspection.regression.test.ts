@@ -37,6 +37,7 @@ describe('Incoming inspection regressions', () => {
     (IncomingInspectionService as any).deliveryNoteItemDyeLotSupported = false;
     (IncomingInspectionService as any).incomingInspectionItemDyeLotSupported = false;
     (IncomingInspectionService as any).purchaseReceiptItemDyeLotSupported = false;
+    (IncomingInspectionService as any).incomingInspectionItemAcceptedStockQtySupported = true;
   });
 
   it('decrements qty_in_transit on receipt and triggers shortage reevaluation', async () => {
@@ -168,6 +169,146 @@ describe('Incoming inspection regressions', () => {
 
     expect(String(manager.query.mock.calls[0][0])).toContain('FOR UPDATE');
     expect(manager.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires measured meter quantity before submitting roll-to-meter fabric receipts', async () => {
+    const manager = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT id, status FROM purchase_orders')) {
+          return [{ id: 100, status: 'confirmed' }];
+        }
+        if (sql.includes('INSERT INTO purchase_receipts')) return { insertId: 551 };
+        if (sql.includes('UPDATE delivery_notes')) return { affectedRows: 1 };
+        if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: 'm' }];
+        if (sql.includes('FROM sku_unit_conversions')) {
+          return [{ fromUnit: '卷', toUnit: '米', conversionRate: '100.000000' }];
+        }
+        if (sql.includes('INSERT INTO purchase_receipt_items')) return { insertId: 651 };
+        if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 751 };
+        if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
+        if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+        if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
+        if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
+        if (sql.includes('SUM(COALESCE(qty_ordered, 0)) AS total_ordered')) {
+          return [{ total_ordered: '10', total_received: '1' }];
+        }
+        if (sql.includes('UPDATE incoming_inspection_records') && sql.includes('receipt_triggered = 1')) {
+          return { affectedRows: 1 };
+        }
+        if (sql.includes('UPDATE purchase_orders')) return { affectedRows: 1 };
+        throw new Error(`Unexpected SQL: ${sql}`);
+      }),
+    };
+
+    const generateNoSpy = jest
+      .spyOn(generateNoModule, 'generateNo')
+      .mockResolvedValue('RC250324-00003');
+    const reevaluateSpy = jest
+      .spyOn(MrpService.prototype, 'reevaluateAfterReceipt')
+      .mockResolvedValue({ affectedOrderIds: [18], updatedRequirements: 1 });
+
+    const svc = new IncomingInspectionService({ tenantId: 7, userId: 11 });
+    await expect((svc as any).handlePassedItems(
+      manager,
+      12,
+      { po_id: 100, delivery_note_id: 200 },
+      [
+        {
+          sku_id: 302,
+          qty_passed: '1',
+          unit_price: '20.00',
+          purchase_unit: '卷',
+          po_item_id: 903,
+        },
+      ],
+    )).rejects.toThrow('需要填写实际米数');
+    expect(reevaluateSpy).not.toHaveBeenCalled();
+    expect(generateNoSpy).toHaveBeenCalledWith('receipt', 7);
+  });
+
+  it('uses accepted stock quantity override for roll-to-meter fabric receipts', async () => {
+    const manager = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT id, status FROM purchase_orders')) {
+          return [{ id: 100, status: 'confirmed' }];
+        }
+        if (sql.includes('INSERT INTO purchase_receipts')) return { insertId: 561 };
+        if (sql.includes('UPDATE delivery_notes')) return { affectedRows: 1 };
+        if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: 'm' }];
+        if (sql.includes('INSERT INTO purchase_receipt_items')) return { insertId: 661 };
+        if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 761 };
+        if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
+        if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+        if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
+        if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
+        if (sql.includes('SUM(COALESCE(qty_ordered, 0)) AS total_ordered')) {
+          return [{ total_ordered: '10', total_received: '1' }];
+        }
+        if (sql.includes('UPDATE incoming_inspection_records') && sql.includes('receipt_triggered = 1')) {
+          return { affectedRows: 1 };
+        }
+        if (sql.includes('UPDATE purchase_orders')) return { affectedRows: 1 };
+        throw new Error(`Unexpected SQL: ${sql}`);
+      }),
+    };
+
+    const generateNoSpy = jest
+      .spyOn(generateNoModule, 'generateNo')
+      .mockResolvedValue('RC250324-00004');
+    const reevaluateSpy = jest
+      .spyOn(MrpService.prototype, 'reevaluateAfterReceipt')
+      .mockResolvedValue({ affectedOrderIds: [19], updatedRequirements: 1 });
+
+    const svc = new IncomingInspectionService({ tenantId: 7, userId: 11 });
+    await (svc as any).handlePassedItems(
+      manager,
+      13,
+      { po_id: 100, delivery_note_id: 200 },
+      [
+        {
+          sku_id: 303,
+          qty_passed: '1',
+          accepted_stock_qty: '95.5000',
+          unit_price: '20.00',
+          purchase_unit: '卷',
+          po_item_id: 904,
+        },
+      ],
+    );
+
+    const inventoryTxCall = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO inventory_transactions'),
+    ) as unknown[] | undefined;
+    expect(inventoryTxCall?.[1]).toEqual([
+      7,
+      303,
+      1,
+      1,
+      '95.5000',
+      'purchase_receipt',
+      561,
+      'RC250324-00004',
+      'incoming_inspection:submit',
+      '质检入库 IQC#13',
+      null,
+      11,
+      11,
+    ]);
+
+    const inventoryUpsertCall = manager.query.mock.calls.find(([sql]) =>
+      /INSERT INTO inventory\s*\(/.test(String(sql)),
+    ) as unknown[] | undefined;
+    expect(inventoryUpsertCall?.[1]).toEqual([
+      7,
+      303,
+      1,
+      1,
+      'incoming_inspection:submit',
+      '95.5000',
+      11,
+    ]);
+    expect(reevaluateSpy).toHaveBeenCalledWith(303, manager);
+    expect(generateNoSpy).toHaveBeenCalledWith('receipt', 7);
   });
 
   it('submits inspection through receipt creation and reevaluates each received sku once', async () => {
@@ -849,6 +990,7 @@ describe('Incoming inspection regressions', () => {
       '50.0000',
       '50.0000',
       '0.0000',
+      null,
       'DY-20260327-C08',
       'pass',
       '[]',
@@ -921,6 +1063,7 @@ describe('Incoming inspection regressions', () => {
       301,
       901,
       'DY-20260327-D01',
+      null,
       '120.0000',
       '20.0000',
       '20.0000',
@@ -939,6 +1082,7 @@ describe('Incoming inspection regressions', () => {
       301,
       901,
       'DY-20260327-D02',
+      null,
       '80.0000',
       '20.0000',
       '15.0000',

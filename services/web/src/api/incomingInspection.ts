@@ -17,8 +17,11 @@ export interface IncomingInspectionItem {
   qtySampled: string;
   qtyPassed: string;
   qtyFailed: string;
+  acceptedStockQty?: string | null;
   dyeLotNo?: string | null;
   hasDyeLot?: boolean;
+  purchaseUnit?: string;
+  stockUnit?: string;
   result: 'pass' | 'fail' | 'conditional_pass' | null;
   defectTypes: string[] | null;
   defectImages: string[] | null;
@@ -65,6 +68,7 @@ export interface UpdateInspectionItemsPayload {
     qtysampled: string;
     qtyPassed: string;
     qtyFailed: string;
+    acceptedStockQty?: string;
     dyeLotNo?: string;
     result: 'pass' | 'fail' | 'conditional_pass' | null;
     defectTypes?: string[];

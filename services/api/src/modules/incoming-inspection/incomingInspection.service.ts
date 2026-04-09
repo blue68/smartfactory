@@ -6,7 +6,7 @@ import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import Decimal from 'decimal.js';
 import { generateNo } from '../../shared/generateNo';
-import { UnitConverter } from '../../shared/unitConverter';
+import { UnitConverter, normalizeUnit } from '../../shared/unitConverter';
 import { PermissionSnapshot } from '../access-control/access-control.types';
 import {
   assertWarehouseInScope,
@@ -44,6 +44,7 @@ export interface UpdateInspectionItemInput {
   qtysampled: string;
   qtyPassed: string;
   qtyFailed: string;
+  acceptedStockQty?: string;
   dyeLotNo?: string;
   result: 'pass' | 'fail' | 'conditional_pass';
   defectTypes?: unknown[];
@@ -160,6 +161,7 @@ export class IncomingInspectionService {
   private static deliveryNoteItemDyeLotSupported: boolean | null = null;
   private static incomingInspectionItemDyeLotSupported: boolean | null = null;
   private static purchaseReceiptItemDyeLotSupported: boolean | null = null;
+  private static incomingInspectionItemAcceptedStockQtySupported: boolean | null = null;
 
   constructor(ctx: TenantContext & { permissionSnapshot?: PermissionSnapshot }) {
     this.tenantId = ctx.tenantId;
@@ -525,6 +527,53 @@ export class IncomingInspectionService {
     return supported;
   }
 
+  private async supportsIncomingInspectionAcceptedStockQtyColumn(manager?: EntityManager): Promise<boolean> {
+    if (IncomingInspectionService.incomingInspectionItemAcceptedStockQtySupported != null) {
+      return IncomingInspectionService.incomingInspectionItemAcceptedStockQtySupported;
+    }
+
+    const runner = manager ?? AppDataSource;
+    const rows = await runner.query<Array<{ cnt: number | string }>>(
+      `SELECT COUNT(*) AS cnt
+         FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'incoming_inspection_items'
+          AND COLUMN_NAME = 'accepted_stock_qty'`,
+    );
+    const supported = Number(rows?.[0]?.cnt ?? 0) > 0;
+    IncomingInspectionService.incomingInspectionItemAcceptedStockQtySupported = supported;
+    return supported;
+  }
+
+  private requiresMeasuredStockQty(purchaseUnit: string | null | undefined, stockUnit: string | null | undefined): boolean {
+    return normalizeUnit(String(purchaseUnit ?? '')) === '卷' && normalizeUnit(String(stockUnit ?? '')) === '米';
+  }
+
+  private distributeDecimalAcrossWeights(total: Decimal, weights: Decimal[]): Decimal[] {
+    if (!weights.length) return [];
+
+    const totalWeight = weights.reduce((sum, weight) => sum.plus(weight), new Decimal(0));
+    if (totalWeight.lte(0)) {
+      throw AppError.badRequest('无法分配实际入库数量');
+    }
+
+    let remaining = new Decimal(total);
+    return weights.map((weight, index) => {
+      if (index === weights.length - 1) {
+        const allocation = remaining;
+        remaining = new Decimal(0);
+        return allocation;
+      }
+
+      const allocation = new Decimal(total)
+        .mul(weight)
+        .div(totalWeight)
+        .toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+      remaining = remaining.minus(allocation);
+      return allocation;
+    });
+  }
+
   private async normalizeDraftInspectionItems(
     manager: EntityManager,
     inspectionId: number,
@@ -549,6 +598,7 @@ export class IncomingInspectionService {
       String(item.po_item_id ?? item.poItemId ?? ''),
       String(item.dye_lot_no ?? item.dyeLotNo ?? ''),
       String(item.qty_delivered ?? item.qtyDelivered ?? ''),
+      String(item.accepted_stock_qty ?? item.acceptedStockQty ?? ''),
     ].join('::')).sort().join('|');
 
     const nextSignature = seedItems.map((item) => [
@@ -556,6 +606,7 @@ export class IncomingInspectionService {
       String(item.po_item_id ?? ''),
       String(item.dye_lot_no ?? ''),
       item.qty_delivered,
+      '',
     ].join('::')).sort().join('|');
 
     if (currentSignature === nextSignature) return;
@@ -567,6 +618,7 @@ export class IncomingInspectionService {
     );
 
     const supportsInspectionItemDyeLot = await this.supportsIncomingInspectionItemDyeLotColumn();
+    const supportsAcceptedStockQty = await this.supportsIncomingInspectionAcceptedStockQtyColumn(manager);
     for (const item of seedItems) {
       const insertColumns = [
         'tenant_id',
@@ -574,6 +626,7 @@ export class IncomingInspectionService {
         'sku_id',
         'po_item_id',
         ...(supportsInspectionItemDyeLot ? ['dye_lot_no'] : []),
+        ...(supportsAcceptedStockQty ? ['accepted_stock_qty'] : []),
         'qty_delivered',
         'qty_sampled',
         'qty_passed',
@@ -592,6 +645,7 @@ export class IncomingInspectionService {
         item.sku_id,
         item.po_item_id,
         ...(supportsInspectionItemDyeLot ? [item.dye_lot_no ?? null] : []),
+        ...(supportsAcceptedStockQty ? [null] : []),
         item.qty_delivered,
         this.userId,
         this.userId,
@@ -805,6 +859,7 @@ export class IncomingInspectionService {
   // ── 详情（含 items）──────────────────────────────────────────
   async getById(id: number) {
     const supportsInspectionItemDyeLot = await this.supportsIncomingInspectionItemDyeLotColumn();
+    const supportsAcceptedStockQty = await this.supportsIncomingInspectionAcceptedStockQtyColumn();
     const [record] = await AppDataSource.query(
       `SELECT r.*,
               po.po_no AS poNo,
@@ -828,10 +883,13 @@ export class IncomingInspectionService {
               s.sku_code AS skuCode,
               s.name AS skuName,
               s.stock_unit AS stockUnit,
+              poi.purchase_unit AS purchaseUnit,
               s.has_dye_lot AS hasDyeLot,
-              ${supportsInspectionItemDyeLot ? 'i.dye_lot_no AS dyeLotNo' : 'NULL AS dyeLotNo'}
+              ${supportsInspectionItemDyeLot ? 'i.dye_lot_no AS dyeLotNo' : 'NULL AS dyeLotNo'},
+              ${supportsAcceptedStockQty ? 'CAST(i.accepted_stock_qty AS CHAR) AS acceptedStockQty' : 'NULL AS acceptedStockQty'}
        FROM incoming_inspection_items i
        LEFT JOIN skus s ON s.id = i.sku_id
+       LEFT JOIN purchase_order_items poi ON poi.id = i.po_item_id AND poi.tenant_id = i.tenant_id
        WHERE i.inspection_id = ? AND i.tenant_id = ?
        ORDER BY i.id ASC`,
       [id, this.tenantId],
@@ -846,10 +904,13 @@ export class IncomingInspectionService {
                 s.sku_code AS skuCode,
                 s.name AS skuName,
                 s.stock_unit AS stockUnit,
+                poi.purchase_unit AS purchaseUnit,
                 s.has_dye_lot AS hasDyeLot,
-                ${supportsInspectionItemDyeLot ? 'i.dye_lot_no AS dyeLotNo' : 'NULL AS dyeLotNo'}
+                ${supportsInspectionItemDyeLot ? 'i.dye_lot_no AS dyeLotNo' : 'NULL AS dyeLotNo'},
+                ${supportsAcceptedStockQty ? 'CAST(i.accepted_stock_qty AS CHAR) AS acceptedStockQty' : 'NULL AS acceptedStockQty'}
          FROM incoming_inspection_items i
          LEFT JOIN skus s ON s.id = i.sku_id
+         LEFT JOIN purchase_order_items poi ON poi.id = i.po_item_id AND poi.tenant_id = i.tenant_id
          WHERE i.inspection_id = ? AND i.tenant_id = ?
          ORDER BY i.id ASC`,
         [id, this.tenantId],
@@ -871,6 +932,8 @@ export class IncomingInspectionService {
       skuCode: String(item.skuCode ?? ''),
       skuName: String(item.skuName ?? ''),
       stockUnit: String(item.stockUnit ?? ''),
+      purchaseUnit: String(item.purchaseUnit ?? item.stockUnit ?? ''),
+      acceptedStockQty: item.acceptedStockQty == null ? null : String(item.acceptedStockQty),
     }));
 
     return { ...record, items };
@@ -1063,6 +1126,7 @@ export class IncomingInspectionService {
     sourceItemIds: number[],
     items: UpdateInspectionItemInput[],
   ): Promise<void> {
+    const supportsAcceptedStockQty = await this.supportsIncomingInspectionAcceptedStockQtyColumn(manager);
     const normalizedSourceIds = Array.from(new Set(sourceItemIds))
       .map((value) => Number(value))
       .filter((value) => Number.isInteger(value) && value > 0);
@@ -1123,6 +1187,9 @@ export class IncomingInspectionService {
       const qtySampled = new Decimal(item.qtysampled || '0');
       const qtyPassed = new Decimal(item.qtyPassed || '0');
       const qtyFailed = new Decimal(item.qtyFailed || '0');
+      const acceptedStockQty = String(item.acceptedStockQty ?? '').trim()
+        ? new Decimal(String(item.acceptedStockQty))
+        : null;
 
       if (qtyDelivered.lte(0)) {
         throw AppError.badRequest('缸号分段的到货数量必须大于 0');
@@ -1132,6 +1199,9 @@ export class IncomingInspectionService {
       }
       if (qtyPassed.plus(qtyFailed).gt(qtyDelivered)) {
         throw AppError.badRequest('缸号分段的合格数量与不合格数量之和不能超过该缸到货数量');
+      }
+      if (acceptedStockQty && acceptedStockQty.lte(0)) {
+        throw AppError.badRequest('缸号分段的实际入库数量必须大于 0');
       }
 
       const segmentAllocations = allocateQtyAcrossCapacities(qtyDelivered, remainingSourceCapacities);
@@ -1145,6 +1215,9 @@ export class IncomingInspectionService {
         qtyFailed,
         segmentAllocations,
       );
+      const acceptedStockAllocations = acceptedStockQty
+        ? this.distributeDecimalAcrossWeights(acceptedStockQty, segmentAllocations)
+        : segmentAllocations.map(() => null);
 
       for (let index = 0; index < segmentAllocations.length; index += 1) {
         const allocatedDelivered = segmentAllocations[index];
@@ -1157,6 +1230,7 @@ export class IncomingInspectionService {
           'sku_id',
           'po_item_id',
           ...(supportsInspectionItemDyeLot ? ['dye_lot_no'] : []),
+          ...(supportsAcceptedStockQty ? ['accepted_stock_qty'] : []),
           'qty_delivered',
           'qty_sampled',
           'qty_passed',
@@ -1175,6 +1249,9 @@ export class IncomingInspectionService {
           sourceRow.sku_id,
           sourceRow.po_item_id,
           ...(supportsInspectionItemDyeLot ? [String(item.dyeLotNo ?? '').trim() || null] : []),
+          ...(supportsAcceptedStockQty
+            ? [acceptedStockAllocations[index] ? formatInspectionQty(acceptedStockAllocations[index] as Decimal) : null]
+            : []),
           formatInspectionQty(allocatedDelivered),
           formatInspectionQty(sampledAllocations[index]),
           formatInspectionQty(passFailAllocations[index].qtyPassed),
@@ -1211,6 +1288,7 @@ export class IncomingInspectionService {
 
     await AppDataSource.transaction(async (manager) => {
       const supportsInspectionItemDyeLot = await this.supportsIncomingInspectionItemDyeLotColumn();
+      const supportsAcceptedStockQty = await this.supportsIncomingInspectionAcceptedStockQtyColumn(manager);
       const groupedReplaceItems = new Map<string, UpdateInspectionItemInput[]>();
       const directItems: UpdateInspectionItemInput[] = [];
 
@@ -1260,6 +1338,9 @@ export class IncomingInspectionService {
         const qtySampled = new Decimal(item.qtysampled || '0');
         const qtyPassed = new Decimal(item.qtyPassed || '0');
         const qtyFailed = new Decimal(item.qtyFailed || '0');
+        const acceptedStockQty = String(item.acceptedStockQty ?? '').trim()
+          ? new Decimal(String(item.acceptedStockQty))
+          : null;
         if (qtySampled.gt(qtyDelivered)) {
           throw AppError.badRequest(
             `质检明细 id=${item.id} 的抽检数量(${qtySampled.toString()})超过到货数量(${qtyDelivered.toString()})`,
@@ -1270,12 +1351,16 @@ export class IncomingInspectionService {
             `质检明细 id=${item.id} 的合格数量+不合格数量(${qtyPassed.plus(qtyFailed).toString()})超过到货数量(${qtyDelivered.toString()})`,
           );
         }
+        if (acceptedStockQty && acceptedStockQty.lte(0)) {
+          throw AppError.badRequest(`质检明细 id=${item.id} 的实际入库数量必须大于 0`);
+        }
 
         await manager.query(
           `UPDATE incoming_inspection_items
            SET qty_sampled = ?,
                qty_passed = ?,
                qty_failed = ?,
+               ${supportsAcceptedStockQty ? 'accepted_stock_qty = ?,' : ''}
                ${supportsInspectionItemDyeLot ? 'dye_lot_no = ?,' : ''}
                result = ?,
                defect_types = ?,
@@ -1288,6 +1373,7 @@ export class IncomingInspectionService {
             item.qtysampled,
             item.qtyPassed,
             item.qtyFailed,
+            ...(supportsAcceptedStockQty ? [acceptedStockQty?.toFixed(4) ?? null] : []),
             ...(supportsInspectionItemDyeLot ? [String(item.dyeLotNo ?? '').trim() || null] : []),
             item.result,
             JSON.stringify(item.defectTypes ?? []),
@@ -1525,14 +1611,20 @@ export class IncomingInspectionService {
       const hasDyeLot = Boolean(Number(item.has_dye_lot ?? 0));
       const stockUnit = await this.getSkuStockUnit(manager, Number(item.sku_id));
       const purchaseUnit = item.purchase_unit ?? stockUnit;
-      const convertedQty = UnitConverter.convert(
-        qtyPassed.toString(),
-        purchaseUnit,
-        purchaseUnit === stockUnit
-          ? []
-          : await this.getUnitConversions(manager, Number(item.sku_id)),
-        stockUnit,
-      ).qty;
+      const acceptedStockQtyRaw = String(item.accepted_stock_qty ?? item.acceptedStockQty ?? '').trim();
+      if (this.requiresMeasuredStockQty(purchaseUnit, stockUnit) && qtyPassed.gt(0) && !acceptedStockQtyRaw) {
+        throw AppError.badRequest(`物料 SKU#${item.sku_id} 需要填写实际米数后才能提交质检结论`);
+      }
+      const convertedQty = acceptedStockQtyRaw
+        ? new Decimal(acceptedStockQtyRaw)
+        : UnitConverter.convert(
+            qtyPassed.toString(),
+            purchaseUnit,
+            purchaseUnit === stockUnit
+              ? []
+              : await this.getUnitConversions(manager, Number(item.sku_id)),
+            stockUnit,
+          ).qty;
       receivedSkuIds.add(Number(item.sku_id));
 
       if (hasDyeLot && !dyeLotNo) {
@@ -1629,8 +1721,8 @@ export class IncomingInspectionService {
           warehouseLocation.warehouseId,
           warehouseLocation.locationId,
           'incoming_inspection:submit',
-          qtyPassed.toString(),
-          purchaseUnit,
+          acceptedStockQtyRaw ? convertedQty.toFixed(4) : qtyPassed.toString(),
+          acceptedStockQtyRaw ? stockUnit : purchaseUnit,
           convertedQty.toFixed(4),
           stockUnit,
           'purchase_receipt',

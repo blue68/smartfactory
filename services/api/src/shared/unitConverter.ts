@@ -20,6 +20,37 @@ export interface UnitConversionRule {
   conversionRate: string | number; // DECIMAL(10,6)，使用字符串避免精度丢失
 }
 
+export function normalizeUnit(unit: string): string {
+  const trimmed = String(unit ?? '').trim();
+  if (!trimmed) return '';
+
+  const lower = trimmed.toLowerCase();
+  if (['m', 'meter', 'meters', 'metre', 'metres', '米'].includes(lower) || trimmed === '米') {
+    return '米';
+  }
+  if (['roll', 'rolls', '卷'].includes(lower) || trimmed === '卷') {
+    return '卷';
+  }
+  if (['pc', 'pcs', 'piece', 'pieces'].includes(lower)) {
+    return 'pcs';
+  }
+  return trimmed;
+}
+
+function findConversionRule(
+  fromUnit: string,
+  toUnit: string,
+  rules: UnitConversionRule[],
+): UnitConversionRule | undefined {
+  const normalizedFrom = normalizeUnit(fromUnit);
+  const normalizedTo = normalizeUnit(toUnit);
+  return rules.find(
+    (rule) =>
+      normalizeUnit(rule.fromUnit) === normalizedFrom
+      && normalizeUnit(rule.toUnit) === normalizedTo,
+  );
+}
+
 /**
  * 多单位换算工具
  *
@@ -37,8 +68,11 @@ export class UnitConverter {
     rules: UnitConversionRule[],
     targetUnit: string,
   ): ConversionResult {
+    const normalizedFrom = normalizeUnit(fromUnit);
+    const normalizedTarget = normalizeUnit(targetUnit);
+
     // 如果单位相同，无需换算
-    if (fromUnit === targetUnit) {
+    if (normalizedFrom === normalizedTarget) {
       const d = new Decimal(qty);
       return {
         qty: d,
@@ -48,15 +82,11 @@ export class UnitConverter {
     }
 
     // 查找换算规则
-    const rule = rules.find(
-      (r) => r.fromUnit === fromUnit && r.toUnit === targetUnit,
-    );
+    const rule = findConversionRule(fromUnit, targetUnit, rules);
 
     if (!rule) {
       // 尝试反向换算
-      const reverseRule = rules.find(
-        (r) => r.fromUnit === targetUnit && r.toUnit === fromUnit,
-      );
+      const reverseRule = findConversionRule(targetUnit, fromUnit, rules);
       if (reverseRule) {
         const rate = new Decimal(reverseRule.conversionRate);
         const inputQty = new Decimal(qty);
@@ -94,14 +124,12 @@ export class UnitConverter {
     displayUnit: string,
     rules: UnitConversionRule[],
   ): Decimal {
-    if (stockUnit === displayUnit) {
+    if (normalizeUnit(stockUnit) === normalizeUnit(displayUnit)) {
       return new Decimal(stockQty);
     }
 
     // 查找 displayUnit -> stockUnit 的规则（即 stockUnit / rate = displayUnit）
-    const rule = rules.find(
-      (r) => r.fromUnit === displayUnit && r.toUnit === stockUnit,
-    );
+    const rule = findConversionRule(displayUnit, stockUnit, rules);
     if (!rule) {
       throw new AppError(
         `未找到从库存单位 ${stockUnit} 到显示单位 ${displayUnit} 的换算规则`,
