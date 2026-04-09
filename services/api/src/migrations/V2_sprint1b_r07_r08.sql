@@ -3,6 +3,29 @@
 -- 执行方式：幂等脚本，首次部署时完整执行一次
 -- ============================================================
 
+DROP PROCEDURE IF EXISTS safe_add_column_v2_sprint1b_r07_r08;
+DELIMITER $$
+CREATE PROCEDURE safe_add_column_v2_sprint1b_r07_r08(
+  IN p_table VARCHAR(64),
+  IN p_column VARCHAR(64),
+  IN p_definition TEXT
+)
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND table_name = p_table
+       AND column_name = p_column
+  ) THEN
+    SET @sql = CONCAT('ALTER TABLE `', p_table, '` ADD COLUMN `', p_column, '` ', p_definition);
+    PREPARE stmt FROM @sql;
+    EXECUTE stmt;
+    DEALLOCATE PREPARE stmt;
+  END IF;
+END$$
+DELIMITER ;
+
 -- ============================================================
 -- R-07: 销售客户管理 DDL
 -- ============================================================
@@ -115,6 +138,10 @@ CREATE TABLE IF NOT EXISTS sales_order_items (
 --     AND COLUMN_NAME = 'sales_order_item_id';
 -- 若返回 0 则执行以下 ALTER，否则跳过。
 -- ============================================================
-ALTER TABLE production_orders
-  ADD COLUMN sales_order_item_id BIGINT UNSIGNED NULL
-    COMMENT '关联销售订单明细行，追踪到 SKU 行';
+CALL safe_add_column_v2_sprint1b_r07_r08(
+  'production_orders',
+  'sales_order_item_id',
+  'BIGINT UNSIGNED NULL COMMENT ''关联销售订单明细行，追踪到 SKU 行'''
+);
+
+DROP PROCEDURE IF EXISTS safe_add_column_v2_sprint1b_r07_r08;
