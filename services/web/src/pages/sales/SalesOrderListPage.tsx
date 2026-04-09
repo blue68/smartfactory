@@ -279,6 +279,47 @@ function getDelayDays(fromDate: string, toDate: string): number {
   return Math.ceil((to - from) / 86400000);
 }
 
+function formatDateTimeWithSeconds(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  const hours = `${date.getHours()}`.padStart(2, '0');
+  const minutes = `${date.getMinutes()}`.padStart(2, '0');
+  const seconds = `${date.getSeconds()}`.padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+function formatAuditAction(action: string | null | undefined): string {
+  if (!action) return '订单变更';
+  const normalized = action.trim().toLowerCase();
+  const actionMap: Record<string, string> = {
+    create: '创建订单',
+    created: '创建订单',
+    update: '更新订单',
+    updated: '更新订单',
+    submit: '提交审批',
+    submitted: '提交审批',
+    approve: '审批通过',
+    approved: '审批通过',
+    reject: '审批拒绝',
+    rejected: '审批拒绝',
+    withdraw: '撤回审批',
+    withdrawn: '撤回审批',
+    confirm: '确认订单',
+    confirmed: '确认订单',
+    ship: '标记发货',
+    shipped: '标记发货',
+    complete: '确认完成',
+    completed: '确认完成',
+    close: '关闭订单',
+    closed: '关闭订单',
+  };
+  return actionMap[normalized] ?? action;
+}
+
 async function buildDeliveryCapacityAssessment(
   lines: AssessmentLineInput[],
   expectedDelivery: string,
@@ -1326,11 +1367,11 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh, onEdit }: OrderDetailD
                 </div>
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>订单日期</span>
-                  <span className={styles.infoValue}>{order.orderDate}</span>
+                  <span className={styles.infoValue}>{formatDateTimeWithSeconds(order.orderDate)}</span>
                 </div>
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>交期</span>
-                  <span className={styles.infoValue}>{order.deliveryDate}</span>
+                  <span className={styles.infoValue}>{formatDateTimeWithSeconds(order.deliveryDate)}</span>
                 </div>
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>状态</span>
@@ -1361,6 +1402,28 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh, onEdit }: OrderDetailD
             <div className={styles.drawerSection}>
               <div className={styles.drawerSectionTitle}>订单进度</div>
               <StatusTimeline currentStatus={order.status} />
+            </div>
+
+            <div className={styles.drawerSection}>
+              <div className={styles.drawerSectionTitle}>订单日志</div>
+              {order.auditLogs && order.auditLogs.length > 0 ? (
+                <div className={styles.logList}>
+                  {order.auditLogs.map((log) => (
+                    <div key={log.id} className={styles.logItem}>
+                      <div className={styles.logMain}>
+                        <span className={styles.logAction}>{formatAuditAction(log.action)}</span>
+                        <span className={styles.logOperator}>{log.operatorName || `用户#${log.operatorId}`}</span>
+                      </div>
+                      <div className={styles.logMeta}>
+                        <span>{formatDateTimeWithSeconds(log.createdAt)}</span>
+                        {log.targetCode && <span>对象：{log.targetCode}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.logEmpty}>暂无订单日志</div>
+              )}
             </div>
 
             {/* Items */}
@@ -1703,8 +1766,16 @@ export default function SalesOrderListPage() {
       ),
     },
     { key: 'customerName', title: '客户名称' },
-    { key: 'orderDate', title: '订单日期' },
-    { key: 'deliveryDate', title: '交期' },
+    {
+      key: 'orderDate',
+      title: '订单日期',
+      render: (value) => formatDateTimeWithSeconds(String(value ?? '')),
+    },
+    {
+      key: 'deliveryDate',
+      title: '交期',
+      render: (value) => formatDateTimeWithSeconds(String(value ?? '')),
+    },
     {
       key: 'totalAmount',
       title: '金额',

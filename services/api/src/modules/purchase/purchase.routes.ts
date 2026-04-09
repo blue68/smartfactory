@@ -17,6 +17,10 @@ router.post('/suggestions/:id/approve',
   requireRoles('boss'),
   asyncHandler(purchaseController.approveSuggestion.bind(purchaseController)),
 );
+router.post('/suggestions/:id/feedback',
+  requireRoles('purchaser', 'boss'),
+  asyncHandler(purchaseController.feedbackSuggestion.bind(purchaseController)),
+);
 
 // BE-P2-014: 采购订单 CSV 导出
 // 注意：固定路由 orders/export/csv 必须在参数路由 orders/:id 之前注册，避免 Express 路由歧义

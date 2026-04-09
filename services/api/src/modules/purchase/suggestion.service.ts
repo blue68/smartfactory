@@ -259,6 +259,20 @@ export class SuggestionService {
     }
   }
 
+  async feedbackSuggestion(id: number, feedback: string): Promise<void> {
+    const normalizedFeedback = feedback.trim();
+    const result = await AppDataSource.query(
+      `UPDATE purchase_suggestions
+       SET reject_reason = ?, updated_by = ?, updated_at = NOW()
+       WHERE id = ? AND tenant_id = ? AND status = 'pending'`,
+      [normalizedFeedback, this.userId, id, this.tenantId],
+    );
+
+    if (!result?.affectedRows) {
+      throw AppError.notFound('待反馈的采购建议不存在');
+    }
+  }
+
   // ── 私有辅助 ──────────────────────────────────────────────
 
   /**

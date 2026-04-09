@@ -113,7 +113,10 @@ export const purchaseApi = {
   approveSuggestion: (id: number, payload: ApproveSuggestionPayload) =>
     request.post<null>(`/api/purchase/suggestions/${id}/approve`, payload),
 
-  getOrders: (params?: { status?: PurchaseOrderStatus; supplierId?: number; page?: number; pageSize?: number }) =>
+  feedbackSuggestion: (id: number, payload: { feedback: string }) =>
+    request.post<null>(`/api/purchase/suggestions/${id}/feedback`, payload),
+
+  getOrders: (params?: { status?: PurchaseOrderStatus; supplierId?: number; keyword?: string; page?: number; pageSize?: number }) =>
     request.get<PaginatedData<PurchaseOrder>>(
       '/api/purchase/orders',
       params as Record<string, unknown>,
@@ -241,6 +244,17 @@ export function useApproveSuggestion() {
   return useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: ApproveSuggestionPayload }) =>
       purchaseApi.approveSuggestion(id, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: purchaseKeys.suggestions() });
+    },
+  });
+}
+
+export function useFeedbackSuggestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: { feedback: string } }) =>
+      purchaseApi.feedbackSuggestion(id, payload),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: purchaseKeys.suggestions() });
     },

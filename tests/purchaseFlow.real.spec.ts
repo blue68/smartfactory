@@ -59,7 +59,7 @@ test.describe.serial('采购链路前端交互（真实后端） @purchase-regre
 
     const createModal = page.getByRole('dialog', { name: '新建送货单' });
     await expect(createModal).toBeVisible();
-    await expect(createModal.locator(`input[value="${scenario.poId}"]`)).toBeVisible();
+    await expect(createModal.locator(`input[value="${scenario.poNo}"]`)).toBeVisible();
     await createModal.getByPlaceholder('可填写本次送货批次、车次、包装情况等说明').fill('Playwright UI 创建送货单');
     await createModal.getByRole('button', { name: '创建送货单' }).click();
 
@@ -87,8 +87,8 @@ test.describe.serial('采购链路前端交互（真实后端） @purchase-regre
 
     const createModal = page.getByRole('dialog', { name: '新建来料质检单' });
     await expect(createModal).toBeVisible();
-    await expect(createModal.locator(`input[value="${scenario.poId}"]`)).toBeVisible();
-    await expect(createModal.locator(`input[value="${scenario.deliveryId}"]`)).toBeVisible();
+    await expect(createModal.locator(`input[value="${scenario.poNo}"]`)).toBeVisible();
+    await expect(createModal.locator(`input[value="${scenario.deliveryNo}"]`)).toBeVisible();
     await createModal.getByPlaceholder('请输入备注（可选）').fill('Playwright UI 创建质检单');
     await createModal.getByRole('button', { name: '创建' }).click();
 
@@ -157,9 +157,9 @@ test.describe.serial('采购链路前端交互（真实后端） @purchase-regre
 
     const executeModal = page.getByRole('dialog', { name: '执行三单匹配' });
     await expect(executeModal).toBeVisible();
-    await expect(executeModal.locator(`input[value="${scenario.poId}"]`)).toBeVisible();
-    await expect(executeModal.locator(`input[value="${scenario.deliveryId}"]`)).toBeVisible();
-    await expect(executeModal.locator(`input[value="${scenario.receiptId}"]`)).toBeVisible();
+    await expect(executeModal.locator(`input[value="${scenario.poNo}"]`)).toBeVisible();
+    await expect(executeModal.locator(`input[value="${scenario.deliveryNo}"]`)).toBeVisible();
+    await expect(executeModal.locator(`input[value="${scenario.receiptNo}"]`)).toBeVisible();
     await executeModal.getByRole('button', { name: '执行匹配' }).click();
 
     const row = page.locator('tbody tr').filter({ hasText: scenario.poNo }).first();
@@ -202,10 +202,16 @@ test.describe.serial('采购链路前端交互（真实后端） @purchase-regre
 
     const row = page.locator('tbody tr').filter({ hasText: scenario.returnNo }).first();
     await expect(row).toBeVisible();
-    await expect(row.getByText('已确认')).toBeVisible();
-    await row.getByRole('button', { name: '发出' }).click();
+    await expect(row.getByText('待发出')).toBeVisible();
+    await row.getByRole('button', { name: '发出退货' }).click();
+    const shipModal = page.getByRole('dialog', { name: new RegExp(`发出退货单.*${scenario.returnNo}`) });
+    await expect(shipModal).toBeVisible();
+    await shipModal.getByRole('button', { name: '确认发出' }).click();
     await expect(row.getByText('已发出')).toBeVisible();
-    await row.getByRole('button', { name: '完成' }).click();
+    await row.getByRole('button', { name: '完成退货' }).click();
+    const completeModal = page.getByRole('dialog', { name: new RegExp(`完成退货单.*${scenario.returnNo}`) });
+    await expect(completeModal).toBeVisible();
+    await completeModal.getByRole('button', { name: '确认完成' }).click();
     await expect(row.getByText('已完成')).toBeVisible();
   });
 
@@ -232,9 +238,15 @@ test.describe.serial('采购链路前端交互（真实后端） @purchase-regre
     await page.goto(`${APP_BASE_URL}/purchase/returns`);
     const returnRow = page.locator('tbody tr').filter({ hasText: scenario.returnNo }).first();
     await expect(returnRow).toBeVisible();
-    await returnRow.getByRole('button', { name: '发出' }).click();
+    await returnRow.getByRole('button', { name: '发出退货' }).click();
+    const shipModal = page.getByRole('dialog', { name: new RegExp(`发出退货单.*${scenario.returnNo}`) });
+    await expect(shipModal).toBeVisible();
+    await shipModal.getByRole('button', { name: '确认发出' }).click();
     await expect(returnRow.getByText('已发出')).toBeVisible();
-    await returnRow.getByRole('button', { name: '完成' }).click();
+    await returnRow.getByRole('button', { name: '完成退货' }).click();
+    const completeModal = page.getByRole('dialog', { name: new RegExp(`完成退货单.*${scenario.returnNo}`) });
+    await expect(completeModal).toBeVisible();
+    await completeModal.getByRole('button', { name: '确认完成' }).click();
     await expect(returnRow.getByText('已完成')).toBeVisible();
   });
 

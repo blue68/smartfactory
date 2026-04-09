@@ -1600,32 +1600,53 @@ export class IncomingInspectionService {
         );
       } else {
         const txNo = await generateNo('transaction', this.tenantId);
+        const txColumns = [
+          'tenant_id',
+          'transaction_no',
+          'sku_id',
+          'transaction_type',
+          'direction',
+          'warehouse_id',
+          'location_id',
+          'source_ref',
+          'qty_input',
+          'input_unit',
+          'qty_stock_unit',
+          'stock_unit',
+          'reference_type',
+          'reference_id',
+          'reference_no',
+          'notes',
+          'dye_lot_no',
+          'created_by',
+          'updated_by',
+        ];
+        const txValues = [
+          this.tenantId,
+          txNo,
+          item.sku_id,
+          'PURCHASE_IN',
+          'IN',
+          warehouseLocation.warehouseId,
+          warehouseLocation.locationId,
+          'incoming_inspection:submit',
+          qtyPassed.toString(),
+          purchaseUnit,
+          convertedQty.toFixed(4),
+          stockUnit,
+          'purchase_receipt',
+          receiptId,
+          receiptNo,
+          `质检入库 IQC#${inspectionId}`,
+          dyeLotNo,
+          this.userId,
+          this.userId,
+        ];
         txResult = await manager.query(
           `INSERT INTO inventory_transactions
-             (tenant_id, transaction_no, sku_id, transaction_type, direction,
-              warehouse_id, location_id, source_ref,
-              qty_input, input_unit, qty_stock_unit, stock_unit,
-              reference_type, reference_id, reference_no, notes, dye_lot_no, created_by, updated_by)
-           VALUES (?,?,?,'PURCHASE_IN','IN',?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
-            this.tenantId,
-            txNo,
-            item.sku_id,
-            warehouseLocation.warehouseId,
-            warehouseLocation.locationId,
-            'incoming_inspection:submit',
-            qtyPassed.toString(),
-            purchaseUnit,
-            convertedQty.toFixed(4),
-            stockUnit,
-            'purchase_receipt',
-            receiptId,
-            receiptNo,
-            `质检入库 IQC#${inspectionId}`,
-            dyeLotNo,
-            this.userId,
-            this.userId,
-          ],
+             (${txColumns.join(', ')})
+           VALUES (${txColumns.map(() => '?').join(', ')})`,
+          txValues,
         );
       }
       void txResult;

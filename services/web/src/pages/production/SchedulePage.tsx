@@ -10,11 +10,17 @@ import {
   useProductionWorkers,
   useProductionWorkstations,
   useSchedule,
+  useScheduleHistory,
 } from '@/api/production';
-import type { ProductionWorkerOption, WorkstationOption } from '@/api/production';
+import type {
+  ProductionWorkerOption,
+  ScheduleHistoryEntry,
+  WorkstationOption,
+} from '@/api/production';
 import { ApiCode, ApiError } from '@/types/api';
 import type { ScheduleItem, ScheduleResult } from '@/types/models';
 import Button from '@/components/common/Button';
+import Modal from '@/components/common/Modal';
 import Tag from '@/components/common/Tag';
 import styles from './SchedulePage.module.css';
 
@@ -125,6 +131,11 @@ function formatScheduleDate(date: string): string {
   const raw = new Date(`${date}T00:00:00`);
   const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][raw.getDay()];
   return `${date} ${week}`;
+}
+
+function formatScheduleDateTime(value: string | null): string {
+  if (!value) return '—';
+  return value.replace('T', ' ').slice(0, 16);
 }
 
 function parseNumeric(value?: string | number | null): number {
@@ -410,6 +421,7 @@ export default function SchedulePage() {
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [scheduleView, setScheduleView] = useState<ScheduleView>(focusWorkOrderNo ? 'order' : 'station');
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<ScheduleItem | null>(null);
   const [manualGenerate, setManualGenerate] = useState(false);
   const [riskDismissed, setRiskDismissed] = useState<boolean>(() => {
@@ -445,6 +457,7 @@ export default function SchedulePage() {
 
   const scheduleDate = isBeforeAutoWindow ? null : selectedDate;
   const scheduleQuery = useSchedule(scheduleDate);
+  const scheduleHistoryQuery = useScheduleHistory(14, historyOpen);
   const confirmMutation = useConfirmSchedule();
   const adjustMutation = useAdjustSchedule();
   const workersQuery = useProductionWorkers();
@@ -618,7 +631,7 @@ export default function SchedulePage() {
           onJumpToday={() => handleDateChange(today)}
           onJumpNextWorkday={() => handleDateChange(getNextWorkday(new Date()))}
           onRefresh={() => setManualGenerate(true)}
-          onHistory={() => showToast({ type: 'info', message: '历史排产记录即将上线' })}
+          onHistory={() => setHistoryOpen(true)}
         />
         <div className={styles.pre_generate_state}>
           <div className={styles.empty_emoji}>🗓</div>
@@ -641,7 +654,7 @@ export default function SchedulePage() {
         onJumpToday={() => handleDateChange(today)}
         onJumpNextWorkday={() => handleDateChange(getNextWorkday(new Date()))}
         onRefresh={() => void handleRegenerate()}
-        onHistory={() => showToast({ type: 'info', message: '历史排产记录即将上线' })}
+        onHistory={() => setHistoryOpen(true)}
       />
 
       {scheduleQuery.isLoading && (
@@ -747,6 +760,19 @@ export default function SchedulePage() {
         />
       )}
 
+      <ScheduleHistoryModal
+        open={historyOpen}
+        currentDate={selectedDate}
+        entries={scheduleHistoryQuery.data ?? []}
+        loading={scheduleHistoryQuery.isLoading}
+        error={scheduleHistoryQuery.isError}
+        onClose={() => setHistoryOpen(false)}
+        onSelect={(date) => {
+          setHistoryOpen(false);
+          handleDateChange(date);
+        }}
+      />
+
       {selectedTask && (
         <TaskAdjustModal
           task={selectedTask}
@@ -761,6 +787,72 @@ export default function SchedulePage() {
         />
       )}
     </div>
+  );
+}
+
+function ScheduleHistoryModal(props: {
+  open: boolean;
+  currentDate: string;
+  entries: ScheduleHistoryEntry[];
+  loading: boolean;
+  error: boolean;
+  onClose: () => void;
+  onSelect: (date: string) => void;
+}) {
+  return (
+    <Modal
+      open={props.open}
+      onClose={props.onClose}
+      title="历史排产记录"
+      size="lg"
+      hideFooter
+    >
+      <div className={styles.history_modal}>
+        <p className={styles.history_hint}>
+          选择任一历史日期后，页面会切换到该日排产结果，支持继续查看工位、工单和工人视图。
+        </p>
+
+        {props.loading ? (
+          <div className={styles.history_empty}>正在加载历史排产记录...</div>
+        ) : props.error ? (
+          <div className={styles.history_empty}>历史排产记录加载失败，请稍后重试。</div>
+        ) : props.entries.length === 0 ? (
+          <div className={styles.history_empty}>暂无可查看的历史排产记录。</div>
+        ) : (
+          <div className={styles.history_list}>
+            {props.entries.map((entry) => (
+              <button
+                key={entry.date}
+                type="button"
+                className={`${styles.history_item} ${entry.date === props.currentDate ? styles.history_item_active : ''}`}
+                onClick={() => props.onSelect(entry.date)}
+              >
+                <div className={styles.history_item_top}>
+                  <div className={styles.history_heading}>
+                    <strong>{formatScheduleDate(entry.date)}</strong>
+                    <span className={styles.history_meta}>生成于 {formatScheduleDateTime(entry.generatedAt)}</span>
+                  </div>
+                  <Tag variant={entry.confirmed ? 'success' : 'warning'}>
+                    {entry.confirmed ? '已确认下发' : '待主管确认'}
+                  </Tag>
+                </div>
+                <div className={styles.history_stats}>
+                  <span>{entry.orderCount} 个工单</span>
+                  <span>{entry.taskCount} 道工序</span>
+                  <span>{entry.stationCount} 个工位</span>
+                  <span>{entry.workerCount} 名工人</span>
+                  <span>{entry.totalHours}h</span>
+                </div>
+                <div className={styles.history_footer}>
+                  <span>确认时间：{formatScheduleDateTime(entry.confirmedAt)}</span>
+                  <span>点击查看完整排产</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 

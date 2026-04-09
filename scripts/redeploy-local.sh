@@ -86,6 +86,8 @@ mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
   < "$ROOT_DIR/services/api/src/migrations/V2_sprint1_r01_r05.sql"
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/V2_sprint1b_r07_r08.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
   < "$ROOT_DIR/services/api/src/migrations/M20260329_half_finished_phase1.sql"
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
   < "$ROOT_DIR/services/api/src/migrations/M20260329_phase2_scheduler_operations.sql"

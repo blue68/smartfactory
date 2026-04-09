@@ -75,6 +75,12 @@ export class ProductionController {
     success(res, data, `排产计划已生成（${data.date}）`);
   }
 
+  async getScheduleHistory(req: Request, res: Response): Promise<void> {
+    const limit = z.coerce.number().int().min(1).max(60).optional().parse(req.query.limit) ?? 14;
+    const data = await this.svc(req).getScheduleHistory(limit);
+    success(res, data);
+  }
+
   async confirmSchedule(req: Request, res: Response): Promise<void> {
     const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(req.body.date);
     await this.svc(req).confirmSchedule(date);

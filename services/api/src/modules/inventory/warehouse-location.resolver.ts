@@ -203,18 +203,18 @@ export async function resolveWarehouseLocationBinding(
   }
 
   const fallback = await ensureDefaultWarehouseLocation(manager, tenantId);
+  const runtimeBatchNo = `runtime_${Date.now()}`;
 
   await manager.query(
     `INSERT INTO migration_unmapped_records
-       (tenant_id, source_table, source_id, source_note, fallback_warehouse_code, fallback_location_code, migration_batch_no, created_by)
-     VALUES (?, 'runtime', 0, ?, ?, ?, ?, ?)` ,
+       (tenant_id, batch_no, entity_type, entity_id, source_note, fallback_warehouse_code, fallback_location_code)
+     VALUES (?, ?, 'runtime', 0, ?, ?, ?)` ,
     [
       tenantId,
+      runtimeBatchNo,
       sourceRef,
       fallback.warehouseCode,
       fallback.locationCode,
-      `runtime_${Date.now()}`,
-      userId,
     ],
   ).catch(() => {});
 

@@ -596,7 +596,25 @@ CREATE TABLE IF NOT EXISTS `customers` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户表';
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 25. 销售订单表 sales_orders
+-- 25. 客户联系人表 customer_contacts
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `customer_contacts` (
+  `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`   BIGINT UNSIGNED NOT NULL,
+  `customer_id` BIGINT UNSIGNED NOT NULL,
+  `name`        VARCHAR(100)    NOT NULL,
+  `title`       VARCHAR(100)    DEFAULT NULL,
+  `phone`       VARCHAR(30)     DEFAULT NULL,
+  `email`       VARCHAR(200)    DEFAULT NULL,
+  `is_primary`  TINYINT(1)      NOT NULL DEFAULT 0,
+  `created_at`  DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  KEY `idx_contact_customer` (`tenant_id`, `customer_id`),
+  KEY `idx_contact_primary` (`customer_id`, `is_primary`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户联系人表';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 26. 销售订单表 sales_orders
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS `sales_orders` (
   `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -628,7 +646,7 @@ CREATE TABLE IF NOT EXISTS `sales_orders` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='销售订单表';
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 26. 销售订单明细 sales_order_items
+-- 27. 销售订单明细 sales_order_items
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS `sales_order_items` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

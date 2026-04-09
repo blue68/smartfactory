@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   purchaseApi,
@@ -613,8 +613,29 @@ function CreateDeliveryModal({
   const [items, setItems] = useState<DeliveryCreateItemForm[]>([]);
   const createMutation = useCreatePurchaseDelivery();
 
-  const resolvedPoId = Number(poInput) || null;
-  const { data: order, isLoading: orderLoading } = usePurchaseOrderDetail(open ? resolvedPoId : null);
+  const normalizedPoInput = poInput.trim();
+  const resolvedPoIdFromInput = /^\d+$/.test(normalizedPoInput) ? Number(normalizedPoInput) : null;
+  const orderLookupQuery = useQuery({
+    queryKey: [...purchaseKeys.orders(), 'lookup', normalizedPoInput],
+    queryFn: async () => {
+      const result = await purchaseApi.getOrders({ keyword: normalizedPoInput, page: 1, pageSize: 20 });
+      return result.list;
+    },
+    enabled: open && !initialPoId && Boolean(normalizedPoInput) && resolvedPoIdFromInput === null,
+    staleTime: 30_000,
+  });
+  const lookupMatchedOrder = useMemo(() => {
+    if (!orderLookupQuery.data?.length) return null;
+    const exactMatch = orderLookupQuery.data.find(
+      (item) => item.poNo.trim().toLowerCase() === normalizedPoInput.toLowerCase(),
+    );
+    return exactMatch ?? orderLookupQuery.data[0];
+  }, [normalizedPoInput, orderLookupQuery.data]);
+  const resolvedPoId = initialPoId ?? resolvedPoIdFromInput ?? lookupMatchedOrder?.id ?? null;
+  const { data: order, isLoading: orderDetailLoading } = usePurchaseOrderDetail(open ? resolvedPoId : null);
+  const orderLoading = resolvedPoIdFromInput === null && !initialPoId
+    ? orderLookupQuery.isLoading || orderDetailLoading
+    : orderDetailLoading;
   const canCreate = order?.status === 'confirmed' || order?.status === 'partial_received';
   const hasOrderContext = Boolean(initialPoId || order);
 
@@ -633,7 +654,7 @@ function CreateDeliveryModal({
 
   const handleSubmit = async () => {
     if (!resolvedPoId) {
-      showToast({ type: 'warning', message: '请先输入采购订单 ID' });
+      showToast({ type: 'warning', message: '请先输入采购订单' });
       return;
     }
     if (!order?.id) {
@@ -684,6 +705,7 @@ function CreateDeliveryModal({
 
     const payload: CreateDeliveryNotePayload = {
       poId: resolvedPoId,
+      poNo: order?.poNo ?? undefined,
       deliveryDate,
       notes: notes.trim() || undefined,
       items: positiveItems,
@@ -728,7 +750,7 @@ function CreateDeliveryModal({
       <div className={styles.createModal}>
         <div className={styles.createGrid}>
           <label className={styles.createField}>
-            <span className={styles.createLabel}>{hasOrderContext ? '采购订单单号' : '采购订单 ID'}</span>
+            <span className={styles.createLabel}>采购订单</span>
             {hasOrderContext ? (
               <input
                 className={styles.createInput}
@@ -740,8 +762,8 @@ function CreateDeliveryModal({
               <input
                 className={styles.createInput}
                 value={poInput}
-                onChange={(event) => setPoInput(event.target.value.replace(/[^\d]/g, ''))}
-                placeholder="请输入采购订单 ID"
+                onChange={(event) => setPoInput(event.target.value.trimStart())}
+                placeholder="请输入采购订单单号或系统ID"
               />
             )}
           </label>
@@ -855,10 +877,10 @@ function CreateDeliveryModal({
               <div className={styles.createNotice}>当前采购订单状态不允许继续录入送货单，仅 confirmed / partial_received 可操作。</div>
             )}
           </>
-        ) : resolvedPoId ? (
+        ) : resolvedPoId || normalizedPoInput ? (
           <div className={styles.createNotice}>未找到对应采购订单，请检查订单后重试。</div>
         ) : (
-          <div className={styles.createNotice}>输入采购订单 ID 后，系统会自动带出供应商和待送货明细。</div>
+          <div className={styles.createNotice}>输入采购订单后，系统会自动带出供应商和待送货明细。</div>
         )}
 
         <label className={styles.createField}>

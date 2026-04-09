@@ -17,6 +17,7 @@ import {
   useSuggestionList,
   useGenerateSuggestions,
   useApproveSuggestion,
+  useFeedbackSuggestion,
 } from '@/api/purchase';
 import { Confidence, SuggestionStatus } from '@/types/enums';
 import type { PurchaseSuggestion } from '@/types/models';
@@ -172,6 +173,12 @@ export default function SuggestionPage() {
   const { setPageTitle, showToast } = useAppStore();
   const [statusFilter, setStatusFilter] = useState<TabValue>('');
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [selectedSuggestion, setSelectedSuggestion] = useState<PurchaseSuggestion | null>(null);
+  const [feedbackModal, setFeedbackModal] = useState<{ open: boolean; suggestion: PurchaseSuggestion | null }>({
+    open: false,
+    suggestion: null,
+  });
+  const [feedbackText, setFeedbackText] = useState('');
   const [rejectModal, setRejectModal] = useState<{ open: boolean; id: number | null }>({ open: false, id: null });
   const [rejectReason, setRejectReason] = useState('');
   const [thinkingOpen, setThinkingOpen] = useState(false);
@@ -186,6 +193,7 @@ export default function SuggestionPage() {
   );
   const generateMutation = useGenerateSuggestions();
   const approveMutation  = useApproveSuggestion();
+  const feedbackMutation = useFeedbackSuggestion();
 
   // 生产/部署环境仅使用真实接口数据；开发模式允许回退到 Mock 便于静态联调
   const allSuggestions: PurchaseSuggestion[] =
@@ -261,6 +269,21 @@ export default function SuggestionPage() {
       showToast({ type: 'info', message: '已驳回采购建议' });
       setRejectModal({ open: false, id: null });
       setRejectReason('');
+    } catch (e) {
+      showToast({ type: 'error', message: (e as Error).message });
+    }
+  };
+
+  const handleFeedback = async () => {
+    if (!feedbackModal.suggestion?.id || !feedbackText.trim()) return;
+    try {
+      await feedbackMutation.mutateAsync({
+        id: feedbackModal.suggestion.id,
+        payload: { feedback: feedbackText.trim() },
+      });
+      showToast({ type: 'success', message: '采购员反馈已记录' });
+      setFeedbackModal({ open: false, suggestion: null });
+      setFeedbackText('');
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
     }
@@ -519,6 +542,10 @@ export default function SuggestionPage() {
                             <button
                               className={`${styles.btn} ${styles.btn_ghost} ${styles.btn_sm}`}
                               type="button"
+                              onClick={() => {
+                                setFeedbackModal({ open: true, suggestion: s });
+                                setFeedbackText('');
+                              }}
                             >
                               采购员反馈问题
                             </button>
@@ -544,6 +571,7 @@ export default function SuggestionPage() {
                             <button
                               className={`${styles.btn} ${styles.btn_ghost} ${styles.btn_sm}`}
                               type="button"
+                              onClick={() => setSelectedSuggestion(s)}
                             >
                               查看详情
                             </button>
@@ -632,6 +660,103 @@ export default function SuggestionPage() {
           </div>
         </div>
       )}
+
+      <Modal
+        open={selectedSuggestion !== null}
+        title="采购建议详情"
+        onClose={() => setSelectedSuggestion(null)}
+        hideFooter
+        size="lg"
+      >
+        {selectedSuggestion && (
+          <div className={styles.detail_panel}>
+            <div className={styles.detail_summary}>
+              <div>
+                <div className={styles.detail_title}>{selectedSuggestion.skuName}</div>
+                <div className={styles.detail_subtitle}>
+                  {selectedSuggestion.skuCode} · {selectedSuggestion.supplierName || '待匹配供应商'}
+                </div>
+              </div>
+              <span className={`${styles.tag} ${getConfidenceTagClass(selectedSuggestion.confidence)}`}>
+                {getConfidenceLabel(selectedSuggestion.confidence)}
+              </span>
+            </div>
+
+            <div className={styles.detail_grid}>
+              <div className={styles.detail_item}>
+                <span>建议数量</span>
+                <strong>{selectedSuggestion.suggestedQty} {selectedSuggestion.purchaseUnit}</strong>
+              </div>
+              <div className={styles.detail_item}>
+                <span>缺口数量</span>
+                <strong>{selectedSuggestion.shortageQty} {selectedSuggestion.purchaseUnit}</strong>
+              </div>
+              <div className={styles.detail_item}>
+                <span>预估金额</span>
+                <strong>{formatCNY(selectedSuggestion.estimatedAmount)}</strong>
+              </div>
+              <div className={styles.detail_item}>
+                <span>建议到货</span>
+                <strong>{getArrivalDate(selectedSuggestion)}</strong>
+              </div>
+              <div className={styles.detail_item}>
+                <span>状态</span>
+                <strong>{selectedSuggestion.status}</strong>
+              </div>
+              <div className={styles.detail_item}>
+                <span>生成时间</span>
+                <strong>{selectedSuggestion.createdAt.slice(0, 16).replace('T', ' ')}</strong>
+              </div>
+            </div>
+
+            {selectedSuggestion.dyeLotRequirement && (
+              <div className={styles.detail_block}>
+                <div className={styles.detail_block_title}>缸号要求</div>
+                <p>{selectedSuggestion.dyeLotRequirement}</p>
+              </div>
+            )}
+
+            <div className={styles.detail_block}>
+              <div className={styles.detail_block_title}>AI 推理依据</div>
+              <ul className={styles.detail_reason_list}>
+                {parseReasonList(selectedSuggestion.reason).map((line, index) => (
+                  <li key={`${selectedSuggestion.id}-${index}`}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={feedbackModal.open}
+        title="采购员反馈问题"
+        onClose={() => {
+          setFeedbackModal({ open: false, suggestion: null });
+          setFeedbackText('');
+        }}
+        onConfirm={() => void handleFeedback()}
+        confirmLabel="提交反馈"
+        confirmLoading={feedbackMutation.isPending}
+        size="sm"
+      >
+        <div className={styles.reject_form}>
+          <p className={styles.feedback_hint}>
+            该反馈会保存在当前采购建议上，供审批人与采购员后续继续跟进。
+          </p>
+          <label htmlFor="feedback-text" className={styles.reject_label}>
+            问题说明 <span style={{ color: '#EF4444' }}>*</span>
+          </label>
+          <textarea
+            id="feedback-text"
+            className={styles.reject_textarea}
+            rows={4}
+            value={feedbackText}
+            onChange={(e) => setFeedbackText(e.target.value)}
+            placeholder="例如：供应商交期无法满足、当前建议数量偏低、需先确认缸号..."
+          />
+        </div>
+      </Modal>
 
       {/* ── Reject Modal ──────────────────────────────────────────────────── */}
       <Modal

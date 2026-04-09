@@ -669,7 +669,8 @@ export interface CreatePurchaseOrderPayload {
 }
 
 export interface CreateDeliveryNotePayload {
-  poId: number;
+  poId?: number;
+  poNo?: string;
   deliveryDate: string;
   notes?: string;
   items: Array<{

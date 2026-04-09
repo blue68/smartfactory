@@ -32,6 +32,43 @@ export class ProductionService {
     return this.scheduler.generateSchedule(date, force);
   }
 
+  async getScheduleHistory(limit: number) {
+    const rows = await AppDataSource.query<Array<Record<string, unknown>>>(
+      `SELECT
+         DATE_FORMAT(ps.schedule_date, '%Y-%m-%d') AS date,
+         COUNT(*) AS taskCount,
+         COUNT(DISTINCT ps.production_order_id) AS orderCount,
+         COUNT(DISTINCT ps.workstation_id) AS stationCount,
+         COUNT(DISTINCT ps.worker_id) AS workerCount,
+         ROUND(COALESCE(SUM(pt.planned_qty * COALESCE(proc.standard_hours, 0)), 0), 2) AS totalHours,
+         MAX(CASE WHEN ps.status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed,
+         MAX(CASE WHEN ps.status = 'confirmed' THEN DATE_FORMAT(ps.updated_at, '%Y-%m-%d %H:%i:%s') END) AS confirmedAt,
+         MIN(DATE_FORMAT(ps.created_at, '%Y-%m-%d %H:%i:%s')) AS generatedAt
+       FROM production_schedules ps
+       LEFT JOIN production_tasks pt
+         ON pt.schedule_id = ps.id AND pt.tenant_id = ps.tenant_id
+       LEFT JOIN process_steps proc
+         ON proc.id = ps.process_step_id
+       WHERE ps.tenant_id = ?
+       GROUP BY ps.schedule_date
+       ORDER BY ps.schedule_date DESC
+       LIMIT ?`,
+      [this.tenantId, limit],
+    );
+
+    return rows.map((row) => ({
+      date: String(row.date ?? ''),
+      taskCount: Number(row.taskCount ?? 0),
+      orderCount: Number(row.orderCount ?? 0),
+      stationCount: Number(row.stationCount ?? 0),
+      workerCount: Number(row.workerCount ?? 0),
+      totalHours: String(row.totalHours ?? '0'),
+      confirmed: Number(row.confirmed ?? 0) === 1,
+      confirmedAt: row.confirmedAt ? String(row.confirmedAt) : null,
+      generatedAt: row.generatedAt ? String(row.generatedAt) : null,
+    }));
+  }
+
   async confirmSchedule(date: string) {
     return this.scheduler.confirmSchedule(date);
   }

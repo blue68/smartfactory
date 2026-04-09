@@ -34,10 +34,13 @@ const DeliveryNoteItemSchema = z.object({
 });
 
 const CreateDeliveryNoteSchema = z.object({
-  poId: z.number().int().positive(),
+  poId: z.number().int().positive().optional(),
+  poNo: z.string().trim().min(1).max(50).optional(),
   deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   notes: z.string().max(500).optional(),
   items: z.array(DeliveryNoteItemSchema).min(1),
+}).refine((body) => Boolean(body.poId ?? body.poNo), {
+  message: 'poId 或 poNo 至少提供一个',
 });
 
 const ClosePOSchema = z.object({
@@ -51,6 +54,10 @@ const UpdateReceiptNotesSchema = z.object({
 const ApproveSchema = z.object({
   approved: z.boolean(),
   rejectReason: z.string().max(500).optional(),
+});
+
+const FeedbackSchema = z.object({
+  feedback: z.string().trim().min(1).max(500),
 });
 
 const MatchParamsSchema = z.object({
@@ -90,12 +97,20 @@ export class PurchaseController {
     success(res, null, approved ? '审批通过' : '已驳回');
   }
 
+  async feedbackSuggestion(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const { feedback } = FeedbackSchema.parse(req.body);
+    await this.suggSvc(req).feedbackSuggestion(id, feedback);
+    success(res, null, '采购员反馈已记录');
+  }
+
   // ── 采购订单 ──
 
   async listPOs(req: Request, res: Response): Promise<void> {
     const q = PaginationSchema.extend({
       status: z.string().optional(),
       supplierId: z.coerce.number().int().positive().optional(),
+      keyword: z.string().trim().max(100).optional(),
     }).parse(req.query);
     const { list, total } = await this.svc(req).listPOs(q);
     success(res, buildPaginated(list, total, q.page, q.pageSize));

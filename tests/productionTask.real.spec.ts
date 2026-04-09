@@ -55,7 +55,7 @@ test.describe.serial('生产任务前端交互（真实后端）', () => {
       await expect(drawer.getByText(scenario.blockingReason)).toBeVisible();
       await expect(drawer.getByText(scenario.predecessorStepName, { exact: true })).toBeVisible();
       await expect(drawer.getByText('投入产出与库存流水')).toBeVisible();
-      await expect(drawer.getByText(scenario.materialSkuName)).toBeVisible();
+      await expect(drawer.getByText(scenario.materialSkuName).first()).toBeVisible();
       await expect(drawer.getByText(scenario.outputSkuName).first()).toBeVisible();
       await expect(drawer.getByText(scenario.inputTransactionNo)).toBeVisible();
       await expect(drawer.getByText(scenario.outputTransactionNo)).toBeVisible();

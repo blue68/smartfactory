@@ -29,6 +29,7 @@ export interface Customer {
   status: CustomerStatus;
   createdAt: string;
   updatedAt: string;
+  contacts?: CustomerContact[];
 }
 
 export interface CustomerContact {

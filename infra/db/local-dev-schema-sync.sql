@@ -105,6 +105,22 @@ CREATE TABLE IF NOT EXISTS `audit_logs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='系统操作审计日志';
 
+CREATE TABLE IF NOT EXISTS `customer_contacts` (
+  `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`   BIGINT UNSIGNED NOT NULL COMMENT '租户ID',
+  `customer_id` BIGINT UNSIGNED NOT NULL COMMENT '关联 customers.id',
+  `name`        VARCHAR(100)    NOT NULL COMMENT '联系人姓名',
+  `title`       VARCHAR(100)    NULL COMMENT '职务',
+  `phone`       VARCHAR(30)     NULL COMMENT '电话',
+  `email`       VARCHAR(200)    NULL COMMENT '邮箱',
+  `is_primary`  TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '是否主要联系人',
+  `created_at`  DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  KEY `idx_contact_customer` (`tenant_id`, `customer_id`),
+  KEY `idx_contact_primary` (`customer_id`, `is_primary`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='客户联系人';
+
 -- Backfill production task workstation linkage for local demo data and old snapshots.
 UPDATE `production_tasks` pt
 LEFT JOIN `production_schedules` ps

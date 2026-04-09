@@ -94,6 +94,18 @@ export interface WorkstationPayload {
   status?: 'active' | 'inactive';
 }
 
+export interface ScheduleHistoryEntry {
+  date: string;
+  taskCount: number;
+  orderCount: number;
+  stationCount: number;
+  workerCount: number;
+  totalHours: string;
+  confirmed: boolean;
+  confirmedAt: string | null;
+  generatedAt: string | null;
+}
+
 // ── Query Keys ───────────────────────────────
 export const productionKeys = {
   all: ['production'] as const,
@@ -145,6 +157,12 @@ export const productionApi = {
 
   confirmSchedule: (date: string) =>
     request.post<null>('/api/production/schedule/confirm', { date }),
+
+  getScheduleHistory: (params?: { limit?: number }) =>
+    request.get<ScheduleHistoryEntry[]>(
+      '/api/production/schedule/history',
+      params as Record<string, unknown> | undefined,
+    ),
 
   getWorkerTasks: (workerId: number, date?: string) =>
     request.get<ProductionTask[]>(
@@ -249,6 +267,15 @@ export function useSchedule(date: string | null) {
     queryFn: () => productionApi.generateSchedule(date ?? undefined),
     enabled: Boolean(date),
     staleTime: 1000 * 60 * 60 * 12, // 12小时缓存
+  });
+}
+
+export function useScheduleHistory(limit = 14, enabled = true) {
+  return useQuery({
+    queryKey: [...productionKeys.all, 'schedule-history', limit],
+    queryFn: () => productionApi.getScheduleHistory({ limit }),
+    enabled,
+    staleTime: 1000 * 60 * 5,
   });
 }
 

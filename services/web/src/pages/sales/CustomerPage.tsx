@@ -319,9 +319,9 @@ interface CustomerDrawerProps {
 }
 
 function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
-  const { data: customer } = useCustomer(customerId);
-  const { data: contacts = [], isLoading: contactsLoading } = useCustomerContacts(customerId);
-  const { data: ordersData } = useCustomerOrders(customerId);
+  const { data: customer, isLoading: customerLoading, isError: customerError } = useCustomer(customerId);
+  const { data: contacts = [], isLoading: contactsLoading, isError: contactsError } = useCustomerContacts(customerId);
+  const { data: ordersData, isLoading: ordersLoading, isError: ordersError } = useCustomerOrders(customerId);
   const createContact = useCreateCustomerContact();
   const deleteContact = useDeleteCustomerContact();
   const updateContact = useUpdateCustomerContact();
@@ -369,6 +369,23 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
   };
 
   const orders = ordersData?.list ?? [];
+  const fallbackContacts: CustomerContact[] =
+    customer && (customer.contact || customer.phone || customer.email)
+      ? [{
+          id: -1,
+          customerId: customer.id,
+          name: customer.contact || customer.name,
+          title: '主联系人',
+          phone: customer.phone,
+          email: customer.email,
+          isPrimary: true,
+        }]
+      : [];
+  const displayedContacts = contacts.length > 0
+    ? contacts
+    : (customer?.contacts?.length ?? 0) > 0
+    ? customer!.contacts!
+    : fallbackContacts;
 
   return (
     <Drawer
@@ -377,7 +394,11 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
       onClose={onClose}
       width={560}
     >
-      {customer && (
+      {customerLoading ? (
+        <p className={styles.empty}>客户详情加载中...</p>
+      ) : customerError || !customer ? (
+        <p className={styles.empty}>客户详情加载失败，请稍后重试。</p>
+      ) : (
         <>
           {/* Drawer 头部：客户名称 + 等级 + 编码 */}
           <div className={styles.drawerHead}>
@@ -418,6 +439,14 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
                 </span>
               </div>
               <div className={styles.infoItem}>
+                <span className={styles.infoKey}>主要联系人</span>
+                <span className={styles.infoVal}>{customer.contact || '—'}</span>
+              </div>
+              <div className={styles.infoItem}>
+                <span className={styles.infoKey}>联系电话</span>
+                <span className={styles.infoVal}>{customer.phone || '—'}</span>
+              </div>
+              <div className={styles.infoItem}>
                 <span className={styles.infoKey}>邮箱</span>
                 <span className={styles.infoVal}>{customer.email || '—'}</span>
               </div>
@@ -445,12 +474,14 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
           {/* 联系人列表 */}
           <div className={styles.drawerSection}>
             <p className={styles.drawerSectionTitle}>联系人</p>
-            {contactsLoading ? (
+            {contactsLoading && displayedContacts.length === 0 ? (
               <p className={styles.empty}>加载中...</p>
-            ) : contacts.length === 0 ? (
+            ) : contactsError && displayedContacts.length === 0 ? (
+              <p className={styles.empty}>联系人加载失败</p>
+            ) : displayedContacts.length === 0 ? (
               <p className={styles.empty}>暂无联系人</p>
             ) : (
-              contacts.map((c) => (
+              displayedContacts.map((c) => (
                 <div key={c.id} className={styles.contactItem}>
                   {editingContactId === c.id ? (
                     /* 行内编辑模式 */
@@ -511,22 +542,28 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
                           {[c.title, c.phone, c.email].filter(Boolean).join(' · ')}
                         </span>
                       </div>
-                      <div className={styles.contactActions}>
-                        <button
-                          className={styles.editBtn}
-                          onClick={() => startEditContact(c)}
-                          title="编辑联系人"
-                        >
-                          ✏
-                        </button>
-                        <button
-                          className={styles.deleteBtn}
-                          onClick={() => handleDeleteContact(c.id)}
-                          title="删除联系人"
-                        >
-                          ×
-                        </button>
-                      </div>
+                      {c.id > 0 ? (
+                        <div className={styles.contactActions}>
+                          <button
+                            className={styles.editBtn}
+                            onClick={() => startEditContact(c)}
+                            title="编辑联系人"
+                          >
+                            ✏
+                          </button>
+                          <button
+                            className={styles.deleteBtn}
+                            onClick={() => handleDeleteContact(c.id)}
+                            title="删除联系人"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ) : (
+                        <div className={styles.contactActions}>
+                          <span className={styles.primaryBadge}>主表</span>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -587,7 +624,11 @@ function CustomerDrawer({ customerId, onClose }: CustomerDrawerProps) {
                 </a>
               )}
             </div>
-            {orders.length === 0 ? (
+            {ordersLoading ? (
+              <p className={styles.empty}>订单加载中...</p>
+            ) : ordersError ? (
+              <p className={styles.empty}>订单加载失败</p>
+            ) : orders.length === 0 ? (
               <p className={styles.empty}>暂无订单记录</p>
             ) : (
               <div className={styles.orderList}>
@@ -642,7 +683,7 @@ export default function CustomerPage() {
   const patchStatus = usePatchCustomerStatus();
 
   // 统计查询（无筛选）
-  const { data: allData } = useCustomerList({ page: 1, pageSize: 9999 });
+  const { data: allData } = useCustomerList({ page: 1, pageSize: 200 });
   const allCount = allData?.total ?? 0;
   const activeCount = allData?.list?.filter((c) => c.status === 'active').length ?? 0;
   const vipCount = allData?.list?.filter((c) => c.grade === 'VIP').length ?? 0;

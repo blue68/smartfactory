@@ -20,7 +20,8 @@ export interface CreatePOParams {
 }
 
 export interface CreateDeliveryNoteParams {
-  poId: number;
+  poId?: number;
+  poNo?: string;
   deliveryDate: string;
   notes?: string;
   items: Array<{
@@ -377,11 +378,15 @@ export class PurchaseService {
     return result;
   }
 
-  async listPOs(params: { status?: string; supplierId?: number; page: number; pageSize: number }) {
+  async listPOs(params: { status?: string; supplierId?: number; keyword?: string; page: number; pageSize: number }) {
     const conds = ['po.tenant_id = ?'];
     const p: unknown[] = [this.tenantId];
     if (params.status) { conds.push('po.status = ?'); p.push(params.status); }
     if (params.supplierId) { conds.push('po.supplier_id = ?'); p.push(params.supplierId); }
+    if (params.keyword?.trim()) {
+      conds.push('(po.po_no LIKE ? OR sup.name LIKE ?)');
+      p.push(`%${params.keyword.trim()}%`, `%${params.keyword.trim()}%`);
+    }
 
     const where = conds.join(' AND ');
     const offset = (params.page - 1) * params.pageSize;
@@ -400,6 +405,33 @@ export class PurchaseService {
     ]);
 
     return { list, total: Number(countRows[0]?.total ?? 0) };
+  }
+
+  private async resolveDeliveryOrder(params: Pick<CreateDeliveryNoteParams, 'poId' | 'poNo'>): Promise<{
+    id: number;
+    poNo: string;
+    status: string;
+  }> {
+    if (params.poId) {
+      const [row] = await AppDataSource.query<Array<{ id: number; po_no: string; status: string }>>(
+        'SELECT id, po_no, status FROM purchase_orders WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [params.poId, this.tenantId],
+      );
+      if (!row) {
+        throw AppError.notFound('采购订单不存在', ResponseCode.PO_NOT_FOUND);
+      }
+      return { id: Number(row.id), poNo: String(row.po_no), status: String(row.status) };
+    }
+
+    const normalizedPoNo = String(params.poNo ?? '').trim();
+    const [row] = await AppDataSource.query<Array<{ id: number; po_no: string; status: string }>>(
+      'SELECT id, po_no, status FROM purchase_orders WHERE po_no = ? AND tenant_id = ? LIMIT 1',
+      [normalizedPoNo, this.tenantId],
+    );
+    if (!row) {
+      throw AppError.notFound('采购订单不存在', ResponseCode.PO_NOT_FOUND);
+    }
+    return { id: Number(row.id), poNo: String(row.po_no), status: String(row.status) };
   }
 
   async getById(id: number) {
@@ -1054,11 +1086,7 @@ export class PurchaseService {
 
   async createDeliveryNote(params: CreateDeliveryNoteParams): Promise<{ id: number; deliveryNo: string }> {
     const supportsDeliveryItemDyeLot = await this.hasDeliveryNoteItemDyeLotColumn();
-    const [po] = await AppDataSource.query<Array<{ id: number; status: string; tenant_id: number }>>(
-      'SELECT id, status, tenant_id FROM purchase_orders WHERE id = ? AND tenant_id = ? LIMIT 1',
-      [params.poId, this.tenantId],
-    );
-    if (!po) throw AppError.notFound('采购订单不存在', ResponseCode.PO_NOT_FOUND);
+    const po = await this.resolveDeliveryOrder(params);
     if (!['confirmed', 'partial_received'].includes(po.status)) {
       throw AppError.badRequest(
         `当前采购订单状态「${po.status}」不允许录入送货单，仅 confirmed / partial_received 可操作`,
@@ -1076,7 +1104,7 @@ export class PurchaseService {
          FROM purchase_order_items poi
          INNER JOIN skus s ON s.id = poi.sku_id AND s.tenant_id = poi.tenant_id
          WHERE poi.po_id = ? AND poi.tenant_id = ?`,
-        [params.poId, this.tenantId],
+        [po.id, this.tenantId],
       ),
       AppDataSource.query<Array<Record<string, unknown>>>(
         `SELECT
@@ -1089,7 +1117,7 @@ export class PurchaseService {
            ON dni.delivery_note_id = dn.id AND dni.tenant_id = dn.tenant_id
          WHERE dn.po_id = ? AND dn.tenant_id = ? AND dn.status <> 'rejected'
          GROUP BY dni.sku_id, dni.purchase_unit, dni.unit_price`,
-        [params.poId, this.tenantId],
+        [po.id, this.tenantId],
       ),
     ]);
 
@@ -1162,7 +1190,7 @@ export class PurchaseService {
       const deliveryNo = this.generateNo('DN');
       const [poRow] = await manager.query<Array<{ supplier_id: number }>>(
         'SELECT supplier_id FROM purchase_orders WHERE id = ? AND tenant_id = ? LIMIT 1',
-        [params.poId, this.tenantId],
+        [po.id, this.tenantId],
       );
 
       const result = await manager.query(
@@ -1170,7 +1198,7 @@ export class PurchaseService {
            (tenant_id, delivery_no, po_id, supplier_id, delivery_date, status, notes, created_by, updated_by)
          VALUES (?,?,?,?,?,'pending',?,?,?)`,
         [
-          this.tenantId, deliveryNo, params.poId, poRow.supplier_id,
+          this.tenantId, deliveryNo, po.id, poRow.supplier_id,
           params.deliveryDate, params.notes ?? null, this.userId, this.userId,
         ],
       );

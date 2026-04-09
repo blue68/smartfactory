@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import Modal from '@/components/common/Modal';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
 import { UserRole } from '@/types/enums';
@@ -99,6 +100,7 @@ export default function SettlementPage() {
   const [keyword, setKeyword] = useState('');
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [creatingOrderId, setCreatingOrderId] = useState<number | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const [receivableGroup, setReceivableGroup] = useState<'customer' | 'month' | 'aging'>('customer');
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string } | null>(null);
   const pendingSectionRef = useRef<HTMLElement | null>(null);
@@ -192,16 +194,29 @@ export default function SettlementPage() {
       setCreatingOrderId(orderId);
       await createMutation.mutateAsync({ orderId });
       showToast({ type: 'success', message: '结算单创建成功，已加入结算列表' });
+      return true;
     } catch (error) {
       showToast({ type: 'error', message: (error as Error).message ?? '创建结算单失败' });
+      return false;
     } finally {
       setCreatingOrderId(null);
     }
   }, [createMutation, showToast]);
 
-  const scrollToPendingSection = useCallback(() => {
-    pendingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const openCreateSettlementModal = useCallback(() => {
+    setCreateModalOpen(true);
   }, []);
+
+  const handleCreateModalClose = useCallback(() => {
+    setCreateModalOpen(false);
+  }, []);
+
+  const handleCreateFromModal = useCallback(async (orderId: number) => {
+    const created = await handleCreateSettlement(orderId);
+    if (!created) return;
+    setCreateModalOpen(false);
+    pendingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [handleCreateSettlement]);
 
   const COL_SPAN = 7;
 
@@ -211,7 +226,7 @@ export default function SettlementPage() {
       <div className={styles.page_header}>
         <h1 className={styles.page_title}>销售结算</h1>
         {canManageSettlement && (
-          <Button variant="primary" size="md" onClick={scrollToPendingSection}>
+          <Button variant="primary" size="md" onClick={openCreateSettlementModal}>
             + 新建结算
           </Button>
         )}
@@ -531,6 +546,58 @@ export default function SettlementPage() {
           )}
         </section>
       )}
+
+      <Modal
+        open={createModalOpen}
+        title="新建结算"
+        onClose={handleCreateModalClose}
+        hideFooter
+        size="lg"
+      >
+        <div className={styles.create_modal_body}>
+          <div className={styles.create_modal_intro}>
+            <div className={styles.create_modal_title}>选择待结算销售订单</div>
+            <p className={styles.create_modal_desc}>
+              仅展示当前筛选条件下可创建结算单的销售订单。点击“创建结算”后会直接生成结算单并回到列表。
+            </p>
+          </div>
+
+          {pendingLoading ? (
+            <div className={styles.create_modal_state}>待结算订单加载中...</div>
+          ) : pendingError ? (
+            <div className={`${styles.create_modal_state} ${styles.create_modal_state_error}`}>
+              待结算订单加载失败：{(pendingError as Error).message}
+            </div>
+          ) : pendingList.length === 0 ? (
+            <div className={styles.create_modal_state}>当前没有可创建结算单的销售订单</div>
+          ) : (
+            <div className={styles.create_modal_list}>
+              {pendingList.map((order) => (
+                <div key={order.orderId} className={styles.create_modal_item}>
+                  <div className={styles.create_modal_item_main}>
+                    <div className={styles.create_modal_order_no}>{order.orderNo}</div>
+                    <div className={styles.create_modal_customer}>{order.customerName}</div>
+                  </div>
+                  <div className={styles.create_modal_item_meta}>
+                    <span>{PendingOrderStatusLabel[order.status]}</span>
+                    <span>金额 {formatAmount(order.totalAmount)}</span>
+                    <span>交付 {order.expectedDelivery ? formatDate(order.expectedDelivery) : '--'}</span>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void handleCreateFromModal(order.orderId)}
+                    loading={creatingOrderId === order.orderId && createMutation.isPending}
+                    disabled={createMutation.isPending && creatingOrderId !== order.orderId}
+                  >
+                    创建结算
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
 
       {/* 表格 */}
       <div className={styles.table_wrap}>

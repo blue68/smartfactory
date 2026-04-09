@@ -83,6 +83,10 @@ router.put('/orders/:id/cancel',
 );
 
 // 排产计划
+router.get('/schedule/history',
+  requireRoles('supervisor', 'boss'),
+  asyncHandler(productionController.getScheduleHistory.bind(productionController)),
+);
 router.get('/schedule/generate',
   requireRoles('supervisor', 'boss'),
   asyncHandler(productionController.generateSchedule.bind(productionController)),
