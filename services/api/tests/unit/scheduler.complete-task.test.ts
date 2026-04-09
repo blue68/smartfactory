@@ -40,6 +40,12 @@ jest.mock('../../src/modules/production/workflow-engine.service', () => ({
 
 import { SchedulerService } from '../../src/modules/production/scheduler.service';
 
+function stubTaskInventoryLifecycle(svc: SchedulerService) {
+  (svc as any).fetchTaskInputMaterialPlans = jest.fn().mockResolvedValue([]);
+  (svc as any).ensureTaskInputTransactions = jest.fn().mockResolvedValue(new Map());
+  (svc as any).consumeTaskInputMaterials = jest.fn().mockResolvedValue([]);
+}
+
 describe('SchedulerService completeTask idempotency', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -138,7 +144,7 @@ describe('SchedulerService completeTask idempotency', () => {
     });
 
     const svc = new SchedulerService({ tenantId: 1, userId: 99 });
-    (svc as any).insertTaskInputTransactions = jest.fn().mockResolvedValue(undefined);
+    stubTaskInventoryLifecycle(svc);
     (svc as any).insertTaskOutputTransaction = jest.fn().mockResolvedValue(undefined);
     (svc as any).insertWorkReport = jest.fn().mockResolvedValue(undefined);
     (svc as any).syncOrderCompletion = jest.fn().mockResolvedValue(undefined);
@@ -200,7 +206,7 @@ describe('SchedulerService completeTask idempotency', () => {
     });
 
     const svc = new SchedulerService({ tenantId: 1, userId: 99 });
-    (svc as any).insertTaskInputTransactions = jest.fn().mockResolvedValue(undefined);
+    stubTaskInventoryLifecycle(svc);
     (svc as any).insertTaskOutputTransaction = jest.fn().mockResolvedValue(undefined);
     (svc as any).insertWorkReport = jest.fn().mockResolvedValue(undefined);
     (svc as any).syncOrderCompletion = jest.fn().mockResolvedValue(undefined);
@@ -265,12 +271,18 @@ describe('SchedulerService completeTask idempotency', () => {
     });
 
     const svc = new SchedulerService({ tenantId: 1, userId: 99 });
-    (svc as any).insertTaskInputTransactions = jest.fn().mockResolvedValue(undefined);
+    stubTaskInventoryLifecycle(svc);
     (svc as any).insertTaskOutputTransaction = jest.fn().mockResolvedValue(undefined);
     (svc as any).insertWorkReport = jest.fn().mockResolvedValue(undefined);
     (svc as any).syncOrderCompletion = jest.fn().mockResolvedValue(undefined);
     (svc as any).workflow = jest.fn().mockReturnValue({
-      onTaskCompleted: jest.fn().mockImplementation(async (_taskId: number, _qty: string, manager: { __inventorySnapshotSkuIds?: Set<number> }) => {
+      onTaskCompleted: jest.fn().mockImplementation(async (
+        _taskId: number,
+        _completedQty: string,
+        _qualifiedQty: string,
+        _scrapQty: string,
+        manager: { __inventorySnapshotSkuIds?: Set<number> },
+      ) => {
         manager.__inventorySnapshotSkuIds = new Set([990915]);
       }),
     });
@@ -324,7 +336,7 @@ describe('SchedulerService completeTask idempotency', () => {
     });
 
     const svc = new SchedulerService({ tenantId: 1, userId: 99 });
-    (svc as any).insertTaskInputTransactions = jest.fn().mockResolvedValue(undefined);
+    stubTaskInventoryLifecycle(svc);
     (svc as any).insertTaskOutputTransaction = jest.fn().mockResolvedValue(undefined);
     (svc as any).insertWorkReport = jest.fn().mockResolvedValue(undefined);
     (svc as any).syncOrderCompletion = jest.fn().mockResolvedValue(undefined);
@@ -373,12 +385,18 @@ describe('SchedulerService completeTask idempotency', () => {
     });
 
     const svc = new SchedulerService({ tenantId: 1, userId: 99 });
-    (svc as any).insertTaskInputTransactions = jest.fn().mockResolvedValue(undefined);
+    stubTaskInventoryLifecycle(svc);
     (svc as any).insertTaskOutputTransaction = jest.fn().mockResolvedValue(undefined);
     (svc as any).insertWorkReport = jest.fn().mockResolvedValue(undefined);
     (svc as any).syncOrderCompletion = jest.fn().mockResolvedValue(undefined);
     (svc as any).workflow = jest.fn().mockReturnValue({
-      onTaskCompleted: jest.fn().mockImplementation(async (_taskId: number, _qty: string, manager: { __inventorySnapshotSkuIds?: Set<number> }) => {
+      onTaskCompleted: jest.fn().mockImplementation(async (
+        _taskId: number,
+        _completedQty: string,
+        _qualifiedQty: string,
+        _scrapQty: string,
+        manager: { __inventorySnapshotSkuIds?: Set<number> },
+      ) => {
         manager.__inventorySnapshotSkuIds = new Set([990915]);
       }),
     });
@@ -428,7 +446,7 @@ describe('SchedulerService completeTask idempotency', () => {
     });
 
     const svc = new SchedulerService({ tenantId: 1, userId: 99 });
-    (svc as any).insertTaskInputTransactions = jest.fn().mockResolvedValue(undefined);
+    stubTaskInventoryLifecycle(svc);
     (svc as any).insertTaskOutputTransaction = jest.fn().mockResolvedValue(undefined);
     (svc as any).insertWorkReport = jest.fn().mockResolvedValue(undefined);
     (svc as any).syncOrderCompletion = jest.fn().mockResolvedValue(undefined);
@@ -500,6 +518,69 @@ describe('SchedulerService completeTask idempotency', () => {
       '跨日报工',
       99,
       99,
+    ]);
+  });
+
+  it('passes qualifiedQty to workflow and keeps scrap on the task row', async () => {
+    mockQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM production_tasks') && sql.includes('FOR UPDATE')) {
+        return [{
+          id: 88,
+          status: 'started',
+          production_order_id: 9,
+          process_step_id: 3001,
+          worker_id: 9001,
+          operation_id: 7001,
+          output_sku_id: 4001,
+          planned_qty: '5.0000',
+        }];
+      }
+      if (sql.startsWith('UPDATE production_tasks SET')) return { affectedRows: 1 };
+      if (sql.includes('INSERT INTO task_completions')) return { insertId: 501 };
+      if (sql.includes('UPDATE production_operations')) return { affectedRows: 1 };
+      if (sql.includes('SELECT COUNT(*) AS remaining')) return [{ remaining: '1' }];
+      if (sql.includes('SELECT dye_lot_no FROM order_dye_lot_bindings')) return [];
+      if (sql.includes('INSERT INTO traceability_records')) return { insertId: 601 };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const svc = new SchedulerService({ tenantId: 1, userId: 99 });
+    stubTaskInventoryLifecycle(svc);
+    (svc as any).insertTaskOutputTransaction = jest.fn().mockResolvedValue(undefined);
+    (svc as any).insertWorkReport = jest.fn().mockResolvedValue(undefined);
+    (svc as any).syncOrderCompletion = jest.fn().mockResolvedValue(undefined);
+    const workflowSpy = jest.fn().mockResolvedValue(undefined);
+    (svc as any).workflow = jest.fn().mockReturnValue({
+      onTaskCompleted: workflowSpy,
+    });
+
+    await svc.completeTask(88, {
+      completedQty: '5.0000',
+      actualHours: 1.2,
+      scrapQty: '1.0000',
+      scrapReason: 'material_defect',
+    });
+
+    expect(workflowSpy).toHaveBeenCalledWith(
+      88,
+      '5.0000',
+      '4.0000',
+      '1.0000',
+      expect.anything(),
+      { syncOrderCompletion: false },
+    );
+
+    const updateTaskCall = mockQuery.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.startsWith('UPDATE production_tasks SET'),
+    );
+    expect(updateTaskCall?.[1]).toEqual([
+      '5.0000',
+      '1.0000',
+      'material_defect',
+      99,
+      1.2,
+      88,
+      1,
     ]);
   });
 });

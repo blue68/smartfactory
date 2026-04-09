@@ -79,6 +79,7 @@ export interface CreateSalesOrderParams {
 export class SalesOrderService {
   private readonly tenantId: number;
   private readonly userId: number;
+  private static approvalNotesColumnSupported: boolean | null = null;
 
   constructor(ctx: { tenantId: number; userId: number }) {
     this.tenantId = ctx.tenantId;
@@ -91,6 +92,58 @@ export class SalesOrderService {
 
   private _salesFlowService(): SalesService {
     return new SalesService({ tenantId: this.tenantId, userId: this.userId });
+  }
+
+  private async _hasApprovalNotesColumn(): Promise<boolean> {
+    if (SalesOrderService.approvalNotesColumnSupported !== null) {
+      return SalesOrderService.approvalNotesColumnSupported;
+    }
+
+    const [row] = await AppDataSource.query<Array<{ cnt: number | string }>>(
+      `SELECT COUNT(*) AS cnt
+         FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'sales_orders'
+          AND column_name = 'approval_notes'`,
+    );
+    const supported = Number(row?.cnt ?? 0) > 0;
+    SalesOrderService.approvalNotesColumnSupported = supported;
+    return supported;
+  }
+
+  private async _updateOrderStatus(
+    executor: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+    params: {
+      id: number;
+      status: SalesOrderStatus;
+      updatedBy: number;
+      approvalNotes?: string | null;
+      extraAssignments?: string[];
+      extraValues?: unknown[];
+    },
+  ): Promise<void> {
+    const assignments = [`status = ?`];
+    const values: unknown[] = [params.status];
+
+    if (params.approvalNotes !== undefined && await this._hasApprovalNotesColumn()) {
+      assignments.push('approval_notes = ?');
+      values.push(params.approvalNotes);
+    }
+
+    if (params.extraAssignments?.length) {
+      assignments.push(...params.extraAssignments);
+      values.push(...(params.extraValues ?? []));
+    }
+
+    assignments.push('updated_by = ?');
+    values.push(params.updatedBy, params.id, this.tenantId);
+
+    await executor.query(
+      `UPDATE sales_orders
+       SET ${assignments.join(', ')}
+       WHERE id = ? AND tenant_id = ?`,
+      values,
+    );
   }
 
   private async _writeAuditLog(
@@ -405,12 +458,12 @@ export class SalesOrderService {
       );
     }
 
-    await AppDataSource.query(
-      `UPDATE sales_orders
-       SET status = 'pending_approval', approval_notes = NULL, updated_by = ?
-       WHERE id = ? AND tenant_id = ?`,
-      [this.userId, id, this.tenantId],
-    );
+    await this._updateOrderStatus(AppDataSource, {
+      id,
+      status: 'pending_approval',
+      approvalNotes: null,
+      updatedBy: this.userId,
+    });
     await this._writeAuditLog(AppDataSource, {
       action: 'SUBMIT_APPROVAL',
       targetId: id,
@@ -434,13 +487,14 @@ export class SalesOrderService {
     }
 
     await AppDataSource.transaction(async (manager) => {
-      await manager.query(
-        `UPDATE sales_orders
-         SET status = 'confirmed', approved_by = ?, approved_at = NOW(3),
-             approval_notes = NULL, updated_by = ?
-         WHERE id = ? AND tenant_id = ?`,
-        [approverId, approverId, id, this.tenantId],
-      );
+      await this._updateOrderStatus(manager, {
+        id,
+        status: 'confirmed',
+        approvalNotes: null,
+        updatedBy: approverId,
+        extraAssignments: ['approved_by = ?', 'approved_at = NOW(3)'],
+        extraValues: [approverId],
+      });
 
       await this._productionOrderService().createFromSalesOrder(id, manager);
       affectedInventorySkuIds = ProductionOrderService.drainTrackedInventorySnapshotSkuIds(manager);
@@ -480,12 +534,12 @@ export class SalesOrderService {
       );
     }
 
-    await AppDataSource.query(
-      `UPDATE sales_orders
-       SET status = 'closed', approval_notes = ?, updated_by = ?
-       WHERE id = ? AND tenant_id = ?`,
-      [reason, rejectorId, id, this.tenantId],
-    );
+    await this._updateOrderStatus(AppDataSource, {
+      id,
+      status: 'closed',
+      approvalNotes: reason,
+      updatedBy: rejectorId,
+    });
     await this._writeAuditLog(AppDataSource, {
       action: 'REJECT',
       targetId: id,
@@ -523,12 +577,12 @@ export class SalesOrderService {
       throw AppError.forbidden('只有订单创建者可撤回审批');
     }
 
-    await AppDataSource.query(
-      `UPDATE sales_orders
-       SET status = 'draft', approval_notes = NULL, updated_by = ?
-       WHERE id = ? AND tenant_id = ?`,
-      [this.userId, id, this.tenantId],
-    );
+    await this._updateOrderStatus(AppDataSource, {
+      id,
+      status: 'draft',
+      approvalNotes: null,
+      updatedBy: this.userId,
+    });
     await this._writeAuditLog(AppDataSource, {
       action: 'WITHDRAW',
       targetId: id,
@@ -741,10 +795,12 @@ export class SalesOrderService {
     if (order.status === 'closed' || order.status === 'completed') {
       throw AppError.badRequest('已完成或已关闭的订单不能再关闭', ResponseCode.ORDER_INVALID_TRANSITION);
     }
-    await AppDataSource.query(
-      `UPDATE sales_orders SET status = 'closed', approval_notes = ?, updated_by = ? WHERE id = ? AND tenant_id = ?`,
-      [reason, this.userId, id, this.tenantId],
-    );
+    await this._updateOrderStatus(AppDataSource, {
+      id,
+      status: 'closed',
+      approvalNotes: reason,
+      updatedBy: this.userId,
+    });
     await this._writeAuditLog(AppDataSource, {
       action: 'CLOSE',
       targetId: id,

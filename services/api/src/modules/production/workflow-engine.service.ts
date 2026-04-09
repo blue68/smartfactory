@@ -79,6 +79,8 @@ export class WorkflowEngineService {
   async onTaskCompleted(
     taskId: number,
     completedQty: string,
+    qualifiedQty: string,
+    scrapQty: string,
     manager: EntityManager,
     options: CompletionWorkflowOptions = {},
   ): Promise<void> {
@@ -116,12 +118,17 @@ export class WorkflowEngineService {
     const step = stepRows[0];
 
     // Step 3: 半成品入库
-    if (step.output_type === 'semi_finished' && task.resolved_output_sku_id) {
+    if (
+      step.output_type === 'semi_finished'
+      && task.resolved_output_sku_id
+      && new Decimal(completedQty).gt(0)
+    ) {
       await this._handleSemiFinishedInventory(
         taskId,
         task.production_order_id,
         task.resolved_output_sku_id,
         completedQty,
+        scrapQty,
         manager,
       );
     }
@@ -136,7 +143,7 @@ export class WorkflowEngineService {
 
     // Step 5: 检查工单是否全部完工
     if (syncOrderCompletion) {
-      await this._checkOrderCompletion(task.production_order_id, completedQty, manager);
+      await this._checkOrderCompletion(task.production_order_id, qualifiedQty, manager);
     }
   }
 
@@ -150,6 +157,7 @@ export class WorkflowEngineService {
     productionOrderId: number,
     outputSkuId: number,
     completedQty: string,
+    scrapQty: string,
     manager: EntityManager,
   ): Promise<void> {
     const transactionNo = await generateNo('transaction', this.tenantId);
@@ -235,6 +243,49 @@ export class WorkflowEngineService {
         this.userId,
       ],
     );
+
+    const defectiveQty = new Decimal(scrapQty ?? 0);
+    if (defectiveQty.gt(0)) {
+      const wasteTxNo = await generateNo('transaction', this.tenantId);
+      await manager.query(
+        `INSERT INTO inventory_transactions
+           (tenant_id, transaction_no, sku_id, transaction_type, direction,
+            warehouse_id, location_id, source_ref,
+            qty_input, input_unit, qty_stock_unit, stock_unit,
+            reference_type, reference_id, reference_no, notes, created_by, updated_by)
+         VALUES (?, ?, ?, 'waste_out', 'OUT', ?, ?, ?, ?, 'pcs', ?, 'pcs',
+                 'production_order', ?, ?, ?, ?, ?)`,
+        [
+          this.tenantId,
+          wasteTxNo,
+          outputSkuId,
+          warehouseLocation.warehouseId,
+          warehouseLocation.locationId,
+          'production:workflow:semi_finished:scrap',
+          defectiveQty.toFixed(4),
+          defectiveQty.toFixed(4),
+          productionOrderId,
+          workOrderNo,
+          `${notes}，报工报废转库存损耗`,
+          this.userId,
+          this.userId,
+        ],
+      );
+
+      await manager.query(
+        `UPDATE inventory
+         SET qty_on_hand = qty_on_hand - ?, last_out_at = NOW(), updated_by = ?
+         WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?`,
+        [
+          defectiveQty.toFixed(4),
+          this.userId,
+          this.tenantId,
+          outputSkuId,
+          warehouseLocation.warehouseId,
+          warehouseLocation.locationId,
+        ],
+      );
+    }
 
     await this._syncInventoryDailySnapshot(manager, outputSkuId);
     this._trackInventorySnapshotCacheInvalidation(manager, outputSkuId);

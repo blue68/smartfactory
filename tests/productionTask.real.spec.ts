@@ -9,11 +9,13 @@ import {
   seedProductionTaskMixedTimelineScenario,
   seedProductionTaskResolveExceptionScenario,
   seedProductionTaskStartScenario,
+  seedProductionTaskIssueScenario,
   seedProductionTaskSuspendScenario,
   seedProductionTaskRegressionScenario,
   unblockProductionTaskDependency,
   cleanupProductionTaskScenario,
   cleanupProductionTaskCompleteScenario,
+  cleanupProductionTaskIssueScenario,
   cleanupProductionTaskMixedTimelineScenario,
   cleanupProductionTaskResolveExceptionScenario,
   cleanupProductionTaskStartScenario,
@@ -21,6 +23,7 @@ import {
   cleanupProductionTaskRegressionScenario,
   closeProductionTaskFlowDbPool,
   waitForProductionTaskCompleted,
+  waitForProductionTaskIssued,
   waitForProductionTaskExceptionResolved,
   waitForProductionTaskStarted,
   waitForProductionTaskSuspended,
@@ -295,6 +298,56 @@ test.describe.serial('生产任务前端交互（真实后端）', () => {
       expect(started.inventoryTxId).toBeNull();
     } finally {
       await cleanupProductionTaskStartScenario(scenario);
+    }
+  });
+
+  test('主管可在待开始任务里先校验缸号必填，再完成整笔领料并写入领料流水 @production-task-regression', async ({ page }) => {
+    const scenario = await seedProductionTaskIssueScenario();
+
+    try {
+      await seedAuth(page, 'supervisor');
+      await page.goto(`${APP_BASE_URL}/production/tasks`);
+
+      await expect(page.locator('#main-content').getByRole('heading', { name: '生产任务管理' })).toBeVisible();
+      await page.getByLabel('关键词搜索').fill(scenario.taskNo);
+
+      const row = page.locator('tbody tr').filter({ hasText: scenario.taskNo }).first();
+      await expect(row).toBeVisible({ timeout: 15_000 });
+      await expect(row.getByText('待开始')).toBeVisible();
+      await row.getByRole('button', { name: '详情' }).click();
+
+      const drawer = page.getByRole('dialog', { name: '任务详情' });
+      await expect(drawer).toBeVisible();
+      await expect(drawer.getByRole('button', { name: '领料到线边' })).toBeVisible();
+      await drawer.getByRole('button', { name: '领料到线边' }).click();
+
+      const modal = page.getByRole('dialog', { name: '领料到线边' });
+      await expect(modal).toBeVisible();
+      await expect(modal.getByText('需缸号')).toBeVisible();
+      await expect(modal.getByLabel('本次领料数量')).toHaveValue('12');
+      await expect(modal.getByLabel('仓库')).toHaveValue(String(scenario.sourceWarehouseId));
+      await expect(modal.getByLabel('库位')).toHaveValue(String(scenario.sourceLocationId));
+
+      await modal.getByRole('button', { name: '领料到线边' }).click();
+      await expect(modal.getByRole('alert')).toHaveText(`SKU ${scenario.materialSkuName} 需要填写缸号`);
+
+      await modal.getByLabel('缸号').fill(scenario.dyeLotNo);
+      await modal.getByRole('button', { name: '领料到线边' }).click();
+
+      await expect(page.getByRole('alert').filter({ hasText: `任务 #${scenario.taskId} 已完成领料` })).toBeVisible();
+      await expect(modal).toBeHidden();
+      await expect(drawer.getByText('线边有余料').first()).toBeVisible();
+      await expect(drawer.getByText(`已领 ${scenario.issueQty} / 已耗 0.0000 / 在线边 ${scenario.issueQty}`)).toBeVisible();
+      await expect(drawer.getByText(`${scenario.sourceWarehouseName}-${scenario.sourceLocationName}`)).toBeVisible();
+
+      const issued = await waitForProductionTaskIssued(scenario);
+      expect(issued.issueQty).toBe(scenario.issueQty);
+      expect(issued.outboundTransactionNo).toBeTruthy();
+      expect(issued.inboundTransactionNo).toBeTruthy();
+      expect(issued.dyeLotNo).toBe(scenario.dyeLotNo);
+      expect(issued.movementInventoryTxId).toBeGreaterThan(0);
+    } finally {
+      await cleanupProductionTaskIssueScenario(scenario);
     }
   });
 

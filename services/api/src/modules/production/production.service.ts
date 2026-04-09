@@ -95,6 +95,33 @@ export class ProductionService {
     return this.scheduler.completeTask(taskId, params);
   }
 
+  async issueTaskMaterials(taskId: number, params: {
+    items: Array<{
+      skuId: number;
+      qty: string;
+      warehouseId?: number;
+      locationId?: number;
+      dyeLotNo?: string;
+      notes?: string;
+    }>;
+  }) {
+    await this.assertTaskDependenciesReady(taskId, 'start');
+    return this.scheduler.issueTaskMaterials(taskId, params);
+  }
+
+  async returnTaskMaterials(taskId: number, params: {
+    items: Array<{
+      skuId: number;
+      qty: string;
+      warehouseId?: number;
+      locationId?: number;
+      dyeLotNo?: string;
+      notes?: string;
+    }>;
+  }) {
+    return this.scheduler.returnTaskMaterials(taskId, params);
+  }
+
   async listProductionOrders(params: {
     status?: string; salesOrderId?: number; page: number; pageSize: number;
   }) {
@@ -124,7 +151,17 @@ export class ProductionService {
       ),
     ]);
 
-    return { list, total: Number(countRows[0]?.total ?? 0) };
+    const taskIds = (list as Array<{ id: number }>).map((item) => Number(item.id)).filter((id) => id > 0);
+    const materialIssueStatusMap = await this.getTaskMaterialIssueStatusMap(taskIds);
+    const enrichedList = (list as Array<Record<string, unknown>>).map((item) => ({
+      ...item,
+      ...(materialIssueStatusMap.get(Number(item.id)) ?? {
+        materialIssueStatus: 'none',
+        materialIssueLabel: '无需领料',
+      }),
+    }));
+
+    return { list: enrichedList, total: Number(countRows[0]?.total ?? 0) };
   }
 
   async getProductionOrderDetail(orderId: number) {
@@ -210,6 +247,7 @@ export class ProductionService {
                 pt.started_at AS startedAt, pt.completed_at AS completedAt,
                 pt.created_at AS createdAt, pt.updated_at AS updatedAt,
                 po.work_order_no AS orderNo, po.priority,
+                po.planned_end AS plannedFinishTime,
                 po.sales_order_id AS salesOrderId, po.sku_id AS skuId, po.qty_planned AS orderPlannedQty,
                 ps.step_name AS processName, ps.step_no AS stepNo,
                 ps.standard_hours AS standardHours, ps.max_hours AS maxHours,
@@ -272,18 +310,219 @@ export class ProductionService {
       materialTransactions,
     );
     const outputItems = this.buildTaskOutputItems(task, materialTransactions);
+    const inputSkuIds = [...new Set(
+      inputItems.map((item) => Number(item.skuId)).filter((skuId) => Number.isFinite(skuId) && skuId > 0),
+    )];
+    const outputSkuIds = [...new Set(
+      outputItems.map((item) => Number(item.skuId)).filter((skuId) => Number.isFinite(skuId) && skuId > 0),
+    )];
+    const preferredInputStorageMap = await this.getPreferredSkuStorageMap(inputSkuIds, {
+      excludeWarehouseCodes: ['PROD-WIP'],
+    });
+    const preferredOutputStorageMap = await this.getPreferredSkuStorageMap(outputSkuIds);
+    const defaultStorageLocation = await this.getDefaultStorageLocation();
+    const enrichedInputItems = inputItems.map((item) => {
+      const latestReturnTransaction = [...materialTransactions]
+        .reverse()
+        .find((row) => (
+          row.ioType === 'input'
+          && row.movementType === 'return'
+          && Number(row.skuId) === Number(item.skuId)
+        ));
+      const storage = this.pickStorageLocation(
+        latestReturnTransaction,
+        preferredInputStorageMap.get(Number(item.skuId)),
+        null,
+      );
+      return {
+        ...item,
+        ...storage,
+      };
+    });
+    const enrichedOutputItems = outputItems.map((item) => {
+      const transaction = materialTransactions.find((row) => row.ioType === 'output' && Number(row.skuId) === Number(item.skuId));
+      const storage = this.pickStorageLocation(
+        transaction,
+        preferredOutputStorageMap.get(Number(item.skuId)),
+        defaultStorageLocation,
+      );
+      return {
+        ...item,
+        processStepId: task.processStepId ?? null,
+        processName: task.processName ?? null,
+        ...storage,
+      };
+    });
+    const materialIssueStatus = (await this.getTaskMaterialIssueStatusMap([taskId])).get(taskId) ?? {
+      materialIssueStatus: 'none',
+      materialIssueLabel: '无需领料',
+    };
 
     return {
       ...task,
       statusLabel: this.getTaskStatusLabel(String(task.status ?? 'pending')),
+      ...materialIssueStatus,
       dependencySummary,
-      inputItems,
-      inputMaterials: inputItems.filter((item) => item.itemType === 'material'),
-      outputItems,
+      inputItems: enrichedInputItems,
+      inputMaterials: enrichedInputItems.filter((item) => item.itemType === 'material'),
+      outputItems: enrichedOutputItems,
       materialTransactions,
       wageReport: wageRows[0][0] ?? null,
       exceptions,
     };
+  }
+
+  private async getTaskMaterialIssueStatusMap(taskIds: number[]): Promise<Map<number, {
+    materialIssueStatus: 'none' | 'pending_issue' | 'partial_issue' | 'fully_issued' | 'line_side_remaining';
+    materialIssueLabel: string;
+  }>> {
+    if (taskIds.length === 0) {
+      return new Map();
+    }
+
+    const placeholders = taskIds.map(() => '?').join(', ');
+    const requiredRows = await AppDataSource.query<Array<{ taskId: number; skuId: number; requiredQty: string }>>(
+      `SELECT
+          pt.id AS taskId,
+          COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id) AS skuId,
+          CAST(COALESCE(SUM(
+            pt.planned_qty
+            * psm.usage_per_unit
+            * (1 + COALESCE(psm.loss_rate, 0))
+          ), 0) AS CHAR) AS requiredQty
+       FROM production_tasks pt
+       INNER JOIN process_steps ps
+         ON ps.id = pt.process_step_id
+        AND ps.tenant_id = pt.tenant_id
+       LEFT JOIN process_step_materials psm
+         ON psm.tenant_id = ps.tenant_id
+        AND psm.template_id = ps.template_id
+        AND psm.step_no = ps.step_no
+       LEFT JOIN production_order_components poc
+         ON poc.tenant_id = pt.tenant_id
+        AND poc.production_order_id = pt.production_order_id
+        AND poc.sku_id = psm.input_sku_id
+       WHERE pt.tenant_id = ?
+         AND pt.id IN (${placeholders})
+       GROUP BY pt.id, COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id)`,
+      [this.tenantId, ...taskIds],
+    );
+
+    const movementRows = await AppDataSource.query<Array<{
+      taskId: number;
+      skuId: number;
+      issuedNetQty: string;
+      lineSideQty: string;
+    }>>(
+      `SELECT
+          tim.task_id AS taskId,
+          tim.sku_id AS skuId,
+          CAST(SUM(CASE
+            WHEN tim.movement_type = 'issue' THEN tim.qty
+            WHEN tim.movement_type = 'return' THEN -tim.qty
+            ELSE 0
+          END) AS CHAR) AS issuedNetQty,
+          CAST(SUM(CASE
+            WHEN tim.movement_type = 'issue' THEN tim.qty
+            WHEN tim.movement_type = 'return' THEN -tim.qty
+            WHEN tim.movement_type = 'consume' THEN -tim.qty
+            WHEN tim.movement_type = 'scrap' THEN -tim.qty
+            ELSE 0
+          END) AS CHAR) AS lineSideQty
+       FROM task_inventory_movements tim
+       WHERE tim.tenant_id = ?
+         AND tim.task_id IN (${placeholders})
+       GROUP BY tim.task_id, tim.sku_id`,
+      [this.tenantId, ...taskIds],
+    );
+
+    const normalizedRequiredRows = Array.isArray(requiredRows) ? requiredRows : [];
+    const normalizedMovementRows = Array.isArray(movementRows) ? movementRows : [];
+
+    const requiredMap = new Map(
+      normalizedRequiredRows.map((row) => [
+        `${Number(row.taskId)}::${Number(row.skuId)}`,
+        new Decimal(row.requiredQty ?? 0),
+      ]),
+    );
+    const movementMap = new Map(
+      normalizedMovementRows.map((row) => [
+        `${Number(row.taskId)}::${Number(row.skuId)}`,
+        {
+          issuedNetQty: new Decimal(row.issuedNetQty ?? 0),
+          lineSideQty: new Decimal(row.lineSideQty ?? 0),
+        },
+      ]),
+    );
+
+    const result = new Map<number, {
+      materialIssueStatus: 'none' | 'pending_issue' | 'partial_issue' | 'fully_issued' | 'line_side_remaining';
+      materialIssueLabel: string;
+    }>();
+
+    for (const taskId of taskIds) {
+      const skuIds = new Set<number>();
+      normalizedRequiredRows.forEach((row) => {
+        if (Number(row.taskId) === taskId) {
+          skuIds.add(Number(row.skuId));
+        }
+      });
+      normalizedMovementRows.forEach((row) => {
+        if (Number(row.taskId) === taskId) {
+          skuIds.add(Number(row.skuId));
+        }
+      });
+
+      if (skuIds.size === 0) {
+        result.set(taskId, { materialIssueStatus: 'none', materialIssueLabel: '无需领料' });
+        continue;
+      }
+
+      let hasPending = false;
+      let hasPartial = false;
+      let hasLineSideRemaining = false;
+      let hasPositiveIssuedOrLineSide = false;
+
+      for (const skuId of skuIds) {
+        const requiredQty = requiredMap.get(`${taskId}::${skuId}`) ?? new Decimal(0);
+        const movement = movementMap.get(`${taskId}::${skuId}`) ?? {
+          issuedNetQty: new Decimal(0),
+          lineSideQty: new Decimal(0),
+        };
+
+        if (requiredQty.lte(0)) {
+          continue;
+        }
+
+        if (movement.lineSideQty.gt(0)) {
+          hasLineSideRemaining = true;
+          hasPositiveIssuedOrLineSide = true;
+          continue;
+        }
+
+        if (movement.issuedNetQty.lte(0)) {
+          hasPending = true;
+          continue;
+        }
+
+        hasPositiveIssuedOrLineSide = true;
+        if (movement.issuedNetQty.lt(requiredQty)) {
+          hasPartial = true;
+        }
+      }
+
+      if (hasPending && !hasPositiveIssuedOrLineSide) {
+        result.set(taskId, { materialIssueStatus: 'pending_issue', materialIssueLabel: '待领料' });
+      } else if (hasPending || hasPartial) {
+        result.set(taskId, { materialIssueStatus: 'partial_issue', materialIssueLabel: '部分领料' });
+      } else if (hasLineSideRemaining) {
+        result.set(taskId, { materialIssueStatus: 'line_side_remaining', materialIssueLabel: '线边有余料' });
+      } else {
+        result.set(taskId, { materialIssueStatus: 'fully_issued', materialIssueLabel: '已齐料' });
+      }
+    }
+
+    return result;
   }
 
   async listTasks(params: {
@@ -376,6 +615,7 @@ export class ProductionService {
              pt.output_sku_id AS outputSkuId,
              po.work_order_no AS orderNo,
              po.priority,
+             po.planned_end AS plannedFinishTime,
              ps.step_name AS processName,
              ws.name AS workstationName,
              u.real_name AS workerName,
@@ -1001,7 +1241,8 @@ export class ProductionService {
 
     const byStatus: Record<string, number> = {};
     let total = 0;
-    for (const row of rows) {
+    const normalizedRows = Array.isArray(rows) ? rows : [];
+    for (const row of normalizedRows) {
       const cnt = Number(row.count);
       byStatus[row.status] = cnt;
       total += cnt;
@@ -1139,9 +1380,11 @@ export class ProductionService {
   private async getTaskMaterialTransactions(taskId: number): Promise<Array<{
     id: number;
     ioType: 'input' | 'output';
+    movementType: 'issue' | 'return' | 'consume' | 'scrap' | 'output';
     skuId: number;
     skuCode: string | null;
     skuName: string | null;
+    hasDyeLot: boolean;
     stockUnit: string | null;
     plannedQty: string;
     actualQty: string;
@@ -1155,40 +1398,120 @@ export class ProductionService {
     transactionQty: string | null;
     transactionTime: string | null;
     referenceNo: string | null;
+    warehouseId: number | null;
+    warehouseCode: string | null;
+    warehouseName: string | null;
+    locationId: number | null;
+    locationCode: string | null;
+    locationName: string | null;
+    notes: string | null;
   }>> {
     return AppDataSource.query(
       `SELECT
-          tmt.id,
-          tmt.io_type AS ioType,
-          tmt.sku_id AS skuId,
+          tim.id,
+          COALESCE(tmt.io_type, CASE WHEN tim.movement_type = 'output' THEN 'output' ELSE 'input' END) AS ioType,
+          tim.movement_type AS movementType,
+          tim.sku_id AS skuId,
           s.sku_code AS skuCode,
           s.name AS skuName,
+          s.has_dye_lot AS hasDyeLot,
           s.stock_unit AS stockUnit,
-          tmt.planned_qty AS plannedQty,
-          tmt.actual_qty AS actualQty,
-          CAST(COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) AS CHAR) AS qtyAvailable,
-          CAST(GREATEST(tmt.planned_qty - COALESCE(inv.qty_on_hand - inv.qty_reserved, 0), 0) AS CHAR) AS shortageQty,
-          CASE WHEN COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) < tmt.planned_qty THEN TRUE ELSE FALSE END AS isShortage,
-          tmt.inventory_tx_id AS inventoryTxId,
+          COALESCE(tmt.planned_qty, 0) AS plannedQty,
+          CAST(tim.qty AS CHAR) AS actualQty,
+          CAST(COALESCE(inv.qtyAvailable, 0) AS CHAR) AS qtyAvailable,
+          CAST(GREATEST(COALESCE(tmt.planned_qty, 0) - COALESCE(inv.qtyAvailable, 0), 0) AS CHAR) AS shortageQty,
+          CASE WHEN COALESCE(inv.qtyAvailable, 0) < COALESCE(tmt.planned_qty, 0) THEN TRUE ELSE FALSE END AS isShortage,
+          tim.inventory_tx_id AS inventoryTxId,
           it.transaction_no AS transactionNo,
           it.transaction_type AS transactionType,
           it.direction AS direction,
-          CAST(COALESCE(it.qty_stock_unit, tmt.actual_qty) AS CHAR) AS transactionQty,
+          CAST(COALESCE(it.qty_stock_unit, tim.qty) AS CHAR) AS transactionQty,
           DATE_FORMAT(it.created_at, '%Y-%m-%d %H:%i:%s') AS transactionTime,
-          it.reference_no AS referenceNo
-       FROM task_material_transactions tmt
+          it.reference_no AS referenceNo,
+          it.warehouse_id AS warehouseId,
+          txw.code AS warehouseCode,
+          txw.name AS warehouseName,
+          it.location_id AS locationId,
+          txl.code AS locationCode,
+          txl.name AS locationName,
+          it.notes AS notes
+       FROM task_inventory_movements tim
+       LEFT JOIN task_material_transactions tmt
+         ON tmt.id = tim.task_material_tx_id
+        AND tmt.tenant_id = tim.tenant_id
        LEFT JOIN skus s
-         ON s.id = tmt.sku_id
-       LEFT JOIN inventory inv
-         ON inv.sku_id = tmt.sku_id
-        AND inv.tenant_id = tmt.tenant_id
+         ON s.id = tim.sku_id
+       LEFT JOIN (
+         SELECT tenant_id, sku_id, SUM(qty_on_hand - qty_reserved) AS qtyAvailable
+         FROM inventory
+         GROUP BY tenant_id, sku_id
+       ) inv
+         ON inv.sku_id = tim.sku_id
+        AND inv.tenant_id = tim.tenant_id
        LEFT JOIN inventory_transactions it
-         ON it.id = tmt.inventory_tx_id
-        AND it.tenant_id = tmt.tenant_id
-       WHERE tmt.tenant_id = ? AND tmt.task_id = ?
-       ORDER BY FIELD(tmt.io_type, 'output', 'input'), tmt.id ASC`,
+         ON it.id = tim.inventory_tx_id
+        AND it.tenant_id = tim.tenant_id
+       LEFT JOIN warehouses txw
+         ON txw.id = it.warehouse_id
+        AND txw.tenant_id = it.tenant_id
+       LEFT JOIN locations txl
+         ON txl.id = it.location_id
+        AND txl.tenant_id = it.tenant_id
+       WHERE tim.tenant_id = ? AND tim.task_id = ?
+       ORDER BY FIELD(COALESCE(tmt.io_type, CASE WHEN tim.movement_type = 'output' THEN 'output' ELSE 'input' END), 'output', 'input'),
+                tim.created_at ASC,
+                tim.id ASC`,
       [this.tenantId, taskId],
     );
+  }
+
+  private summarizeTaskMaterialFlows(
+    materialTransactions: Array<{
+      ioType: 'input' | 'output';
+      movementType: 'issue' | 'return' | 'consume' | 'scrap' | 'output';
+      skuId: number;
+      hasDyeLot: boolean;
+      actualQty: string;
+      inventoryTxId: number | null;
+    }>,
+  ): Map<number, {
+    issuedQty: Decimal;
+    returnedQty: Decimal;
+    consumedQty: Decimal;
+    scrapQty: Decimal;
+    outputQty: Decimal;
+    inventoryTxId: number | null;
+  }> {
+    const summary = new Map<number, {
+      issuedQty: Decimal;
+      returnedQty: Decimal;
+      consumedQty: Decimal;
+      scrapQty: Decimal;
+      outputQty: Decimal;
+      inventoryTxId: number | null;
+    }>();
+
+    for (const item of materialTransactions) {
+      const key = Number(item.skuId);
+      const current = summary.get(key) ?? {
+        issuedQty: new Decimal(0),
+        returnedQty: new Decimal(0),
+        consumedQty: new Decimal(0),
+        scrapQty: new Decimal(0),
+        outputQty: new Decimal(0),
+        inventoryTxId: null,
+      };
+      const qty = new Decimal(item.actualQty ?? 0);
+      if (item.movementType === 'issue') current.issuedQty = current.issuedQty.plus(qty);
+      if (item.movementType === 'return') current.returnedQty = current.returnedQty.plus(qty);
+      if (item.movementType === 'consume') current.consumedQty = current.consumedQty.plus(qty);
+      if (item.movementType === 'scrap') current.scrapQty = current.scrapQty.plus(qty);
+      if (item.movementType === 'output') current.outputQty = current.outputQty.plus(qty);
+      if (item.inventoryTxId) current.inventoryTxId = item.inventoryTxId;
+      summary.set(key, current);
+    }
+
+    return summary;
   }
 
   private async getTaskInputMaterials(
@@ -1203,9 +1526,11 @@ export class ProductionService {
     materialTransactions: Array<{
       id: number;
       ioType: 'input' | 'output';
+      movementType: 'issue' | 'return' | 'consume' | 'scrap' | 'output';
       skuId: number;
       skuCode: string | null;
       skuName: string | null;
+      hasDyeLot: boolean;
       stockUnit: string | null;
       plannedQty: string;
       actualQty: string;
@@ -1221,21 +1546,24 @@ export class ProductionService {
     skuCode: string | null;
     skuName: string | null;
     unit: string | null;
+    hasDyeLot: boolean;
     requiredQty: string;
     issuedQty: string;
     qtyAvailable: string;
     shortageQty: string;
     isShortage: boolean;
     inventoryTxId: number | null;
+    movementStatus: string;
   }>> {
     const inputTransactions = materialTransactions.filter((item) => item.ioType === 'input');
-    const txBySkuId = new Map(inputTransactions.map((item) => [Number(item.skuId), item]));
+    const flowSummary = this.summarizeTaskMaterialFlows(inputTransactions);
 
     const stepMaterials = await AppDataSource.query<Array<{
       skuId: number;
       skuCode: string | null;
       skuName: string | null;
       unit: string | null;
+      hasDyeLot: boolean;
       usagePerUnit: string;
       lossRate: string;
       consumeTiming: 'start' | 'complete';
@@ -1246,10 +1574,11 @@ export class ProductionService {
           sku.sku_code AS skuCode,
           sku.name AS skuName,
           sku.stock_unit AS unit,
+          sku.has_dye_lot AS hasDyeLot,
           psm.usage_per_unit AS usagePerUnit,
           psm.loss_rate AS lossRate,
           psm.consume_timing AS consumeTiming,
-          CAST(COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) AS CHAR) AS qtyAvailable
+          CAST(COALESCE(inv.qtyAvailable, 0) AS CHAR) AS qtyAvailable
        FROM process_steps ps
        INNER JOIN process_step_materials psm
          ON psm.tenant_id = ps.tenant_id
@@ -1261,7 +1590,11 @@ export class ProductionService {
         AND poc.sku_id = psm.input_sku_id
        LEFT JOIN skus sku
          ON sku.id = COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id)
-       LEFT JOIN inventory inv
+       LEFT JOIN (
+         SELECT tenant_id, sku_id, SUM(qty_on_hand - qty_reserved) AS qtyAvailable
+         FROM inventory
+         GROUP BY tenant_id, sku_id
+       ) inv
          ON inv.tenant_id = ?
         AND inv.sku_id = COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id)
        WHERE ps.id = ? AND ps.tenant_id = ?
@@ -1275,7 +1608,15 @@ export class ProductionService {
         const requiredQty = taskQty
           .mul(new Decimal(item.usagePerUnit ?? 0))
           .mul(new Decimal(1).plus(new Decimal(item.lossRate ?? 0)));
-        const transaction = txBySkuId.get(Number(item.skuId));
+        const summary = flowSummary.get(Number(item.skuId));
+        const issuedQty = Decimal.max(
+          (summary?.issuedQty ?? new Decimal(0)).minus(summary?.returnedQty ?? 0),
+          0,
+        );
+        const lineSideQty = Decimal.max(
+          issuedQty.minus(summary?.consumedQty ?? 0).minus(summary?.scrapQty ?? 0),
+          0,
+        );
         const qtyAvailable = new Decimal(item.qtyAvailable ?? 0);
         const shortageQty = Decimal.max(requiredQty.minus(qtyAvailable), 0);
 
@@ -1286,31 +1627,40 @@ export class ProductionService {
           skuCode: item.skuCode,
           skuName: item.skuName,
           unit: item.unit,
+          hasDyeLot: Boolean(item.hasDyeLot),
           requiredQty: requiredQty.toFixed(4),
-          issuedQty: transaction?.actualQty ?? '0.0000',
+          issuedQty: issuedQty.toFixed(4),
           qtyAvailable: qtyAvailable.toFixed(4),
           shortageQty: shortageQty.toFixed(4),
           isShortage: shortageQty.gt(0),
-          inventoryTxId: transaction?.inventoryTxId ?? null,
+          inventoryTxId: summary?.inventoryTxId ?? null,
+          movementStatus: `已领 ${issuedQty.toFixed(4)} / 已耗 ${(summary?.consumedQty ?? new Decimal(0)).toFixed(4)} / 在线边 ${lineSideQty.toFixed(4)}`,
         };
       });
     }
 
     if (inputTransactions.length > 0) {
-      return inputTransactions.map((item) => ({
+      return Array.from(flowSummary.entries()).map(([skuId, summary]) => {
+        const transaction = inputTransactions.find((item) => Number(item.skuId) === Number(skuId));
+        const issuedQty = Decimal.max(summary.issuedQty.minus(summary.returnedQty), 0);
+        const lineSideQty = Decimal.max(issuedQty.minus(summary.consumedQty).minus(summary.scrapQty), 0);
+        return {
         itemType: 'material' as const,
         sourceLabel: '任务投料记录',
-        skuId: Number(item.skuId),
-        skuCode: item.skuCode,
-        skuName: item.skuName,
-        unit: item.stockUnit,
-        requiredQty: item.plannedQty,
-        issuedQty: item.actualQty,
-        qtyAvailable: item.qtyAvailable,
-        shortageQty: item.shortageQty,
-        isShortage: Number(item.shortageQty ?? 0) > 0,
-        inventoryTxId: item.inventoryTxId,
-      }));
+        skuId: Number(skuId),
+        skuCode: transaction?.skuCode ?? null,
+        skuName: transaction?.skuName ?? null,
+        unit: transaction?.stockUnit ?? null,
+        hasDyeLot: Boolean(transaction?.hasDyeLot),
+        requiredQty: transaction?.plannedQty ?? '0.0000',
+        issuedQty: issuedQty.toFixed(4),
+        qtyAvailable: transaction?.qtyAvailable ?? '0.0000',
+        shortageQty: transaction?.shortageQty ?? '0.0000',
+        isShortage: Number(transaction?.shortageQty ?? 0) > 0,
+        inventoryTxId: summary.inventoryTxId,
+        movementStatus: `已领 ${issuedQty.toFixed(4)} / 已耗 ${summary.consumedQty.toFixed(4)} / 在线边 ${lineSideQty.toFixed(4)}`,
+      };
+      });
     }
 
     if (task.taskType !== 'finished') {
@@ -1322,6 +1672,7 @@ export class ProductionService {
       skuCode: string | null;
       skuName: string | null;
       unit: string | null;
+      hasDyeLot: boolean;
       qtyRequired: string;
       availableQty: string;
       qtyShortage: string;
@@ -1331,13 +1682,18 @@ export class ProductionService {
           sku.sku_code AS skuCode,
           sku.name AS skuName,
           sku.stock_unit AS unit,
+          sku.has_dye_lot AS hasDyeLot,
           mr.qty_required AS qtyRequired,
-          CAST(COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) AS CHAR) AS availableQty,
+          CAST(COALESCE(inv.qtyAvailable, 0) AS CHAR) AS availableQty,
           CAST(mr.qty_shortage AS CHAR) AS qtyShortage
        FROM material_requirements mr
        INNER JOIN skus sku
          ON sku.id = mr.sku_id
-       LEFT JOIN inventory inv
+       LEFT JOIN (
+         SELECT tenant_id, sku_id, SUM(qty_on_hand - qty_reserved) AS qtyAvailable
+         FROM inventory
+         GROUP BY tenant_id, sku_id
+       ) inv
          ON inv.tenant_id = mr.tenant_id
         AND inv.sku_id = mr.sku_id
        WHERE mr.tenant_id = ? AND mr.production_order_id = ?
@@ -1362,12 +1718,14 @@ export class ProductionService {
         skuCode: item.skuCode,
         skuName: item.skuName,
         unit: item.unit,
+        hasDyeLot: Boolean(item.hasDyeLot),
         requiredQty: scaledRequiredQty.toFixed(4),
         issuedQty: '0.0000',
         qtyAvailable: qtyAvailable.toFixed(4),
         shortageQty: shortageQty.toFixed(4),
         isShortage: shortageQty.gt(0),
         inventoryTxId: null,
+        movementStatus: shortageQty.gt(0) ? '缺料待领' : '待领料',
       };
     });
   }
@@ -1396,9 +1754,11 @@ export class ProductionService {
     materialTransactions: Array<{
       id: number;
       ioType: 'input' | 'output';
+      movementType: 'issue' | 'return' | 'consume' | 'scrap' | 'output';
       skuId: number;
       skuCode: string | null;
       skuName: string | null;
+      hasDyeLot: boolean;
       stockUnit: string | null;
       plannedQty: string;
       actualQty: string;
@@ -1414,6 +1774,7 @@ export class ProductionService {
     skuCode: string | null;
     skuName: string | null;
     unit: string | null;
+    hasDyeLot: boolean;
     requiredQty: string;
     fulfilledQty: string;
     qtyAvailable: string;
@@ -1437,6 +1798,7 @@ export class ProductionService {
           skuCode: item.skuCode,
           skuName: item.skuName,
           unit: item.unit,
+          hasDyeLot: false,
           requiredQty: requiredQty.toFixed(4),
           fulfilledQty: fulfilledQty.toFixed(4),
           qtyAvailable: fulfilledQty.toFixed(4),
@@ -1466,12 +1828,13 @@ export class ProductionService {
         skuCode: item.skuCode,
         skuName: item.skuName,
         unit: item.unit,
+        hasDyeLot: item.hasDyeLot,
         requiredQty: item.requiredQty,
         fulfilledQty: item.issuedQty,
         qtyAvailable: item.qtyAvailable,
         shortageQty: item.shortageQty,
         isShortage: item.isShortage,
-        status: item.inventoryTxId ? '已投料' : Number(item.shortageQty ?? 0) > 0 ? '缺料' : '待投料',
+        status: item.movementStatus || (item.inventoryTxId ? '已投料' : Number(item.shortageQty ?? 0) > 0 ? '缺料' : '待投料'),
         operationId: null,
         stepName: null,
         inventoryTxId: item.inventoryTxId,
@@ -1501,6 +1864,7 @@ export class ProductionService {
       skuId: number;
       skuCode: string | null;
       skuName: string | null;
+      hasDyeLot: boolean;
       stockUnit: string | null;
       plannedQty: string;
       actualQty: string;
@@ -1516,6 +1880,7 @@ export class ProductionService {
     skuCode: string | null;
     skuName: string | null;
     unit: string | null;
+    hasDyeLot: boolean;
     requiredQty: string;
     fulfilledQty: string;
     qtyAvailable: string;
@@ -1543,6 +1908,7 @@ export class ProductionService {
       skuCode: string | null;
       skuName: string | null;
       unit: string | null;
+      hasDyeLot: boolean;
       quantity: string;
       scrapRate: string;
       qtyAvailable: string;
@@ -1553,9 +1919,10 @@ export class ProductionService {
           sku.sku_code AS skuCode,
           sku.name AS skuName,
           COALESCE(NULLIF(bi.unit, ''), sku.stock_unit) AS unit,
+          sku.has_dye_lot AS hasDyeLot,
           bi.quantity AS quantity,
           bi.scrap_rate AS scrapRate,
-          CAST(COALESCE(inv.qty_on_hand - inv.qty_reserved, 0) AS CHAR) AS qtyAvailable,
+          CAST(COALESCE(inv.qtyAvailable, 0) AS CHAR) AS qtyAvailable,
           CASE
             WHEN EXISTS (
               SELECT 1
@@ -1574,7 +1941,11 @@ export class ProductionService {
         AND bi.parent_item_id IS NULL
        LEFT JOIN skus sku
          ON sku.id = bi.component_sku_id
-       LEFT JOIN inventory inv
+       LEFT JOIN (
+         SELECT tenant_id, sku_id, SUM(qty_on_hand - qty_reserved) AS qtyAvailable
+         FROM inventory
+         GROUP BY tenant_id, sku_id
+       ) inv
          ON inv.tenant_id = bh.tenant_id
         AND inv.sku_id = bi.component_sku_id
        WHERE bh.tenant_id = ?
@@ -1606,6 +1977,7 @@ export class ProductionService {
           skuCode: item.skuCode,
           skuName: item.skuName,
           unit: item.unit,
+          hasDyeLot: false,
           requiredQty: requiredQty.toFixed(4),
           fulfilledQty: fulfilledQty.toFixed(4),
           qtyAvailable: fulfilledQty.toFixed(4),
@@ -1629,6 +2001,7 @@ export class ProductionService {
         skuCode: item.skuCode,
         skuName: item.skuName,
         unit: item.unit,
+        hasDyeLot: Boolean(item.hasDyeLot),
         requiredQty: requiredQty.toFixed(4),
         fulfilledQty: transaction?.actualQty ?? '0.0000',
         qtyAvailable: qtyAvailable.toFixed(4),
@@ -1663,6 +2036,12 @@ export class ProductionService {
       stockUnit: string | null;
       plannedQty: string;
       actualQty: string;
+      warehouseId?: number | null;
+      warehouseCode?: string | null;
+      warehouseName?: string | null;
+      locationId?: number | null;
+      locationCode?: string | null;
+      locationName?: string | null;
     }>,
   ): Array<{
     itemType: 'finished' | 'semi_finished';
@@ -1672,6 +2051,14 @@ export class ProductionService {
     unit: string | null;
     plannedQty: string;
     actualQty: string;
+    processStepId: number | null;
+    processName: string | null;
+    warehouseId: number | null;
+    warehouseCode: string | null;
+    warehouseName: string | null;
+    locationId: number | null;
+    locationCode: string | null;
+    locationName: string | null;
   }> {
     const outputTransactions = materialTransactions.filter((item) => item.ioType === 'output');
     if (outputTransactions.length > 0) {
@@ -1683,6 +2070,14 @@ export class ProductionService {
         unit: item.stockUnit,
         plannedQty: item.plannedQty,
         actualQty: item.actualQty,
+        processStepId: null,
+        processName: null,
+        warehouseId: item.warehouseId ?? null,
+        warehouseCode: item.warehouseCode ?? null,
+        warehouseName: item.warehouseName ?? null,
+        locationId: item.locationId ?? null,
+        locationCode: item.locationCode ?? null,
+        locationName: item.locationName ?? null,
       }));
     }
 
@@ -1694,7 +2089,201 @@ export class ProductionService {
       unit: task.outputStockUnit ?? null,
       plannedQty: String(task.plannedQty ?? '0'),
       actualQty: String(task.completedQty ?? '0'),
+      processStepId: null,
+      processName: null,
+      warehouseId: null,
+      warehouseCode: null,
+      warehouseName: null,
+      locationId: null,
+      locationCode: null,
+      locationName: null,
     }];
+  }
+
+  private async getPreferredSkuStorageMap(
+    skuIds: number[],
+    options: {
+      excludeWarehouseCodes?: string[];
+    } = {},
+  ): Promise<Map<number, {
+    warehouseId: number | null;
+    warehouseCode: string | null;
+    warehouseName: string | null;
+    locationId: number | null;
+    locationCode: string | null;
+    locationName: string | null;
+  }>> {
+    if (skuIds.length === 0) {
+      return new Map();
+    }
+
+    const excludedCodes = (options.excludeWarehouseCodes ?? []).filter((code) => code.trim().length > 0);
+    const excludeClause = excludedCodes.length > 0
+      ? ` AND COALESCE(w.code, '') NOT IN (${excludedCodes.map(() => '?').join(',')})`
+      : '';
+
+    const rows = await AppDataSource.query<Array<{
+      skuId: number;
+      warehouseId: number | null;
+      warehouseCode: string | null;
+      warehouseName: string | null;
+      locationId: number | null;
+      locationCode: string | null;
+      locationName: string | null;
+    }>>(
+      `SELECT
+          inv.sku_id AS skuId,
+          inv.warehouse_id AS warehouseId,
+          w.code AS warehouseCode,
+          w.name AS warehouseName,
+          inv.location_id AS locationId,
+          l.code AS locationCode,
+          l.name AS locationName
+       FROM inventory inv
+       LEFT JOIN warehouses w
+         ON w.id = inv.warehouse_id
+        AND w.tenant_id = inv.tenant_id
+       LEFT JOIN locations l
+         ON l.id = inv.location_id
+        AND l.tenant_id = inv.tenant_id
+       WHERE inv.tenant_id = ?
+         AND inv.sku_id IN (${skuIds.map(() => '?').join(',')})
+         ${excludeClause}
+       ORDER BY inv.sku_id ASC, (inv.qty_on_hand - inv.qty_reserved) DESC, inv.warehouse_id ASC, inv.location_id ASC`,
+      [this.tenantId, ...skuIds, ...excludedCodes],
+    );
+
+    const result = new Map<number, {
+      warehouseId: number | null;
+      warehouseCode: string | null;
+      warehouseName: string | null;
+      locationId: number | null;
+      locationCode: string | null;
+      locationName: string | null;
+    }>();
+    const normalizedRows = Array.isArray(rows) ? rows : [];
+    for (const row of normalizedRows) {
+      const skuId = Number(row.skuId);
+      if (!result.has(skuId)) {
+        result.set(skuId, {
+          warehouseId: row.warehouseId != null ? Number(row.warehouseId) : null,
+          warehouseCode: row.warehouseCode ?? null,
+          warehouseName: row.warehouseName ?? null,
+          locationId: row.locationId != null ? Number(row.locationId) : null,
+          locationCode: row.locationCode ?? null,
+          locationName: row.locationName ?? null,
+        });
+      }
+    }
+    return result;
+  }
+
+  private async getDefaultStorageLocation(): Promise<{
+    warehouseId: number | null;
+    warehouseCode: string | null;
+    warehouseName: string | null;
+    locationId: number | null;
+    locationCode: string | null;
+    locationName: string | null;
+  } | null> {
+    const rows = await AppDataSource.query<Array<{
+      warehouseId: number;
+      warehouseCode: string;
+      warehouseName: string;
+      locationId: number;
+      locationCode: string;
+      locationName: string;
+    }>>(
+      `SELECT
+          w.id AS warehouseId,
+          w.code AS warehouseCode,
+          w.name AS warehouseName,
+          l.id AS locationId,
+          l.code AS locationCode,
+          l.name AS locationName
+       FROM warehouses w
+       INNER JOIN locations l
+         ON l.tenant_id = w.tenant_id
+        AND l.warehouse_id = w.id
+       WHERE w.tenant_id = ?
+         AND w.code = 'DEFAULT'
+         AND l.code = 'DEFAULT-UNKNOWN'
+       LIMIT 1`,
+      [this.tenantId],
+    );
+    const row = Array.isArray(rows) ? rows[0] : null;
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      warehouseId: Number(row.warehouseId),
+      warehouseCode: row.warehouseCode,
+      warehouseName: row.warehouseName,
+      locationId: Number(row.locationId),
+      locationCode: row.locationCode,
+      locationName: row.locationName,
+    };
+  }
+
+  private pickStorageLocation(
+    transaction: {
+      warehouseId?: number | null;
+      warehouseCode?: string | null;
+      warehouseName?: string | null;
+      locationId?: number | null;
+      locationCode?: string | null;
+      locationName?: string | null;
+    } | undefined,
+    preferredStorage: {
+      warehouseId: number | null;
+      warehouseCode: string | null;
+      warehouseName: string | null;
+      locationId: number | null;
+      locationCode: string | null;
+      locationName: string | null;
+    } | undefined,
+    fallbackStorage: {
+      warehouseId: number | null;
+      warehouseCode: string | null;
+      warehouseName: string | null;
+      locationId: number | null;
+      locationCode: string | null;
+      locationName: string | null;
+    } | null,
+  ): {
+    warehouseId: number | null;
+    warehouseCode: string | null;
+    warehouseName: string | null;
+    locationId: number | null;
+    locationCode: string | null;
+    locationName: string | null;
+  } {
+    const transactionHasLocation = Boolean(transaction?.warehouseId || transaction?.locationId || transaction?.warehouseCode || transaction?.locationCode);
+    if (transactionHasLocation) {
+      return {
+        warehouseId: transaction?.warehouseId != null ? Number(transaction.warehouseId) : null,
+        warehouseCode: transaction?.warehouseCode ?? null,
+        warehouseName: transaction?.warehouseName ?? null,
+        locationId: transaction?.locationId != null ? Number(transaction.locationId) : null,
+        locationCode: transaction?.locationCode ?? null,
+        locationName: transaction?.locationName ?? null,
+      };
+    }
+
+    if (preferredStorage) {
+      return preferredStorage;
+    }
+
+    return fallbackStorage ?? {
+      warehouseId: null,
+      warehouseCode: null,
+      warehouseName: null,
+      locationId: null,
+      locationCode: null,
+      locationName: null,
+    };
   }
 
   // BE-P1-008: 生产进度看板

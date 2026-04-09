@@ -100,6 +100,15 @@ export interface ProductionTask {
   exceptions?: TaskException[];
 }
 
+export interface TaskInventoryActionItemPayload {
+  skuId: number;
+  qty: string;
+  warehouseId?: number;
+  locationId?: number;
+  dyeLotNo?: string;
+  notes?: string;
+}
+
 function normalizeTaskStatus<T extends { status?: string | null }>(task: T): T {
   if (task.status === 'started') {
     return { ...task, status: 'in_progress' } as T;
@@ -126,6 +135,10 @@ export const taskApi = {
     request.post<any>(`/api/production/tasks/${taskId}/start`),
   complete: (taskId: number, data: { completedQty: string; actualHours: string; notes?: string; scrapQty?: string }) =>
     request.post<any>(`/api/production/tasks/${taskId}/complete-v2`, data),
+  issueMaterials: (taskId: number, data: { items: TaskInventoryActionItemPayload[] }) =>
+    request.post<any>(`/api/production/tasks/${taskId}/issue-materials`, data),
+  returnMaterials: (taskId: number, data: { items: TaskInventoryActionItemPayload[] }) =>
+    request.post<any>(`/api/production/tasks/${taskId}/return-materials`, data),
   reportException: (taskId: number, data: { type: string; description: string; affectsProgress: boolean; severity: 'medium' | 'high' }) =>
     request.post<any>(`/api/production/tasks/${taskId}/exception`, data),
   resolveException: (taskId: number, data: { resolution: string }) =>
@@ -179,6 +192,24 @@ export function useCompleteTask() {
   return useMutation({
     mutationFn: ({ taskId, data }: { taskId: number; data: { completedQty: string; actualHours: string; notes?: string } }) =>
       taskApi.complete(taskId, data),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: taskKeys.all }); },
+  });
+}
+
+export function useIssueTaskMaterials() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, data }: { taskId: number; data: { items: TaskInventoryActionItemPayload[] } }) =>
+      taskApi.issueMaterials(taskId, data),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: taskKeys.all }); },
+  });
+}
+
+export function useReturnTaskMaterials() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, data }: { taskId: number; data: { items: TaskInventoryActionItemPayload[] } }) =>
+      taskApi.returnMaterials(taskId, data),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: taskKeys.all }); },
   });
 }

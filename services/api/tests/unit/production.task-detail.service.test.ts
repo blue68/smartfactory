@@ -46,6 +46,7 @@ describe('ProductionService.getTaskDetail', () => {
         productionOrderId: 66,
         orderNo: 'WO-301',
         priority: 80,
+        plannedFinishTime: '2026-04-03 18:00:00',
         salesOrderId: 99,
         skuId: 301,
         orderPlannedQty: '12.0000',
@@ -58,6 +59,7 @@ describe('ProductionService.getTaskDetail', () => {
         skuName: '成品 301',
         skuCode: 'FG-301',
         outputSkuName: '半成品 501',
+        taskType: 'semi_finished',
       }])
       .mockResolvedValueOnce([{
         id: 901,
@@ -88,7 +90,36 @@ describe('ProductionService.getTaskDetail', () => {
         transactionQty: '6.0000',
         transactionTime: '2026-04-01 11:30:00',
         referenceNo: 'WO-301',
+        warehouseId: 9,
+        warehouseCode: 'WH-A',
+        warehouseName: '成品仓',
+        locationId: 99,
+        locationCode: 'A-01',
+        locationName: 'A-01',
       }]);
+    mockQuery
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          skuId: 501,
+          warehouseId: 9,
+          warehouseCode: 'WH-A',
+          warehouseName: '成品仓',
+          locationId: 99,
+          locationCode: 'A-01',
+          locationName: 'A-01',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          warehouseId: 1,
+          warehouseCode: 'DEFAULT',
+          warehouseName: '默认仓库',
+          locationId: 11,
+          locationCode: 'DEFAULT-UNKNOWN',
+          locationName: '默认未知库位',
+        },
+      ]);
 
     mockGetTaskWageReport.mockResolvedValue([
       [{
@@ -135,7 +166,31 @@ describe('ProductionService.getTaskDetail', () => {
       transactionQty: '6.0000',
       transactionTime: '2026-04-01 11:30:00',
       referenceNo: 'WO-301',
+      warehouseId: 9,
+      warehouseCode: 'WH-A',
+      warehouseName: '成品仓',
+      locationId: 99,
+      locationCode: 'A-01',
+      locationName: 'A-01',
     }]);
+    expect(result.outputItems).toEqual([{
+      itemType: 'semi_finished',
+      skuId: 501,
+      skuCode: 'WIP-501',
+      skuName: '半成品 501',
+      unit: undefined,
+      plannedQty: '12.0000',
+      actualQty: '6.0000',
+      processStepId: 12,
+      processName: '裁剪',
+      warehouseId: 9,
+      warehouseCode: 'WH-A',
+      warehouseName: '成品仓',
+      locationId: 99,
+      locationCode: 'A-01',
+      locationName: 'A-01',
+    }]);
+    expect(result.plannedFinishTime).toBe('2026-04-03 18:00:00');
     expect(result.wageReport).toEqual({
       reportId: 1001,
       reportNo: 'WR-1001',
@@ -171,6 +226,8 @@ describe('ProductionService.getTaskDetail', () => {
         operationId: null,
       }])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
     mockGetTaskWageReport.mockResolvedValue([[], 0]);
@@ -185,7 +242,7 @@ describe('ProductionService.getTaskDetail', () => {
     });
     expect(result.materialTransactions).toEqual([]);
     expect(result.wageReport).toBeNull();
-    expect(mockQuery).toHaveBeenCalledTimes(3);
+    expect(mockQuery).toHaveBeenCalledTimes(7);
   });
 
   it('preserves mixed resolved and unresolved exceptions while returning wage summary fields', async () => {
@@ -235,6 +292,8 @@ describe('ProductionService.getTaskDetail', () => {
         completedQty: '12.0000',
         status: 'completed',
       }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
     mockGetTaskWageReport.mockResolvedValue([

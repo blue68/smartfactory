@@ -6,6 +6,7 @@
  * - TC-PUR-009  驳回必须填原因 → 1001
  * - TC-PUR-010  驳回填写原因
  * - TC-PUR-011  非boss角色无权审批 → 1003
+ * - TC-PUR-DN-001  需缸号物料录入送货单可携带 dyeLotNo
  * - TC-3WM-001  三单完全匹配
  * - TC-3WM-002  数量差异 → qty_diff
  * - TC-3WM-004  价格预警 → price_warning
@@ -98,6 +99,18 @@ async function hasTable(pool: Pool, tableName: string): Promise<boolean> {
       WHERE table_schema = DATABASE()
         AND table_name = ?`,
     [tableName],
+  );
+  return Number(rows[0]?.cnt ?? 0) > 0;
+}
+
+async function hasColumn(pool: Pool, tableName: string, columnName: string): Promise<boolean> {
+  const [rows] = await pool.query<CountRow[]>(
+    `SELECT COUNT(*) AS cnt
+       FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = ?
+        AND column_name = ?`,
+    [tableName, columnName],
   );
   return Number(rows[0]?.cnt ?? 0) > 0;
 }
@@ -517,6 +530,101 @@ describe('采购模块 API 集成测试', () => {
       expect(res.status).toBe(201);
       expect(res.body.code).toBe(0);
       expect(res.body.data.poNo).toMatch(/^PO\d+/);
+    });
+  });
+
+  describe('创建送货单 — POST /api/purchase/orders/:id/delivery', () => {
+    test('TC-PUR-DN-001: 需缸号物料可携带 dyeLotNo 创建送货单', async () => {
+      const pool = getDbPool();
+      const supportsDeliveryItemDyeLot = await hasColumn(pool, 'delivery_note_items', 'dye_lot_no');
+      const uniqueSuffix = Date.now();
+      const poId = Number(`91${String(uniqueSuffix).slice(-6)}`);
+      const poItemId = poId + 1;
+      let deliveryId: number | null = null;
+
+      await pool.execute(
+        `UPDATE skus
+         SET has_dye_lot = 1, updated_by = 99002
+         WHERE tenant_id = ? AND id = ?`,
+        [TEST_TENANT_ID, TEST_SKU_ID],
+      );
+
+      try {
+        await pool.execute(
+          `INSERT INTO purchase_orders
+            (id, tenant_id, po_no, supplier_id, status, total_amount, expected_date, notes, created_by, updated_by)
+           VALUES (?, ?, ?, ?, 'confirmed', 1000.00, CURDATE(), '缸号送货单集成回归', 99002, 99002)`,
+          [poId, TEST_TENANT_ID, `PO-INT-DYE-${uniqueSuffix}`, TEST_SUPPLIER_ID],
+        );
+        await pool.execute(
+          `INSERT INTO purchase_order_items
+            (id, tenant_id, po_id, sku_id, qty_ordered, qty_received, purchase_unit, unit_price, amount, created_by, updated_by)
+           VALUES (?, ?, ?, ?, 10.0000, 0.0000, '箱', 100.0000, 1000.00, 99002, 99002)`,
+          [poItemId, TEST_TENANT_ID, poId, TEST_SKU_ID],
+        );
+
+        const res = await request(BASE_URL)
+          .post(`/api/purchase/orders/${poId}/delivery`)
+          .set(authHeader('boss'))
+          .send({
+            poId,
+            deliveryDate: '2026-04-10',
+            notes: '缸号回归测试',
+            items: [
+              {
+                skuId: TEST_SKU_ID,
+                qtyDelivered: '5',
+                purchaseUnit: '箱',
+                unitPrice: '100.00',
+                dyeLotNo: 'DY-INT-20260410-A01',
+              },
+            ],
+          });
+
+        expect(res.status).toBe(201);
+        expect(res.body.code).toBe(0);
+        expect(res.body.data.deliveryNo).toMatch(/^DN/);
+        deliveryId = Number(res.body.data.id);
+
+        const [rows] = await pool.query<Array<RowDataPacket & {
+          qty_delivered: string;
+          dye_lot_no?: string | null;
+        }>>(
+          `SELECT qty_delivered${supportsDeliveryItemDyeLot ? ', dye_lot_no' : ''}
+             FROM delivery_note_items
+            WHERE tenant_id = ? AND delivery_note_id = ?`,
+          [TEST_TENANT_ID, deliveryId],
+        );
+
+        expect(rows).toHaveLength(1);
+        expect(String(rows[0].qty_delivered)).toBe('5.0000');
+        if (supportsDeliveryItemDyeLot) {
+          expect(String(rows[0].dye_lot_no ?? '')).toBe('DY-INT-20260410-A01');
+        }
+      } finally {
+        await pool.execute(
+          'DELETE FROM delivery_note_items WHERE tenant_id = ? AND delivery_note_id = ?',
+          [TEST_TENANT_ID, deliveryId ?? -1],
+        );
+        await pool.execute(
+          'DELETE FROM delivery_notes WHERE tenant_id = ? AND id = ?',
+          [TEST_TENANT_ID, deliveryId ?? -1],
+        );
+        await pool.execute(
+          'DELETE FROM purchase_order_items WHERE tenant_id = ? AND id = ?',
+          [TEST_TENANT_ID, poItemId],
+        );
+        await pool.execute(
+          'DELETE FROM purchase_orders WHERE tenant_id = ? AND id = ?',
+          [TEST_TENANT_ID, poId],
+        );
+        await pool.execute(
+          `UPDATE skus
+           SET has_dye_lot = 0, updated_by = 99002
+           WHERE tenant_id = ? AND id = ?`,
+          [TEST_TENANT_ID, TEST_SKU_ID],
+        );
+      }
     });
   });
 

@@ -970,6 +970,12 @@ export interface ProductionTaskMaterialTransaction {
   transactionQty: string | null;
   transactionTime: string | null;
   referenceNo: string | null;
+  warehouseId: number | null;
+  warehouseCode: string | null;
+  warehouseName: string | null;
+  locationId: number | null;
+  locationCode: string | null;
+  locationName: string | null;
 }
 
 export interface ProductionTaskInputMaterial {
@@ -979,12 +985,19 @@ export interface ProductionTaskInputMaterial {
   skuCode: string | null;
   skuName: string | null;
   unit: string | null;
+  hasDyeLot: boolean;
   requiredQty: string;
   issuedQty: string;
   qtyAvailable: string;
   shortageQty: string;
   isShortage: boolean | 0 | 1 | '0' | '1';
   inventoryTxId: number | null;
+  warehouseId?: number | null;
+  warehouseCode?: string | null;
+  warehouseName?: string | null;
+  locationId?: number | null;
+  locationCode?: string | null;
+  locationName?: string | null;
 }
 
 export interface ProductionTaskInputItem {
@@ -994,6 +1007,7 @@ export interface ProductionTaskInputItem {
   skuCode: string | null;
   skuName: string | null;
   unit: string | null;
+  hasDyeLot: boolean;
   requiredQty: string;
   fulfilledQty: string;
   qtyAvailable: string;
@@ -1003,6 +1017,12 @@ export interface ProductionTaskInputItem {
   operationId: number | null;
   stepName: string | null;
   inventoryTxId: number | null;
+  warehouseId: number | null;
+  warehouseCode: string | null;
+  warehouseName: string | null;
+  locationId: number | null;
+  locationCode: string | null;
+  locationName: string | null;
 }
 
 export interface ProductionTaskOutputItem {
@@ -1013,6 +1033,14 @@ export interface ProductionTaskOutputItem {
   unit: string | null;
   plannedQty: string;
   actualQty: string;
+  processStepId: number | null;
+  processName: string | null;
+  warehouseId: number | null;
+  warehouseCode: string | null;
+  warehouseName: string | null;
+  locationId: number | null;
+  locationCode: string | null;
+  locationName: string | null;
 }
 
 export interface ProductionTaskWageReport {

@@ -4,10 +4,11 @@ import { TenantContext } from '../../shared/BaseRepository';
 import { getRedisClient, RedisKeys, RedisTTL } from '../../config/redis';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
+import { generateNo } from '../../shared/generateNo';
 import { ProductionPhase1Service } from './production-phase1.service';
 import { WorkflowEngineService } from './workflow-engine.service';
 import { syncInventoryDailySnapshotForSku } from '../inventory/daily-snapshot.util';
-import { resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
+import { ensureProductionWipWarehouseLocation, resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
 
 // ─── 类型定义 ──────────────────────────────────────────────────
 
@@ -102,6 +103,42 @@ interface WorkReportSchema {
   dateColumn: 'work_date' | 'report_date';
   qtyColumn: 'qty_completed' | 'qty';
   modern: boolean;
+}
+
+interface TaskInventoryActionItem {
+  skuId: number;
+  qty: string;
+  warehouseId?: number;
+  locationId?: number;
+  dyeLotNo?: string;
+  notes?: string;
+}
+
+interface LockedTaskRow {
+  id: number;
+  task_no: string;
+  status: string;
+  started_at: string | null;
+  production_order_id: number;
+  process_step_id: number;
+  worker_id: number;
+  operation_id: number | null;
+  output_sku_id: number | null;
+  planned_qty: string;
+}
+
+interface TaskInputPlanRow {
+  inputSkuId: number;
+  actualSkuId: number;
+  usagePerUnit: string;
+  lossRate: string;
+  consumeTiming: 'start' | 'complete';
+}
+
+interface InventorySkuRow {
+  stockUnit: string;
+  hasDyeLot: boolean;
+  skuName: string;
 }
 
 export interface SchedulePlan {
@@ -597,21 +634,7 @@ export class SchedulerService {
    */
   async startTask(taskId: number): Promise<void> {
     await AppDataSource.transaction(async (manager) => {
-      const [lockedTask] = await manager.query<Array<{
-        id: number;
-        status: string;
-        started_at: string | null;
-        production_order_id: number;
-        process_step_id: number;
-        operation_id: number | null;
-        planned_qty: string;
-      }>>(
-        `SELECT id, status, started_at, production_order_id, process_step_id, operation_id, planned_qty
-         FROM production_tasks
-         WHERE id = ? AND tenant_id = ?
-         LIMIT 1 FOR UPDATE`,
-        [taskId, this.tenantId],
-      );
+      const lockedTask = await this.getLockedTask(manager, taskId);
 
       if (!lockedTask) {
         throw AppError.notFound('生产任务不存在');
@@ -629,13 +652,7 @@ export class SchedulerService {
       );
 
       if (!lockedTask.started_at) {
-        await this.insertTaskInputTransactions(
-          manager,
-          lockedTask,
-          taskId,
-          lockedTask.planned_qty,
-          'start',
-        );
+        await this.ensureTaskInputTransactions(manager, lockedTask, taskId);
       }
 
       await manager.query(
@@ -651,6 +668,188 @@ export class SchedulerService {
         [this.userId, taskId, this.tenantId],
       );
     });
+  }
+
+  async issueTaskMaterials(taskId: number, params: { items: TaskInventoryActionItem[] }): Promise<{
+    taskId: number;
+    results: Array<{
+      skuId: number;
+      qty: string;
+      warehouseId: number;
+      locationId: number;
+      transactionNo: string;
+    }>;
+  }> {
+    const results: Array<{
+      skuId: number;
+      qty: string;
+      warehouseId: number;
+      locationId: number;
+      transactionNo: string;
+    }> = [];
+    let trackedInventoryManager:
+      | ({ query: typeof AppDataSource.query; __inventorySnapshotSkuIds?: Set<number> })
+      | null = null;
+
+    await AppDataSource.transaction(async (manager) => {
+      trackedInventoryManager = manager as typeof trackedInventoryManager;
+      const lockedTask = await this.getLockedTask(manager, taskId);
+      if (!lockedTask) {
+        throw AppError.notFound('生产任务不存在');
+      }
+      if (lockedTask.status === 'completed' || lockedTask.status === 'cancelled') {
+        throw AppError.conflict('当前任务状态不允许继续领料');
+      }
+
+      const materialPlans = await this.fetchTaskInputMaterialPlans(manager, lockedTask);
+      const taskMaterialMap = await this.ensureTaskInputTransactions(manager, lockedTask, taskId, materialPlans);
+      const wipLocation = await ensureProductionWipWarehouseLocation(manager, this.tenantId, this.userId);
+
+      for (const item of params.items) {
+        const taskMaterialTxId = taskMaterialMap.get(Number(item.skuId));
+        if (!taskMaterialTxId) {
+          throw AppError.badRequest(`SKU#${item.skuId} 不是当前任务的输入项`);
+        }
+
+        const sourceLocation = await resolveWarehouseLocationBinding({
+          manager,
+          tenantId: this.tenantId,
+          userId: this.userId,
+          warehouseId: item.warehouseId,
+          locationId: item.locationId,
+          sourceRef: 'production:task:issue',
+        });
+
+        const transfer = await this.transferTaskInventory(manager, {
+          taskId,
+          taskMaterialTxId,
+          productionOrderId: lockedTask.production_order_id,
+          referenceNo: lockedTask.task_no,
+          skuId: Number(item.skuId),
+          qty: item.qty,
+          dyeLotNo: item.dyeLotNo ?? null,
+          notes: item.notes ?? null,
+          sourceWarehouseId: sourceLocation.warehouseId,
+          sourceLocationId: sourceLocation.locationId,
+          targetWarehouseId: wipLocation.warehouseId,
+          targetLocationId: wipLocation.locationId,
+          outboundType: 'PRODUCTION_ISSUE_OUT',
+          inboundType: 'PRODUCTION_ISSUE_IN',
+          movementType: 'issue',
+          respectReservedOnSource: true,
+          sourceRef: 'production:task:issue',
+        });
+
+        results.push({
+          skuId: Number(item.skuId),
+          qty: transfer.qty,
+          warehouseId: transfer.warehouseId,
+          locationId: transfer.locationId,
+          transactionNo: transfer.transactionNo,
+        });
+      }
+    });
+
+    await this.invalidateInventorySnapshotCaches(
+      this.consumeTrackedInventorySnapshotSkuIds(trackedInventoryManager),
+    );
+
+    return { taskId, results };
+  }
+
+  async returnTaskMaterials(taskId: number, params: { items: TaskInventoryActionItem[] }): Promise<{
+    taskId: number;
+    results: Array<{
+      skuId: number;
+      qty: string;
+      warehouseId: number;
+      locationId: number;
+      transactionNo: string;
+    }>;
+  }> {
+    const results: Array<{
+      skuId: number;
+      qty: string;
+      warehouseId: number;
+      locationId: number;
+      transactionNo: string;
+    }> = [];
+    let trackedInventoryManager:
+      | ({ query: typeof AppDataSource.query; __inventorySnapshotSkuIds?: Set<number> })
+      | null = null;
+
+    await AppDataSource.transaction(async (manager) => {
+      trackedInventoryManager = manager as typeof trackedInventoryManager;
+      const lockedTask = await this.getLockedTask(manager, taskId);
+      if (!lockedTask) {
+        throw AppError.notFound('生产任务不存在');
+      }
+      if (lockedTask.status === 'completed' || lockedTask.status === 'cancelled') {
+        throw AppError.conflict('当前任务状态不允许继续退料');
+      }
+
+      const materialPlans = await this.fetchTaskInputMaterialPlans(manager, lockedTask);
+      const taskMaterialMap = await this.ensureTaskInputTransactions(manager, lockedTask, taskId, materialPlans);
+      const taskIssuedMap = await this.getTaskNetMovementAvailability(manager, taskId);
+      const wipLocation = await ensureProductionWipWarehouseLocation(manager, this.tenantId, this.userId);
+
+      for (const item of params.items) {
+        const skuId = Number(item.skuId);
+        const taskMaterialTxId = taskMaterialMap.get(skuId);
+        if (!taskMaterialTxId) {
+          throw AppError.badRequest(`SKU#${skuId} 不是当前任务的输入项`);
+        }
+
+        const availableToReturn = new Decimal(taskIssuedMap.get(this.buildTaskMovementKey(skuId, item.dyeLotNo ?? null)) ?? 0);
+        const returnQty = new Decimal(item.qty);
+        if (returnQty.gt(availableToReturn)) {
+          throw AppError.conflict(`任务可退线边库存不足：SKU#${skuId} 当前仅剩 ${availableToReturn.toFixed(4)}`);
+        }
+
+        const targetLocation = await resolveWarehouseLocationBinding({
+          manager,
+          tenantId: this.tenantId,
+          userId: this.userId,
+          warehouseId: item.warehouseId,
+          locationId: item.locationId,
+          sourceRef: 'production:task:return',
+        });
+
+        const transfer = await this.transferTaskInventory(manager, {
+          taskId,
+          taskMaterialTxId,
+          productionOrderId: lockedTask.production_order_id,
+          referenceNo: lockedTask.task_no,
+          skuId,
+          qty: item.qty,
+          dyeLotNo: item.dyeLotNo ?? null,
+          notes: item.notes ?? null,
+          sourceWarehouseId: wipLocation.warehouseId,
+          sourceLocationId: wipLocation.locationId,
+          targetWarehouseId: targetLocation.warehouseId,
+          targetLocationId: targetLocation.locationId,
+          outboundType: 'PRODUCTION_RETURN_OUT',
+          inboundType: 'PRODUCTION_RETURN_IN',
+          movementType: 'return',
+          respectReservedOnSource: false,
+          sourceRef: 'production:task:return',
+        });
+
+        results.push({
+          skuId,
+          qty: transfer.qty,
+          warehouseId: transfer.warehouseId,
+          locationId: transfer.locationId,
+          transactionNo: transfer.transactionNo,
+        });
+      }
+    });
+
+    await this.invalidateInventorySnapshotCaches(
+      this.consumeTrackedInventorySnapshotSkuIds(trackedInventoryManager),
+    );
+
+    return { taskId, results };
   }
 
   /**
@@ -671,22 +870,7 @@ export class SchedulerService {
       | null = null;
     await AppDataSource.transaction(async (manager) => {
       trackedInventoryManager = manager as typeof trackedInventoryManager;
-      const [lockedTask] = await manager.query<Array<{
-        id: number;
-        status: string;
-        production_order_id: number;
-        process_step_id: number;
-        worker_id: number;
-        operation_id: number | null;
-        output_sku_id: number | null;
-        planned_qty: string;
-      }>>(
-        `SELECT id, status, production_order_id, process_step_id, worker_id, operation_id, output_sku_id, planned_qty
-         FROM production_tasks
-         WHERE id = ? AND tenant_id = ?
-         LIMIT 1 FOR UPDATE`,
-        [taskId, this.tenantId],
-      );
+      const lockedTask = await this.getLockedTask(manager, taskId);
 
       if (!lockedTask) {
         throw AppError.notFound('生产任务不存在');
@@ -704,10 +888,19 @@ export class SchedulerService {
       const updateSets = [
         'status = \'completed\'',
         'completed_qty = ?',
+        'scrap_qty = ?',
+        'scrap_reason = ?',
         'completed_at = NOW()',
         'updated_by = ?',
       ];
-      const updateVals: unknown[] = [params.completedQty, this.userId];
+      const scrapQty = new Decimal(params.scrapQty ?? 0);
+      const qualifiedQty = Decimal.max(new Decimal(params.completedQty).minus(scrapQty), 0);
+      const updateVals: unknown[] = [
+        params.completedQty,
+        scrapQty.toFixed(4),
+        params.scrapReason ?? null,
+        this.userId,
+      ];
 
       if (params.actualHours !== undefined && params.actualHours !== null) {
         updateSets.push('actual_hours = ?');
@@ -747,11 +940,31 @@ export class SchedulerService {
         );
       }
 
-      await this.insertTaskInputTransactions(manager, lockedTask, taskId, params.completedQty, 'complete');
-      await this.insertTaskOutputTransaction(manager, lockedTask, taskId, params);
-      await this.workflow().onTaskCompleted(taskId, params.completedQty, manager as any, {
-        syncOrderCompletion: false,
+      const materialPlans = await this.fetchTaskInputMaterialPlans(manager, lockedTask);
+      const taskMaterialMap = await this.ensureTaskInputTransactions(manager, lockedTask, taskId, materialPlans);
+      const consumedSkuIds = await this.consumeTaskInputMaterials(
+        manager,
+        lockedTask,
+        taskId,
+        params.completedQty,
+        materialPlans,
+        taskMaterialMap,
+      );
+      consumedSkuIds.forEach((skuId) => affectedInventorySkuIds.add(skuId));
+
+      await this.insertTaskOutputTransaction(manager, lockedTask, taskId, {
+        completedQty: qualifiedQty.toFixed(4),
       });
+      await this.workflow().onTaskCompleted(
+        taskId,
+        params.completedQty,
+        qualifiedQty.toFixed(4),
+        scrapQty.toFixed(4),
+        manager as any,
+        {
+        syncOrderCompletion: false,
+        },
+      );
       await this.syncOrderCompletion(manager, lockedTask.production_order_id);
       await this.insertWorkReport(manager, lockedTask, taskId, params);
 
@@ -982,6 +1195,17 @@ export class SchedulerService {
     }
   }
 
+  private trackInventorySnapshotCacheInvalidation(
+    manager: { __inventorySnapshotSkuIds?: Set<number> } | null,
+    skuIds: number[],
+  ): void {
+    if (!manager || skuIds.length === 0) return;
+    const tracked = (manager.__inventorySnapshotSkuIds ??= new Set<number>());
+    for (const skuId of skuIds) {
+      tracked.add(Number(skuId));
+    }
+  }
+
   private consumeTrackedInventorySnapshotSkuIds(
     manager:
       | ({ __inventorySnapshotSkuIds?: Set<number> })
@@ -1143,29 +1367,45 @@ export class SchedulerService {
     await syncInventoryDailySnapshotForSku(manager, this.tenantId, skuId);
   }
 
-  private async insertTaskInputTransactions(
+  private async getLockedTask(
+    manager: { query: typeof AppDataSource.query },
+    taskId: number,
+  ): Promise<LockedTaskRow | null> {
+    const [lockedTask] = await manager.query<Array<LockedTaskRow>>(
+      `SELECT
+          id,
+          task_no,
+          status,
+          started_at,
+          production_order_id,
+          process_step_id,
+          worker_id,
+          operation_id,
+          output_sku_id,
+          planned_qty
+       FROM production_tasks
+       WHERE id = ? AND tenant_id = ?
+       LIMIT 1 FOR UPDATE`,
+      [taskId, this.tenantId],
+    );
+
+    return lockedTask ?? null;
+  }
+
+  private async fetchTaskInputMaterialPlans(
     manager: { query: typeof AppDataSource.query },
     task: {
       production_order_id: number;
       process_step_id: number;
-      planned_qty: string;
-      operation_id: number | null;
     },
-    taskId: number,
-    actualCompletedQty: string,
-    consumeTiming: 'start' | 'complete',
-  ): Promise<void> {
-    const materialRows = await manager.query<Array<{
-      input_sku_id: number;
-      actual_sku_id: number;
-      usage_per_unit: string;
-      loss_rate: string;
-    }>>(
+  ): Promise<TaskInputPlanRow[]> {
+    return manager.query<TaskInputPlanRow[]>(
       `SELECT
-          psm.input_sku_id,
-          COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id) AS actual_sku_id,
-          psm.usage_per_unit,
-          psm.loss_rate
+          psm.input_sku_id AS inputSkuId,
+          COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id) AS actualSkuId,
+          psm.usage_per_unit AS usagePerUnit,
+          psm.loss_rate AS lossRate,
+          psm.consume_timing AS consumeTiming
        FROM process_steps ps
        INNER JOIN process_step_materials psm
          ON psm.tenant_id = ps.tenant_id
@@ -1176,22 +1416,33 @@ export class SchedulerService {
         AND poc.production_order_id = ?
         AND poc.sku_id = psm.input_sku_id
        WHERE ps.id = ? AND ps.tenant_id = ?
-         AND psm.consume_timing = ?`,
-      [this.tenantId, task.production_order_id, task.process_step_id, this.tenantId, consumeTiming],
+       ORDER BY psm.id ASC`,
+      [this.tenantId, task.production_order_id, task.process_step_id, this.tenantId],
     );
+  }
 
-    if (materialRows.length === 0) {
-      return;
+  private async ensureTaskInputTransactions(
+    manager: { query: typeof AppDataSource.query },
+    task: {
+      production_order_id: number;
+      process_step_id: number;
+      planned_qty: string;
+      operation_id: number | null;
+    },
+    taskId: number,
+    materialRows?: TaskInputPlanRow[],
+  ): Promise<Map<number, number>> {
+    const plans = materialRows ?? await this.fetchTaskInputMaterialPlans(manager, task);
+    if (plans.length === 0) {
+      return new Map();
     }
 
     const plannedQty = new Decimal(task.planned_qty);
-    const actualQty = new Decimal(actualCompletedQty);
 
-    for (const material of materialRows) {
-      const usagePerUnit = new Decimal(material.usage_per_unit ?? 0);
-      const multiplier = new Decimal(1).plus(new Decimal(material.loss_rate ?? 0));
+    for (const material of plans) {
+      const usagePerUnit = new Decimal(material.usagePerUnit ?? 0);
+      const multiplier = new Decimal(1).plus(new Decimal(material.lossRate ?? 0));
       const plannedInputQty = plannedQty.mul(usagePerUnit).mul(multiplier);
-      const actualInputQty = actualQty.mul(usagePerUnit).mul(multiplier);
 
       await manager.query(
         `INSERT INTO task_material_transactions
@@ -1206,16 +1457,493 @@ export class SchedulerService {
           this.tenantId,
           taskId,
           task.operation_id,
-          Number(material.actual_sku_id ?? material.input_sku_id),
+          Number(material.actualSkuId ?? material.inputSkuId),
           plannedInputQty.toFixed(4),
-          actualInputQty.toFixed(4),
+          '0.0000',
           this.userId,
           this.tenantId,
           taskId,
-          Number(material.actual_sku_id ?? material.input_sku_id),
+          Number(material.actualSkuId ?? material.inputSkuId),
         ],
       );
     }
+
+    const rows = await manager.query<Array<{ id: number; sku_id: number }>>(
+      `SELECT id, sku_id
+       FROM task_material_transactions
+       WHERE tenant_id = ? AND task_id = ? AND io_type = 'input'`,
+      [this.tenantId, taskId],
+    );
+
+    return new Map(rows.map((row) => [Number(row.sku_id), Number(row.id)]));
+  }
+
+  private buildTaskMovementKey(skuId: number, dyeLotNo: string | null): string {
+    return `${skuId}::${dyeLotNo ?? ''}`;
+  }
+
+  private async getTaskNetMovementAvailability(
+    manager: { query: typeof AppDataSource.query },
+    taskId: number,
+  ): Promise<Map<string, string>> {
+    const rows = await manager.query<Array<{ skuId: number; dyeLotNo: string | null; qty: string }>>(
+      `SELECT
+          tim.sku_id AS skuId,
+          it.dye_lot_no AS dyeLotNo,
+          CAST(SUM(
+            CASE
+              WHEN tim.movement_type = 'issue' THEN tim.qty
+              WHEN tim.movement_type IN ('return', 'consume', 'scrap') THEN -tim.qty
+              ELSE 0
+            END
+          ) AS CHAR) AS qty
+       FROM task_inventory_movements tim
+       INNER JOIN inventory_transactions it
+         ON it.id = tim.inventory_tx_id
+        AND it.tenant_id = tim.tenant_id
+       WHERE tim.tenant_id = ? AND tim.task_id = ?
+       GROUP BY tim.sku_id, it.dye_lot_no`,
+      [this.tenantId, taskId],
+    );
+
+    return new Map(
+      rows.map((row) => [
+        this.buildTaskMovementKey(Number(row.skuId), row.dyeLotNo ? String(row.dyeLotNo) : null),
+        String(row.qty ?? '0'),
+      ]),
+    );
+  }
+
+  private async getSkuInfo(
+    manager: { query: typeof AppDataSource.query },
+    skuId: number,
+  ): Promise<InventorySkuRow> {
+    const [row] = await manager.query<Array<{
+      stockUnit: string;
+      hasDyeLot: number | boolean;
+      skuName: string;
+    }>>(
+      `SELECT stock_unit AS stockUnit, has_dye_lot AS hasDyeLot, name AS skuName
+       FROM skus
+       WHERE id = ? AND tenant_id = ?
+       LIMIT 1`,
+      [skuId, this.tenantId],
+    );
+
+    if (!row) {
+      throw AppError.notFound(`SKU不存在: ${skuId}`);
+    }
+
+    return {
+      stockUnit: String(row.stockUnit ?? 'pcs'),
+      hasDyeLot: Boolean(row.hasDyeLot),
+      skuName: String(row.skuName ?? `SKU#${skuId}`),
+    };
+  }
+
+  private async lockInventoryRow(
+    manager: { query: typeof AppDataSource.query },
+    skuId: number,
+    warehouseId: number,
+    locationId: number,
+  ): Promise<{ qtyOnHand: string; qtyReserved: string } | null> {
+    const [inv] = await manager.query<Array<{ qtyOnHand: string; qtyReserved: string }>>(
+      `SELECT qty_on_hand AS qtyOnHand, qty_reserved AS qtyReserved
+       FROM inventory
+       WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [this.tenantId, skuId, warehouseId, locationId],
+    );
+    return inv ?? null;
+  }
+
+  private async createInventoryTransaction(
+    manager: { query: typeof AppDataSource.query },
+    params: {
+      skuId: number;
+      transactionType: string;
+      direction: 'IN' | 'OUT';
+      warehouseId: number;
+      locationId: number;
+      sourceRef: string;
+      qty: string;
+      stockUnit: string;
+      dyeLotNo?: string | null;
+      productionOrderId?: number | null;
+      referenceType?: string | null;
+      referenceId?: number | null;
+      referenceNo?: string | null;
+      notes?: string | null;
+    },
+  ): Promise<{ id: number; transactionNo: string }> {
+    const transactionNo = await generateNo('transaction', this.tenantId);
+    const result = await manager.query(
+      `INSERT INTO inventory_transactions
+         (tenant_id, transaction_no, sku_id, transaction_type, direction,
+          warehouse_id, location_id, source_ref,
+          qty_input, input_unit, qty_stock_unit, stock_unit, dye_lot_no,
+          production_order_id, reference_type, reference_id, reference_no,
+          notes, created_by, updated_by)
+       VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?,?, ?, ?, ?)`,
+      [
+        this.tenantId,
+        transactionNo,
+        params.skuId,
+        params.transactionType,
+        params.direction,
+        params.warehouseId,
+        params.locationId,
+        params.sourceRef,
+        params.qty,
+        params.stockUnit,
+        params.qty,
+        params.stockUnit,
+        params.dyeLotNo ?? null,
+        params.productionOrderId ?? null,
+        params.referenceType ?? null,
+        params.referenceId ?? null,
+        params.referenceNo ?? null,
+        params.notes ?? null,
+        this.userId,
+        this.userId,
+      ],
+    );
+
+    return {
+      id: Number(result.insertId),
+      transactionNo,
+    };
+  }
+
+  private async addInventoryStock(
+    manager: { query: typeof AppDataSource.query },
+    params: {
+      skuId: number;
+      warehouseId: number;
+      locationId: number;
+      qty: string;
+      sourceRef: string;
+    },
+  ): Promise<void> {
+    await manager.query(
+      `INSERT INTO inventory
+         (tenant_id, sku_id, warehouse_id, location_id, source_ref,
+          qty_on_hand, qty_reserved, qty_in_transit, last_in_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(), ?)
+       ON DUPLICATE KEY UPDATE
+         qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
+         source_ref = VALUES(source_ref),
+         last_in_at = NOW(),
+         updated_by = VALUES(updated_by)`,
+      [
+        this.tenantId,
+        params.skuId,
+        params.warehouseId,
+        params.locationId,
+        params.sourceRef,
+        params.qty,
+        this.userId,
+      ],
+    );
+  }
+
+  private async subtractInventoryStock(
+    manager: { query: typeof AppDataSource.query },
+    params: {
+      skuId: number;
+      warehouseId: number;
+      locationId: number;
+      qty: string;
+      stockUnit: string;
+      respectReserved: boolean;
+    },
+  ): Promise<void> {
+    const lockedInventory = await this.lockInventoryRow(
+      manager,
+      params.skuId,
+      params.warehouseId,
+      params.locationId,
+    );
+
+    if (!lockedInventory) {
+      throw new AppError('库存记录不存在', ResponseCode.INVENTORY_INSUFFICIENT);
+    }
+
+    const qty = new Decimal(params.qty);
+    const onHand = new Decimal(lockedInventory.qtyOnHand ?? 0);
+    const reserved = new Decimal(lockedInventory.qtyReserved ?? 0);
+    const available = params.respectReserved ? onHand.minus(reserved) : onHand;
+
+    if (qty.gt(available)) {
+      throw new AppError(
+        `库存不足：可用 ${available.toFixed(4)} ${params.stockUnit}，需要 ${qty.toFixed(4)} ${params.stockUnit}`,
+        ResponseCode.INVENTORY_INSUFFICIENT,
+      );
+    }
+
+    await manager.query(
+      `UPDATE inventory
+       SET qty_on_hand = qty_on_hand - ?, last_out_at = NOW(), updated_by = ?
+       WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?`,
+      [
+        params.qty,
+        this.userId,
+        this.tenantId,
+        params.skuId,
+        params.warehouseId,
+        params.locationId,
+      ],
+    );
+  }
+
+  private async linkTaskInventoryMovement(
+    manager: { query: typeof AppDataSource.query },
+    params: {
+      taskId: number;
+      taskMaterialTxId: number | null;
+      skuId: number;
+      movementType: 'issue' | 'return' | 'consume' | 'scrap' | 'output';
+      inventoryTxId: number;
+      qty: string;
+      notes?: string | null;
+    },
+  ): Promise<void> {
+    await manager.query(
+      `INSERT INTO task_inventory_movements
+         (tenant_id, task_id, task_material_tx_id, sku_id, movement_type, inventory_tx_id, qty, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        this.tenantId,
+        params.taskId,
+        params.taskMaterialTxId,
+        params.skuId,
+        params.movementType,
+        params.inventoryTxId,
+        params.qty,
+        params.notes ?? null,
+        this.userId,
+      ],
+    );
+  }
+
+  private async transferTaskInventory(
+    manager: { query: typeof AppDataSource.query; __inventorySnapshotSkuIds?: Set<number> },
+    params: {
+      taskId: number;
+      taskMaterialTxId: number;
+      productionOrderId: number;
+      referenceNo: string;
+      skuId: number;
+      qty: string;
+      dyeLotNo: string | null;
+      notes: string | null;
+      sourceWarehouseId: number;
+      sourceLocationId: number;
+      targetWarehouseId: number;
+      targetLocationId: number;
+      outboundType: string;
+      inboundType: string;
+      movementType: 'issue' | 'return';
+      respectReservedOnSource: boolean;
+      sourceRef: string;
+    },
+  ): Promise<{ qty: string; warehouseId: number; locationId: number; transactionNo: string }> {
+    const sku = await this.getSkuInfo(manager, params.skuId);
+    if (sku.hasDyeLot && !params.dyeLotNo) {
+      throw new AppError(`SKU ${sku.skuName} 需要指定缸号`, ResponseCode.INVENTORY_DYE_LOT_REQUIRED);
+    }
+
+    const qty = new Decimal(params.qty).toFixed(4);
+    await this.subtractInventoryStock(manager, {
+      skuId: params.skuId,
+      warehouseId: params.sourceWarehouseId,
+      locationId: params.sourceLocationId,
+      qty,
+      stockUnit: sku.stockUnit,
+      respectReserved: params.respectReservedOnSource,
+    });
+
+    await this.createInventoryTransaction(manager, {
+      skuId: params.skuId,
+      transactionType: params.outboundType,
+      direction: 'OUT',
+      warehouseId: params.sourceWarehouseId,
+      locationId: params.sourceLocationId,
+      sourceRef: params.sourceRef,
+      qty,
+      stockUnit: sku.stockUnit,
+      dyeLotNo: params.dyeLotNo,
+      productionOrderId: params.productionOrderId,
+      referenceType: 'production_task',
+      referenceId: params.taskId,
+      referenceNo: params.referenceNo,
+      notes: params.notes,
+    });
+
+    const inboundTx = await this.createInventoryTransaction(manager, {
+      skuId: params.skuId,
+      transactionType: params.inboundType,
+      direction: 'IN',
+      warehouseId: params.targetWarehouseId,
+      locationId: params.targetLocationId,
+      sourceRef: params.sourceRef,
+      qty,
+      stockUnit: sku.stockUnit,
+      dyeLotNo: params.dyeLotNo,
+      productionOrderId: params.productionOrderId,
+      referenceType: 'production_task',
+      referenceId: params.taskId,
+      referenceNo: params.referenceNo,
+      notes: params.notes,
+    });
+
+    await this.addInventoryStock(manager, {
+      skuId: params.skuId,
+      warehouseId: params.targetWarehouseId,
+      locationId: params.targetLocationId,
+      qty,
+      sourceRef: params.sourceRef,
+    });
+
+    await this.linkTaskInventoryMovement(manager, {
+      taskId: params.taskId,
+      taskMaterialTxId: params.taskMaterialTxId,
+      skuId: params.skuId,
+      movementType: params.movementType,
+      inventoryTxId: inboundTx.id,
+      qty,
+      notes: params.notes,
+    });
+
+    await this.syncInventoryDailySnapshot(manager, params.skuId);
+    this.trackInventorySnapshotCacheInvalidation(manager, [params.skuId]);
+
+    return {
+      qty,
+      warehouseId: params.targetWarehouseId,
+      locationId: params.targetLocationId,
+      transactionNo: inboundTx.transactionNo,
+    };
+  }
+
+  private async consumeTaskInputMaterials(
+    manager: { query: typeof AppDataSource.query; __inventorySnapshotSkuIds?: Set<number> },
+    task: LockedTaskRow,
+    taskId: number,
+    completedQty: string,
+    materialPlans: TaskInputPlanRow[],
+    taskMaterialMap: Map<number, number>,
+  ): Promise<number[]> {
+    const requiredBySku = new Map<number, Decimal>();
+    const completed = new Decimal(completedQty);
+    for (const material of materialPlans) {
+      const usagePerUnit = new Decimal(material.usagePerUnit ?? 0);
+      const multiplier = new Decimal(1).plus(new Decimal(material.lossRate ?? 0));
+      const requiredQty = completed.mul(usagePerUnit).mul(multiplier);
+      if (requiredQty.lte(0)) continue;
+      const key = Number(material.actualSkuId ?? material.inputSkuId);
+      requiredBySku.set(key, (requiredBySku.get(key) ?? new Decimal(0)).plus(requiredQty));
+    }
+
+    if (requiredBySku.size === 0) {
+      return [];
+    }
+
+    const taskIssuedMap = await this.getTaskNetMovementAvailability(manager, taskId);
+    const wipLocation = await ensureProductionWipWarehouseLocation(manager, this.tenantId, this.userId);
+    const affectedSkuIds: number[] = [];
+
+    for (const [skuId, requiredQty] of requiredBySku.entries()) {
+      const sku = await this.getSkuInfo(manager, skuId);
+      const taskMaterialTxId = taskMaterialMap.get(skuId) ?? null;
+      const availableEntries = Array.from(taskIssuedMap.entries())
+        .filter(([key, value]) => key.startsWith(`${skuId}::`) && new Decimal(value).gt(0))
+        .map(([key, value]) => ({
+          dyeLotNo: key.split('::')[1] || null,
+          qty: new Decimal(value),
+        }))
+        .sort((left, right) => {
+          if (left.dyeLotNo === right.dyeLotNo) return 0;
+          if (left.dyeLotNo === null) return -1;
+          if (right.dyeLotNo === null) return 1;
+          return left.dyeLotNo.localeCompare(right.dyeLotNo);
+        });
+
+      const totalAvailable = availableEntries.reduce((sum, item) => sum.plus(item.qty), new Decimal(0));
+      if (requiredQty.gt(totalAvailable)) {
+        throw AppError.conflict(
+          `任务线边库存不足：${sku.skuName} 仅有 ${totalAvailable.toFixed(4)} ${sku.stockUnit}，需要 ${requiredQty.toFixed(4)} ${sku.stockUnit}`,
+        );
+      }
+
+      let remaining = requiredQty;
+      for (const entry of availableEntries) {
+        if (remaining.lte(0)) break;
+        const consumeQty = Decimal.min(remaining, entry.qty);
+        if (consumeQty.lte(0)) continue;
+
+        await this.subtractInventoryStock(manager, {
+          skuId,
+          warehouseId: wipLocation.warehouseId,
+          locationId: wipLocation.locationId,
+          qty: consumeQty.toFixed(4),
+          stockUnit: sku.stockUnit,
+          respectReserved: false,
+        });
+
+        if (entry.dyeLotNo) {
+          await manager.query(
+            `UPDATE inventory_dye_lots
+             SET qty_on_hand = qty_on_hand - ?, last_in_at = NOW()
+             WHERE tenant_id = ? AND sku_id = ? AND dye_lot_no = ?`,
+            [consumeQty.toFixed(4), this.tenantId, skuId, entry.dyeLotNo],
+          );
+        }
+
+        const tx = await this.createInventoryTransaction(manager, {
+          skuId,
+          transactionType: 'PRODUCTION_CONSUME_OUT',
+          direction: 'OUT',
+          warehouseId: wipLocation.warehouseId,
+          locationId: wipLocation.locationId,
+          sourceRef: 'production:task:consume',
+          qty: consumeQty.toFixed(4),
+          stockUnit: sku.stockUnit,
+          dyeLotNo: entry.dyeLotNo,
+          productionOrderId: task.production_order_id,
+          referenceType: 'production_task',
+          referenceId: taskId,
+          referenceNo: task.task_no,
+          notes: `生产任务 ${task.task_no} 报工消耗`,
+        });
+
+        await this.linkTaskInventoryMovement(manager, {
+          taskId,
+          taskMaterialTxId,
+          skuId,
+          movementType: 'consume',
+          inventoryTxId: tx.id,
+          qty: consumeQty.toFixed(4),
+          notes: '报工消耗',
+        });
+
+        remaining = remaining.minus(consumeQty);
+      }
+
+      await manager.query(
+        `UPDATE task_material_transactions
+         SET actual_qty = ?
+         WHERE tenant_id = ? AND id = ?`,
+        [requiredQty.toFixed(4), this.tenantId, taskMaterialTxId],
+      );
+
+      await this.syncInventoryDailySnapshot(manager, skuId);
+      this.trackInventorySnapshotCacheInvalidation(manager, [skuId]);
+      affectedSkuIds.push(skuId);
+    }
+
+    return affectedSkuIds;
   }
 
   private async syncOrderCompletion(
@@ -1228,10 +1956,10 @@ export class SchedulerService {
       completedOps: string;
     }>>(
       `SELECT
-          COALESCE(MIN(completed_qty), 0) AS qtyCompleted,
+          COALESCE(MIN(GREATEST(completed_qty - COALESCE(scrap_qty, 0), 0)), 0) AS qtyCompleted,
           COUNT(*) AS totalOps,
           SUM(CASE WHEN completed_qty >= planned_qty THEN 1 ELSE 0 END) AS completedOps
-       FROM production_operations
+       FROM production_tasks
        WHERE production_order_id = ? AND tenant_id = ? AND status <> 'cancelled'`,
       [productionOrderId, this.tenantId],
     );

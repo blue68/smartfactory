@@ -240,6 +240,46 @@ export class TaskMaterialTransactionEntity {
   createdBy: number;
 }
 
+@Entity('task_inventory_movements')
+@Index('idx_tenant_task_movement', ['tenantId', 'taskId', 'movementType'])
+@Index('idx_tenant_task_material', ['tenantId', 'taskMaterialTxId'])
+@Index('idx_tenant_task_sku', ['tenantId', 'taskId', 'skuId'])
+@Index('uk_tenant_inventory_tx', ['tenantId', 'inventoryTxId'], { unique: true })
+export class TaskInventoryMovementEntity {
+  @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
+  id: number;
+
+  @Column({ name: 'tenant_id', type: 'bigint', unsigned: true })
+  tenantId: number;
+
+  @Column({ name: 'task_id', type: 'bigint', unsigned: true })
+  taskId: number;
+
+  @Column({ name: 'task_material_tx_id', type: 'bigint', unsigned: true, nullable: true })
+  taskMaterialTxId: number | null;
+
+  @Column({ name: 'sku_id', type: 'bigint', unsigned: true })
+  skuId: number;
+
+  @Column({ name: 'movement_type', type: 'enum', enum: ['issue', 'return', 'consume', 'scrap', 'output'] })
+  movementType: 'issue' | 'return' | 'consume' | 'scrap' | 'output';
+
+  @Column({ name: 'inventory_tx_id', type: 'bigint', unsigned: true })
+  inventoryTxId: number;
+
+  @Column({ type: 'decimal', precision: 16, scale: 4, default: 0 })
+  qty: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  notes: string | null;
+
+  @CreateDateColumn({ name: 'created_at', type: 'datetime', precision: 3 })
+  createdAt: Date;
+
+  @Column({ name: 'created_by', type: 'bigint', unsigned: true, default: 0 })
+  createdBy: number;
+}
+
 @Entity('inventory_daily_snapshots')
 @Index('uk_tenant_date_wh_sku', ['tenantId', 'snapshotDate', 'warehouseId', 'skuId'], { unique: true })
 @Index('idx_tenant_date_wh', ['tenantId', 'snapshotDate', 'warehouseId'])

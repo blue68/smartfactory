@@ -320,6 +320,47 @@
   border: 1px solid var(--color-error-200, #FECACA);
 }
 
+.materialIssueBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.materialIssueBadgeNone {
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.materialIssueBadgePending {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fdba74;
+}
+
+.materialIssueBadgePartial {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fcd34d;
+}
+
+.materialIssueBadgeReady {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #86efac;
+}
+
+.materialIssueBadgeLeftover {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+}
+
 /* ─────────────────────────────────────────────
    Action group (table操作列)
 ───────────────────────────────────────────── */

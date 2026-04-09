@@ -32,6 +32,7 @@ const DeliveryNoteItemSchema = z.object({
   qtyDelivered: z.string().regex(/^\d+(\.\d{1,4})?$/),
   purchaseUnit: z.string().min(1).max(20),
   unitPrice: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  dyeLotNo: z.string().trim().min(1).max(100).optional(),
 });
 
 const CreateDeliveryNoteSchema = z.object({

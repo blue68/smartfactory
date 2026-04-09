@@ -31,6 +31,23 @@ const CompleteTaskV2Schema = CompleteTaskSchema.extend({
   actualHours: z.coerce.number().positive().max(999999),
 });
 
+const TaskInventoryActionItemSchema = z.object({
+  skuId: z.number().int().positive(),
+  qty: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  warehouseId: z.number().int().positive().optional(),
+  locationId: z.number().int().positive().optional(),
+  dyeLotNo: z.string().trim().max(100).optional(),
+  notes: z.string().trim().max(255).optional(),
+});
+
+const TaskIssueMaterialsSchema = z.object({
+  items: z.array(TaskInventoryActionItemSchema).min(1).max(20),
+});
+
+const TaskReturnMaterialsSchema = z.object({
+  items: z.array(TaskInventoryActionItemSchema).min(1).max(20),
+});
+
 const WorkstationStatusSchema = z.enum(['active', 'inactive']);
 
 const CreateWorkstationSchema = z.object({
@@ -112,6 +129,20 @@ export class ProductionController {
     const body = CompleteTaskV2Schema.parse(req.body);
     await this.svc(req).completeTask(id, body);
     success(res, null, '完工已上报');
+  }
+
+  async issueTaskMaterials(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const body = TaskIssueMaterialsSchema.parse(req.body);
+    const data = await this.svc(req).issueTaskMaterials(id, body);
+    success(res, data, '任务领料已完成');
+  }
+
+  async returnTaskMaterials(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const body = TaskReturnMaterialsSchema.parse(req.body);
+    const data = await this.svc(req).returnTaskMaterials(id, body);
+    success(res, data, '任务退料已完成');
   }
 
   // BE-06-01: 任务详情

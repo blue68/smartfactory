@@ -62,7 +62,7 @@ describe('WorkflowEngineService inventory idempotency', () => {
     });
 
     const svc = new WorkflowEngineService({ tenantId: 1, userId: 99 });
-    await svc.onTaskCompleted(88, '5.0000', { query } as never, { syncOrderCompletion: false });
+    await svc.onTaskCompleted(88, '5.0000', '5.0000', '0.0000', { query } as never, { syncOrderCompletion: false });
 
     const inventoryInsertCall = query.mock.calls.find(
       ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO inventory_transactions'),
@@ -129,7 +129,7 @@ describe('WorkflowEngineService inventory idempotency', () => {
     }) };
 
     const svc = new WorkflowEngineService({ tenantId: 1, userId: 99 });
-    await svc.onTaskCompleted(88, '5.0000', manager as never, { syncOrderCompletion: false });
+    await svc.onTaskCompleted(88, '5.0000', '5.0000', '0.0000', manager as never, { syncOrderCompletion: false });
 
     expect(mockRedisDel).not.toHaveBeenCalled();
     expect((manager as any).__inventorySnapshotSkuIds).toEqual(new Set([990915]));

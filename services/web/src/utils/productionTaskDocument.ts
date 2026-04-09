@@ -43,6 +43,12 @@ interface TaskInputItem {
   status: string | null;
   operationId: number | null;
   stepName: string | null;
+  warehouseId?: number | null;
+  warehouseCode?: string | null;
+  warehouseName?: string | null;
+  locationId?: number | null;
+  locationCode?: string | null;
+  locationName?: string | null;
 }
 
 interface TaskOutputItem {
@@ -53,6 +59,14 @@ interface TaskOutputItem {
   unit: string | null;
   plannedQty: string;
   actualQty: string;
+  processStepId?: number | null;
+  processName?: string | null;
+  warehouseId?: number | null;
+  warehouseCode?: string | null;
+  warehouseName?: string | null;
+  locationId?: number | null;
+  locationCode?: string | null;
+  locationName?: string | null;
 }
 
 export interface PrintableProductionTask {
@@ -60,6 +74,7 @@ export interface PrintableProductionTask {
   taskNo?: string;
   orderNo: string;
   taskDate?: string;
+  plannedFinishTime?: string | null;
   status: TaskStatus;
   taskType?: TaskType;
   processName?: string;
@@ -114,6 +129,21 @@ function formatDateTime(value?: string | null): string {
   const minutes = `${date.getMinutes()}`.padStart(2, '0');
   const seconds = `${date.getSeconds()}`.padStart(2, '0');
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+function formatWarehouseLocation(value: {
+  warehouseCode?: string | null;
+  warehouseName?: string | null;
+  locationCode?: string | null;
+  locationName?: string | null;
+} | null | undefined): string {
+  if (!value) return '未绑定';
+  const warehouse = value.warehouseName || value.warehouseCode || null;
+  const location = value.locationName || value.locationCode || null;
+  if (warehouse && location) return `${warehouse}-${location}`;
+  if (warehouse) return warehouse;
+  if (location) return location;
+  return '未绑定';
 }
 
 function escapeHtml(value: string): string {
@@ -182,7 +212,7 @@ function getDependencyStatusLabel(status?: string | null): string {
 
 function renderInputItemRows(inputItems: TaskInputItem[]): string {
   if (inputItems.length === 0) {
-    return '<tr><td colspan="7">当前任务没有输入项配置</td></tr>';
+    return '<tr><td colspan="8">当前任务没有输入项配置</td></tr>';
   }
 
   const orderedItems = [...inputItems].sort((left, right) => {
@@ -214,6 +244,7 @@ function renderInputItemRows(inputItems: TaskInputItem[]): string {
         <td>${escapeHtml(formatQtyWithUnit(item.qtyAvailable, item.unit))}</td>
         <td><span class="badge badge-${stockStatus === '缺料' ? 'danger' : stockStatus === '紧张' ? 'warning' : 'healthy'}">${stockStatus}</span></td>
         <td>${escapeHtml(item.stepName ? `来源工序 ${item.stepName}` : item.sourceLabel)}</td>
+        <td>${escapeHtml(formatWarehouseLocation(item))}</td>
       </tr>
     `;
   }).join('');
@@ -307,9 +338,11 @@ function buildCsvRows(task: PrintableProductionTask): string[][] {
   rows.push(['基础信息', '任务编号', task.taskNo || String(task.id), '', '']);
   rows.push(['基础信息', '工单号', task.orderNo || '—', '', '']);
   rows.push(['基础信息', '任务日期', task.taskDate || '—', '', '']);
+  rows.push(['基础信息', '期望完成时间', formatDateTime(task.plannedFinishTime), '', '']);
   rows.push(['基础信息', '任务类型', getTaskTypeLabel(task), '', '']);
   rows.push(['基础信息', '工序', task.processName || '—', '', '']);
   rows.push(['基础信息', '工作站', task.workstationName || '—', '', '']);
+  rows.push(['基础信息', '分配工人', task.workerName || '—', '', '']);
   rows.push(['基础信息', '当前状态', getTaskStatusLabel(task.status), '', '']);
   rows.push(['基础信息', '所属成品', getTaskSecondaryName(task), '', '']);
   rows.push(['基础信息', '当前产出', getTaskPrimaryName(task), '', '']);
@@ -324,7 +357,7 @@ function buildCsvRows(task: PrintableProductionTask): string[][] {
         item.itemType === 'semi_finished' ? '半成品输入' : '原材料输入',
         item.skuCode || `SKU#${item.skuId}`,
         `${item.skuName || '—'} / ${formatQtyWithUnit(item.requiredQty, item.unit)}`,
-        `库存${getInventoryStatus(item)}，可用 ${formatQtyWithUnit(item.qtyAvailable, item.unit)}`,
+        `库存${getInventoryStatus(item)}，可用 ${formatQtyWithUnit(item.qtyAvailable, item.unit)}，库位 ${formatWarehouseLocation(item)}`,
       ]);
     });
   }
@@ -338,7 +371,7 @@ function buildCsvRows(task: PrintableProductionTask): string[][] {
         item.itemType === 'semi_finished' ? '半成品输出' : '成品输出',
         item.skuCode || `SKU#${item.skuId}`,
         `${item.skuName || '—'} / 计划 ${formatQtyWithUnit(item.plannedQty, item.unit)}`,
-        `当前实际 ${formatQtyWithUnit(item.actualQty, item.unit)}`,
+        `当前实际 ${formatQtyWithUnit(item.actualQty, item.unit)}，工序 ${item.processName || task.processName || '—'}，库位 ${formatWarehouseLocation(item)}`,
       ]);
     });
   }
@@ -574,7 +607,9 @@ export async function printProductionTaskDocument(
         <div class="card"><div class="label">工单号</div><div class="value">${escapeHtml(task.orderNo || '—')}</div></div>
         <div class="card"><div class="label">任务类型</div><div class="value">${escapeHtml(getTaskTypeLabel(task))}</div></div>
         <div class="card"><div class="label">任务日期</div><div class="value">${escapeHtml(task.taskDate ? formatDateTime(task.taskDate) : '—')}</div></div>
+        <div class="card"><div class="label">期望完成时间</div><div class="value">${escapeHtml(formatDateTime(task.plannedFinishTime))}</div></div>
         <div class="card"><div class="label">当前工序</div><div class="value">${escapeHtml(task.processName || '—')}</div></div>
+        <div class="card"><div class="label">分配工人</div><div class="value">${escapeHtml(task.workerName || '—')}</div></div>
         <div class="card"><div class="label">工作站</div><div class="value">${escapeHtml(task.workstationName || '—')}</div></div>
         <div class="card"><div class="label">所属成品</div><div class="value">${escapeHtml(getTaskSecondaryName(task))}</div></div>
         <div class="card"><div class="label">预期输出</div><div class="value">${escapeHtml(getTaskPrimaryName(task))}</div></div>
@@ -592,6 +627,7 @@ export async function printProductionTaskDocument(
               <th>可用库存</th>
               <th>库存状态</th>
               <th>来源</th>
+              <th>仓库/库位</th>
             </tr>
           </thead>
           <tbody>
@@ -608,18 +644,22 @@ export async function printProductionTaskDocument(
               <th>类型</th>
               <th>SKU 编码</th>
               <th>SKU 名称</th>
+              <th>对应工序</th>
               <th>预期产出</th>
               <th>当前已报工</th>
+              <th>仓库/库位</th>
             </tr>
           </thead>
           <tbody>
-            ${outputItems.length === 0 ? '<tr><td colspan="5">当前任务没有输出项配置</td></tr>' : outputItems.map((item) => `
+            ${outputItems.length === 0 ? '<tr><td colspan="7">当前任务没有输出项配置</td></tr>' : outputItems.map((item) => `
               <tr>
                 <td>${item.itemType === 'semi_finished' ? '半成品输出' : '成品输出'}</td>
                 <td>${escapeHtml(item.skuCode || `SKU#${item.skuId}`)}</td>
                 <td>${escapeHtml(item.skuName || '—')}</td>
+                <td>${escapeHtml(item.processName || task.processName || '—')}</td>
                 <td>${escapeHtml(formatQtyWithUnit(item.plannedQty, item.unit))}</td>
                 <td>${escapeHtml(formatQtyWithUnit(item.actualQty, item.unit))}</td>
+                <td>${escapeHtml(formatWarehouseLocation(item))}</td>
               </tr>
             `).join('')}
           </tbody>

@@ -26,6 +26,8 @@ interface ResolveWarehouseLocationInput {
 
 const DEFAULT_WAREHOUSE_CODE = 'DEFAULT';
 const DEFAULT_LOCATION_CODE = 'DEFAULT-UNKNOWN';
+const PRODUCTION_WIP_WAREHOUSE_CODE = 'PROD-WIP';
+const PRODUCTION_WIP_LOCATION_CODE = 'PROD-WIP-LINE';
 
 function getWarehouseAlignmentPhase(): WarehouseAlignmentPhase {
   const raw = String(process.env.INVENTORY_WAREHOUSE_PHASE ?? 'A').trim().toUpperCase();
@@ -116,6 +118,72 @@ export async function ensureDefaultWarehouseLocation(
   );
   if (!location) {
     throw AppError.badRequest('默认库位创建失败', ResponseCode.INV_LOCATION_REQUIRED);
+  }
+
+  return {
+    warehouseId: Number(warehouse.id),
+    locationId: Number(location.id),
+    warehouseCode: String(warehouse.code),
+    locationCode: String(location.code),
+  };
+}
+
+export async function ensureProductionWipWarehouseLocation(
+  manager: SqlExecutor,
+  tenantId: number,
+  userId = 0,
+): Promise<{ warehouseId: number; locationId: number; warehouseCode: string; locationCode: string }> {
+  await manager.query(
+    `INSERT INTO warehouses (tenant_id, code, name, type, status, created_by, updated_by)
+     SELECT ?, ?, '生产在制仓', 'wip', 'active', ?, ?
+     FROM DUAL
+     WHERE NOT EXISTS (
+       SELECT 1 FROM warehouses WHERE tenant_id = ? AND code = ?
+     )`,
+    [tenantId, PRODUCTION_WIP_WAREHOUSE_CODE, userId, userId, tenantId, PRODUCTION_WIP_WAREHOUSE_CODE],
+  );
+
+  const [warehouse] = await manager.query<Array<{ id: number; code: string }>>(
+    `SELECT id, code
+     FROM warehouses
+     WHERE tenant_id = ? AND code = ?
+     LIMIT 1`,
+    [tenantId, PRODUCTION_WIP_WAREHOUSE_CODE],
+  );
+  if (!warehouse) {
+    throw AppError.badRequest('生产在制仓创建失败', ResponseCode.INV_WAREHOUSE_REQUIRED);
+  }
+
+  await manager.query(
+    `INSERT INTO locations (tenant_id, warehouse_id, code, name, level, status, created_by, updated_by)
+     SELECT ?, ?, ?, '生产线边库位', 1, 'active', ?, ?
+     FROM DUAL
+     WHERE NOT EXISTS (
+       SELECT 1
+       FROM locations
+       WHERE tenant_id = ? AND warehouse_id = ? AND code = ?
+     )`,
+    [
+      tenantId,
+      warehouse.id,
+      PRODUCTION_WIP_LOCATION_CODE,
+      userId,
+      userId,
+      tenantId,
+      warehouse.id,
+      PRODUCTION_WIP_LOCATION_CODE,
+    ],
+  );
+
+  const [location] = await manager.query<Array<{ id: number; code: string }>>(
+    `SELECT id, code
+     FROM locations
+     WHERE tenant_id = ? AND warehouse_id = ? AND code = ?
+     LIMIT 1`,
+    [tenantId, warehouse.id, PRODUCTION_WIP_LOCATION_CODE],
+  );
+  if (!location) {
+    throw AppError.badRequest('生产线边库位创建失败', ResponseCode.INV_LOCATION_REQUIRED);
   }
 
   return {

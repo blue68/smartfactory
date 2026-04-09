@@ -32,11 +32,14 @@ import {
   useTaskStats,
   useStartTask,
   useCompleteTask,
+  useIssueTaskMaterials,
   useReportException,
+  useReturnTaskMaterials,
   useResolveException,
   useSuspendTask,
   taskApi,
 } from '@/api/productionTask';
+import { useLocationOptions, useWarehouseOptions } from '@/api/inventory';
 import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
 import Table from '@/components/common/Table';
@@ -94,6 +97,8 @@ interface ProductionTask {
   priorityLevel?: 'critical' | 'high' | 'medium' | 'normal';
   priorityLabel?: string;
   priorityReason?: string;
+  materialIssueStatus?: 'none' | 'pending_issue' | 'partial_issue' | 'fully_issued' | 'line_side_remaining' | string;
+  materialIssueLabel?: string;
   downstreamTaskCount?: number;
   activeDownstreamTaskCount?: number;
   dependencyBlocked?: boolean | 0 | 1;
@@ -129,12 +134,20 @@ interface ProductionTask {
     skuCode: string | null;
     skuName: string | null;
     unit: string | null;
+    hasDyeLot?: boolean;
     requiredQty: string;
     issuedQty: string;
     qtyAvailable: string;
     shortageQty: string;
     isShortage: boolean | 0 | 1 | '0' | '1';
     inventoryTxId: number | null;
+    movementStatus?: string | null;
+    warehouseId?: number | null;
+    warehouseCode?: string | null;
+    warehouseName?: string | null;
+    locationId?: number | null;
+    locationCode?: string | null;
+    locationName?: string | null;
   }>;
   inputItems?: Array<{
     itemType: 'semi_finished' | 'material';
@@ -143,6 +156,7 @@ interface ProductionTask {
     skuCode: string | null;
     skuName: string | null;
     unit: string | null;
+    hasDyeLot?: boolean;
     requiredQty: string;
     fulfilledQty: string;
     qtyAvailable: string;
@@ -152,6 +166,12 @@ interface ProductionTask {
     operationId: number | null;
     stepName: string | null;
     inventoryTxId: number | null;
+    warehouseId?: number | null;
+    warehouseCode?: string | null;
+    warehouseName?: string | null;
+    locationId?: number | null;
+    locationCode?: string | null;
+    locationName?: string | null;
   }>;
   outputItems?: Array<{
     itemType: 'finished' | 'semi_finished';
@@ -161,10 +181,19 @@ interface ProductionTask {
     unit: string | null;
     plannedQty: string;
     actualQty: string;
+    processStepId?: number | null;
+    processName?: string | null;
+    warehouseId?: number | null;
+    warehouseCode?: string | null;
+    warehouseName?: string | null;
+    locationId?: number | null;
+    locationCode?: string | null;
+    locationName?: string | null;
   }>;
   materialTransactions?: Array<{
     id: number;
     ioType: 'input' | 'output';
+    movementType?: 'issue' | 'return' | 'consume' | 'scrap' | 'output';
     skuId: number;
     skuCode: string | null;
     skuName: string | null;
@@ -181,6 +210,13 @@ interface ProductionTask {
     transactionQty: string | null;
     transactionTime: string | null;
     referenceNo: string | null;
+    warehouseId?: number | null;
+    warehouseCode?: string | null;
+    warehouseName?: string | null;
+    locationId?: number | null;
+    locationCode?: string | null;
+    locationName?: string | null;
+    notes?: string | null;
   }>;
   wageReport?: {
     reportId: number;
@@ -202,6 +238,14 @@ interface TaskListResponse {
   total: number;
 }
 
+interface MaterialActionDraft {
+  skuId: number;
+  qty: string;
+  dyeLotNo?: string;
+  warehouseId?: number;
+  locationId?: number;
+}
+
 // ─── 常量映射 ─────────────────────────────────────────────
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -218,6 +262,14 @@ const STATUS_BADGE_CLASS: Record<TaskStatus, string> = {
   completed:   styles.badgeCompleted,
   exception:   styles.badgeException,
   suspended:   styles.badgeSuspended,
+};
+
+const MATERIAL_ISSUE_BADGE_CLASS: Record<string, string> = {
+  none: styles.materialIssueBadgeNone,
+  pending_issue: styles.materialIssueBadgePending,
+  partial_issue: styles.materialIssueBadgePartial,
+  fully_issued: styles.materialIssueBadgeReady,
+  line_side_remaining: styles.materialIssueBadgeLeftover,
 };
 
 const EXCEPTION_TYPES: { value: ExceptionType; icon: string; desc: string }[] = [
@@ -280,6 +332,15 @@ function formatDate(dateStr: string | undefined): string {
   }
 }
 
+function formatDateTime(dateStr: string | undefined | null): string {
+  if (!dateStr) return '—';
+  try {
+    return dateStr.replace('T', ' ').slice(0, 19);
+  } catch {
+    return dateStr;
+  }
+}
+
 function formatTaskLabel(task: Pick<ProductionTask, 'id' | 'taskNo'> | null | undefined): string {
   if (!task) return '—';
   return task.taskNo || `任务 #${task.id}`;
@@ -297,6 +358,49 @@ function formatQtyWithUnit(
 ): string {
   const formattedQty = formatQty(value);
   return unit ? `${formattedQty} ${unit}` : formattedQty;
+}
+
+function formatWarehouseLocation(value: {
+  warehouseCode?: string | null;
+  warehouseName?: string | null;
+  locationCode?: string | null;
+  locationName?: string | null;
+} | null | undefined): string {
+  if (!value) return '未绑定';
+  const warehouse = value.warehouseName || value.warehouseCode || null;
+  const location = value.locationName || value.locationCode || null;
+  if (warehouse && location) {
+    return `${warehouse}-${location}`;
+  }
+  if (warehouse) {
+    return warehouse;
+  }
+  if (location) {
+    return location;
+  }
+  return '未绑定';
+}
+
+function getInputItemNumericQty(
+  item: NonNullable<ProductionTask['inputItems']>[number],
+  label: 'required' | 'fulfilled',
+): number {
+  const raw = label === 'required' ? item.requiredQty : item.fulfilledQty;
+  const value = Number(raw ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function extractLineSideQty(status?: string | null): number {
+  if (!status) return 0;
+  const matched = status.match(/在线边\s+(\d+(?:\.\d+)?)/);
+  const value = matched ? Number(matched[1]) : 0;
+  return Number.isFinite(value) ? value : 0;
+}
+
+function renderMaterialIssueBadge(task: Pick<ProductionTask, 'materialIssueStatus' | 'materialIssueLabel'>) {
+  const label = task.materialIssueLabel || '无需领料';
+  const cls = MATERIAL_ISSUE_BADGE_CLASS[task.materialIssueStatus || 'none'] || styles.materialIssueBadgeNone;
+  return <span className={`${styles.materialIssueBadge} ${cls}`}>{label}</span>;
 }
 
 function isMaterialShortage(item: Pick<NonNullable<ProductionTask['materialTransactions']>[number], 'isShortage'>): boolean {
@@ -486,7 +590,9 @@ export default function TaskPage() {
   // ── 操作 mutations ─────────────────────────────────────────
   const startMutation     = useStartTask();
   const completeMutation  = useCompleteTask();
+  const issueMutation     = useIssueTaskMaterials();
   const exceptionMutation = useReportException();
+  const returnMutation    = useReturnTaskMaterials();
   const resolveMutation   = useResolveException();
   const suspendMutation   = useSuspendTask();
 
@@ -556,6 +662,7 @@ export default function TaskPage() {
   const [completeNotes, setCompleteNotes]     = useState('');
   const [completeError, setCompleteError]     = useState('');
   const [completeHoursError, setCompleteHoursError] = useState('');
+  const [completeSubmitError, setCompleteSubmitError] = useState('');
 
   const openCompleteModal = useCallback((task: ProductionTask) => {
     setSelectedTask(task);
@@ -565,6 +672,7 @@ export default function TaskPage() {
     setCompleteNotes('');
     setCompleteError('');
     setCompleteHoursError('');
+    setCompleteSubmitError('');
     setCompleteOpen(true);
   }, []);
 
@@ -582,6 +690,7 @@ export default function TaskPage() {
       hasError = true;
     }
     if (hasError) return;
+    setCompleteSubmitError('');
 
     try {
       const scrap = Number(completeScrapQty);
@@ -596,8 +705,10 @@ export default function TaskPage() {
       });
       showToast({ type: 'success', message: `任务 #${selectedTask.id} 已标记完成` });
       setCompleteOpen(false);
-    } catch {
-      showToast({ type: 'error', message: '操作失败，请稍后重试' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '操作失败，请稍后重试';
+      setCompleteSubmitError(message);
+      showToast({ type: 'error', message });
     }
   }, [selectedTask, completeQty, completeHours, completeNotes, completeScrapQty, completeMutation, showToast]);
 
@@ -764,6 +875,130 @@ export default function TaskPage() {
     openSuspendModal(taskDetail as ProductionTask);
   }, [taskDetail, openSuspendModal]);
 
+  const [materialActionOpen, setMaterialActionOpen] = useState(false);
+  const [materialActionMode, setMaterialActionMode] = useState<'issue' | 'return'>('issue');
+  const [materialActionTask, setMaterialActionTask] = useState<ProductionTask | null>(null);
+  const [materialActionDrafts, setMaterialActionDrafts] = useState<MaterialActionDraft[]>([]);
+  const [materialActionError, setMaterialActionError] = useState('');
+  const [rowMaterialAction, setRowMaterialAction] = useState<{
+    taskId: number;
+    mode: 'issue' | 'return';
+  } | null>(null);
+
+  const openMaterialActionModal = useCallback((task: ProductionTask, mode: 'issue' | 'return') => {
+    const items = (task.inputItems ?? []).filter((item) => item.itemType === 'material');
+    const drafts = items.map((item) => {
+      const requiredQty = getInputItemNumericQty(item, 'required');
+      const fulfilledQty = getInputItemNumericQty(item, 'fulfilled');
+      const issueQty = Math.max(requiredQty - fulfilledQty, 0);
+      const returnQty = extractLineSideQty(item.status);
+      return {
+        skuId: item.skuId,
+        dyeLotNo: '',
+        warehouseId: item.warehouseId ?? undefined,
+        locationId: item.locationId ?? undefined,
+        qty: mode === 'issue'
+          ? (issueQty > 0 ? String(issueQty) : '')
+          : (returnQty > 0 ? String(returnQty) : ''),
+      };
+    });
+    setMaterialActionTask(task);
+    setMaterialActionMode(mode);
+    setMaterialActionDrafts(drafts);
+    setMaterialActionError('');
+    setMaterialActionOpen(true);
+  }, []);
+
+  const handleMaterialActionFromList = useCallback(async (
+    task: ProductionTask,
+    mode: 'issue' | 'return',
+  ) => {
+    setRowMaterialAction({ taskId: task.id, mode });
+    try {
+      const detail = taskDetail && taskDetail.id === task.id
+        ? taskDetail
+        : await taskApi.detail(task.id) as ProductionTask;
+      openMaterialActionModal(detail, mode);
+    } catch {
+      showToast({ type: 'error', message: '任务详情加载失败，请稍后重试' });
+    } finally {
+      setRowMaterialAction(null);
+    }
+  }, [openMaterialActionModal, showToast, taskDetail]);
+
+  const handleMaterialActionDraftChange = useCallback((skuId: number, patch: Partial<MaterialActionDraft>) => {
+    setMaterialActionError('');
+    setMaterialActionDrafts((current) => current.map((item) => (
+      item.skuId === skuId ? { ...item, ...patch } : item
+    )));
+  }, []);
+
+  const handleMaterialAction = useCallback(async () => {
+    if (!materialActionTask) return;
+    const materialItems = (materialActionTask.inputItems ?? []).filter((item) => item.itemType === 'material');
+    setMaterialActionError('');
+    try {
+      const payloadItems = materialItems
+        .map((item) => {
+          const draft = materialActionDrafts.find((entry) => entry.skuId === item.skuId);
+          const qty = Number(draft?.qty ?? 0);
+          if (!Number.isFinite(qty) || qty <= 0) return null;
+          const dyeLotNo = String(draft?.dyeLotNo ?? '').trim();
+          if (item.hasDyeLot && !dyeLotNo) {
+            throw new Error(`SKU ${item.skuName || item.skuCode || item.skuId} 需要填写缸号`);
+          }
+          if ((draft?.warehouseId ?? item.warehouseId) && !(draft?.locationId ?? item.locationId)) {
+            throw new Error(`SKU ${item.skuName || item.skuCode || item.skuId} 请选择库位`);
+          }
+          return {
+            skuId: item.skuId,
+            qty: String(qty),
+            ...(dyeLotNo ? { dyeLotNo } : {}),
+            warehouseId: draft?.warehouseId ?? item.warehouseId ?? undefined,
+            locationId: draft?.locationId ?? item.locationId ?? undefined,
+            notes: materialActionMode === 'issue' ? '任务领料到线边' : '任务退料回仓',
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+      if (payloadItems.length === 0) {
+        setMaterialActionError(`请至少填写一条有效的${materialActionMode === 'issue' ? '领料' : '退料'}数量`);
+        return;
+      }
+
+      if (materialActionMode === 'issue') {
+        await issueMutation.mutateAsync({
+          taskId: materialActionTask.id,
+          data: { items: payloadItems },
+        });
+      } else {
+        await returnMutation.mutateAsync({
+          taskId: materialActionTask.id,
+          data: { items: payloadItems },
+        });
+      }
+      showToast({
+        type: 'success',
+        message: `任务 #${materialActionTask.id} 已${materialActionMode === 'issue' ? '完成领料' : '完成退料'}`,
+      });
+      setMaterialActionOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '操作失败，请稍后重试';
+      setMaterialActionError(message);
+      showToast({ type: 'error', message });
+    }
+  }, [issueMutation, materialActionDrafts, materialActionMode, materialActionTask, returnMutation, showToast]);
+
+  const handleIssueFromDrawer = useCallback(() => {
+    if (!taskDetail) return;
+    openMaterialActionModal(taskDetail as ProductionTask, 'issue');
+  }, [openMaterialActionModal, taskDetail]);
+
+  const handleReturnFromDrawer = useCallback(() => {
+    if (!taskDetail) return;
+    openMaterialActionModal(taskDetail as ProductionTask, 'return');
+  }, [openMaterialActionModal, taskDetail]);
+
   // ── R06-G06: 统计卡片点击筛选联动 ────────────────────────
   const handleStatCardClick = useCallback((status: string) => {
     const newStatus = statusFilter === status ? '' : status;
@@ -816,6 +1051,18 @@ export default function TaskPage() {
       render: (_, record) => formatDate(record.plannedFinishTime || record.taskDate),
     },
     {
+      key:   'workerName',
+      title: '工人',
+      width: 120,
+      render: (_, record) => record.workerName || '—',
+    },
+    {
+      key: 'materialIssueLabel',
+      title: '领料状态',
+      width: 130,
+      render: (_, record) => renderMaterialIssueBadge(record),
+    },
+    {
       key:   'status',
       title: '状态',
       width: 130,
@@ -854,7 +1101,7 @@ export default function TaskPage() {
     {
       key:   '_actions',
       title: '操作',
-      width: 340,
+      width: 460,
       render: (_, record) => (
         <div className={styles.actionGroup}>
           <Button variant="ghost" size="sm" onClick={() => openDrawer(record)}>详情</Button>
@@ -876,6 +1123,16 @@ export default function TaskPage() {
           </Button>
           {canOperateTask && record.status === 'pending' && (
             <Button
+              variant="ghost"
+              size="sm"
+              loading={rowMaterialAction?.taskId === record.id && rowMaterialAction.mode === 'issue'}
+              onClick={() => void handleMaterialActionFromList(record, 'issue')}
+            >
+              领料到线边
+            </Button>
+          )}
+          {canOperateTask && record.status === 'pending' && (
+            <Button
               variant="primary"
               size="sm"
               loading={startMutation.isPending && startMutation.variables === record.id}
@@ -884,6 +1141,26 @@ export default function TaskPage() {
               onClick={() => void handleStart(record)}
             >
               开始
+            </Button>
+          )}
+          {canOperateTask && record.status === 'in_progress' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={rowMaterialAction?.taskId === record.id && rowMaterialAction.mode === 'issue'}
+              onClick={() => void handleMaterialActionFromList(record, 'issue')}
+            >
+              继续领料
+            </Button>
+          )}
+          {canOperateTask && record.status === 'in_progress' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={rowMaterialAction?.taskId === record.id && rowMaterialAction.mode === 'return'}
+              onClick={() => void handleMaterialActionFromList(record, 'return')}
+            >
+              退料回仓
             </Button>
           )}
           {canOperateTask && record.status === 'in_progress' && (
@@ -1101,7 +1378,11 @@ export default function TaskPage() {
               isSupervisor={isSupervisor}
               startLoading={startMutation.isPending}
               completeLoading={completeMutation.isPending}
+              issueLoading={issueMutation.isPending}
+              returnLoading={returnMutation.isPending}
               onStart={() => void handleStartFromDrawer()}
+              onIssue={handleIssueFromDrawer}
+              onReturn={handleReturnFromDrawer}
               onComplete={handleCompleteFromDrawer}
               onException={handleExceptionFromDrawer}
               onResolve={handleResolveFromDrawer}
@@ -1130,13 +1411,26 @@ export default function TaskPage() {
         notes={completeNotes}
         error={completeError}
         hoursError={completeHoursError}
+        submitError={completeSubmitError}
         loading={completeMutation.isPending}
-        onQtyChange={(v) => { setCompleteQty(v); setCompleteError(''); }}
+        onQtyChange={(v) => { setCompleteQty(v); setCompleteError(''); setCompleteSubmitError(''); }}
         onScrapQtyChange={setCompleteScrapQty}
-        onHoursChange={(v) => { setCompleteHours(v); setCompleteHoursError(''); }}
-        onNotesChange={setCompleteNotes}
-        onClose={() => setCompleteOpen(false)}
+        onHoursChange={(v) => { setCompleteHours(v); setCompleteHoursError(''); setCompleteSubmitError(''); }}
+        onNotesChange={(v) => { setCompleteNotes(v); setCompleteSubmitError(''); }}
+        onClose={() => { setCompleteOpen(false); setCompleteSubmitError(''); }}
         onConfirm={() => void handleComplete()}
+      />
+
+      <MaterialActionModal
+        open={materialActionOpen}
+        mode={materialActionMode}
+        task={materialActionTask}
+        drafts={materialActionDrafts}
+        error={materialActionError}
+        loading={issueMutation.isPending || returnMutation.isPending}
+        onDraftChange={handleMaterialActionDraftChange}
+        onClose={() => setMaterialActionOpen(false)}
+        onConfirm={() => void handleMaterialAction()}
       />
 
       {/* ── 上报异常弹窗 ── */}
@@ -1311,6 +1605,7 @@ function TaskDetailContent({
           <MetricCard label="计划数量" value={formatQty(task.plannedQty)} />
           <MetricCard label="已完成" value={formatQty(task.completedQty ?? 0)} />
           <MetricCard label="实际工时" value={task.actualHours != null ? `${task.actualHours}h` : '未上报'} />
+          <MetricCard label="领料状态" value={task.materialIssueLabel || '无需领料'} accent="default" />
           <MetricCard label={semiFinishedTask ? '当前半成品' : '当前产出'} value={primaryName} accent="teal" />
           <MetricCard label="工资结果" value={task.wageReport ? `¥${task.wageReport.subtotal}` : '待生成'} accent="amber" />
         </div>
@@ -1320,10 +1615,12 @@ function TaskDetailContent({
         <h3 className={styles.drawerSectionTitle}>基本信息</h3>
         <dl className={styles.infoGrid}>
           <DetailItem label="任务日期" value={task.taskDate || '—'} />
+          <DetailItem label="期望完成时间" value={formatDateTime(task.plannedFinishTime)} />
           <DetailItem label="工单号" value={task.orderNo || '—'} />
           <DetailItem label="任务编号" value={formatTaskLabel(task)} />
           <DetailItem label="所属成品" value={task.productName || task.skuName || '—'} />
-          <DetailItem label="工序名称" value={task.processName || '—'} />
+          <DetailItem label="当前工序" value={task.processName || '—'} />
+          <DetailItem label="领料状态" value={renderMaterialIssueBadge(task)} />
           <DetailItem label="当前产出" value={primaryName} />
           <DetailItem label="任务类型" value={semiFinishedTask ? '半成品任务' : '成品任务'} />
           {secondaryName && <DetailItem label="说明" value={secondaryName} />}
@@ -1413,6 +1710,7 @@ function TaskDetailContent({
                       <div className={styles.taskIOItem__meta}>
                         <span>{item.itemType === 'semi_finished' ? '已齐套' : '已投'} {formatQtyWithUnit(item.fulfilledQty, item.unit)}</span>
                         <span>可用数量 {formatQtyWithUnit(item.qtyAvailable, item.unit)}</span>
+                        <span>仓库/库位 {formatWarehouseLocation(item)}</span>
                         <span className={styles[`taskIOStock--${tone}`]}>
                           {Number(item.shortageQty ?? 0) > 0 ? `缺口 ${formatQtyWithUnit(item.shortageQty, item.unit)}` : '库存充足'}
                         </span>
@@ -1448,8 +1746,12 @@ function TaskDetailContent({
                     </div>
                     <div className={styles.taskIOItem__meta}>
                       <span>SKU {item.skuCode || `#${item.skuId}`}</span>
+                      <span>对应工序 {item.processName || task.processName || '—'}</span>
                       <span>计划产出 {formatQtyWithUnit(item.plannedQty, item.unit)}</span>
                       <span>实际产出 {formatQtyWithUnit(item.actualQty, item.unit)}</span>
+                    </div>
+                    <div className={styles.taskIOItem__meta}>
+                      <span>仓库/库位 {formatWarehouseLocation(item)}</span>
                     </div>
                   </div>
                 ))}
@@ -1635,6 +1937,14 @@ function MaterialTracePanel({
                 <span>{item.transactionTime || '未写账本时间'}</span>
                 <span>{item.referenceNo || '无关联单号'}</span>
               </div>
+              {item.notes ? (
+                <div className={styles.traceItem__meta}>
+                  <span>说明 {item.notes}</span>
+                </div>
+              ) : null}
+              <div className={styles.traceItem__meta}>
+                <span>仓库/库位 {formatWarehouseLocation(item)}</span>
+              </div>
             </div>
           ))}
         </div>
@@ -1651,7 +1961,11 @@ interface TaskDrawerFooterProps {
   isSupervisor: boolean;
   startLoading: boolean;
   completeLoading: boolean;
+  issueLoading: boolean;
+  returnLoading: boolean;
   onStart: () => void;
+  onIssue: () => void;
+  onReturn: () => void;
   onComplete: () => void;
   onException: () => void;
   onResolve: () => void;
@@ -1664,7 +1978,11 @@ function TaskDrawerFooter({
   isSupervisor,
   startLoading,
   completeLoading,
+  issueLoading,
+  returnLoading,
   onStart,
+  onIssue,
+  onReturn,
   onComplete,
   onException,
   onResolve,
@@ -1681,13 +1999,22 @@ function TaskDrawerFooter({
     return (
       <div className={styles.drawerFooterActions}>
         <Button
+          variant="ghost"
+          size="md"
+          loading={issueLoading}
+          onClick={onIssue}
+          style={{ flex: 1 }}
+        >
+          领料到线边
+        </Button>
+        <Button
           variant="primary"
           size="md"
           loading={startLoading}
           disabled={dependencyBlocked}
           title={dependencyBlocked ? `${blockingReason}，暂不能开始` : undefined}
           onClick={onStart}
-          style={{ width: '100%' }}
+          style={{ flex: 1 }}
         >
           开始生产
         </Button>
@@ -1698,6 +2025,24 @@ function TaskDrawerFooter({
   if (task.status === 'in_progress') {
     return (
       <div className={styles.drawerFooterActions}>
+        <Button
+          variant="ghost"
+          size="md"
+          loading={issueLoading}
+          onClick={onIssue}
+          style={{ flex: 1 }}
+        >
+          继续领料
+        </Button>
+        <Button
+          variant="ghost"
+          size="md"
+          loading={returnLoading}
+          onClick={onReturn}
+          style={{ flex: 1 }}
+        >
+          退料回仓
+        </Button>
         <Button
           variant="success"
           size="md"
@@ -1775,6 +2120,7 @@ interface CompleteTaskModalProps {
   notes: string;
   error: string;
   hoursError: string;
+  submitError: string;
   loading: boolean;
   onQtyChange: (v: string) => void;
   onScrapQtyChange: (v: string) => void;
@@ -1793,6 +2139,7 @@ function CompleteTaskModal({
   notes,
   error,
   hoursError,
+  submitError,
   loading,
   onQtyChange,
   onScrapQtyChange,
@@ -1840,6 +2187,12 @@ function CompleteTaskModal({
               工人等级未配置，无法计算工资。请联系主管完善工人信息后再进行完工上报。
             </div>
           )}
+
+          {submitError ? (
+            <p className={styles.formError} role="alert">
+              {submitError}
+            </p>
+          ) : null}
 
           <div className={`${styles.modalFormInner} ${gradeUnconfigured ? styles.modalFormDisabled : ''}`}>
             <section className={styles.completeHero}>
@@ -2008,6 +2361,198 @@ function CompleteTaskModal({
         </div>
       )}
     </Modal>
+  );
+}
+
+interface MaterialActionModalProps {
+  open: boolean;
+  mode: 'issue' | 'return';
+  task: ProductionTask | null;
+  drafts: MaterialActionDraft[];
+  error: string;
+  loading: boolean;
+  onDraftChange: (skuId: number, patch: Partial<MaterialActionDraft>) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}
+
+function MaterialActionModal({
+  open,
+  mode,
+  task,
+  drafts,
+  error,
+  loading,
+  onDraftChange,
+  onClose,
+  onConfirm,
+}: MaterialActionModalProps) {
+  const materialItems = (task?.inputItems ?? []).filter((item) => item.itemType === 'material');
+  const actionLabel = mode === 'issue' ? '领料到线边' : '退料回仓';
+
+  return (
+    <Modal
+      open={open}
+      title={actionLabel}
+      onClose={onClose}
+      onConfirm={onConfirm}
+      confirmLabel={actionLabel}
+      confirmVariant={mode === 'issue' ? 'primary' : 'success'}
+      confirmLoading={loading}
+      size="lg"
+    >
+      {task && (
+        <div className={styles.modalForm}>
+          <div className={styles.modalTaskInfo}>
+            <span className={styles.modalTaskLabel}>任务</span>
+            <span className={styles.modalTaskValue}>{formatTaskLabel(task)}</span>
+            <span className={styles.modalTaskSep}>·</span>
+            <span className={styles.modalTaskValue}>{task.processName}</span>
+          </div>
+
+          {materialItems.length === 0 ? (
+            <p className={styles.drawerEmptyText}>当前任务没有可操作的原材料输入项</p>
+          ) : (
+            <div className={styles.taskIOList}>
+              {materialItems.map((item) => {
+                const draft = drafts.find((entry) => entry.skuId === item.skuId);
+                return (
+                  <MaterialActionRowEditor
+                    key={`material-action-${item.skuId}`}
+                    item={item}
+                    draft={draft}
+                    mode={mode}
+                    onDraftChange={onDraftChange}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {error ? (
+            <p className={styles.formError} role="alert">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function MaterialActionRowEditor({
+  item,
+  draft,
+  mode,
+  onDraftChange,
+}: {
+  item: NonNullable<ProductionTask['inputItems']>[number];
+  draft: MaterialActionDraft | undefined;
+  mode: 'issue' | 'return';
+  onDraftChange: (skuId: number, patch: Partial<MaterialActionDraft>) => void;
+}) {
+  const { data: warehouseOptions = [] } = useWarehouseOptions(true);
+  const selectedWarehouseId = draft?.warehouseId ?? item.warehouseId ?? undefined;
+  const { data: locationOptions = [] } = useLocationOptions(selectedWarehouseId, true);
+  const selectedLocationId = draft?.locationId ?? item.locationId ?? undefined;
+
+  const handleWarehouseChange = useCallback((value: string) => {
+    const warehouseId = value ? Number(value) : undefined;
+    onDraftChange(item.skuId, {
+      warehouseId,
+      locationId: undefined,
+    });
+  }, [item.skuId, onDraftChange]);
+
+  const handleLocationChange = useCallback((value: string) => {
+    const locationId = value ? Number(value) : undefined;
+    onDraftChange(item.skuId, { locationId });
+  }, [item.skuId, onDraftChange]);
+
+  return (
+    <div className={styles.taskIOItem}>
+      <div className={styles.taskIOItem__header}>
+        <strong>{item.skuName || item.skuCode || `SKU#${item.skuId}`}</strong>
+        <span className={`${styles.ioTypeBadge} ${styles['ioTypeBadge--material']}`}>
+          原材料
+        </span>
+      </div>
+      <div className={styles.taskIOItem__meta}>
+        <span>需求 {formatQtyWithUnit(item.requiredQty, item.unit)}</span>
+        <span>当前状态 {item.status || '—'}</span>
+        <span>默认仓库/库位 {formatWarehouseLocation(item)}</span>
+        {item.hasDyeLot ? <span>需缸号</span> : null}
+      </div>
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel} htmlFor={`material-qty-${item.skuId}`}>
+            {mode === 'issue' ? '本次领料数量' : '本次退料数量'}
+          </label>
+          <input
+            id={`material-qty-${item.skuId}`}
+            type="number"
+            min="0"
+            step="0.0001"
+            className={styles.formInput}
+            placeholder="0"
+            value={draft?.qty ?? ''}
+            onChange={(e) => onDraftChange(item.skuId, { qty: e.target.value })}
+          />
+        </div>
+        {item.hasDyeLot ? (
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel} htmlFor={`material-dye-lot-${item.skuId}`}>
+              缸号
+            </label>
+            <input
+              id={`material-dye-lot-${item.skuId}`}
+              type="text"
+              className={styles.formInput}
+              placeholder="请输入缸号"
+              value={draft?.dyeLotNo ?? ''}
+              onChange={(e) => onDraftChange(item.skuId, { dyeLotNo: e.target.value })}
+            />
+          </div>
+        ) : null}
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel} htmlFor={`material-warehouse-${item.skuId}`}>
+            仓库
+          </label>
+          <select
+            id={`material-warehouse-${item.skuId}`}
+            className={styles.select}
+            value={selectedWarehouseId ?? ''}
+            onChange={(e) => handleWarehouseChange(e.target.value)}
+          >
+            <option value="">请选择仓库</option>
+            {warehouseOptions.map((warehouse) => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.name} ({warehouse.code})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel} htmlFor={`material-location-${item.skuId}`}>
+            库位
+          </label>
+          <select
+            id={`material-location-${item.skuId}`}
+            className={styles.select}
+            value={selectedLocationId ?? ''}
+            onChange={(e) => handleLocationChange(e.target.value)}
+            disabled={!selectedWarehouseId}
+          >
+            <option value="">请选择库位</option>
+            {locationOptions.map((location) => (
+              <option key={location.id} value={location.id}>
+                {location.name} ({location.code})
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
   );
 }
 

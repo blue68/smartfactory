@@ -1,4 +1,5 @@
 import mysql, { type Pool, type RowDataPacket } from '../../services/api/node_modules/mysql2/promise';
+import Decimal from '../../services/api/node_modules/decimal.js';
 import { APP_BASE_URL, seedAuth } from './purchaseFlow';
 
 export { APP_BASE_URL, seedAuth };
@@ -10,6 +11,7 @@ const DB_USER = process.env.DB_USER ?? 'sf_app';
 const DB_PASS = process.env.DB_PASS ?? process.env.DB_PASSWORD ?? 'TestApp2026!Secure';
 const DB_NAME = process.env.DB_NAME ?? 'smart_factory';
 const TEST_BOSS_ID = 99001;
+const TEST_SUPERVISOR_ID = 99004;
 const TEST_WORKER_ID = 99005;
 
 let dbPool: Pool | null = null;
@@ -163,6 +165,17 @@ export interface ProductionTaskStartScenario extends ProductionTaskScenario {
   expectedInputQty: string;
 }
 
+export interface ProductionTaskIssueScenario extends ProductionTaskStartScenario {
+  issueQty: string;
+  dyeLotNo: string;
+  sourceWarehouseId: number;
+  sourceLocationId: number;
+  sourceWarehouseCode: string;
+  sourceWarehouseName: string;
+  sourceLocationCode: string;
+  sourceLocationName: string;
+}
+
 export interface ProductionTaskCompleteScenario extends ProductionTaskScenario {
   completedQty: string;
   actualHours: string;
@@ -312,6 +325,7 @@ export async function seedProductionTaskScenario(): Promise<ProductionTaskScenar
        (id, tenant_id, username, password_hash, real_name, status, skill_level, created_by, updated_by)
      VALUES
        (?, ?, 'test_boss', 'playwright-password', '测试老板', 'active', NULL, 0, 0),
+       (?, ?, 'test_supervisor', 'playwright-password', '测试主管', 'active', NULL, 0, 0),
        (?, ?, 'test_worker', 'playwright-password', '测试熟练工', 'active', 'skilled', 0, 0)
      ON DUPLICATE KEY UPDATE
        username = VALUES(username),
@@ -319,7 +333,19 @@ export async function seedProductionTaskScenario(): Promise<ProductionTaskScenar
        status = VALUES(status),
        skill_level = VALUES(skill_level),
        updated_by = VALUES(updated_by)`,
-    [TEST_BOSS_ID, TEST_TENANT_ID, TEST_WORKER_ID, TEST_TENANT_ID],
+    [TEST_BOSS_ID, TEST_TENANT_ID, TEST_SUPERVISOR_ID, TEST_TENANT_ID, TEST_WORKER_ID, TEST_TENANT_ID],
+  );
+
+  await pool.execute(
+    `INSERT IGNORE INTO user_roles (tenant_id, user_id, role_id)
+     SELECT ?, ?, id FROM roles WHERE tenant_id = 0 AND code = 'boss'`,
+    [TEST_TENANT_ID, TEST_BOSS_ID],
+  );
+
+  await pool.execute(
+    `INSERT IGNORE INTO user_roles (tenant_id, user_id, role_id)
+     SELECT ?, ?, id FROM roles WHERE tenant_id = 0 AND code = 'supervisor'`,
+    [TEST_TENANT_ID, TEST_SUPERVISOR_ID],
   );
 
   await pool.execute(
@@ -1313,6 +1339,114 @@ export async function seedProductionTaskStartScenario(): Promise<ProductionTaskS
   };
 }
 
+export async function seedProductionTaskIssueScenario(): Promise<ProductionTaskIssueScenario> {
+  const pool = getDbPool();
+  const scenario = await seedProductionTaskStartScenario();
+  const sourceWarehouseId = scenario.taskId + 401;
+  const sourceLocationId = scenario.taskId + 402;
+  const sourceWarehouseCode = `RM-${scenario.taskId}`;
+  const sourceWarehouseName = `Playwright原料仓-${scenario.taskId}`;
+  const sourceLocationCode = `RM-${scenario.taskId}-01`;
+  const sourceLocationName = `Playwright库位-${scenario.taskId}`;
+  const dyeLotNo = `DYE-TASK-${scenario.taskId}`;
+  const issueQty = scenario.expectedInputQty;
+
+  await pool.execute(
+    `UPDATE skus
+     SET has_dye_lot = 1,
+         updated_by = ?
+     WHERE tenant_id = ? AND id = ?`,
+    [TEST_BOSS_ID, TEST_TENANT_ID, scenario.materialSkuId],
+  );
+
+  await pool.execute(
+    `INSERT INTO warehouses
+       (id, tenant_id, code, name, type, status, created_by, updated_by)
+     VALUES (?, ?, ?, ?, 'material', 'active', ?, ?)
+     ON DUPLICATE KEY UPDATE
+       code = VALUES(code),
+       name = VALUES(name),
+       type = VALUES(type),
+       status = VALUES(status),
+       updated_by = VALUES(updated_by)`,
+    [
+      sourceWarehouseId,
+      TEST_TENANT_ID,
+      sourceWarehouseCode,
+      sourceWarehouseName,
+      TEST_BOSS_ID,
+      TEST_BOSS_ID,
+    ],
+  );
+
+  await pool.execute(
+    `INSERT INTO locations
+       (id, tenant_id, warehouse_id, code, name, level, status, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, 1, 'active', ?, ?)
+     ON DUPLICATE KEY UPDATE
+       warehouse_id = VALUES(warehouse_id),
+       code = VALUES(code),
+       name = VALUES(name),
+       level = VALUES(level),
+       status = VALUES(status),
+       updated_by = VALUES(updated_by)`,
+    [
+      sourceLocationId,
+      TEST_TENANT_ID,
+      sourceWarehouseId,
+      sourceLocationCode,
+      sourceLocationName,
+      TEST_BOSS_ID,
+      TEST_BOSS_ID,
+    ],
+  );
+
+  await pool.execute(
+    `INSERT INTO inventory
+       (tenant_id, sku_id, warehouse_id, location_id, source_ref,
+        qty_on_hand, qty_reserved, qty_in_transit, last_in_at, updated_by)
+     VALUES (?, ?, ?, ?, 'playwright:task:issue:seed', ?, 0.0000, 0.0000, NOW(), ?)
+     ON DUPLICATE KEY UPDATE
+       qty_on_hand = VALUES(qty_on_hand),
+       qty_reserved = VALUES(qty_reserved),
+       qty_in_transit = VALUES(qty_in_transit),
+       source_ref = VALUES(source_ref),
+       last_in_at = VALUES(last_in_at),
+       updated_by = VALUES(updated_by)`,
+    [
+      TEST_TENANT_ID,
+      scenario.materialSkuId,
+      sourceWarehouseId,
+      sourceLocationId,
+      issueQty,
+      TEST_BOSS_ID,
+    ],
+  );
+
+  await pool.execute(
+    `INSERT INTO inventory_dye_lots
+       (tenant_id, sku_id, dye_lot_no, qty_on_hand, qty_reserved, first_in_at, last_in_at)
+     VALUES (?, ?, ?, ?, 0.0000, NOW(), NOW())
+     ON DUPLICATE KEY UPDATE
+       qty_on_hand = VALUES(qty_on_hand),
+       qty_reserved = VALUES(qty_reserved),
+       last_in_at = VALUES(last_in_at)`,
+    [TEST_TENANT_ID, scenario.materialSkuId, dyeLotNo, issueQty],
+  );
+
+  return {
+    ...scenario,
+    issueQty,
+    dyeLotNo,
+    sourceWarehouseId,
+    sourceLocationId,
+    sourceWarehouseCode,
+    sourceWarehouseName,
+    sourceLocationCode,
+    sourceLocationName,
+  };
+}
+
 export async function seedProductionTaskCompleteScenario(): Promise<ProductionTaskCompleteScenario> {
   const pool = getDbPool();
   const scenario = await seedProductionTaskScenario();
@@ -1683,6 +1817,42 @@ export async function cleanupProductionTaskStartScenario(
   await cleanupProductionTaskScenario(scenario);
 }
 
+export async function cleanupProductionTaskIssueScenario(
+  scenario: ProductionTaskIssueScenario,
+): Promise<void> {
+  const pool = getDbPool();
+
+  await pool.execute(
+    'DELETE FROM task_inventory_movements WHERE tenant_id = ? AND task_id = ?',
+    [TEST_TENANT_ID, scenario.taskId],
+  );
+  await pool.execute(
+    `DELETE FROM inventory_transactions
+     WHERE tenant_id = ?
+       AND reference_type = 'production_task'
+       AND reference_id = ?`,
+    [TEST_TENANT_ID, scenario.taskId],
+  );
+  await pool.execute(
+    'DELETE FROM inventory_dye_lots WHERE tenant_id = ? AND sku_id = ?',
+    [TEST_TENANT_ID, scenario.materialSkuId],
+  );
+  await pool.execute(
+    'DELETE FROM inventory WHERE tenant_id = ? AND sku_id = ?',
+    [TEST_TENANT_ID, scenario.materialSkuId],
+  );
+  await pool.execute(
+    'DELETE FROM locations WHERE tenant_id = ? AND id = ?',
+    [TEST_TENANT_ID, scenario.sourceLocationId],
+  );
+  await pool.execute(
+    'DELETE FROM warehouses WHERE tenant_id = ? AND id = ?',
+    [TEST_TENANT_ID, scenario.sourceWarehouseId],
+  );
+
+  await cleanupProductionTaskScenario(scenario);
+}
+
 export async function cleanupProductionTaskCompleteScenario(
   scenario: ProductionTaskCompleteScenario,
 ): Promise<void> {
@@ -1817,6 +1987,115 @@ export async function waitForProductionTaskStarted(
       plannedQty: String(material.planned_qty),
       actualQty: String(material.actual_qty),
       inventoryTxId: material.inventory_tx_id ?? null,
+    };
+  });
+}
+
+export async function waitForProductionTaskIssued(
+  scenario: ProductionTaskIssueScenario,
+): Promise<{
+  issueQty: string;
+  outboundTransactionNo: string;
+  inboundTransactionNo: string;
+  dyeLotNo: string | null;
+  movementInventoryTxId: number;
+}> {
+  const pool = getDbPool();
+  const expectedIssueQty = new Decimal(scenario.issueQty);
+
+  return poll(async () => {
+    const [txRows] = await pool.query<Array<RowDataPacket & {
+      id: number;
+      transactionNo: string | null;
+      transactionType: string | null;
+      warehouseId: number;
+      warehouseCode: string | null;
+      locationId: number;
+      locationCode: string | null;
+      qtyStockUnit: string;
+      dyeLotNo: string | null;
+    }>>(
+      `SELECT
+          it.id,
+          transaction_no AS transactionNo,
+          transaction_type AS transactionType,
+          it.warehouse_id AS warehouseId,
+          w.code AS warehouseCode,
+          it.location_id AS locationId,
+          l.code AS locationCode,
+          CAST(it.qty_stock_unit AS CHAR) AS qtyStockUnit,
+          dye_lot_no AS dyeLotNo
+       FROM inventory_transactions it
+       LEFT JOIN warehouses w
+         ON w.id = it.warehouse_id
+        AND w.tenant_id = it.tenant_id
+       LEFT JOIN locations l
+         ON l.id = it.location_id
+        AND l.tenant_id = it.tenant_id
+       WHERE it.tenant_id = ?
+         AND it.reference_type = 'production_task'
+         AND it.reference_id = ?
+         AND it.sku_id = ?
+         AND it.transaction_type IN ('PRODUCTION_ISSUE_OUT', 'PRODUCTION_ISSUE_IN')
+       ORDER BY it.id ASC`,
+      [TEST_TENANT_ID, scenario.taskId, scenario.materialSkuId],
+    );
+
+    const outboundTx = txRows.find((row) => row.transactionType === 'PRODUCTION_ISSUE_OUT');
+    const inboundTx = txRows.find((row) => row.transactionType === 'PRODUCTION_ISSUE_IN');
+    if (!outboundTx || !inboundTx) {
+      return null;
+    }
+
+    const outboundQty = new Decimal(outboundTx.qtyStockUnit ?? 0);
+    const inboundQty = new Decimal(inboundTx.qtyStockUnit ?? 0);
+    const matchesExpectedQty = outboundQty.eq(expectedIssueQty) && inboundQty.eq(expectedIssueQty);
+    const matchesSourceLocation = (
+      Number(outboundTx.warehouseId) === scenario.sourceWarehouseId
+      && Number(outboundTx.locationId) === scenario.sourceLocationId
+    );
+    const matchesWipLocation = (
+      String(inboundTx.warehouseCode ?? '') === 'PROD-WIP'
+      && String(inboundTx.locationCode ?? '') === 'PROD-WIP-LINE'
+    );
+    const matchesDyeLot = outboundTx.dyeLotNo === scenario.dyeLotNo && inboundTx.dyeLotNo === scenario.dyeLotNo;
+    if (!matchesExpectedQty || !matchesSourceLocation || !matchesWipLocation || !matchesDyeLot) {
+      return null;
+    }
+
+    const [movementRows] = await pool.query<Array<RowDataPacket & {
+      qty: string;
+      inventoryTxId: number;
+    }>>(
+      `SELECT
+          CAST(qty AS CHAR) AS qty,
+          inventory_tx_id AS inventoryTxId
+       FROM task_inventory_movements
+       WHERE tenant_id = ?
+         AND task_id = ?
+         AND sku_id = ?
+         AND movement_type = 'issue'
+       ORDER BY id DESC
+       LIMIT 1`,
+      [TEST_TENANT_ID, scenario.taskId, scenario.materialSkuId],
+    );
+
+    const movement = movementRows[0];
+    if (!movement) {
+      return null;
+    }
+
+    const movementQty = new Decimal(movement.qty ?? 0);
+    if (!movementQty.eq(expectedIssueQty) || Number(movement.inventoryTxId) !== Number(inboundTx.id)) {
+      return null;
+    }
+
+    return {
+      issueQty: scenario.issueQty,
+      outboundTransactionNo: String(outboundTx.transactionNo ?? ''),
+      inboundTransactionNo: String(inboundTx.transactionNo ?? ''),
+      dyeLotNo: inboundTx.dyeLotNo ? String(inboundTx.dyeLotNo) : null,
+      movementInventoryTxId: Number(movement.inventoryTxId),
     };
   });
 }

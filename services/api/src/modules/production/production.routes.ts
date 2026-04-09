@@ -120,6 +120,14 @@ router.post('/tasks/:id/complete-v2',
   requirePermissionsOrRoles(['production:task:complete', 'production:task:operate'], 'worker', 'supervisor', 'boss', 'admin'),
   asyncHandler(productionController.completeTaskV2.bind(productionController)),
 );
+router.post('/tasks/:id/issue-materials',
+  requirePermissionsOrRoles(['production:task:operate'], 'worker', 'supervisor', 'boss', 'admin'),
+  asyncHandler(productionController.issueTaskMaterials.bind(productionController)),
+);
+router.post('/tasks/:id/return-materials',
+  requirePermissionsOrRoles(['production:task:operate'], 'worker', 'supervisor', 'boss', 'admin'),
+  asyncHandler(productionController.returnTaskMaterials.bind(productionController)),
+);
 // P0-06: 暂停 / 恢复任务
 router.post('/tasks/:id/suspend',
   requirePermissionsOrRoles(['production:task:supervise'], 'supervisor', 'boss', 'admin'),
