@@ -108,4 +108,43 @@ describe('InventoryService.listTransactions', () => {
       }),
     ).rejects.toThrow('SKU 不存在');
   });
+
+  it('applies warehouse_assigned filter to transaction traces', async () => {
+    mockQuery
+      .mockResolvedValueOnce([{ id: 9 }, { id: 11 }])
+      .mockResolvedValueOnce([{
+        id: 301,
+        skuCode: 'SKU-301',
+        skuName: '坯布 301',
+        stockUnit: 'm',
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: '0' }]);
+
+    const svc = new InventoryService({
+      tenantId: 1,
+      userId: 9,
+      roles: ['warehouse'],
+      permissionSnapshot: {
+        version: 'test',
+        scopeLevel: 'tenant',
+        originTenantId: 1,
+        contextTenantId: 1,
+        menuCodes: [],
+        actionCodes: [],
+        featureFlags: [],
+        dataScopes: [{ scopeType: 'warehouse_assigned', scopeValues: ['WH-A', 9] }],
+      },
+    });
+    await svc.listTransactions(301, {
+      page: 1,
+      pageSize: 10,
+    });
+
+    const listSql = String(mockQuery.mock.calls[2]?.[0] ?? '');
+    const listParams = mockQuery.mock.calls[2]?.[1] as unknown[];
+
+    expect(listSql).toContain('it.warehouse_id IN (?,?)');
+    expect(listParams).toEqual([1, 301, 9, 11, 10, 0]);
+  });
 });

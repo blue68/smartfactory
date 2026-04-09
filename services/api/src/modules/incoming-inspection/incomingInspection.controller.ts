@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { IncomingInspectionService } from './incomingInspection.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
+import { PermissionSnapshot } from '../access-control/access-control.types';
 
 // ─── Zod Schemas ─────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ class IncomingInspectionController {
     return new IncomingInspectionService({
       tenantId: (req as any).tenantId,
       userId: (req as any).userId,
+      permissionSnapshot: (req as any).permissionSnapshot as PermissionSnapshot | undefined,
     });
   }
 

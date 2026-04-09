@@ -21,10 +21,6 @@ const EMPTY_FORM: RoleMutationPayload = {
   assignable: true,
 };
 
-function getRoleDisplayName(role: Pick<RoleSummary, 'code' | 'name'>): string {
-  return role.code === 'purchase' ? `${role.name}（旧编码兼容）` : role.name;
-}
-
 function renderStatus(status?: string) {
   const cls = status === 'active' ? styles.statusActive : styles.statusInactive;
   return <span className={`${styles.statusBadge} ${cls}`}>{status === 'active' ? '启用' : status || '-'}</span>;
@@ -75,7 +71,7 @@ export default function RoleConfigPage() {
     setEditingRole(role);
       setForm({
         code: role.code,
-        name: role.code === 'purchase' ? '采购员' : role.name,
+        name: role.name,
         description: role.description ?? '',
         priority: role.priority ?? 0,
         status: role.status ?? 'active',
@@ -119,7 +115,7 @@ export default function RoleConfigPage() {
 
   const handleToggleStatus = async (role: RoleSummary) => {
     const nextAction = role.status === 'active' ? '停用' : '启用';
-    const confirmed = window.confirm(`确认${nextAction}角色“${getRoleDisplayName(role)}”吗？`);
+    const confirmed = window.confirm(`确认${nextAction}角色“${role.name}”吗？`);
     if (!confirmed) return;
     try {
       await updateRoleStatusMutation.mutateAsync({
@@ -216,7 +212,7 @@ export default function RoleConfigPage() {
                   {!isLoading && roles.map((role) => (
                     <tr key={role.id}>
                       <td>{role.code}</td>
-                      <td>{getRoleDisplayName(role)}</td>
+                      <td>{role.name}</td>
                       <td>{role.roleType === 'system' ? '系统预置' : '租户自定义'}</td>
                       <td>{renderStatus(role.status)}</td>
                       <td>{role.dataScopeTemplate ?? '-'}</td>

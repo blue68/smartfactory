@@ -5,6 +5,8 @@ import { ResponseCode } from '../../shared/ApiResponse';
 import Decimal from 'decimal.js';
 import { EntityManager } from 'typeorm';
 import { getRedisClient, RedisKeys } from '../../config/redis';
+import { PermissionSnapshot } from '../access-control/access-control.types';
+import { resolveWarehouseDataScope, type WarehouseDataScope } from '../access-control/warehouse-data-scope';
 
 export interface CreatePOParams {
   supplierId: number;
@@ -51,6 +53,8 @@ export interface ListDeliveryNoteParams {
 export class PurchaseService {
   private readonly tenantId: number;
   private readonly userId: number;
+  private readonly permissionSnapshot?: PermissionSnapshot;
+  private warehouseDataScopePromise: Promise<WarehouseDataScope> | null = null;
   private static purchaseOrderClosureColumnsSupported: boolean | null = null;
   private static purchaseReceiptDeliveryColumn: 'delivery_note_id' | 'dn_id' | null = null;
   private static purchaseReceiptItemsTableSupported: boolean | null = null;
@@ -58,9 +62,78 @@ export class PurchaseService {
   private static purchaseReceiptItemDyeLotSupported: boolean | null = null;
   private static incomingInspectionItemDyeLotSupported: boolean | null = null;
 
-  constructor(ctx: TenantContext) {
+  constructor(ctx: TenantContext & { permissionSnapshot?: PermissionSnapshot }) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+    this.permissionSnapshot = ctx.permissionSnapshot;
+  }
+
+  private async getWarehouseDataScope(): Promise<WarehouseDataScope> {
+    this.warehouseDataScopePromise ??= resolveWarehouseDataScope(this.tenantId, this.permissionSnapshot);
+    return this.warehouseDataScopePromise;
+  }
+
+  private async buildReceiptWarehouseScopeFilter(alias: string): Promise<{ clause: string; params: Array<string | number> }> {
+    const warehouseScope = await this.getWarehouseDataScope();
+    if (warehouseScope.mode === 'all') {
+      return { clause: '1 = 1', params: [] };
+    }
+    if (warehouseScope.mode === 'none') {
+      return { clause: '1 = 0', params: [] };
+    }
+
+    return {
+      clause: `EXISTS (
+        SELECT 1
+          FROM inventory_transactions it_scope
+         WHERE it_scope.tenant_id = ${alias}.tenant_id
+           AND it_scope.reference_type = 'purchase_receipt'
+           AND it_scope.reference_id = ${alias}.id
+           AND it_scope.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})
+      )`,
+      params: warehouseScope.warehouseIds,
+    };
+  }
+
+  private async buildDeliveryWarehouseScopeFilter(alias: string): Promise<{ clause: string; params: Array<string | number> }> {
+    const warehouseScope = await this.getWarehouseDataScope();
+    if (warehouseScope.mode === 'all') {
+      return { clause: '1 = 1', params: [] };
+    }
+    if (warehouseScope.mode === 'none') {
+      return { clause: `${alias}.receipt_id IS NULL AND 1 = 0`, params: [] };
+    }
+
+    return {
+      clause: `(
+        ${alias}.receipt_id IS NULL
+        OR EXISTS (
+          SELECT 1
+            FROM inventory_transactions it_scope
+           WHERE it_scope.tenant_id = ${alias}.tenant_id
+             AND it_scope.reference_type = 'purchase_receipt'
+             AND it_scope.reference_id = ${alias}.receipt_id
+             AND it_scope.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})
+        )
+      )`,
+      params: warehouseScope.warehouseIds,
+    };
+  }
+
+  private async assertReceiptAccessible(id: number): Promise<void> {
+    const warehouseScopeFilter = await this.buildReceiptWarehouseScopeFilter('pr');
+    const [receipt] = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT pr.id
+         FROM purchase_receipts pr
+        WHERE pr.id = ? AND pr.tenant_id = ?
+          AND ${warehouseScopeFilter.clause}
+        LIMIT 1`,
+      [id, this.tenantId, ...warehouseScopeFilter.params],
+    );
+
+    if (!receipt) {
+      throw AppError.notFound('采购入库单不存在', ResponseCode.NOT_FOUND);
+    }
   }
 
   private async invalidateInventorySnapshotCaches(skuIds: number[]): Promise<void> {
@@ -723,6 +796,9 @@ export class PurchaseService {
     const supportsReceiptItemsTable = await this.hasPurchaseReceiptItemsTable();
     const conds = ['pr.tenant_id = ?'];
     const p: unknown[] = [this.tenantId];
+    const warehouseScopeFilter = await this.buildReceiptWarehouseScopeFilter('pr');
+    conds.push(warehouseScopeFilter.clause);
+    p.push(...warehouseScopeFilter.params);
     if (params.status) { conds.push('pr.status = ?'); p.push(params.status); }
     if (params.poId) { conds.push('pr.po_id = ?'); p.push(params.poId); }
 
@@ -817,6 +893,7 @@ export class PurchaseService {
     const supportsInspectionItemDyeLot = supportsReceiptItemsTable
       ? false
       : await this.hasIncomingInspectionItemDyeLotColumn();
+    const warehouseScopeFilter = await this.buildReceiptWarehouseScopeFilter('pr');
     const [receipt] = await AppDataSource.query<Array<Record<string, unknown>>>(
       `SELECT
          pr.id,
@@ -840,8 +917,9 @@ export class PurchaseService {
          ON ir.delivery_note_id = pr.${receiptDeliveryColumn} AND ir.tenant_id = pr.tenant_id
        LEFT JOIN users creator ON creator.id = pr.created_by AND creator.tenant_id = pr.tenant_id
        WHERE pr.id = ? AND pr.tenant_id = ?
+         AND ${warehouseScopeFilter.clause}
        LIMIT 1`,
-      [id, this.tenantId],
+      [id, this.tenantId, ...warehouseScopeFilter.params],
     );
 
     if (!receipt) {
@@ -904,6 +982,9 @@ export class PurchaseService {
   async listDeliveryNotes(params: ListDeliveryNoteParams) {
     const conds = ['dn.tenant_id = ?'];
     const p: unknown[] = [this.tenantId];
+    const warehouseScopeFilter = await this.buildDeliveryWarehouseScopeFilter('dn');
+    conds.push(warehouseScopeFilter.clause);
+    p.push(...warehouseScopeFilter.params);
     if (params.status) { conds.push('dn.status = ?'); p.push(params.status); }
     if (params.poId) { conds.push('dn.po_id = ?'); p.push(params.poId); }
 
@@ -976,6 +1057,7 @@ export class PurchaseService {
 
   async getDeliveryNoteById(id: number) {
     const supportsDeliveryItemDyeLot = await this.hasDeliveryNoteItemDyeLotColumn();
+    const warehouseScopeFilter = await this.buildDeliveryWarehouseScopeFilter('dn');
     const [delivery] = await AppDataSource.query<Array<Record<string, unknown>>>(
       `SELECT
          dn.id,
@@ -1015,8 +1097,9 @@ export class PurchaseService {
         AND tm.tenant_id = dn.tenant_id
        LEFT JOIN users creator ON creator.id = dn.created_by AND creator.tenant_id = dn.tenant_id
        WHERE dn.id = ? AND dn.tenant_id = ?
+         AND ${warehouseScopeFilter.clause}
        LIMIT 1`,
-      [id, this.tenantId],
+      [id, this.tenantId, ...warehouseScopeFilter.params],
     );
 
     if (!delivery) {
@@ -1053,6 +1136,8 @@ export class PurchaseService {
     if (!notes) {
       throw AppError.badRequest('备注不能为空', ResponseCode.INVALID_PARAMS);
     }
+
+    await this.assertReceiptAccessible(id);
 
     const [receipt] = await AppDataSource.query<Array<{ id: number; createdAt: string | Date }>>(
       `SELECT id, created_at AS createdAt

@@ -10,6 +10,7 @@ import {
 } from './purchaseSettlement.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
+import { PermissionSnapshot } from '../access-control/access-control.types';
 
 const POItemSchema = z.object({
   skuId: z.number().int().positive(),
@@ -72,7 +73,13 @@ const ConfirmDiffSchema = z.object({
 });
 
 export class PurchaseController {
-  private svc(req: Request) { return new PurchaseService({ tenantId: req.tenantId, userId: req.userId }); }
+  private svc(req: Request) {
+    return new PurchaseService({
+      tenantId: req.tenantId,
+      userId: req.userId,
+      permissionSnapshot: req.permissionSnapshot as PermissionSnapshot | undefined,
+    });
+  }
   private suggSvc(req: Request) { return new SuggestionService({ tenantId: req.tenantId, userId: req.userId }); }
   private matchSvc(req: Request) { return new ThreeWayMatchService({ tenantId: req.tenantId, userId: req.userId }); }
   private settlementSvc(req: Request) { return new PurchaseSettlementService({ tenantId: req.tenantId, userId: req.userId }); }

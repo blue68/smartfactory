@@ -7,6 +7,12 @@ import { ResponseCode } from '../../shared/ApiResponse';
 import Decimal from 'decimal.js';
 import { generateNo } from '../../shared/generateNo';
 import { UnitConverter } from '../../shared/unitConverter';
+import { PermissionSnapshot } from '../access-control/access-control.types';
+import {
+  assertWarehouseInScope,
+  resolveWarehouseDataScope,
+  type WarehouseDataScope,
+} from '../access-control/warehouse-data-scope';
 import { MrpService } from '../mrp/mrp.service';
 import { recalculatePurchaseOrderStatus } from '../purchase/purchase-order-status.util';
 import { resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
@@ -140,6 +146,8 @@ function allocatePassedFailedAcrossCapacities(
 export class IncomingInspectionService {
   private readonly tenantId: number;
   private readonly userId: number;
+  private readonly permissionSnapshot?: PermissionSnapshot;
+  private warehouseDataScopePromise: Promise<WarehouseDataScope> | null = null;
   private static inventoryUpdatedByColumnSupported: boolean | null = null;
   private static purchaseReceiptDeliveryColumn: 'delivery_note_id' | 'dn_id' | null = null;
   private static purchaseReceiptItemsTableSupported: boolean | null = null;
@@ -152,9 +160,15 @@ export class IncomingInspectionService {
   private static incomingInspectionItemDyeLotSupported: boolean | null = null;
   private static purchaseReceiptItemDyeLotSupported: boolean | null = null;
 
-  constructor(ctx: TenantContext) {
+  constructor(ctx: TenantContext & { permissionSnapshot?: PermissionSnapshot }) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+    this.permissionSnapshot = ctx.permissionSnapshot;
+  }
+
+  private async getWarehouseDataScope(): Promise<WarehouseDataScope> {
+    this.warehouseDataScopePromise ??= resolveWarehouseDataScope(this.tenantId, this.permissionSnapshot);
+    return this.warehouseDataScopePromise;
   }
 
   private _mrpService(): MrpService {
@@ -1518,6 +1532,7 @@ export class IncomingInspectionService {
       locationId: submitParams?.locationId,
       sourceRef: 'incoming_inspection:submit',
     });
+    assertWarehouseInScope(await this.getWarehouseDataScope(), warehouseLocation.warehouseId);
 
     for (const item of passedItems) {
       const qtyPassed = this.resolveAcceptedReceiptQty(item);

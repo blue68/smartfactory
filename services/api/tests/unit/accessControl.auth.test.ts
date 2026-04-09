@@ -144,6 +144,8 @@ describe('Access control service and middleware', () => {
       expect(result.list[0]).toMatchObject({ code: 'tenant_admin' });
       expect(querySpy.mock.calls.some(([sql]) =>
         String(sql).includes("COALESCE(r.role_scope, 'tenant') <> 'platform'"))).toBe(true);
+      expect(querySpy.mock.calls.some(([sql, params]) =>
+        String(sql).includes('r.code NOT IN (?)') && Array.isArray(params) && params.includes('purchase'))).toBe(true);
     });
 
     it('getRolePermissionDetail rejects platform-scoped role for tenant context', async () => {
@@ -219,6 +221,51 @@ describe('Access control service and middleware', () => {
           assignments: [{ roleId: 9001, isPrimary: true }],
         },
       )).rejects.toThrow('不允许在租户态分配');
+    });
+
+    it('assignUserRoles rejects hidden legacy purchase role for tenant context', async () => {
+      querySpy.mockImplementation(async (sql: string, params?: any[]) => {
+        if (sql.includes('SELECT id FROM users')) {
+          return [{ id: 55 }];
+        }
+        if (sql.includes('information_schema.columns')) {
+          const columnName = params?.[1];
+          return [{ total: ['status', 'assignable', 'role_scope'].includes(columnName) ? 1 : 0 }];
+        }
+        if (sql.includes('information_schema.tables')) {
+          return [{ total: 0 }];
+        }
+        if (sql.includes('FROM user_roles ur')) {
+          return [];
+        }
+        if (sql.includes('FROM roles')) {
+          return [{
+            id: 7001,
+            tenantId: 0,
+            code: 'purchase',
+            name: '采购员',
+            roleScope: 'tenant',
+            status: 'active',
+            assignable: 1,
+          }];
+        }
+        return [];
+      });
+
+      await expect(accessControlService.assignUserRoles(
+        {
+          tenantId: 7,
+          userId: 101,
+          roles: ['tenant_admin'],
+          originTenantId: 7,
+          contextTenantId: 7,
+          scopeLevel: 'tenant',
+        },
+        55,
+        {
+          assignments: [{ roleId: 7001, isPrimary: true }],
+        },
+      )).rejects.toThrow('已停用旧编码');
     });
   });
 

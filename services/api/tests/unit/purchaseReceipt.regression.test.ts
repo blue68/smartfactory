@@ -18,6 +18,8 @@ describe('Purchase receipt regressions', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
     jest.clearAllMocks();
+    mockAppDataSource.query.mockReset();
+    mockAppDataSource.transaction.mockReset();
     (PurchaseService as any).purchaseReceiptDeliveryColumn = 'delivery_note_id';
     (PurchaseService as any).purchaseReceiptItemsTableSupported = true;
     (PurchaseService as any).purchaseReceiptItemDyeLotSupported = false;
@@ -60,6 +62,55 @@ describe('Purchase receipt regressions', () => {
     expect(String(mockAppDataSource.query.mock.calls[0][0])).toContain('LEFT JOIN purchase_receipt_items pri');
   });
 
+  it('applies warehouse_assigned filter when listing purchase receipts', async () => {
+    mockAppDataSource.query
+      .mockResolvedValueOnce([{ id: 5 }])
+      .mockResolvedValueOnce([
+        {
+          id: 1,
+          receiptNo: 'PR-001',
+          poId: 9,
+          poNo: 'PO-001',
+          poStatus: 'partial_received',
+          deliveryNoteId: 5,
+          deliveryNo: 'DN-001',
+          status: 'confirmed',
+          totalAmount: '1200.00',
+          notes: null,
+          receivedAt: '2026-03-24 10:00:00',
+          supplierName: '供应商A',
+          inspectionNo: 'IQC-001',
+          operatorName: '仓管员A',
+          totalQty: '60',
+        },
+      ])
+      .mockResolvedValueOnce([{ total: 1 }]);
+
+    const svc = new PurchaseService({
+      tenantId: 7,
+      userId: 11,
+      permissionSnapshot: {
+        version: 'test',
+        scopeLevel: 'tenant',
+        originTenantId: 7,
+        contextTenantId: 7,
+        menuCodes: [],
+        actionCodes: [],
+        featureFlags: [],
+        dataScopes: [{ scopeType: 'warehouse_assigned', scopeValues: ['WH-A'] }],
+      },
+    });
+    await svc.listReceipts({ page: 1, pageSize: 20 });
+
+    const listSql = String(mockAppDataSource.query.mock.calls[1]?.[0] ?? '');
+    const listParams = mockAppDataSource.query.mock.calls[1]?.[1] as unknown[];
+
+    expect(listSql).toContain("it_scope.reference_type = 'purchase_receipt'");
+    expect(listSql).toContain('it_scope.warehouse_id IN (?)');
+    expect(listParams[0]).toBe(7);
+    expect(listParams).toContain(5);
+  });
+
   it('returns receipt detail with receipt items and inspection trace', async () => {
     mockAppDataSource.query
       .mockResolvedValueOnce([
@@ -96,6 +147,33 @@ describe('Purchase receipt regressions', () => {
     expect(detail.receiptNo).toBe('PR-001');
     expect(detail.inspectionNo).toBe('IQC-001');
     expect(detail.items[0]).toMatchObject({ skuCode: 'RM-201', qtyReceived: '40' });
+  });
+
+  it('rejects receipt detail outside warehouse_assigned scope', async () => {
+    mockAppDataSource.query
+      .mockResolvedValueOnce([{ id: 8 }])
+      .mockResolvedValueOnce([]);
+
+    const svc = new PurchaseService({
+      tenantId: 7,
+      userId: 11,
+      permissionSnapshot: {
+        version: 'test',
+        scopeLevel: 'tenant',
+        originTenantId: 7,
+        contextTenantId: 7,
+        menuCodes: [],
+        actionCodes: [],
+        featureFlags: [],
+        dataScopes: [{ scopeType: 'warehouse_assigned', scopeValues: [8] }],
+      },
+    });
+
+    await expect(svc.getReceiptById(1)).rejects.toThrow('采购入库单不存在');
+
+    const detailSql = String(mockAppDataSource.query.mock.calls[1]?.[0] ?? '');
+    expect(detailSql).toContain('it_scope.reference_id = pr.id');
+    expect(detailSql).toContain('it_scope.warehouse_id IN (?)');
   });
 
   it('returns receipt detail with dye lot number when receipt item schema supports it', async () => {
@@ -364,26 +442,29 @@ describe('Purchase receipt regressions', () => {
 
   it('allows updating purchase receipt notes within 24 hours', async () => {
     mockAppDataSource.query
+      .mockResolvedValueOnce([{ id: 1 }])
       .mockResolvedValueOnce([{ id: 1, createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() }])
       .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
     const svc = new PurchaseService({ tenantId: 7, userId: 11 });
     await svc.updateReceiptNotes(1, { notes: '补记：晚班完成复核' });
 
-    expect(String(mockAppDataSource.query.mock.calls[1][0])).toContain('UPDATE purchase_receipts');
-    expect(mockAppDataSource.query.mock.calls[1][1]).toEqual(['补记：晚班完成复核', 11, 1, 7]);
+    expect(String(mockAppDataSource.query.mock.calls[2][0])).toContain('UPDATE purchase_receipts');
+    expect(mockAppDataSource.query.mock.calls[2][1]).toEqual(['补记：晚班完成复核', 11, 1, 7]);
   });
 
   it('rejects updating purchase receipt notes after 24 hours', async () => {
-    mockAppDataSource.query.mockResolvedValueOnce([
-      { id: 1, createdAt: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString() },
-    ]);
+    mockAppDataSource.query
+      .mockResolvedValueOnce([{ id: 1 }])
+      .mockResolvedValueOnce([
+        { id: 1, createdAt: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString() },
+      ]);
 
     const svc = new PurchaseService({ tenantId: 7, userId: 11 });
 
     await expect(svc.updateReceiptNotes(1, { notes: '超时补记' })).rejects.toThrow(
       '入库单创建超过24小时，不能再补充备注',
     );
-    expect(mockAppDataSource.query).toHaveBeenCalledTimes(1);
+    expect(mockAppDataSource.query).toHaveBeenCalledTimes(2);
   });
 });

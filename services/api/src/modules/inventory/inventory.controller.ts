@@ -4,6 +4,7 @@ import { InventoryService } from './inventory.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
 import { AppError } from '../../shared/AppError';
+import { PermissionSnapshot } from '../access-control/access-control.types';
 
 const InboundSchema = z.object({
   skuId: z.number().int().positive().optional(),
@@ -163,6 +164,7 @@ export class InventoryController {
       userId: req.userId,
       roles: req.roles ?? [],
       actionCodes: req.permissionSnapshot?.actionCodes ?? [],
+      permissionSnapshot: req.permissionSnapshot as PermissionSnapshot | undefined,
     });
   }
 

@@ -5,6 +5,12 @@ import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import { acquireLock, releaseLock, RedisKeys, RedisTTL, getRedisClient } from '../../config/redis';
+import { PermissionSnapshot } from '../access-control/access-control.types';
+import {
+  assertWarehouseInScope,
+  resolveWarehouseDataScope,
+  type WarehouseDataScope,
+} from '../access-control/warehouse-data-scope';
 import { UnitConverter } from '../../shared/unitConverter';
 import { DyeLotAuthorizeService } from './dyeLotAuthorize.service';
 import {
@@ -254,11 +260,19 @@ export class InventoryService {
   private readonly tenantId: number;
   private readonly userId: number;
   private readonly actionCodes: string[];
+  private readonly permissionSnapshot?: PermissionSnapshot;
+  private warehouseDataScopePromise: Promise<WarehouseDataScope> | null = null;
 
-  constructor(ctx: TenantContext) {
+  constructor(ctx: TenantContext & { permissionSnapshot?: PermissionSnapshot }) {
     this.tenantId = ctx.tenantId;
     this.userId   = ctx.userId;
     this.actionCodes = ctx.actionCodes ?? [];
+    this.permissionSnapshot = ctx.permissionSnapshot;
+  }
+
+  private async getWarehouseDataScope(): Promise<WarehouseDataScope> {
+    this.warehouseDataScopePromise ??= resolveWarehouseDataScope(this.tenantId, this.permissionSnapshot);
+    return this.warehouseDataScopePromise;
   }
 
   private buildInventoryScope(params: { skuId?: number; skuIds?: number[] }): InventoryScope {
@@ -327,6 +341,21 @@ export class InventoryService {
   }
 
   async listWarehouses(onlyActive = true): Promise<WarehouseOption[]> {
+    const warehouseScope = await this.getWarehouseDataScope();
+    if (warehouseScope.mode === 'none') {
+      return [];
+    }
+
+    const conditions = ['tenant_id = ?'];
+    const params: Array<string | number> = [this.tenantId];
+    if (onlyActive) {
+      conditions.push("status = 'active'");
+    }
+    if (warehouseScope.mode === 'assigned') {
+      conditions.push(`id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})`);
+      params.push(...warehouseScope.warehouseIds);
+    }
+
     const rows = await AppDataSource.query<Array<WarehouseOption>>(
       `SELECT
          id,
@@ -336,10 +365,9 @@ export class InventoryService {
          plant_code AS plantCode,
          status
        FROM warehouses
-       WHERE tenant_id = ?
-         ${onlyActive ? "AND status = 'active'" : ''}
+       WHERE ${conditions.join(' AND ')}
        ORDER BY code ASC`,
-      [this.tenantId],
+      params,
     );
     return rows.map((row) => ({
       id: Number(row.id),
@@ -352,11 +380,22 @@ export class InventoryService {
   }
 
   async listLocations(params: { warehouseId?: number; onlyActive?: boolean }): Promise<LocationOption[]> {
+    const warehouseScope = await this.getWarehouseDataScope();
+    if (warehouseScope.mode === 'none') {
+      return [];
+    }
+    if (warehouseScope.mode === 'assigned' && params.warehouseId && !warehouseScope.warehouseIds.includes(params.warehouseId)) {
+      return [];
+    }
+
     const conditions = ['tenant_id = ?'];
-    const q: unknown[] = [this.tenantId];
+    const q: Array<string | number> = [this.tenantId];
     if (params.warehouseId) {
       conditions.push('warehouse_id = ?');
       q.push(params.warehouseId);
+    } else if (warehouseScope.mode === 'assigned') {
+      conditions.push(`warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})`);
+      q.push(...warehouseScope.warehouseIds);
     }
     if (params.onlyActive ?? true) {
       conditions.push("status = 'active'");
@@ -1371,6 +1410,7 @@ export class InventoryService {
     page: number;
     pageSize: number;
   }): Promise<{ list: InventorySnapshot[]; total: number }> {
+    const warehouseScope = await this.getWarehouseDataScope();
     const conditions = ['s.tenant_id = ?'];
     const qParams: unknown[] = [this.tenantId];
 
@@ -1383,6 +1423,12 @@ export class InventoryService {
     if (params.warehouseId) {
       conditions.push('inv.warehouse_id = ?');
       qParams.push(params.warehouseId);
+    }
+    if (warehouseScope.mode === 'none') {
+      conditions.push('1 = 0');
+    } else if (warehouseScope.mode === 'assigned') {
+      conditions.push(`inv.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})`);
+      qParams.push(...warehouseScope.warehouseIds);
     }
     if (params.locationId) {
       conditions.push('inv.location_id = ?');
@@ -1452,7 +1498,13 @@ export class InventoryService {
     total: number;
     snapshotDate: string;
   }> {
+    const warehouseScope = await this.getWarehouseDataScope();
     const snapshotDate = params.snapshotDate ?? new Date().toISOString().slice(0, 10);
+    if (warehouseScope.mode !== 'all') {
+      // inventory_daily_snapshots 当前按 SKU 聚合，不包含 warehouse_id，无法安全做仓库级裁剪。
+      return { list: [], total: 0, snapshotDate };
+    }
+
     const conditions = ['ids.tenant_id = ?', 'ids.snapshot_date = ?'];
     const qParams: unknown[] = [this.tenantId, snapshotDate];
 
@@ -1546,6 +1598,7 @@ export class InventoryService {
     }>;
     total: number;
   }> {
+    const warehouseScope = await this.getWarehouseDataScope();
     const [sku] = await AppDataSource.query<Array<{
       id: number;
       skuCode: string;
@@ -1577,6 +1630,12 @@ export class InventoryService {
     if (params.warehouseId) {
       conditions.push('it.warehouse_id = ?');
       queryParams.push(params.warehouseId);
+    }
+    if (warehouseScope.mode === 'none') {
+      conditions.push('1 = 0');
+    } else if (warehouseScope.mode === 'assigned') {
+      conditions.push(`it.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})`);
+      queryParams.push(...warehouseScope.warehouseIds);
     }
     if (params.locationId) {
       conditions.push('it.location_id = ?');
@@ -1706,22 +1765,34 @@ export class InventoryService {
   async getAvailableStock(skuId: number): Promise<{
     qtyOnHand: Decimal; qtyReserved: Decimal; qtyAvailable: Decimal; stockUnit: string;
   }> {
+    const warehouseScope = await this.getWarehouseDataScope();
     // 尝试从 Redis 缓存读取；Redis 不可用时静默降级到 DB，不影响业务
-    try {
-      const redis = getRedisClient();
-      const cacheKey = RedisKeys.inventorySnapshot(this.tenantId, skuId);
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        const d = JSON.parse(cached);
-        return {
-          qtyOnHand: new Decimal(d.qtyOnHand),
-          qtyReserved: new Decimal(d.qtyReserved),
-          qtyAvailable: new Decimal(d.qtyAvailable),
-          stockUnit: d.stockUnit,
-        };
+    if (warehouseScope.mode === 'all') {
+      try {
+        const redis = getRedisClient();
+        const cacheKey = RedisKeys.inventorySnapshot(this.tenantId, skuId);
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          const d = JSON.parse(cached);
+          return {
+            qtyOnHand: new Decimal(d.qtyOnHand),
+            qtyReserved: new Decimal(d.qtyReserved),
+            qtyAvailable: new Decimal(d.qtyAvailable),
+            stockUnit: d.stockUnit,
+          };
+        }
+      } catch (err) {
+        console.warn('[InventoryService] Redis 缓存读取失败，降级到 DB 查询:', (err as Error).message);
       }
-    } catch (err) {
-      console.warn('[InventoryService] Redis 缓存读取失败，降级到 DB 查询:', (err as Error).message);
+    }
+
+    const inventoryJoinConditions = ['inv.sku_id = s.id', 'inv.tenant_id = s.tenant_id'];
+    const inventoryJoinParams: Array<string | number> = [];
+    if (warehouseScope.mode === 'none') {
+      inventoryJoinConditions.push('1 = 0');
+    } else if (warehouseScope.mode === 'assigned') {
+      inventoryJoinConditions.push(`inv.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})`);
+      inventoryJoinParams.push(...warehouseScope.warehouseIds);
     }
 
     const [row] = await AppDataSource.query<any[]>(
@@ -1729,11 +1800,11 @@ export class InventoryService {
               COALESCE(SUM(inv.qty_reserved), 0) AS qtyReserved,
               s.stock_unit AS stockUnit
        FROM skus s
-       LEFT JOIN inventory inv ON inv.sku_id = s.id AND inv.tenant_id = s.tenant_id
+       LEFT JOIN inventory inv ON ${inventoryJoinConditions.join(' AND ')}
        WHERE s.id = ? AND s.tenant_id = ?
        GROUP BY s.stock_unit
        LIMIT 1`,
-      [skuId, this.tenantId],
+      [...inventoryJoinParams, skuId, this.tenantId],
     );
     if (!row) throw AppError.notFound('SKU不存在');
 
@@ -1742,17 +1813,19 @@ export class InventoryService {
     const qtyAvailable = qtyOnHand.minus(qtyReserved);
 
     // 写缓存失败不影响正常返回
-    try {
-      const redis = getRedisClient();
-      const cacheKey = RedisKeys.inventorySnapshot(this.tenantId, skuId);
-      await redis.setex(cacheKey, RedisTTL.INVENTORY, JSON.stringify({
-        qtyOnHand: qtyOnHand.toFixed(4),
-        qtyReserved: qtyReserved.toFixed(4),
-        qtyAvailable: qtyAvailable.toFixed(4),
-        stockUnit: row.stockUnit,
-      }));
-    } catch (err) {
-      console.warn('[InventoryService] Redis 缓存写入失败，已忽略:', (err as Error).message);
+    if (warehouseScope.mode === 'all') {
+      try {
+        const redis = getRedisClient();
+        const cacheKey = RedisKeys.inventorySnapshot(this.tenantId, skuId);
+        await redis.setex(cacheKey, RedisTTL.INVENTORY, JSON.stringify({
+          qtyOnHand: qtyOnHand.toFixed(4),
+          qtyReserved: qtyReserved.toFixed(4),
+          qtyAvailable: qtyAvailable.toFixed(4),
+          stockUnit: row.stockUnit,
+        }));
+      } catch (err) {
+        console.warn('[InventoryService] Redis 缓存写入失败，已忽略:', (err as Error).message);
+      }
     }
 
     return { qtyOnHand, qtyReserved, qtyAvailable, stockUnit: row.stockUnit };
@@ -2191,6 +2264,7 @@ export class InventoryService {
           params,
           resolvedSourceRef,
         );
+        assertWarehouseInScope(await this.getWarehouseDataScope(), warehouseLocation.warehouseId);
         // 4. DB 行锁（入库时锁定 inventory 行）
         //    - Redis 锁可用时：提供跨进程互斥的第一层防护
         //    - Redis 降级时：DB 行锁作为唯一并发控制手段
@@ -2868,6 +2942,16 @@ export class InventoryService {
     totalSkuCount: number;
     totalAlertCount: number;
   }> {
+    const warehouseScope = await this.getWarehouseDataScope();
+    const conditions = ['i.tenant_id = ?'];
+    const params: Array<string | number> = [this.tenantId];
+    if (warehouseScope.mode === 'none') {
+      conditions.push('1 = 0');
+    } else if (warehouseScope.mode === 'assigned') {
+      conditions.push(`i.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})`);
+      params.push(...warehouseScope.warehouseIds);
+    }
+
     const rows = await AppDataSource.query(
       `SELECT
          sc.id AS categoryId, sc.name AS categoryName,
@@ -2877,10 +2961,10 @@ export class InventoryService {
        FROM inventory i
        INNER JOIN skus s ON s.id = i.sku_id AND s.tenant_id = i.tenant_id
        INNER JOIN sku_categories sc ON sc.id = s.category1_id AND sc.level = 1
-       WHERE i.tenant_id = ?
+       WHERE ${conditions.join(' AND ')}
        GROUP BY sc.id, sc.name
        ORDER BY sc.id`,
-      [this.tenantId],
+      params,
     );
     const categories = rows.map((r: any) => ({
       categoryId: Number(r.categoryId),

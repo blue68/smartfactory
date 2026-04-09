@@ -13,6 +13,7 @@ const RBAC_CENTER_MENU_CODES = new Set(getSystemMenuSeeds().map((item) => item.c
 const RBAC_CENTER_ACTION_CODES = new Set(getSystemActionSeeds().map((item) => item.code));
 const PLATFORM_ONLY_MENU_CODES = new Set(['system.tenant.config']);
 const PLATFORM_ONLY_ACTION_CODES = new Set(['system.tenant.manage', 'platform.tenant.switch', 'system.audit.view']);
+const TENANT_HIDDEN_ROLE_CODES = new Set(['purchase']);
 
 interface TenantContext {
   tenantId: number;
@@ -232,6 +233,21 @@ export class AccessControlService {
       return actions;
     }
     return actions.filter((item) => !PLATFORM_ONLY_ACTION_CODES.has(String(item.code ?? '')));
+  }
+
+  private buildTenantHiddenRoleFilter(
+    ctx: TenantContext,
+    alias: string,
+  ): { clause: string; params: Array<string | number> } {
+    if (ctx.scopeLevel !== 'tenant' || TENANT_HIDDEN_ROLE_CODES.size === 0) {
+      return { clause: '1=1', params: [] };
+    }
+
+    const codes = Array.from(TENANT_HIDDEN_ROLE_CODES);
+    return {
+      clause: `${alias}.code NOT IN (${buildInClause(codes)})`,
+      params: codes,
+    };
   }
 
   private async tableExists(tableName: string): Promise<boolean> {
@@ -1218,8 +1234,11 @@ export class AccessControlService {
     const where: string[] = ['r.tenant_id IN (0, ?)'];
     const params: Array<string | number> = [effectiveTenantId];
     const visibilityFilter = await this.buildRoleVisibilityFilter(ctx, 'r');
+    const hiddenRoleFilter = this.buildTenantHiddenRoleFilter(ctx, 'r');
     where.push(visibilityFilter.clause);
     params.push(...visibilityFilter.params);
+    where.push(hiddenRoleFilter.clause);
+    params.push(...hiddenRoleFilter.params);
 
     if (query.keyword) {
       where.push('(r.name LIKE ? OR r.code LIKE ?)');
@@ -1765,6 +1784,7 @@ export class AccessControlService {
   async getUserRoleAssignments(ctx: TenantContext, userId: number) {
     const hasRoleScope = await this.columnExists('roles', 'role_scope');
     const visibilityFilter = await this.buildRoleVisibilityFilter(ctx, 'r');
+    const hiddenRoleFilter = this.buildTenantHiddenRoleFilter(ctx, 'r');
     if (await this.tableExists('user_role_assignments')) {
       return AppDataSource.query(
         `SELECT ura.id,
@@ -1781,8 +1801,9 @@ export class AccessControlService {
           WHERE ura.tenant_id = ?
             AND ura.user_id = ?
             AND ${visibilityFilter.clause}
+            AND ${hiddenRoleFilter.clause}
           ORDER BY ura.is_primary DESC, ura.id ASC`,
-        [ctx.tenantId, userId, ...visibilityFilter.params],
+        [ctx.tenantId, userId, ...visibilityFilter.params, ...hiddenRoleFilter.params],
       );
     }
 
@@ -1801,10 +1822,11 @@ export class AccessControlService {
         WHERE ur.tenant_id = ?
           AND ur.user_id = ?
           AND ${hasRoleScope ? "COALESCE(r.role_scope, 'tenant') <> 'platform'" : 'r.code <> ?'}
+          AND ${hiddenRoleFilter.clause}
         ORDER BY ur.id ASC`,
       hasRoleScope
-        ? [ctx.tenantId, userId]
-        : [ctx.tenantId, userId, 'platform_super_admin'],
+        ? [ctx.tenantId, userId, ...hiddenRoleFilter.params]
+        : [ctx.tenantId, userId, 'platform_super_admin', ...hiddenRoleFilter.params],
     );
   }
 
@@ -1865,6 +1887,11 @@ export class AccessControlService {
     );
     if (platformRole && !this.isPlatformSuperAdmin(ctx)) {
       throw AppError.badRequest(`角色 ${platformRole.name} 不允许在租户态分配`, ResponseCode.INVALID_PARAMS);
+    }
+
+    const hiddenTenantRole = roles.find((role) => ctx.scopeLevel === 'tenant' && TENANT_HIDDEN_ROLE_CODES.has(role.code));
+    if (hiddenTenantRole) {
+      throw AppError.badRequest(`角色 ${hiddenTenantRole.name} 已停用旧编码，请改用 purchaser`, ResponseCode.INVALID_PARAMS);
     }
 
     const invalidRole = roles.find((role) => {

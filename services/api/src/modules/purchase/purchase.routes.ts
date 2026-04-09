@@ -25,7 +25,12 @@ router.post('/suggestions/:id/feedback',
 // BE-P2-014: 采购订单 CSV 导出
 // 注意：固定路由 orders/export/csv 必须在参数路由 orders/:id 之前注册，避免 Express 路由歧义
 router.get('/orders/export/csv', requirePermissionsOrRoles(['purchase:order:view'], 'boss', 'supervisor', 'purchaser', 'purchase'), asyncHandler(async (req: Request, res: Response) => {
-  const svc = new PurchaseService({ tenantId: req.tenantId, userId: req.userId, roles: req.roles ?? [] });
+  const svc = new PurchaseService({
+    tenantId: req.tenantId,
+    userId: req.userId,
+    roles: req.roles ?? [],
+    permissionSnapshot: req.permissionSnapshot,
+  });
   const HEADERS = ['采购单号', '供应商名称', '总金额', '状态', '创建时间'];
 
   // RFC 5987 编码中文文件名，兼容主流浏览器

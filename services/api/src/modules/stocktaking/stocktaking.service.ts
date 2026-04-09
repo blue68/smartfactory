@@ -7,6 +7,12 @@ import { AppError } from '../../shared/AppError';
 import { buildPaginated, PaginatedData } from '../../shared/ApiResponse';
 import { TenantContext } from '../../shared/BaseRepository';
 import { generateNo } from '../../shared/generateNo';
+import { PermissionSnapshot } from '../access-control/access-control.types';
+import {
+  assertWarehouseInScope,
+  resolveWarehouseDataScope,
+  type WarehouseDataScope,
+} from '../access-control/warehouse-data-scope';
 import {
   ensureDefaultWarehouseLocation as ensureDefaultWarehouseLocationBinding,
   resolveWarehouseLocationBinding,
@@ -125,10 +131,18 @@ interface InventoryLockRow {
 export class StocktakingService {
   private readonly tenantId: number;
   private readonly userId: number;
+  private readonly permissionSnapshot?: PermissionSnapshot;
+  private warehouseDataScopePromise: Promise<WarehouseDataScope> | null = null;
 
-  constructor(ctx: TenantContext) {
+  constructor(ctx: TenantContext & { permissionSnapshot?: PermissionSnapshot }) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+    this.permissionSnapshot = ctx.permissionSnapshot;
+  }
+
+  private async getWarehouseDataScope(): Promise<WarehouseDataScope> {
+    this.warehouseDataScopePromise ??= resolveWarehouseDataScope(this.tenantId, this.permissionSnapshot);
+    return this.warehouseDataScopePromise;
   }
 
   private async ensureDefaultWarehouseLocation(
@@ -159,6 +173,7 @@ export class StocktakingService {
     const taskNo = await generateNo('stocktaking_task', this.tenantId);
     const result = await AppDataSource.transaction(async (manager) => {
       const warehouseLocation = await this.resolveWarehouseLocation(manager, params);
+      assertWarehouseInScope(await this.getWarehouseDataScope(), warehouseLocation.warehouseId);
 
       // 快照当前库存（按仓库/库位 + scope 过滤）
       let inventoryQuery = `
@@ -240,15 +255,22 @@ export class StocktakingService {
   // ── 任务列表（分页 + 状态筛选）──────────────────────────────────────────────
 
   async listTasks(params: z.infer<typeof ListTaskSchema>): Promise<PaginatedData<StocktakingTask>> {
+    const warehouseScope = await this.getWarehouseDataScope();
     const { page, pageSize, status } = params;
     const offset = (page - 1) * pageSize;
 
     const whereClauses = ['st.tenant_id = ?'];
-    const args: unknown[] = [this.tenantId];
+    const args: Array<string | number> = [this.tenantId];
 
     if (status) {
       whereClauses.push('st.status = ?');
       args.push(status);
+    }
+    if (warehouseScope.mode === 'none') {
+      whereClauses.push('1 = 0');
+    } else if (warehouseScope.mode === 'assigned') {
+      whereClauses.push(`st.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})`);
+      args.push(...warehouseScope.warehouseIds);
     }
 
     const where = whereClauses.join(' AND ');
@@ -699,6 +721,16 @@ export class StocktakingService {
   // ── 私有辅助方法 ─────────────────────────────────────────────────────────────
 
   private async getTaskById(id: number): Promise<StocktakingTask> {
+    const warehouseScope = await this.getWarehouseDataScope();
+    const whereClauses = ['st.id = ?', 'st.tenant_id = ?'];
+    const params: Array<string | number> = [id, this.tenantId];
+    if (warehouseScope.mode === 'none') {
+      whereClauses.push('1 = 0');
+    } else if (warehouseScope.mode === 'assigned') {
+      whereClauses.push(`st.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})`);
+      params.push(...warehouseScope.warehouseIds);
+    }
+
     const [row] = await AppDataSource.query(
       `SELECT
          st.*,
@@ -713,9 +745,9 @@ export class StocktakingService {
        LEFT JOIN locations l
          ON l.id = st.location_id
         AND l.tenant_id = st.tenant_id
-       WHERE st.id = ? AND st.tenant_id = ?
+       WHERE ${whereClauses.join(' AND ')}
        LIMIT 1`,
-      [id, this.tenantId],
+      params,
     );
     if (!row) throw AppError.notFound('盘点任务不存在');
     return this.mapTask(row);

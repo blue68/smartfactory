@@ -8,6 +8,7 @@ import {
 } from './stocktaking.service';
 import { success, created } from '../../shared/ApiResponse';
 import { AppError } from '../../shared/AppError';
+import { PermissionSnapshot } from '../access-control/access-control.types';
 
 const CreateAdjustmentOrderSchema = z.object({
   execute: z.boolean().default(true),
@@ -21,7 +22,11 @@ const CreateAdjustmentOrderSchema = z.object({
  */
 export class StocktakingController {
   private svc(req: Request): StocktakingService {
-    return new StocktakingService({ tenantId: req.tenantId, userId: req.userId });
+    return new StocktakingService({
+      tenantId: req.tenantId,
+      userId: req.userId,
+      permissionSnapshot: req.permissionSnapshot as PermissionSnapshot | undefined,
+    });
   }
 
   /** POST /api/stocktaking — 创建盘点任务 */

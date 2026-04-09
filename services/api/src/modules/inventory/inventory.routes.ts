@@ -133,7 +133,12 @@ router.post(
 
 // BE-P2-014: 库存 CSV 导出（IMP-003: 分批流式写入，防止 OOM）
 router.get('/export/csv', requirePermissionsOrRoles(['inventory:view'], 'boss', 'supervisor', 'warehouse', 'purchaser', 'purchase'), asyncHandler(async (req: Request, res: Response) => {
-  const svc = new InventoryService({ tenantId: req.tenantId, userId: req.userId, roles: req.roles ?? [] });
+  const svc = new InventoryService({
+    tenantId: req.tenantId,
+    userId: req.userId,
+    roles: req.roles ?? [],
+    permissionSnapshot: req.permissionSnapshot,
+  });
   const { toCSV } = await import('../../shared/csvExport');
   const HEADERS = ['SKU编码', '物料名称', '在库数量', '预留数量', '可用库存', '安全库存', '单位'];
 
