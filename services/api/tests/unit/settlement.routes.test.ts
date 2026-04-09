@@ -3,11 +3,20 @@ const requireRolesMock = jest.fn((...allowedRoles: string[]) => {
   (middleware as typeof middleware & { allowedRoles?: string[] }).allowedRoles = allowedRoles;
   return middleware;
 });
+const requirePermissionsOrRolesMock = jest.fn((requiredPermissions: string[], ...allowedRoles: string[]) => {
+  const middleware = (_req: unknown, _res: unknown, next: () => void) => next();
+  (middleware as typeof middleware & { allowedRoles?: string[] }).allowedRoles = allowedRoles;
+  (
+    middleware as typeof middleware & { requiredPermissions?: string[] }
+  ).requiredPermissions = requiredPermissions;
+  return middleware;
+});
 const authMiddlewareMock = jest.fn((_req: unknown, _res: unknown, next: () => void) => next());
 
 jest.mock('../../src/middleware/auth', () => ({
   authMiddleware: authMiddlewareMock,
   requireRoles: requireRolesMock,
+  requirePermissionsOrRoles: requirePermissionsOrRolesMock,
 }));
 
 jest.mock('../../src/app', () => ({
@@ -38,10 +47,11 @@ function getRouteLayer(path: string, method: string) {
   );
 }
 
-function getRouteRoles(path: string, method: string): string[] | undefined {
+function getRouteGuard(path: string, method: string) {
   const layer = getRouteLayer(path, method);
-  const roleLayer = layer?.route?.stack?.find((stackLayer: any) => (stackLayer.handle as any)?.allowedRoles);
-  return (roleLayer?.handle as any)?.allowedRoles;
+  return layer?.route?.stack?.find((stackLayer: any) =>
+    (stackLayer.handle as any)?.allowedRoles || (stackLayer.handle as any)?.requiredPermissions,
+  )?.handle as { allowedRoles?: string[]; requiredPermissions?: string[] } | undefined;
 }
 
 describe('settlement.routes wiring', () => {
@@ -59,14 +69,22 @@ describe('settlement.routes wiring', () => {
     expect(routePaths.indexOf('/pending-orders')).toBeLessThan(routePaths.indexOf('/:id'));
   });
 
-  it('declares expected role guards', () => {
-    expect(getRouteRoles('/receivable', 'get')).toEqual(['boss', 'supervisor']);
-    expect(getRouteRoles('/export/csv', 'get')).toEqual(['boss', 'supervisor']);
-    expect(getRouteRoles('/', 'post')).toEqual(['boss', 'supervisor']);
-    expect(getRouteRoles('/pending-orders', 'get')).toEqual(['boss', 'supervisor', 'sales']);
-    expect(getRouteRoles('/', 'get')).toEqual(['boss', 'supervisor', 'sales']);
-    expect(getRouteRoles('/:id/confirm', 'put')).toEqual(['boss']);
-    expect(getRouteRoles('/:id/pay', 'put')).toEqual(['boss']);
-    expect(getRouteRoles('/:id/cancel', 'put')).toEqual(['boss', 'supervisor']);
+  it('declares expected permission and role guards', () => {
+    expect(getRouteGuard('/receivable', 'get')?.requiredPermissions).toEqual(['settlement:receivable:view']);
+    expect(getRouteGuard('/receivable', 'get')?.allowedRoles).toEqual(['boss', 'supervisor']);
+    expect(getRouteGuard('/export/csv', 'get')?.requiredPermissions).toEqual(['settlement:manage']);
+    expect(getRouteGuard('/export/csv', 'get')?.allowedRoles).toEqual(['boss', 'supervisor']);
+    expect(getRouteGuard('/', 'post')?.requiredPermissions).toEqual(['settlement:manage']);
+    expect(getRouteGuard('/', 'post')?.allowedRoles).toEqual(['boss', 'supervisor']);
+    expect(getRouteGuard('/pending-orders', 'get')?.requiredPermissions).toEqual(['settlement:pending:view']);
+    expect(getRouteGuard('/pending-orders', 'get')?.allowedRoles).toEqual(['boss', 'supervisor', 'sales']);
+    expect(getRouteGuard('/', 'get')?.requiredPermissions).toEqual(['settlement:manage', 'settlement:pending:view']);
+    expect(getRouteGuard('/', 'get')?.allowedRoles).toEqual(['boss', 'supervisor', 'sales']);
+    expect(getRouteGuard('/:id/confirm', 'put')?.requiredPermissions).toEqual(['settlement:boss']);
+    expect(getRouteGuard('/:id/confirm', 'put')?.allowedRoles).toEqual(['boss']);
+    expect(getRouteGuard('/:id/pay', 'put')?.requiredPermissions).toEqual(['settlement:boss']);
+    expect(getRouteGuard('/:id/pay', 'put')?.allowedRoles).toEqual(['boss']);
+    expect(getRouteGuard('/:id/cancel', 'put')?.requiredPermissions).toEqual(['settlement:manage']);
+    expect(getRouteGuard('/:id/cancel', 'put')?.allowedRoles).toEqual(['boss', 'supervisor']);
   });
 });

@@ -4,83 +4,136 @@
  */
 
 import { useAuthStore } from '@/stores/authStore';
+import { ACTION_CODES } from '@/constants/accessControl';
 import { UserRole } from '@/types/enums';
 
 /** 功能权限映射：操作 → 允许的角色列表 */
 const PERMISSION_MAP = {
   // 仪表盘
-  'dashboard:view': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER, UserRole.SALES],
+  [ACTION_CODES.DASHBOARD_VIEW]: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER, UserRole.SALES],
 
   // SKU 主数据
-  'sku:view': [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
-  'sku:create': [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER],
-  'sku:edit': [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER],
+  [ACTION_CODES.SKU_VIEW]: [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
+  [ACTION_CODES.SKU_CREATE]: [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER],
+  [ACTION_CODES.SKU_EDIT]: [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER],
 
   // BOM
-  'bom:view': [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
-  'bom:create': [UserRole.BOSS, UserRole.SUPERVISOR],
-  'bom:activate': [UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.BOM_VIEW]: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
+  [ACTION_CODES.BOM_CREATE]: [UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.BOM_ACTIVATE]: [UserRole.BOSS, UserRole.SUPERVISOR],
 
   // 库存
-  'inventory:view': [
+  [ACTION_CODES.INVENTORY_VIEW]: [
     UserRole.BOSS,
     UserRole.WAREHOUSE,
     UserRole.PURCHASER,
     UserRole.SUPERVISOR,
   ],
-  'inventory:inbound': [UserRole.BOSS, UserRole.WAREHOUSE, UserRole.PURCHASER],
-  'inventory:outbound': [UserRole.BOSS, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
+  [ACTION_CODES.INVENTORY_INBOUND]: [UserRole.BOSS, UserRole.WAREHOUSE, UserRole.PURCHASER],
+  [ACTION_CODES.INVENTORY_OUTBOUND]: [UserRole.BOSS, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
 
   // 采购建议
-  'purchase:suggestion:view': [UserRole.BOSS, UserRole.PURCHASER],
-  'purchase:suggestion:generate': [UserRole.BOSS, UserRole.PURCHASER],
-  'purchase:suggestion:approve': [UserRole.BOSS],
+  [ACTION_CODES.PURCHASE_SUGGESTION_VIEW]: [UserRole.BOSS, UserRole.PURCHASER],
+  [ACTION_CODES.PURCHASE_SUGGESTION_GENERATE]: [UserRole.BOSS, UserRole.PURCHASER],
+  [ACTION_CODES.PURCHASE_SUGGESTION_APPROVE]: [UserRole.BOSS],
 
   // 采购订单
-  'purchase:order:view': [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR],
-  'purchase:order:create': [UserRole.BOSS, UserRole.PURCHASER],
-  'purchase:order:delivery': [UserRole.PURCHASER],
-  'purchase:order:close': [UserRole.BOSS, UserRole.SUPERVISOR],
-  'purchase:delivery:view': [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
-  'purchase:receipt:view': [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
-  'purchase:receipt:edit': [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+  [ACTION_CODES.PURCHASE_ORDER_VIEW]: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR],
+  [ACTION_CODES.PURCHASE_ORDER_CREATE]: [UserRole.BOSS, UserRole.PURCHASER],
+  [ACTION_CODES.PURCHASE_ORDER_DELIVERY]: [UserRole.PURCHASER],
+  [ACTION_CODES.PURCHASE_ORDER_CLOSE]: [UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PURCHASE_DELIVERY_VIEW]: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+  [ACTION_CODES.PURCHASE_RECEIPT_VIEW]: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+  [ACTION_CODES.PURCHASE_RECEIPT_EDIT]: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
 
   // 三单匹配
-  'purchase:match:execute': [UserRole.PURCHASER],
-  'purchase:match:confirm': [UserRole.PURCHASER],
+  [ACTION_CODES.PURCHASE_MATCH_EXECUTE]: [UserRole.PURCHASER],
+  [ACTION_CODES.PURCHASE_MATCH_CONFIRM]: [UserRole.PURCHASER],
 
   // 销售订单
-  'sales:order:view': [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
-  'sales:order:create': [UserRole.BOSS, UserRole.SALES],
-  'sales:order:approve': [UserRole.BOSS],
-  'sales:order:urgent-analyze': [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
+  [ACTION_CODES.SALES_ORDER_VIEW]: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
+  [ACTION_CODES.SALES_ORDER_CREATE]: [UserRole.BOSS, UserRole.SALES],
+  [ACTION_CODES.SALES_ORDER_APPROVE]: [UserRole.BOSS],
+  [ACTION_CODES.SALES_ORDER_URGENT_ANALYZE]: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
+  [ACTION_CODES.SALES_ORDER_LIST_CREATE]: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.SALES],
+  [ACTION_CODES.SALES_ORDER_LIST_APPROVE]: [UserRole.BOSS],
+  [ACTION_CODES.SALES_ORDER_LIST_SHIP]: [UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.SALES_CUSTOMER_VIEW]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.SALES],
+  [ACTION_CODES.SALES_CUSTOMER_MANAGE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.SALES],
 
   // 生产工单
-  'production:order:view': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
-  'production:order:create': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
-  'production:schedule:view': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
-  'production:schedule:generate': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
-  'production:schedule:confirm': [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
-  'production:task:complete': [UserRole.ADMIN, UserRole.WORKER, UserRole.SUPERVISOR, UserRole.BOSS],
+  [ACTION_CODES.PRODUCTION_ORDER_VIEW]: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
+  [ACTION_CODES.PRODUCTION_ORDER_CREATE]: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PRODUCTION_SCHEDULE_VIEW]: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PRODUCTION_SCHEDULE_GENERATE]: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PRODUCTION_SCHEDULE_CONFIRM]: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PRODUCTION_TASK_COMPLETE]: [UserRole.ADMIN, UserRole.WORKER, UserRole.SUPERVISOR, UserRole.BOSS],
+  [ACTION_CODES.PRODUCTION_TASK_OPERATE]: [UserRole.ADMIN, UserRole.WORKER, UserRole.SUPERVISOR, UserRole.BOSS],
+  [ACTION_CODES.PRODUCTION_TASK_SUPERVISE]: [UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.BOSS],
+  [ACTION_CODES.SCHEDULE_SUGGESTION_PURCHASE_VIEW]: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
+  [ACTION_CODES.SCHEDULE_SUGGESTION_PRODUCTION_VIEW]: [UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.SCHEDULE_SUGGESTION_TRIGGER]: [UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PRODUCTION_SHORTAGE_VIEW]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
+  [ACTION_CODES.PRODUCTION_SHORTAGE_REEVALUATE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PRODUCTION_CALENDAR_MANAGE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PRODUCTION_WORKSTATION_MANAGE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PRODUCTION_SCHEDULE_ADJUST]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
 
   // 质量
-  'quality:view': [
+  [ACTION_CODES.QUALITY_VIEW]: [
     UserRole.BOSS,
     UserRole.QC,
     UserRole.SUPERVISOR,
     UserRole.SALES,
   ],
-  'quality:create': [UserRole.QC, UserRole.SUPERVISOR],
-  'quality:issue:create': [UserRole.QC],
-  'quality:complete': [UserRole.QC],
+  [ACTION_CODES.QUALITY_CREATE]: [UserRole.QC, UserRole.SUPERVISOR],
+  [ACTION_CODES.QUALITY_ISSUE_CREATE]: [UserRole.QC],
+  [ACTION_CODES.QUALITY_COMPLETE]: [UserRole.QC],
+  [ACTION_CODES.REPORT_ANALYTICS_VIEW]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+
+  // 报表、结算与仓库扩展权限
+  [ACTION_CODES.REPORT_WAGE_MANAGE]: [UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.SALES_SETTLEMENT_MANAGE]: [UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.SALES_SETTLEMENT_BOSS]: [UserRole.BOSS],
+  [ACTION_CODES.SALES_SETTLEMENT_RECEIVABLE_VIEW]: [UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.SALES_SETTLEMENT_PENDING_VIEW]: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.SALES],
+  [ACTION_CODES.PURCHASE_SETTLEMENT_MANAGE]: [UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PURCHASE_SETTLEMENT_BOSS]: [UserRole.BOSS],
+  [ACTION_CODES.WAREHOUSE_LOCATION_MANAGE]: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+  [ACTION_CODES.WAREHOUSE_LOCATION_IMPORT]: [UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.SUPPLIER_VIEW]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
+  [ACTION_CODES.SUPPLIER_MANAGE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
+  [ACTION_CODES.PRICE_VIEW]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
+  [ACTION_CODES.PRICE_MANAGE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
+  [ACTION_CODES.PRICE_IMPORT]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PURCHASE_RETURN_VIEW]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER, UserRole.WAREHOUSE],
+  [ACTION_CODES.PURCHASE_RETURN_CREATE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+  [ACTION_CODES.PURCHASE_RETURN_CONFIRM]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PURCHASE_RETURN_SHIP]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+  [ACTION_CODES.PURCHASE_RETURN_COMPLETE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+  [ACTION_CODES.STOCKTAKING_VIEW]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+  [ACTION_CODES.STOCKTAKING_CREATE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.WAREHOUSE],
+  [ACTION_CODES.STOCKTAKING_SUBMIT]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.WAREHOUSE],
+  [ACTION_CODES.STOCKTAKING_CONFIRM]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS],
+  [ACTION_CODES.PROCESS_CONFIG_VIEW]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PROCESS_CONFIG_MANAGE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.PROCESS_CONFIG_WAGE_MANAGE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.SKU_CATEGORY_MANAGE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS],
+  [ACTION_CODES.SKU_CATEGORY_AUDIT_VIEW]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS],
+  [ACTION_CODES.INVENTORY_MAINTAIN]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+  [ACTION_CODES.INVENTORY_WASTE]: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSION_MAP;
 
 export function usePermission() {
   const hasAnyRole = useAuthStore((s) => s.hasAnyRole);
+  const hasPermission = useAuthStore((s) => s.hasPermission);
 
   const can = (permission: PermissionKey): boolean => {
+    if (hasPermission(permission)) {
+      return true;
+    }
     const allowed = PERMISSION_MAP[permission] as readonly UserRole[];
     return hasAnyRole([...allowed]);
   };

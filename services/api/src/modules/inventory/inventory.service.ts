@@ -253,12 +253,12 @@ const LOCATION_TYPES = new Set(['general', 'zone', 'rack', 'shelf', 'bin']);
 export class InventoryService {
   private readonly tenantId: number;
   private readonly userId: number;
-  private readonly roles: string[];
+  private readonly actionCodes: string[];
 
-  constructor(ctx: TenantContext & { roles?: string[] }) {
+  constructor(ctx: TenantContext) {
     this.tenantId = ctx.tenantId;
     this.userId   = ctx.userId;
-    this.roles    = ctx.roles ?? [];
+    this.actionCodes = ctx.actionCodes ?? [];
   }
 
   private buildInventoryScope(params: { skuId?: number; skuIds?: number[] }): InventoryScope {
@@ -2361,7 +2361,7 @@ export class InventoryService {
         const authSvc = new DyeLotAuthorizeService({
           tenantId: this.tenantId,
           userId:   this.userId,
-          roles:    this.roles,
+          actionCodes: this.actionCodes,
         });
         crossDyeLotAuthorizeInfo = await authSvc.validateForOutbound(
           params.authorizeId,

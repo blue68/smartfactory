@@ -158,12 +158,11 @@ const RepairInventorySchema = z.object({
 
 export class InventoryController {
   private svc(req: Request): InventoryService {
-    // roles 来自 JWT 中间件解析后挂载在 req.roles（string[]）
-    // 必须传入，否则 outbound 跨缸号授权校验链路断裂（DyeLotAuthorizeService 无法获取角色）
     return new InventoryService({
       tenantId: req.tenantId,
       userId: req.userId,
       roles: req.roles ?? [],
+      actionCodes: req.permissionSnapshot?.actionCodes ?? [],
     });
   }
 

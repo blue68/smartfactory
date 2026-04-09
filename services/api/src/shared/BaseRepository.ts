@@ -8,6 +8,7 @@ export interface TenantContext {
   tenantId: number;
   userId: number;
   roles?: string[];
+  actionCodes?: string[];
 }
 
 /**

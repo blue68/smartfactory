@@ -1,13 +1,16 @@
-const requireRolesMock = jest.fn((...allowedRoles: string[]) => {
+const requirePermissionsOrRolesMock = jest.fn((requiredPermissions: string[], ...allowedRoles: string[]) => {
   const middleware = (_req: unknown, _res: unknown, next: () => void) => next();
   (middleware as typeof middleware & { allowedRoles?: string[] }).allowedRoles = allowedRoles;
+  (
+    middleware as typeof middleware & { requiredPermissions?: string[] }
+  ).requiredPermissions = requiredPermissions;
   return middleware;
 });
 const authMiddlewareMock = jest.fn((_req: unknown, _res: unknown, next: () => void) => next());
 
 jest.mock('../../src/middleware/auth', () => ({
   authMiddleware: authMiddlewareMock,
-  requireRoles: requireRolesMock,
+  requirePermissionsOrRoles: requirePermissionsOrRolesMock,
 }));
 
 jest.mock('../../src/app', () => ({
@@ -28,6 +31,7 @@ jest.mock('../../src/modules/production/production.controller', () => ({
     listOrders: jest.fn(),
     getOrder: jest.fn(),
     createOrder: jest.fn(),
+    getScheduleHistory: jest.fn(),
     generateSchedule: jest.fn(),
     confirmSchedule: jest.fn(),
     getTaskStats: jest.fn(),
@@ -66,10 +70,11 @@ function getRouteLayer(path: string, method: string) {
   );
 }
 
-function getRouteRoles(path: string, method: string): string[] | undefined {
+function getRouteGuard(path: string, method: string) {
   const layer = getRouteLayer(path, method);
-  const roleLayer = layer?.route?.stack?.find((stackLayer: any) => (stackLayer.handle as any)?.allowedRoles);
-  return (roleLayer?.handle as any)?.allowedRoles;
+  return layer?.route?.stack?.find((stackLayer: any) =>
+    (stackLayer.handle as any)?.allowedRoles || (stackLayer.handle as any)?.requiredPermissions,
+  )?.handle as { allowedRoles?: string[]; requiredPermissions?: string[] } | undefined;
 }
 
 describe('production.routes phase1 wiring', () => {
@@ -77,10 +82,18 @@ describe('production.routes phase1 wiring', () => {
     expect(router.stack[0]?.handle).toBe(authMiddlewareMock);
   });
 
-  it('declares expected role guards for phase1 order endpoints', () => {
-    expect(getRouteRoles('/orders/:id/release', 'post')).toEqual(['supervisor', 'boss']);
-    expect(getRouteRoles('/orders/:id/components', 'get')).toEqual(['supervisor', 'boss', 'purchase']);
-    expect(getRouteRoles('/orders/:id/operations', 'get')).toEqual(['supervisor', 'boss']);
+  it('declares expected permission and role guards for phase1 order endpoints', () => {
+    expect(getRouteGuard('/work-calendar', 'get')?.requiredPermissions).toEqual(['production:schedule:view']);
+    expect(getRouteGuard('/work-calendar/holiday', 'post')?.requiredPermissions).toEqual(['production:calendar:manage']);
+    expect(getRouteGuard('/workstations', 'get')?.requiredPermissions).toEqual(['production:schedule:view']);
+    expect(getRouteGuard('/workstations', 'post')?.requiredPermissions).toEqual(['production:workstation:manage']);
+    expect(getRouteGuard('/schedule/:date/adjust', 'put')?.requiredPermissions).toEqual(['production:schedule:adjust']);
+    expect(getRouteGuard('/orders/:id/release', 'post')?.requiredPermissions).toEqual(['production:order:create']);
+    expect(getRouteGuard('/orders/:id/release', 'post')?.allowedRoles).toEqual(['supervisor', 'boss']);
+    expect(getRouteGuard('/orders/:id/components', 'get')?.requiredPermissions).toEqual(['production:order:view']);
+    expect(getRouteGuard('/orders/:id/components', 'get')?.allowedRoles).toEqual(['supervisor', 'boss', 'purchase', 'purchaser']);
+    expect(getRouteGuard('/orders/:id/operations', 'get')?.requiredPermissions).toEqual(['production:order:view']);
+    expect(getRouteGuard('/orders/:id/operations', 'get')?.allowedRoles).toEqual(['supervisor', 'boss']);
   });
 
   it('keeps phase1 order endpoints mounted', () => {
@@ -91,9 +104,11 @@ describe('production.routes phase1 wiring', () => {
 
   it('mounts task execution endpoints with worker/supervisor/boss/admin guard', () => {
     expect(getRouteLayer('/tasks/:id/start', 'post')).toBeTruthy();
-    expect(getRouteRoles('/tasks/:id/start', 'post')).toEqual(['worker', 'supervisor', 'boss', 'admin']);
+    expect(getRouteGuard('/tasks/:id/start', 'post')?.requiredPermissions).toEqual(['production:task:operate']);
+    expect(getRouteGuard('/tasks/:id/start', 'post')?.allowedRoles).toEqual(['worker', 'supervisor', 'boss', 'admin']);
     expect(getRouteLayer('/tasks/:id/complete-v2', 'post')).toBeTruthy();
-    expect(getRouteRoles('/tasks/:id/complete-v2', 'post')).toEqual(['worker', 'supervisor', 'boss', 'admin']);
+    expect(getRouteGuard('/tasks/:id/complete-v2', 'post')?.requiredPermissions).toEqual(['production:task:complete', 'production:task:operate']);
+    expect(getRouteGuard('/tasks/:id/complete-v2', 'post')?.allowedRoles).toEqual(['worker', 'supervisor', 'boss', 'admin']);
   });
 
   it('keeps fixed task routes ahead of /tasks/:taskId and mounts task detail route', () => {

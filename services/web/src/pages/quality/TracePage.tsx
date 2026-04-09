@@ -412,7 +412,7 @@ export default function TracePage() {
   // ── 派生柱状图数据（来自 QualityStats.issueTypeBreakdown）──
   const barChartData = useMemo(() => {
     const breakdown = statsQuery.data?.issueTypeBreakdown ?? [];
-    if (breakdown.length === 0) return null; // null 时保留 mock
+    if (breakdown.length === 0) return [];
     return breakdown.map((item) => ({
       label: issueTypeToLabel(item.type),
       percent: Math.round(parseFloat(item.pct)),
@@ -423,7 +423,7 @@ export default function TracePage() {
   // ── 派生 TOP3 数据（来自 QualityStats.top5Issues 前3条）──
   const top3Data = useMemo(() => {
     const top5 = statsQuery.data?.top5Issues ?? [];
-    if (top5.length === 0) return null; // null 时保留 mock
+    if (top5.length === 0) return [];
     return top5.slice(0, 3).map((item, idx) => ({
       rank: `#${idx + 1}`,
       label: item.description,
@@ -431,26 +431,6 @@ export default function TracePage() {
       ...TOP3_STYLES[idx] ?? TOP3_STYLES[2],
     }));
   }, [statsQuery.data, periodDays]);
-
-  // ── 柱状图 fallback mock（后端无数据时使用）──
-  // TODO: 当 issueTypeBreakdown 有数据后，此 mock 将不再使用
-  const BAR_CHART_FALLBACK = [
-    { label: '外观问题', percent: 72, color: '#F87171' },
-    { label: '尺寸偏差', percent: 18, color: '#FBBF24' },
-    { label: '功能问题', percent: 7,  color: '#38BDF8' },
-    { label: '材质问题', percent: 3,  color: '#A78BFA' },
-  ];
-
-  // ── TOP3 fallback mock（后端无数据时使用）──
-  // TODO: 当 top5Issues 有数据后，此 mock 将不再使用
-  const TOP3_FALLBACK = [
-    { rank: '#1', label: '面料色差（跨缸号）', tagText: '6次 / 30天', tagVariant: 'error'   as const, bg: 'var(--color-error-50)',   color: 'var(--color-error-700)'   },
-    { rank: '#2', label: '五金孔位偏移',       tagText: '4次 / 30天', tagVariant: 'warning' as const, bg: 'var(--color-warning-50)', color: 'var(--color-warning-700)' },
-    { rank: '#3', label: '表面划痕',           tagText: '3次 / 30天', tagVariant: 'neutral' as const, bg: 'var(--color-gray-50)',    color: 'var(--text-primary)'      },
-  ];
-
-  const finalBarChart = barChartData ?? BAR_CHART_FALLBACK;
-  const finalTop3     = top3Data     ?? TOP3_FALLBACK;
   const allIssueTotalPages = Math.max(1, allIssuesQuery.data?.totalPages ?? 1);
 
   const resolveImageUrl = useCallback((rawUrl: string): string => toAbsoluteUrl(rawUrl), []);
@@ -1006,46 +986,50 @@ export default function TracePage() {
           <div className={styles.card}>
             <h2 className={styles.cardTitle}>问题类型分布（近{periodDays}天）</h2>
 
-            {/* 水平条形图 */}
-            {/* 数据来源：QualityStats.issueTypeBreakdown（实时）；后端无数据时降级为 fallback mock */}
-            <div className={styles.barChart} role="list" aria-label="问题类型水平条形图">
-              {finalBarChart.map((bar) => (
-                <div key={bar.label} className={styles.barChartItem} role="listitem">
-                  <div className={styles.barChartLabel}>{bar.label}</div>
-                  <div className={styles.barChartBarWrap}>
-                    <div
-                      className={styles.barChartBar}
-                      style={{ width: `${bar.percent}%`, background: bar.color }}
-                      role="progressbar"
-                      aria-valuenow={bar.percent}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-label={`${bar.label}占${bar.percent}%`}
-                    />
-                  </div>
-                  <div className={styles.barChartVal}>{bar.percent}%</div>
-                </div>
-              ))}
-            </div>
-
-            {/* 高频问题 TOP 3 */}
-            {/* 数据来源：QualityStats.top5Issues 前3条（实时）；后端无数据时降级为 fallback mock */}
-            <div className={styles.top3Section}>
-              <div className={styles.top3Title}>高频问题 TOP 3</div>
-              <div className={styles.top3List}>
-                {finalTop3.map((item) => (
-                  <div
-                    key={item.rank}
-                    className={styles.top3Item}
-                    style={{ background: item.bg }}
-                  >
-                    <span className={styles.top3ItemLabel} style={{ color: item.color }}>
-                      {item.rank} {item.label}
-                    </span>
-                    <Tag variant={item.tagVariant}>{item.tagText}</Tag>
+            {barChartData.length > 0 ? (
+              <div className={styles.barChart} role="list" aria-label="问题类型水平条形图">
+                {barChartData.map((bar) => (
+                  <div key={bar.label} className={styles.barChartItem} role="listitem">
+                    <div className={styles.barChartLabel}>{bar.label}</div>
+                    <div className={styles.barChartBarWrap}>
+                      <div
+                        className={styles.barChartBar}
+                        style={{ width: `${bar.percent}%`, background: bar.color }}
+                        role="progressbar"
+                        aria-valuenow={bar.percent}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label={`${bar.label}占${bar.percent}%`}
+                      />
+                    </div>
+                    <div className={styles.barChartVal}>{bar.percent}%</div>
                   </div>
                 ))}
               </div>
+            ) : (
+              <div className={styles.allIssuesEmpty}>暂无问题类型统计</div>
+            )}
+
+            <div className={styles.top3Section}>
+              <div className={styles.top3Title}>高频问题 TOP 3</div>
+              {top3Data.length > 0 ? (
+                <div className={styles.top3List}>
+                  {top3Data.map((item) => (
+                    <div
+                      key={item.rank}
+                      className={styles.top3Item}
+                      style={{ background: item.bg }}
+                    >
+                      <span className={styles.top3ItemLabel} style={{ color: item.color }}>
+                        {item.rank} {item.label}
+                      </span>
+                      <Tag variant={item.tagVariant}>{item.tagText}</Tag>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.allIssuesEmpty}>暂无高频问题统计</div>
+              )}
             </div>
           </div>
         </section>

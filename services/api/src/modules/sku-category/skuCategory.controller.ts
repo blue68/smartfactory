@@ -13,6 +13,10 @@ const GetTreeQuerySchema = z.object({
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
     .optional(),
+  editableView: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
 });
 
 const CreateCategorySchema = z.object({
@@ -67,7 +71,10 @@ export class SkuCategoryController {
 
   /**
    * GET /api/sku-categories
-   * 获取类目树（系统预置 + 租户自定义）
+   * 获取类目树。
+   * editableView=true 时，租户管理视图仅返回：
+   *   - 系统一级类目
+   *   - 当前租户的二级类目
    */
   async getTree(req: Request, res: Response): Promise<void> {
     const q = GetTreeQuerySchema.parse(req.query);
@@ -75,6 +82,7 @@ export class SkuCategoryController {
       level: q.level as 1 | 2 | undefined,
       parentId: q.parentId,
       includeInactive: q.includeInactive,
+      editableView: q.editableView,
     });
     success(res, tree);
   }

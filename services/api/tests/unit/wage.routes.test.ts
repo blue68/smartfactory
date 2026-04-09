@@ -3,11 +3,20 @@ const requireRolesMock = jest.fn((...allowedRoles: string[]) => {
   (middleware as typeof middleware & { allowedRoles?: string[] }).allowedRoles = allowedRoles;
   return middleware;
 });
+const requirePermissionsOrRolesMock = jest.fn((requiredPermissions: string[], ...allowedRoles: string[]) => {
+  const middleware = (_req: unknown, _res: unknown, next: () => void) => next();
+  (middleware as typeof middleware & { allowedRoles?: string[] }).allowedRoles = allowedRoles;
+  (
+    middleware as typeof middleware & { requiredPermissions?: string[] }
+  ).requiredPermissions = requiredPermissions;
+  return middleware;
+});
 const authMiddlewareMock = jest.fn((_req: unknown, _res: unknown, next: () => void) => next());
 
 jest.mock('../../src/middleware/auth', () => ({
   authMiddleware: authMiddlewareMock,
   requireRoles: requireRolesMock,
+  requirePermissionsOrRoles: requirePermissionsOrRolesMock,
 }));
 
 jest.mock('../../src/app', () => ({
@@ -33,10 +42,11 @@ function getRouteLayer(path: string, method: string) {
   );
 }
 
-function getRouteRoles(path: string, method: string): string[] | undefined {
+function getRouteGuard(path: string, method: string) {
   const layer = getRouteLayer(path, method);
-  const roleLayer = layer?.route?.stack?.find((stackLayer: any) => (stackLayer.handle as any)?.allowedRoles);
-  return (roleLayer?.handle as any)?.allowedRoles;
+  return layer?.route?.stack?.find((stackLayer: any) =>
+    (stackLayer.handle as any)?.allowedRoles || (stackLayer.handle as any)?.requiredPermissions,
+  )?.handle as { allowedRoles?: string[]; requiredPermissions?: string[] } | undefined;
 }
 
 describe('wage.routes wiring', () => {
@@ -53,10 +63,13 @@ describe('wage.routes wiring', () => {
     expect(routePaths.indexOf('/tasks')).toBeLessThan(routePaths.indexOf('/'));
   });
 
-  it('declares expected role guards for report routes', () => {
-    expect(getRouteRoles('/export', 'get')).toEqual(['boss', 'manager']);
-    expect(getRouteRoles('/tasks', 'get')).toEqual(['boss', 'manager']);
-    expect(getRouteRoles('/', 'get')).toEqual(['boss', 'manager']);
-    expect(getRouteRoles('/my', 'get')).toBeUndefined();
+  it('declares expected permission and role guards for report routes', () => {
+    expect(getRouteGuard('/export', 'get')?.requiredPermissions).toEqual(['report:wage:manage']);
+    expect(getRouteGuard('/export', 'get')?.allowedRoles).toEqual(['boss', 'manager']);
+    expect(getRouteGuard('/tasks', 'get')?.requiredPermissions).toEqual(['report:wage:manage']);
+    expect(getRouteGuard('/tasks', 'get')?.allowedRoles).toEqual(['boss', 'manager']);
+    expect(getRouteGuard('/', 'get')?.requiredPermissions).toEqual(['report:wage:manage']);
+    expect(getRouteGuard('/', 'get')?.allowedRoles).toEqual(['boss', 'manager']);
+    expect(getRouteGuard('/my', 'get')).toBeUndefined();
   });
 });

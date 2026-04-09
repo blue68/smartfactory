@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { analyticsController } from './analytics.controller';
-import { authMiddleware, requireRoles } from '../../middleware/auth';
+import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
 const router = Router();
@@ -8,8 +8,8 @@ const router = Router();
 // 所有报表接口必须携带有效 JWT
 router.use(authMiddleware);
 
-// 仅 boss / supervisor 角色可访问经营分析数据
-router.use(requireRoles('boss', 'supervisor'));
+// 经营分析接口：权限点优先，旧角色兜底
+router.use(requirePermissionsOrRoles(['report:analytics:view'], 'boss', 'supervisor'));
 
 // BE-P2-001: 老板驾驶舱 KPI
 router.get(

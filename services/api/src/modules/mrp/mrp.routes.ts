@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { mrpController } from './mrp.controller';
-import { authMiddleware, requireRoles } from '../../middleware/auth';
+import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
 const router = Router();
@@ -9,14 +9,14 @@ router.use(authMiddleware);
 // GET /api/mrp/shortage-report/:productionOrderId — 获取工单缺料报告明细
 router.get(
   '/shortage-report/:productionOrderId',
-  requireRoles('supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['production:shortage:view'], 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(mrpController.getShortageReport.bind(mrpController)),
 );
 
 // GET /api/mrp/shortage-summary — 全局缺料汇总（跨工单合并同类项）
 router.get(
   '/shortage-summary',
-  requireRoles('supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['production:shortage:view'], 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(mrpController.getGlobalShortageSummary.bind(mrpController)),
 );
 
@@ -24,7 +24,7 @@ router.get(
 // 权限：采购员、主管、老板
 router.post(
   '/generate-suggestions',
-  requireRoles('purchase', 'supervisor', 'boss'),
+  requirePermissionsOrRoles(['purchase:suggestion:generate'], 'purchase', 'purchaser', 'supervisor', 'boss'),
   asyncHandler(mrpController.generateSuggestions.bind(mrpController)),
 );
 
@@ -32,14 +32,14 @@ router.post(
 // 权限：主管、老板
 router.post(
   '/reevaluate',
-  requireRoles('supervisor', 'boss'),
+  requirePermissionsOrRoles(['production:shortage:reevaluate'], 'supervisor', 'boss'),
   asyncHandler(mrpController.reevaluateAfterReceipt.bind(mrpController)),
 );
 
 // GET /api/mrp/supply-chain-dashboard — 供应链状态看板数据
 router.get(
   '/supply-chain-dashboard',
-  requireRoles('supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['production:shortage:view'], 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(mrpController.getSupplyChainDashboard.bind(mrpController)),
 );
 

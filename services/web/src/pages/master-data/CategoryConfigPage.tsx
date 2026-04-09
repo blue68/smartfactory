@@ -630,7 +630,7 @@ export default function CategoryConfigPage() {
   const [inlineEditValue, setInlineEditValue] = useState('');
   const inlineEditInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: rawList = [], isLoading, isError } = useSkuCategoryList();
+  const { data: rawList = [], isLoading, isError } = useSkuCategoryList({ editableView: true });
   const deleteMut = useDeleteCategory();
   const reorderMut = useReorderCategories();
   const updateMut = useUpdateCategory();

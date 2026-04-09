@@ -111,6 +111,19 @@ describe('useSkuCategoryList', () => {
     expect(mockGet).toHaveBeenCalledWith('/api/sku-categories', params);
   });
 
+  it('editableView=true 时将租户可管理视图参数传递给请求', async () => {
+    mockGet.mockResolvedValueOnce([mockCategory]);
+
+    const params = { editableView: true };
+    const { result } = renderHook(() => useSkuCategoryList(params), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(mockGet).toHaveBeenCalledWith('/api/sku-categories', params);
+  });
+
   it('请求失败时 isError 为 true 并透传错误信息', async () => {
     const networkError = new Error('网络连接异常');
     mockGet.mockRejectedValueOnce(networkError);

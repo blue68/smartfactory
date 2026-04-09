@@ -182,12 +182,12 @@ export default function RoleGrantPage() {
       </div>
 
       <div className={styles.split}>
-        <section className={styles.card}>
+        <section className={`${styles.card} ${styles.stickyCard}`}>
           <div className={styles.cardHeader}>
             <h2 className={styles.cardTitle}>角色列表</h2>
             <span className={styles.tag}>{filteredRoles.length}</span>
           </div>
-          <div className={styles.cardBody}>
+          <div className={`${styles.cardBody} ${styles.scrollCardBody}`}>
             <div className={styles.stack}>
               <input
                 className={styles.input}

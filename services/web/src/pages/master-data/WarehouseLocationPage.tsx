@@ -20,9 +20,9 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
+import { ACTION_CODES } from '@/constants/accessControl';
+import { usePermission } from '@/hooks/usePermission';
 import { useAppStore } from '@/stores/appStore';
-import { useAuthStore } from '@/stores/authStore';
-import { UserRole } from '@/types/enums';
 import {
   inventoryApi,
   useCreateLocation,
@@ -212,7 +212,7 @@ function generateCode128SvgDataUrl(value: string): string {
 
 export default function WarehouseLocationPage() {
   const { setPageTitle } = useAppStore();
-  const hasAnyRole = useAuthStore((s) => s.hasAnyRole);
+  const { can } = usePermission();
   const [messageApi, contextHolder] = message.useMessage();
   const [activeTab, setActiveTab] = useState<MasterDataTab>('warehouse');
   const [onlyActive, setOnlyActive] = useState(true);
@@ -249,13 +249,13 @@ export default function WarehouseLocationPage() {
   const deleteLocation = useDeleteLocation();
 
   const canManage = useMemo(
-    () => hasAnyRole([UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE]),
-    [hasAnyRole],
+    () => can(ACTION_CODES.WAREHOUSE_LOCATION_MANAGE),
+    [can],
   );
 
   const canImport = useMemo(
-    () => hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]),
-    [hasAnyRole],
+    () => can(ACTION_CODES.WAREHOUSE_LOCATION_IMPORT),
+    [can],
   );
 
   const isBusy = importWarehouses.isPending

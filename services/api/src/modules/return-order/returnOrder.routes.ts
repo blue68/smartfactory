@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { returnOrderController } from './returnOrder.controller';
-import { authMiddleware, requireRoles } from '../../middleware/auth';
+import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
 const router = Router();
@@ -15,7 +15,7 @@ router.use(authMiddleware);
  */
 router.get(
   '/',
-  requireRoles('warehouse', 'supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['purchase:return:view'], 'warehouse', 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(returnOrderController.list.bind(returnOrderController)),
 );
 
@@ -25,7 +25,7 @@ router.get(
  */
 router.get(
   '/:id',
-  requireRoles('warehouse', 'supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['purchase:return:view'], 'warehouse', 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(returnOrderController.getById.bind(returnOrderController)),
 );
 
@@ -36,7 +36,7 @@ router.get(
  */
 router.post(
   '/',
-  requireRoles('warehouse', 'supervisor', 'boss'),
+  requirePermissionsOrRoles(['purchase:return:create'], 'warehouse', 'supervisor', 'boss'),
   asyncHandler(returnOrderController.create.bind(returnOrderController)),
 );
 
@@ -47,7 +47,7 @@ router.post(
  */
 router.put(
   '/:id/confirm',
-  requireRoles('supervisor', 'boss'),
+  requirePermissionsOrRoles(['purchase:return:confirm'], 'supervisor', 'boss'),
   asyncHandler(returnOrderController.confirm.bind(returnOrderController)),
 );
 
@@ -58,7 +58,7 @@ router.put(
  */
 router.put(
   '/:id/ship',
-  requireRoles('warehouse', 'supervisor'),
+  requirePermissionsOrRoles(['purchase:return:ship'], 'warehouse', 'supervisor'),
   asyncHandler(returnOrderController.ship.bind(returnOrderController)),
 );
 
@@ -69,7 +69,7 @@ router.put(
  */
 router.put(
   '/:id/complete',
-  requireRoles('warehouse', 'supervisor', 'boss'),
+  requirePermissionsOrRoles(['purchase:return:complete'], 'warehouse', 'supervisor', 'boss'),
   asyncHandler(returnOrderController.complete.bind(returnOrderController)),
 );
 

@@ -15,7 +15,7 @@ import type {
 export const skuCategoryKeys = {
   all: ['sku-categories'] as const,
   lists: () => [...skuCategoryKeys.all, 'list'] as const,
-  list: (params?: { level?: number; parentId?: number; includeInactive?: boolean }) =>
+  list: (params?: { level?: number; parentId?: number; includeInactive?: boolean; editableView?: boolean }) =>
     [...skuCategoryKeys.lists(), params] as const,
   detail: (id: number) => [...skuCategoryKeys.all, 'detail', id] as const,
   deletePreview: (id: number) => [...skuCategoryKeys.all, 'delete-preview', id] as const,
@@ -58,8 +58,8 @@ export interface ReorderPayload {
 
 // ── 原始请求函数 ─────────────────────────────
 export const skuCategoryApi = {
-  /** GET /api/sku-categories — 获取类目列表（树形，含系统预置+租户自定义） */
-  getList: (params?: { level?: number; parentId?: number; includeInactive?: boolean }) =>
+  /** GET /api/sku-categories — 获取类目列表（支持租户可管理视图） */
+  getList: (params?: { level?: number; parentId?: number; includeInactive?: boolean; editableView?: boolean }) =>
     request.get<SkuCategoryFull[]>('/api/sku-categories', params as Record<string, unknown>),
 
   /** POST /api/sku-categories — 新增类目 */
@@ -94,6 +94,7 @@ export function useSkuCategoryList(params?: {
   level?: number;
   parentId?: number;
   includeInactive?: boolean;
+  editableView?: boolean;
 }) {
   return useQuery({
     queryKey: skuCategoryKeys.list(params),

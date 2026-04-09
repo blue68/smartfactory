@@ -128,7 +128,7 @@ function getCtx(req: Request) {
   return {
     tenantId: req.tenantId,
     userId: req.userId,
-    roles: req.user?.roles ?? [],
+    roles: req.roles ?? [],
     originTenantId: req.originTenantId,
     contextTenantId: req.contextTenantId,
     scopeLevel: req.scopeLevel,

@@ -13,8 +13,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import ScheduleStatCard from '@/components/ScheduleStatCard/ScheduleStatCard';
-import { useAuthStore } from '@/stores/authStore';
-import { UserRole } from '@/types/enums';
+import { ACTION_CODES } from '@/constants/accessControl';
+import { usePermission } from '@/hooks/usePermission';
 import {
   useLatestSuggestion,
   useTriggerCalculation,
@@ -631,18 +631,18 @@ export default function ScheduleSuggestionPage() {
   };
 
   // ── 角色隔离（BD-003 权限矩阵）──
-  const { hasAnyRole } = useAuthStore();
+  const { can } = usePermission();
   const canViewPurchase = useMemo(
-    () => hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER]),
-    [hasAnyRole],
+    () => can(ACTION_CODES.SCHEDULE_SUGGESTION_PURCHASE_VIEW),
+    [can],
   );
   const canViewProduction = useMemo(
-    () => hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]),
-    [hasAnyRole],
+    () => can(ACTION_CODES.SCHEDULE_SUGGESTION_PRODUCTION_VIEW),
+    [can],
   );
   const canTriggerCalc = useMemo(
-    () => hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]),
-    [hasAnyRole],
+    () => can(ACTION_CODES.SCHEDULE_SUGGESTION_TRIGGER),
+    [can],
   );
 
   // ── 统计数据 ──

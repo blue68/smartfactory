@@ -23,7 +23,7 @@ import { Router, Request, Response, NextFunction, RequestHandler } from 'express
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { authMiddleware } from '../../middleware/auth';
-import { requireRoles } from '../../middleware/auth';
+import { requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 import { AiService, ChatRequest, FeedbackParams } from './ai.service';
 import { ProactiveService } from './proactive.service';
@@ -222,7 +222,7 @@ router.delete(
 
 router.post(
   '/scan',
-  requireRoles('boss', 'supervisor'),
+  requirePermissionsOrRoles(['ai:scan'], 'boss', 'supervisor'),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const ctx = extractTenantContext(req);
 

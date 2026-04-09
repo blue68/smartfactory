@@ -437,9 +437,10 @@ export default function DashboardPage() {
 
   // Resolve AI suggestions: render only live data, fall back to explicit empty state
   const suggestions = suggestionsData?.list ?? [];
+  const pendingSuggestionCount = suggestionsData?.total ?? 0;
 
   // KPI values
-  const inProductionCount = productionData?.total ?? kpiData?.inProgressOrders ?? 0;
+  const inProductionCount = kpiData?.inProgressOrders ?? 0;
   const pendingApprovalCount = kpiData?.pendingApproval ?? 0;
   const monthlyRevenue = Number(kpiData?.monthlyRevenue ?? 0);
   const inventoryValue = Number(kpiData?.inventoryValue ?? 0);
@@ -456,7 +457,7 @@ export default function DashboardPage() {
         <div className={styles.page_meta}>
           <span className={styles.page_meta_dot} aria-hidden="true" />
           <span>
-            最近同步
+            页面最近拉取
             {' '}
             <time dateTime={syncDateTime}>{syncTime}</time>
           </span>
@@ -474,7 +475,6 @@ export default function DashboardPage() {
             unit="单"
             color="var(--color-primary-500)"
             icon={<span aria-hidden="true">📋</span>}
-            trend={{ value: '较昨日 +2 单', direction: 'up' }}
           />
 
           {/* KPI 2: 本月完工产值 */}
@@ -483,8 +483,6 @@ export default function DashboardPage() {
             value={kpiLoading ? '—' : formatCNY(monthlyRevenue)}
             color="var(--color-success-500)"
             icon={<span aria-hidden="true">💰</span>}
-            trend={{ value: '目标 ¥120,000（完成 72%）', direction: 'up' }}
-            progress={72}
           />
 
           {/* KPI 3: 当前库存金额 */}
@@ -493,7 +491,6 @@ export default function DashboardPage() {
             value={kpiLoading ? '—' : formatCNY(inventoryValue)}
             color="var(--color-warning-500)"
             icon={<span aria-hidden="true">📦</span>}
-            trend={{ value: '高于历史均值 31%', direction: 'down' }}
           />
 
           {/* KPI 4: 待审批事项 */}
@@ -503,7 +500,6 @@ export default function DashboardPage() {
             unit="项"
             color={pendingApprovalCount > 0 ? 'var(--color-error-500)' : 'var(--color-gray-400)'}
             icon={<span aria-hidden="true">⏳</span>}
-            trend={{ value: '其中 2 项需今日处理', direction: 'down' }}
           />
         </div>
       </section>
@@ -641,7 +637,7 @@ export default function DashboardPage() {
             <span className={styles.ai_alert_icon} aria-hidden="true">✨</span>
             <div className={styles.ai_alert_content}>
               {suggestions.length > 0
-                ? `AI 已基于 ${inProductionCount} 个在产订单与当前库存生成 ${suggestions.length} 条待审批建议，最近同步：${syncTime}。`
+                ? `AI 已基于 ${inProductionCount} 个在产订单与当前库存生成 ${pendingSuggestionCount} 条待审批建议，当前展示最新 ${suggestions.length} 条，页面最近拉取：${syncTime}。`
                 : '当前没有待审批的 AI 采购建议，可前往采购建议管理页查看全量结果。'}
             </div>
           </div>

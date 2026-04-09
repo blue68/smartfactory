@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { incomingInspectionController } from './incomingInspection.controller';
-import { authMiddleware, requireRoles } from '../../middleware/auth';
+import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
 const router = Router();
@@ -15,7 +15,7 @@ router.use(authMiddleware);
  */
 router.get(
   '/',
-  requireRoles('warehouse', 'supervisor', 'boss', 'qc'),
+  requirePermissionsOrRoles(['quality:view'], 'warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.list.bind(incomingInspectionController)),
 );
 
@@ -25,7 +25,7 @@ router.get(
  */
 router.get(
   '/:id',
-  requireRoles('warehouse', 'supervisor', 'boss', 'qc'),
+  requirePermissionsOrRoles(['quality:view'], 'warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.getById.bind(incomingInspectionController)),
 );
 
@@ -36,7 +36,7 @@ router.get(
  */
 router.post(
   '/',
-  requireRoles('warehouse', 'supervisor', 'boss', 'qc'),
+  requirePermissionsOrRoles(['quality:create'], 'warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.create.bind(incomingInspectionController)),
 );
 
@@ -47,7 +47,7 @@ router.post(
  */
 router.put(
   '/:id/items',
-  requireRoles('warehouse', 'supervisor', 'boss', 'qc'),
+  requirePermissionsOrRoles(['quality:create'], 'warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.updateItems.bind(incomingInspectionController)),
 );
 
@@ -59,7 +59,7 @@ router.put(
  */
 router.post(
   '/:id/submit',
-  requireRoles('warehouse', 'supervisor', 'boss', 'qc'),
+  requirePermissionsOrRoles(['quality:complete'], 'warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.submit.bind(incomingInspectionController)),
 );
 
@@ -69,7 +69,7 @@ router.post(
  */
 router.get(
   '/:id/preview-receipt',
-  requireRoles('warehouse', 'supervisor', 'boss', 'qc'),
+  requirePermissionsOrRoles(['quality:view'], 'warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.previewReceipt.bind(incomingInspectionController)),
 );
 

@@ -1,3 +1,8 @@
+process.env.JWT_SECRET =
+  process.env.TEST_JWT_SECRET
+  ?? process.env.JWT_SECRET
+  ?? 'local-test-jwt-secret-key-2026-smartfactory-at-least-32-chars';
+
 /**
  * [artifact:自动化测试] — 生产任务 Controller 集成测试
  *
@@ -11,6 +16,59 @@
 import { authHeader } from '../helpers/setup';
 
 jest.mock('../../src/modules/production/production.service');
+jest.mock('../../src/shared/queue-service', () => ({
+  queueService: {
+    addJob: jest.fn(),
+    getJobStatus: jest.fn(),
+  },
+}));
+
+const TEST_ROLE_MAP: Record<number, string[]> = {
+  41: ['boss'],
+  42: ['worker'],
+  43: ['supervisor'],
+  44: ['sales'],
+};
+const ACTIONS_BY_ROLE: Record<string, string[]> = {
+  boss: [
+    'production:task:operate',
+    'production:task:complete',
+    'production:task:supervise',
+    'production:schedule:confirm',
+    'production:schedule:adjust',
+  ],
+  supervisor: [
+    'production:task:operate',
+    'production:task:complete',
+    'production:task:supervise',
+    'production:schedule:confirm',
+    'production:schedule:adjust',
+  ],
+  worker: [
+    'production:task:operate',
+    'production:task:complete',
+  ],
+};
+
+function buildActionCodes(roleCodes: string[]): string[] {
+  return Array.from(new Set(roleCodes.flatMap((role) => ACTIONS_BY_ROLE[role] ?? [])));
+}
+
+jest.mock('../../src/modules/access-control/access-control.service', () => ({
+  accessControlService: {
+    resolveUserRoleCodes: jest.fn(async (userId: number) => TEST_ROLE_MAP[userId] ?? ['boss']),
+    buildPermissionSnapshot: jest.fn(async (tenantId: number, roleCodes: string[]) => ({
+      version: 'unit-test',
+      scopeLevel: 'tenant',
+      originTenantId: tenantId,
+      contextTenantId: tenantId,
+      menuCodes: [],
+      actionCodes: buildActionCodes(roleCodes),
+      dataScopes: [],
+      featureFlags: ['rbac_center'],
+    })),
+  },
+}));
 
 import request from 'supertest';
 import app from '../../src/app';
@@ -109,7 +167,7 @@ describe('PUT /api/production/schedule/:date/adjust', () => {
 
     const res = await request(app)
       .put('/api/production/schedule/2026-04-02/adjust')
-      .set('Authorization', authHeader({ roles: ['supervisor'] }))
+      .set('Authorization', authHeader({ userId: 43, roles: ['supervisor'] }))
       .send({
         adjustments: [
           {
@@ -141,7 +199,7 @@ describe('PUT /api/production/schedule/:date/adjust', () => {
 
     const res = await request(app)
       .put('/api/production/schedule/2026-04-02/adjust')
-      .set('Authorization', authHeader({ roles: ['supervisor'] }))
+      .set('Authorization', authHeader({ userId: 43, roles: ['supervisor'] }))
       .send({
         adjustments: [
           {
@@ -232,7 +290,7 @@ describe('POST /api/production/tasks/:id/exception', () => {
   it('非 worker/supervisor/boss 角色返回 403', async () => {
     const res = await request(app)
       .post('/api/production/tasks/1/exception')
-      .set('Authorization', authHeader({ roles: ['sales'] }))
+      .set('Authorization', authHeader({ userId: 44, roles: ['sales'] }))
       .send(validPayload);
 
     expect(res.status).toBe(403);
@@ -247,7 +305,7 @@ describe('POST /api/production/tasks/:id/start', () => {
 
     const res = await request(app)
       .post('/api/production/tasks/1/start')
-      .set('Authorization', authHeader({ roles: ['worker'] }));
+      .set('Authorization', authHeader({ userId: 42, roles: ['worker'] }));
 
     expect(res.status).toBe(200);
     expect(res.body.message).toBe('任务已开始');
@@ -258,7 +316,7 @@ describe('POST /api/production/tasks/:id/start', () => {
 
     const res = await request(app)
       .post('/api/production/tasks/1/start')
-      .set('Authorization', authHeader({ roles: ['supervisor'] }));
+      .set('Authorization', authHeader({ userId: 43, roles: ['supervisor'] }));
 
     expect(res.status).toBe(200);
   });
@@ -266,7 +324,7 @@ describe('POST /api/production/tasks/:id/start', () => {
   it('非 worker/supervisor 角色返回 403', async () => {
     const res = await request(app)
       .post('/api/production/tasks/1/start')
-      .set('Authorization', authHeader({ roles: ['sales'] }));
+      .set('Authorization', authHeader({ userId: 44, roles: ['sales'] }));
 
     expect(res.status).toBe(403);
   });
@@ -280,7 +338,7 @@ describe('POST /api/production/tasks/:id/complete', () => {
 
     const res = await request(app)
       .post('/api/production/tasks/1/complete')
-      .set('Authorization', authHeader({ roles: ['worker'] }))
+      .set('Authorization', authHeader({ userId: 42, roles: ['worker'] }))
       .send({ completedQty: '100' });
 
     expect(res.status).toBe(200);
@@ -290,7 +348,7 @@ describe('POST /api/production/tasks/:id/complete', () => {
   it('completedQty 格式错误返回 400', async () => {
     const res = await request(app)
       .post('/api/production/tasks/1/complete')
-      .set('Authorization', authHeader({ roles: ['worker'] }))
+      .set('Authorization', authHeader({ userId: 42, roles: ['worker'] }))
       .send({ completedQty: 'abc' });
 
     expect(res.status).toBe(400);
@@ -301,7 +359,7 @@ describe('POST /api/production/tasks/:id/complete', () => {
 
     const res = await request(app)
       .post('/api/production/tasks/1/complete')
-      .set('Authorization', authHeader({ roles: ['worker'] }))
+      .set('Authorization', authHeader({ userId: 42, roles: ['worker'] }))
       .send({
         completedQty: '95',
         scrapQty: '5',
@@ -315,7 +373,7 @@ describe('POST /api/production/tasks/:id/complete', () => {
   it('非 worker/supervisor 角色返回 403', async () => {
     const res = await request(app)
       .post('/api/production/tasks/1/complete')
-      .set('Authorization', authHeader({ roles: ['sales'] }))
+      .set('Authorization', authHeader({ userId: 44, roles: ['sales'] }))
       .send({ completedQty: '100' });
 
     expect(res.status).toBe(403);

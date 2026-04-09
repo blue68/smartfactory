@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { purchaseController } from './purchase.controller';
 import { PurchaseService } from './purchase.service';
-import { authMiddleware, requireRoles } from '../../middleware/auth';
+import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
 const router = Router();
@@ -9,22 +9,22 @@ router.use(authMiddleware);
 
 // 采购建议
 router.post('/suggestions/generate',
-  requireRoles('boss', 'purchaser'),
+  requirePermissionsOrRoles(['purchase:suggestion:generate'], 'boss', 'purchaser', 'purchase'),
   asyncHandler(purchaseController.generateSuggestions.bind(purchaseController)),
 );
-router.get('/suggestions',  asyncHandler(purchaseController.listSuggestions.bind(purchaseController)));
+router.get('/suggestions', requirePermissionsOrRoles(['purchase:suggestion:view'], 'boss', 'purchaser', 'purchase'), asyncHandler(purchaseController.listSuggestions.bind(purchaseController)));
 router.post('/suggestions/:id/approve',
-  requireRoles('boss'),
+  requirePermissionsOrRoles(['purchase:suggestion:approve'], 'boss'),
   asyncHandler(purchaseController.approveSuggestion.bind(purchaseController)),
 );
 router.post('/suggestions/:id/feedback',
-  requireRoles('purchaser', 'boss'),
+  requirePermissionsOrRoles(['purchase:suggestion:view'], 'purchaser', 'purchase', 'boss'),
   asyncHandler(purchaseController.feedbackSuggestion.bind(purchaseController)),
 );
 
 // BE-P2-014: 采购订单 CSV 导出
 // 注意：固定路由 orders/export/csv 必须在参数路由 orders/:id 之前注册，避免 Express 路由歧义
-router.get('/orders/export/csv', asyncHandler(async (req: Request, res: Response) => {
+router.get('/orders/export/csv', requirePermissionsOrRoles(['purchase:order:view'], 'boss', 'supervisor', 'purchaser', 'purchase'), asyncHandler(async (req: Request, res: Response) => {
   const svc = new PurchaseService({ tenantId: req.tenantId, userId: req.userId, roles: req.roles ?? [] });
   const HEADERS = ['采购单号', '供应商名称', '总金额', '状态', '创建时间'];
 
@@ -65,70 +65,70 @@ router.get('/orders/export/csv', asyncHandler(async (req: Request, res: Response
 }));
 
 // 采购订单
-router.get('/orders',       asyncHandler(purchaseController.listPOs.bind(purchaseController)));
-router.get('/orders/tail-tracking', asyncHandler(purchaseController.listTailOrders.bind(purchaseController)));
-router.get('/orders/:id/delivery', asyncHandler(purchaseController.listOrderDeliveries.bind(purchaseController)));
-router.get('/orders/:id', asyncHandler(purchaseController.getOrderById.bind(purchaseController)));
-router.get('/delivery-notes', asyncHandler(purchaseController.listDeliveryNotes.bind(purchaseController)));
-router.get('/delivery-notes/:id', asyncHandler(purchaseController.getDeliveryNoteById.bind(purchaseController)));
-router.get('/receipts', asyncHandler(purchaseController.listReceipts.bind(purchaseController)));
-router.get('/receipts/:id', asyncHandler(purchaseController.getReceiptById.bind(purchaseController)));
+router.get('/orders', requirePermissionsOrRoles(['purchase:order:view'], 'boss', 'supervisor', 'purchaser', 'purchase'), asyncHandler(purchaseController.listPOs.bind(purchaseController)));
+router.get('/orders/tail-tracking', requirePermissionsOrRoles(['purchase:order:view'], 'boss', 'supervisor', 'purchaser', 'purchase'), asyncHandler(purchaseController.listTailOrders.bind(purchaseController)));
+router.get('/orders/:id/delivery', requirePermissionsOrRoles(['purchase:delivery:view'], 'boss', 'supervisor', 'purchaser', 'purchase', 'warehouse'), asyncHandler(purchaseController.listOrderDeliveries.bind(purchaseController)));
+router.get('/orders/:id', requirePermissionsOrRoles(['purchase:order:view'], 'boss', 'supervisor', 'purchaser', 'purchase'), asyncHandler(purchaseController.getOrderById.bind(purchaseController)));
+router.get('/delivery-notes', requirePermissionsOrRoles(['purchase:delivery:view'], 'boss', 'supervisor', 'purchaser', 'purchase', 'warehouse'), asyncHandler(purchaseController.listDeliveryNotes.bind(purchaseController)));
+router.get('/delivery-notes/:id', requirePermissionsOrRoles(['purchase:delivery:view'], 'boss', 'supervisor', 'purchaser', 'purchase', 'warehouse'), asyncHandler(purchaseController.getDeliveryNoteById.bind(purchaseController)));
+router.get('/receipts', requirePermissionsOrRoles(['purchase:receipt:view'], 'boss', 'supervisor', 'purchaser', 'purchase', 'warehouse'), asyncHandler(purchaseController.listReceipts.bind(purchaseController)));
+router.get('/receipts/:id', requirePermissionsOrRoles(['purchase:receipt:view'], 'boss', 'supervisor', 'purchaser', 'purchase', 'warehouse'), asyncHandler(purchaseController.getReceiptById.bind(purchaseController)));
 router.patch('/receipts/:id/notes',
-  requireRoles('warehouse', 'supervisor', 'boss'),
+  requirePermissionsOrRoles(['purchase:receipt:edit'], 'warehouse', 'supervisor', 'boss'),
   asyncHandler(purchaseController.updateReceiptNotes.bind(purchaseController)),
 );
 router.post('/orders',
-  requireRoles('purchaser', 'boss'),
+  requirePermissionsOrRoles(['purchase:order:create'], 'purchaser', 'purchase', 'boss'),
   asyncHandler(purchaseController.createPO.bind(purchaseController)),
 );
 router.patch('/orders/:id/close',
-  requireRoles('boss', 'supervisor'),
+  requirePermissionsOrRoles(['purchase:order:close'], 'boss', 'supervisor'),
   asyncHandler(purchaseController.closeOrder.bind(purchaseController)),
 );
 router.post('/orders/:id/delivery',
-  requireRoles('purchaser'),
+  requirePermissionsOrRoles(['purchase:order:delivery'], 'purchaser', 'purchase'),
   asyncHandler(purchaseController.createDeliveryNote.bind(purchaseController)),
 );
 
 // 三单匹配
 router.post('/three-way-match',
-  requireRoles('purchaser'),
+  requirePermissionsOrRoles(['purchase:match:execute'], 'purchaser', 'purchase'),
   asyncHandler(purchaseController.runMatch.bind(purchaseController)),
 );
-router.get('/three-way-match',  asyncHandler(purchaseController.listMatches.bind(purchaseController)));
-router.get('/three-way-match/:id', asyncHandler(purchaseController.getMatchById.bind(purchaseController)));
+router.get('/three-way-match', requirePermissionsOrRoles(['purchase:match:execute'], 'purchaser', 'purchase'), asyncHandler(purchaseController.listMatches.bind(purchaseController)));
+router.get('/three-way-match/:id', requirePermissionsOrRoles(['purchase:match:execute'], 'purchaser', 'purchase'), asyncHandler(purchaseController.getMatchById.bind(purchaseController)));
 router.post('/three-way-match/:id/confirm',
-  requireRoles('purchaser'),
+  requirePermissionsOrRoles(['purchase:match:confirm'], 'purchaser', 'purchase'),
   asyncHandler(purchaseController.confirmDiff.bind(purchaseController)),
 );
 
 // 采购结算
 router.get('/settlements/export/csv',
-  requireRoles('boss', 'supervisor', 'purchaser'),
+  requirePermissionsOrRoles(['purchase:settlement:manage'], 'boss', 'supervisor', 'purchaser', 'purchase'),
   asyncHandler(purchaseController.exportSettlements.bind(purchaseController)),
 );
 router.post('/settlements',
-  requireRoles('boss', 'supervisor', 'purchaser'),
+  requirePermissionsOrRoles(['purchase:settlement:manage'], 'boss', 'supervisor', 'purchaser', 'purchase'),
   asyncHandler(purchaseController.createSettlement.bind(purchaseController)),
 );
 router.get('/settlements',
-  requireRoles('boss', 'supervisor', 'purchaser'),
+  requirePermissionsOrRoles(['purchase:settlement:manage'], 'boss', 'supervisor', 'purchaser', 'purchase'),
   asyncHandler(purchaseController.listSettlements.bind(purchaseController)),
 );
 router.get('/settlements/:id',
-  requireRoles('boss', 'supervisor', 'purchaser'),
+  requirePermissionsOrRoles(['purchase:settlement:manage'], 'boss', 'supervisor', 'purchaser', 'purchase'),
   asyncHandler(purchaseController.getSettlementById.bind(purchaseController)),
 );
 router.put('/settlements/:id/confirm',
-  requireRoles('boss'),
+  requirePermissionsOrRoles(['purchase:settlement:boss'], 'boss'),
   asyncHandler(purchaseController.confirmSettlement.bind(purchaseController)),
 );
 router.put('/settlements/:id/pay',
-  requireRoles('boss'),
+  requirePermissionsOrRoles(['purchase:settlement:boss'], 'boss'),
   asyncHandler(purchaseController.paySettlement.bind(purchaseController)),
 );
 router.put('/settlements/:id/cancel',
-  requireRoles('boss', 'supervisor'),
+  requirePermissionsOrRoles(['purchase:settlement:manage'], 'boss', 'supervisor'),
   asyncHandler(purchaseController.cancelSettlement.bind(purchaseController)),
 );
 

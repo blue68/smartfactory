@@ -11,7 +11,7 @@
  */
 
 import { Router } from 'express';
-import { authMiddleware, requireRoles } from '../../middleware/auth';
+import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 import { scheduleSuggestionController as ctrl } from './schedule-suggestion.controller';
 
@@ -28,7 +28,7 @@ router.use(authMiddleware);
  */
 router.post(
   '/calculate',
-  requireRoles('supervisor', 'boss'),
+  requirePermissionsOrRoles(['schedule:suggestion:trigger'], 'supervisor', 'boss'),
   asyncHandler(ctrl.triggerCalculation.bind(ctrl)),
 );
 
@@ -38,7 +38,7 @@ router.post(
  */
 router.get(
   '/status',
-  requireRoles('supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['schedule:suggestion:purchase:view', 'schedule:suggestion:production:view'], 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(ctrl.getStatus.bind(ctrl)),
 );
 
@@ -48,7 +48,7 @@ router.get(
  */
 router.get(
   '/latest',
-  requireRoles('supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['schedule:suggestion:purchase:view', 'schedule:suggestion:production:view'], 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(ctrl.getLatest.bind(ctrl)),
 );
 
@@ -58,7 +58,7 @@ router.get(
  */
 router.get(
   '/history',
-  requireRoles('supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['schedule:suggestion:purchase:view', 'schedule:suggestion:production:view'], 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(ctrl.getHistory.bind(ctrl)),
 );
 
@@ -68,7 +68,7 @@ router.get(
  */
 router.post(
   '/items/:itemId/accept',
-  requireRoles('supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['schedule:suggestion:purchase:view', 'schedule:suggestion:production:view'], 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(ctrl.acceptItem.bind(ctrl)),
 );
 
@@ -78,7 +78,7 @@ router.post(
  */
 router.post(
   '/items/:itemId/reject',
-  requireRoles('supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['schedule:suggestion:purchase:view', 'schedule:suggestion:production:view'], 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(ctrl.rejectItem.bind(ctrl)),
 );
 
@@ -88,7 +88,7 @@ router.post(
  */
 router.post(
   '/items/:itemId/apply',
-  requireRoles('supervisor', 'boss'),
+  requirePermissionsOrRoles(['production:schedule:confirm'], 'supervisor', 'boss'),
   asyncHandler(ctrl.applyProduction.bind(ctrl)),
 );
 
@@ -99,7 +99,7 @@ router.post(
  */
 router.get(
   '/purchase-steps/:id',
-  requireRoles('supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['schedule:suggestion:purchase:view'], 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(ctrl.getPurchaseSteps.bind(ctrl)),
 );
 
@@ -111,7 +111,7 @@ router.get(
  */
 router.get(
   '/:id',
-  requireRoles('supervisor', 'boss', 'purchase'),
+  requirePermissionsOrRoles(['schedule:suggestion:purchase:view', 'schedule:suggestion:production:view'], 'supervisor', 'boss', 'purchase', 'purchaser'),
   asyncHandler(ctrl.getHistoryDetail.bind(ctrl)),
 );
 

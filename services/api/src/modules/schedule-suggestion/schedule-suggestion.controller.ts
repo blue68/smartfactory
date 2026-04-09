@@ -49,7 +49,8 @@ export class ScheduleSuggestionController {
     return new ScheduleSuggestionService({
       tenantId: req.tenantId,
       userId: req.userId,
-      roles: req.user?.roles ?? [],
+      roles: req.roles ?? [],
+      actionCodes: req.permissionSnapshot?.actionCodes ?? [],
     });
   }
 

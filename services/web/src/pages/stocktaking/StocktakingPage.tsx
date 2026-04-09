@@ -5,7 +5,7 @@
  *   - Tab 筛选：全部 / 草稿 / 盘点中 / 待确认 / 已确认
  *   - 盘点任务列表：task_no / scope / status badge / total_items / diff_items / created_at / 操作
  *   - 点击"查看"展开行内嵌明细表
- *   - boss 可确认 pending_confirm 任务
+ *   - 关键操作按钮按 stocktaking:* 权限点控制
  *   - 新建盘点按钮（入口）
  *   - 分页、骨架屏、空态、错误态
  */
@@ -13,6 +13,8 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import Button from '@/components/common/Button';
+import { ACTION_CODES } from '@/constants/accessControl';
+import { usePermission } from '@/hooks/usePermission';
 import {
   useStocktakingList,
   useStocktakingItems,
@@ -74,9 +76,10 @@ function formatDate(str: string): string {
 interface DetailRowProps {
   taskId: number;
   colSpan: number;
+  canEdit: boolean;
 }
 
-function DetailRow({ taskId, colSpan }: DetailRowProps) {
+function DetailRow({ taskId, colSpan, canEdit }: DetailRowProps) {
   const { data, isLoading } = useStocktakingItems(taskId);
   const updateItems = useUpdateStocktakingItems(taskId);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
@@ -158,6 +161,7 @@ function DetailRow({ taskId, colSpan }: DetailRowProps) {
                           inputMode="decimal"
                           className={styles.qty_input}
                           defaultValue={item.actualQty ?? ''}
+                          disabled={!canEdit}
                           min="0"
                           step="0.0001"
                           onChange={(e) => handleChange(item.id, e.target.value)}
@@ -183,15 +187,17 @@ function DetailRow({ taskId, colSpan }: DetailRowProps) {
             </table>
           )}
           <div className={styles.detail_actions}>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={handleSave}
-              loading={updateItems.isPending}
-              disabled={Object.keys(drafts).length === 0}
-            >
-              保存实盘数量
-            </Button>
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={handleSave}
+                loading={updateItems.isPending}
+                disabled={Object.keys(drafts).length === 0}
+              >
+                保存实盘数量
+              </Button>
+            )}
             {saveFeedback && (
               <span
                 className={saveFeedback.type === 'success' ? styles.detail_save_success : styles.detail_save_error}
@@ -219,6 +225,8 @@ interface TaskRowProps {
   submitting: boolean;
   confirming: boolean;
   creatingAdjustment: boolean;
+  canSubmitTask: boolean;
+  canConfirmTask: boolean;
 }
 
 function TaskRow({
@@ -231,10 +239,12 @@ function TaskRow({
   submitting,
   confirming,
   creatingAdjustment,
+  canSubmitTask,
+  canConfirmTask,
 }: TaskRowProps) {
   const diffColor = task.diffItems > 0 ? styles.cell_diff_positive : styles.cell_diff_zero;
-  const canSubmit = task.status === 'in_progress';
-  const canConfirm = task.status === 'pending_confirm';
+  const canSubmit = canSubmitTask && task.status === 'in_progress';
+  const canConfirm = canConfirmTask && task.status === 'pending_confirm';
 
   return (
     <tr className={expanded ? styles['row--expanded'] : undefined}>
@@ -305,6 +315,7 @@ const PAGE_SIZE = 20;
 
 export default function StocktakingPage() {
   const { setPageTitle, showToast } = useAppStore();
+  const { can } = usePermission();
   const [activeTab, setActiveTab] = useState<TabKey>('all');
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -325,6 +336,9 @@ export default function StocktakingPage() {
   const createAdjustmentMutation = useCreateStocktakingAdjustmentOrder();
   const { data: warehouseOptions } = useWarehouseOptions();
   const { data: locationOptions } = useLocationOptions(createWarehouseId ?? undefined);
+  const canCreateTask = can(ACTION_CODES.STOCKTAKING_CREATE);
+  const canSubmitTask = can(ACTION_CODES.STOCKTAKING_SUBMIT);
+  const canConfirmTask = can(ACTION_CODES.STOCKTAKING_CONFIRM);
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1;
 
@@ -389,11 +403,12 @@ export default function StocktakingPage() {
   }, [createAdjustmentMutation, showToast]);
 
   const handleNewTask = useCallback(() => {
+    if (!canCreateTask) return;
     setCreateModalOpen(true);
-  }, []);
+  }, [canCreateTask]);
 
   const handleCreateSubmit = useCallback(() => {
-    if (!createWarehouseId || !createLocationId) return;
+    if (!canCreateTask || !createWarehouseId || !createLocationId) return;
     createMutation.mutate(
       {
         scope: createScope,
@@ -413,7 +428,7 @@ export default function StocktakingPage() {
         },
       },
     );
-  }, [createMutation, createScope, createScopeValue, createNotes, createWarehouseId, createLocationId]);
+  }, [canCreateTask, createMutation, createScope, createScopeValue, createNotes, createWarehouseId, createLocationId]);
 
   const COL_SPAN = 8;
 
@@ -422,14 +437,16 @@ export default function StocktakingPage() {
       {/* 页头 */}
       <div className={styles.page_header}>
         <h1 className={styles.page_title}>库存盘点</h1>
-        <Button
-          variant="primary"
-          size="md"
-          onClick={handleNewTask}
-          loading={createMutation.isPending}
-        >
-          + 新建盘点
-        </Button>
+        {canCreateTask && (
+          <Button
+            variant="primary"
+            size="md"
+            onClick={handleNewTask}
+            loading={createMutation.isPending}
+          >
+            + 新建盘点
+          </Button>
+        )}
       </div>
 
       {/* Tab 筛选 */}
@@ -521,11 +538,14 @@ export default function StocktakingPage() {
                     submitting={submitMutation.isPending}
                     confirming={confirmMutation.isPending}
                     creatingAdjustment={createAdjustmentMutation.isPending}
+                    canSubmitTask={canSubmitTask}
+                    canConfirmTask={canConfirmTask}
                   />
                   {expandedId === task.id && (
                     <DetailRow
                       taskId={task.id}
                       colSpan={COL_SPAN}
+                      canEdit={canCreateTask}
                     />
                   )}
                 </Fragment>
@@ -573,7 +593,7 @@ export default function StocktakingPage() {
           </div>
         </div>
       )}
-      {createModalOpen && (
+      {createModalOpen && canCreateTask && (
         <div className={styles.modal_backdrop} role="dialog" aria-modal="true">
           <div className={styles.modal}>
             <div className={styles.modal_header}>

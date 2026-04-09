@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ACTION_CODES } from '@/constants/accessControl';
+import { usePermission } from '@/hooks/usePermission';
 import { useAppStore } from '@/stores/appStore';
-import { useAuthStore } from '@/stores/authStore';
-import { UserRole } from '@/types/enums';
 import Button from '@/components/common/Button';
 import {
   purchaseApi,
@@ -58,7 +58,7 @@ export default function PurchaseSettlementPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { setPageTitle, showToast } = useAppStore();
-  const hasAnyRole = useAuthStore((state) => state.hasAnyRole);
+  const { can } = usePermission();
 
   const statusParam = (searchParams.get('status') || '') as TabKey;
   const poIdParam = Number(searchParams.get('poId') ?? '') || undefined;
@@ -70,8 +70,8 @@ export default function PurchaseSettlementPage() {
   const [keywordInput, setKeywordInput] = useState(keywordParam);
   const [keyword, setKeyword] = useState(keywordParam);
 
-  const isBoss = hasAnyRole([UserRole.BOSS]);
-  const canManage = hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]);
+  const isBoss = can(ACTION_CODES.PURCHASE_SETTLEMENT_BOSS);
+  const canManage = can(ACTION_CODES.PURCHASE_SETTLEMENT_MANAGE);
 
   useEffect(() => {
     setPageTitle('采购结算');

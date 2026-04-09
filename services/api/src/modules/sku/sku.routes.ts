@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { skuController } from './sku.controller';
-import { authMiddleware, requireRoles } from '../../middleware/auth';
+import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
 const router = Router();
@@ -31,17 +31,17 @@ const upload = multer({
 
 router.use(authMiddleware);
 
-router.get('/categories',          asyncHandler(skuController.getCategories.bind(skuController)));
-router.get('/stats',               asyncHandler(skuController.getStats.bind(skuController)));
-router.get('/',                    asyncHandler(skuController.list.bind(skuController)));
+router.get('/categories',          requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.getCategories.bind(skuController)));
+router.get('/stats',               requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.getStats.bind(skuController)));
+router.get('/',                    requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.list.bind(skuController)));
 // export / import 路由须在 /:id 参数路由之前注册，防止被路由截获
-router.get('/export',              asyncHandler(skuController.exportExcel.bind(skuController)));
-router.post('/import',             upload.single('file'), asyncHandler(skuController.importSkus.bind(skuController)));
-router.get('/:id',                 asyncHandler(skuController.getOne.bind(skuController)));
-router.post('/',                   asyncHandler(skuController.create.bind(skuController)));
-router.put('/batch-status',        requireRoles('boss', 'supervisor'), asyncHandler(skuController.batchUpdateStatus.bind(skuController)));
-router.put('/batch-safety-stock',  requireRoles('boss', 'supervisor'), asyncHandler(skuController.batchUpdateSafetyStock.bind(skuController)));
-router.put('/:id',                 asyncHandler(skuController.update.bind(skuController)));
-router.put('/:id/unit-conversions', asyncHandler(skuController.setUnitConversions.bind(skuController)));
+router.get('/export',              requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.exportExcel.bind(skuController)));
+router.post('/import',             requirePermissionsOrRoles(['sku:create'], 'boss', 'purchaser'), upload.single('file'), asyncHandler(skuController.importSkus.bind(skuController)));
+router.get('/:id',                 requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.getOne.bind(skuController)));
+router.post('/',                   requirePermissionsOrRoles(['sku:create'], 'boss', 'purchaser'), asyncHandler(skuController.create.bind(skuController)));
+router.put('/batch-status',        requirePermissionsOrRoles(['sku:edit'], 'boss', 'supervisor'), asyncHandler(skuController.batchUpdateStatus.bind(skuController)));
+router.put('/batch-safety-stock',  requirePermissionsOrRoles(['sku:edit'], 'boss', 'supervisor'), asyncHandler(skuController.batchUpdateSafetyStock.bind(skuController)));
+router.put('/:id',                 requirePermissionsOrRoles(['sku:edit'], 'boss', 'purchaser'), asyncHandler(skuController.update.bind(skuController)));
+router.put('/:id/unit-conversions', requirePermissionsOrRoles(['sku:edit'], 'boss', 'purchaser'), asyncHandler(skuController.setUnitConversions.bind(skuController)));
 
 export default router;

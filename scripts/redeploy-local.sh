@@ -110,8 +110,13 @@ mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
   < "$ROOT_DIR/services/api/src/migrations/M20260408_access_control_phase1.sql"
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/M20260409_access_control_business_permissions.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
   < "$ROOT_DIR/infra/db/local-dev-accounts.sql"
 unset MYSQL_PWD
+
+log "bootstrapping local platform super admin"
+bash "$ROOT_DIR/scripts/bootstrap-platform-super-admin.sh"
 
 for c in sf_redis sf_api sf_web; do
   wait_container_healthy "$c" "$HEALTH_TIMEOUT_SECONDS"

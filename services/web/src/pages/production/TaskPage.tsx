@@ -23,9 +23,9 @@
  */
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { ACTION_CODES } from '@/constants/accessControl';
+import { usePermission } from '@/hooks/usePermission';
 import { useAppStore } from '@/stores/appStore';
-import { useAuthStore } from '@/stores/authStore';
-import { UserRole } from '@/types/enums';
 import {
   useTaskList,
   useTaskDetail,
@@ -373,11 +373,11 @@ function useCountUp(target: number, duration = 600): number {
 
 export default function TaskPage() {
   const { setPageTitle, showToast } = useAppStore();
-  const { hasAnyRole } = useAuthStore();
+  const { can } = usePermission();
 
   // 是否是主管/管理员视角（可以处理异常）
-  const isSupervisor = hasAnyRole([UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.BOSS]);
-  const canOperateTask = hasAnyRole([UserRole.ADMIN, UserRole.WORKER, UserRole.SUPERVISOR, UserRole.BOSS]);
+  const isSupervisor = can(ACTION_CODES.PRODUCTION_TASK_SUPERVISE);
+  const canOperateTask = can(ACTION_CODES.PRODUCTION_TASK_OPERATE);
 
   useEffect(() => { setPageTitle('生产任务管理'); }, [setPageTitle]);
 

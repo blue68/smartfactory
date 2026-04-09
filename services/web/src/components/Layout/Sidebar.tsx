@@ -4,6 +4,7 @@
  */
 
 import { NavLink, useLocation } from 'react-router-dom';
+import { ACTION_CODES, MENU_CODES } from '@/constants/accessControl';
 import { useAuthStore } from '@/stores/authStore';
 import { useAppStore } from '@/stores/appStore';
 import { UserRole } from '@/types/enums';
@@ -34,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '老板驾驶舱',
     icon: '📊',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.DASHBOARD,
     group: '概览',
   },
   {
@@ -41,6 +43,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'AI 采购建议',
     icon: '🤖',
     roles: [UserRole.BOSS, UserRole.PURCHASER],
+    menuCode: MENU_CODES.PURCHASE_SUGGESTION_BOARD,
     group: '采购',
   },
   {
@@ -48,6 +51,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '三单匹配',
     icon: '🔗',
     roles: [UserRole.BOSS, UserRole.PURCHASER],
+    menuCode: MENU_CODES.PURCHASE_MATCH,
     group: '采购',
   },
   {
@@ -55,6 +59,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '采购价格',
     icon: '💰',
     roles: [UserRole.BOSS, UserRole.PURCHASER],
+    menuCode: MENU_CODES.PURCHASE_PRICE,
     group: '采购',
   },
   {
@@ -62,6 +67,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '采购建议管理',
     icon: '📋',
     roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.PURCHASE_SUGGESTION_MANAGE,
     group: '采购',
   },
   {
@@ -69,6 +75,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '采购订单',
     icon: '📄',
     roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.PURCHASE_ORDER,
     group: '采购',
   },
   {
@@ -76,6 +83,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '到货管理',
     icon: '🚚',
     roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+    menuCode: MENU_CODES.PURCHASE_DELIVERY,
     group: '采购',
   },
   {
@@ -83,6 +91,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '入库记录',
     icon: '📥',
     roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.WAREHOUSE],
+    menuCode: MENU_CODES.PURCHASE_RECEIPT,
     group: '采购',
   },
   {
@@ -90,6 +99,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '来料质检',
     icon: '🔬',
     roles: [UserRole.BOSS, UserRole.QC, UserRole.PURCHASER, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.PURCHASE_INCOMING_INSPECTION,
     group: '采购',
   },
   {
@@ -97,6 +107,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '退货管理',
     icon: '↩️',
     roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.PURCHASE_RETURN,
     group: '采购',
   },
   {
@@ -104,6 +115,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '采购结算',
     icon: '💸',
     roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.PURCHASE_SETTLEMENT,
     group: '采购',
   },
   {
@@ -111,6 +123,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '新建订单',
     icon: '📝',
     roles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.SALES_ORDER_CREATE,
     group: '销售',
   },
   {
@@ -118,6 +131,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '订单管理',
     icon: '📋',
     roles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.SALES_ORDER_LIST,
     group: '销售',
   },
   {
@@ -125,6 +139,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '客户管理',
     icon: '👥',
     roles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.SALES_CUSTOMER,
     group: '销售',
   },
   {
@@ -132,6 +147,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '销售结算',
     icon: '💳',
     roles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.SALES_SETTLEMENT,
     group: '销售',
   },
   {
@@ -139,6 +155,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '智能调度',
     icon: '🧠',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
+    menuCode: MENU_CODES.SCHEDULE_SUGGESTION,
     group: '生产',
   },
   {
@@ -146,6 +163,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '排产计划',
     icon: '🏭',
     roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.PRODUCTION_SCHEDULE,
     group: '生产',
   },
   {
@@ -153,6 +171,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '生产任务',
     icon: '🔨',
     roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
+    menuCode: MENU_CODES.PRODUCTION_TASK,
     group: '生产',
   },
   {
@@ -160,6 +179,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '生产工单',
     icon: '📑',
     roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.PRODUCTION_ORDER,
     group: '生产',
   },
   {
@@ -167,6 +187,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '缺料看板',
     icon: '⚠️',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
+    menuCode: MENU_CODES.PRODUCTION_SHORTAGE,
     group: '生产',
   },
   {
@@ -174,6 +195,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '库存总览',
     icon: '📦',
     roles: [UserRole.BOSS, UserRole.WAREHOUSE, UserRole.PURCHASER, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.INVENTORY,
     group: '仓库',
   },
   {
@@ -181,6 +203,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '库存盘点',
     icon: '📝',
     roles: [UserRole.BOSS, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.STOCKTAKING,
     group: '仓库',
   },
   {
@@ -188,6 +211,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '质量溯源',
     icon: '🔍',
     roles: [UserRole.BOSS, UserRole.QC, UserRole.SUPERVISOR, UserRole.SALES],
+    menuCode: MENU_CODES.QUALITY_TRACE,
     group: '质量',
   },
   {
@@ -195,6 +219,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'SKU 主数据',
     icon: '🗂️',
     roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.MASTER_DATA_SKU,
     group: '主数据',
   },
   {
@@ -202,6 +227,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '仓库库位配置',
     icon: '🏬',
     roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER, UserRole.WAREHOUSE, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.MASTER_DATA_WAREHOUSE_LOCATION,
     group: '主数据',
   },
   {
@@ -209,6 +235,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'BOM 管理',
     icon: '🔧',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER],
+    menuCode: MENU_CODES.MASTER_DATA_BOM,
     group: '主数据',
   },
   {
@@ -216,6 +243,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '供应商管理',
     icon: '🏢',
     roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.MASTER_DATA_SUPPLIER,
     group: '主数据',
   },
   {
@@ -223,6 +251,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '工序配置',
     icon: '⚡',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.MASTER_DATA_PROCESS_CONFIG,
     group: '主数据',
   },
   {
@@ -230,6 +259,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'SKU工序配置',
     icon: '🔗',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.MASTER_DATA_SKU_PROCESS,
     group: '主数据',
   },
   {
@@ -237,6 +267,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '类目配置',
     icon: '📁',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.MASTER_DATA_SKU_CATEGORY,
     group: '主数据',
   },
   {
@@ -244,6 +275,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '经营分析',
     icon: '📊',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.ANALYTICS,
     group: '报表',
   },
   {
@@ -251,6 +283,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '工资报表',
     icon: '📈',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.REPORT_WAGE,
     group: '报表',
   },
   {
@@ -258,6 +291,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '我的工资',
     icon: '💵',
     roles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER],
+    menuCode: MENU_CODES.REPORT_MY_WAGE,
     group: '报表',
   },
   {
@@ -265,6 +299,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '通知中心',
     icon: '🔔',
     roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.SALES, UserRole.WAREHOUSE, UserRole.WORKER, UserRole.QC],
+    menuCode: MENU_CODES.NOTIFICATION,
     group: '系统',
   },
   {
@@ -272,7 +307,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '租户配置',
     icon: '🏢',
     roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
-    menuCode: 'system.tenant.config',
+    menuCode: MENU_CODES.SYSTEM_TENANT_CONFIG,
     group: '系统管理',
   },
   {
@@ -280,7 +315,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '菜单与功能',
     icon: '🧭',
     roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
-    menuCode: 'system.menu.config',
+    menuCode: MENU_CODES.SYSTEM_MENU_CONFIG,
     group: '系统管理',
   },
   {
@@ -288,7 +323,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '角色配置',
     icon: '🧩',
     roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
-    menuCode: 'system.role.config',
+    menuCode: MENU_CODES.SYSTEM_ROLE_CONFIG,
     group: '系统管理',
   },
   {
@@ -296,7 +331,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '人员配置',
     icon: '👤',
     roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
-    menuCode: 'system.user.config',
+    menuCode: MENU_CODES.SYSTEM_USER_CONFIG,
     group: '系统管理',
   },
   {
@@ -304,7 +339,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '角色授权',
     icon: '🔐',
     roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
-    menuCode: 'system.role.permission.config',
+    menuCode: MENU_CODES.SYSTEM_ROLE_PERMISSION_CONFIG,
     group: '系统管理',
   },
   {
@@ -312,7 +347,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '人员角色分配',
     icon: '🗃️',
     roles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR],
-    menuCode: 'system.user.role.assignment',
+    menuCode: MENU_CODES.SYSTEM_USER_ROLE_ASSIGNMENT,
     group: '系统管理',
   },
   {
@@ -320,7 +355,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '权限审计',
     icon: '🧾',
     roles: [UserRole.ADMIN, UserRole.BOSS],
-    actionCode: 'system.audit.view',
+    actionCode: ACTION_CODES.SYSTEM_AUDIT_VIEW,
     group: '系统管理',
   },
   {
@@ -328,6 +363,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'AI 助手',
     icon: '💬',
     roles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.SALES],
+    menuCode: MENU_CODES.AI_CHAT,
     group: 'AI',
   },
 ];

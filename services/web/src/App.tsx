@@ -2,9 +2,11 @@
  * [artifact:前端代码] — 根组件（路由配置 + 权限守卫）
  */
 
+import type { ReactElement } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import AppLayout from '@/components/Layout/AppLayout';
+import { ACTION_CODES, MENU_CODES } from '@/constants/accessControl';
 import DashboardPage from '@/pages/dashboard/DashboardPage';
 import InventoryPage from '@/pages/inventory/InventoryPage';
 import SuggestionPage from '@/pages/purchase/SuggestionPage';
@@ -133,6 +135,55 @@ function RequireActionAccess({
 
 const SYSTEM_ADMIN_ROLES = [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR];
 
+const MENU_GUARDED_ROUTES: Array<{
+  path: string;
+  element: ReactElement;
+  menuCode: string;
+  fallbackRoles: UserRole[];
+}> = [
+  { path: '/dashboard', element: <DashboardRoute />, menuCode: MENU_CODES.DASHBOARD, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR] },
+  { path: '/inventory', element: <InventoryPage />, menuCode: MENU_CODES.INVENTORY, fallbackRoles: [UserRole.BOSS, UserRole.WAREHOUSE, UserRole.PURCHASER, UserRole.SUPERVISOR] },
+  { path: '/purchase/suggestions', element: <SuggestionPage />, menuCode: MENU_CODES.PURCHASE_SUGGESTION_BOARD, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER] },
+  { path: '/purchase/match', element: <MatchPage />, menuCode: MENU_CODES.PURCHASE_MATCH, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER] },
+  { path: '/purchase/prices', element: <PricePage />, menuCode: MENU_CODES.PURCHASE_PRICE, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER] },
+  { path: '/purchase/purchase-suggestions', element: <PurchaseSuggestionPage />, menuCode: MENU_CODES.PURCHASE_SUGGESTION_MANAGE, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR] },
+  { path: '/purchase/orders', element: <PurchaseOrderPage />, menuCode: MENU_CODES.PURCHASE_ORDER, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR] },
+  { path: '/purchase/deliveries', element: <PurchaseDeliveryPage />, menuCode: MENU_CODES.PURCHASE_DELIVERY, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.WAREHOUSE] },
+  { path: '/purchase/receipts', element: <PurchaseReceiptPage />, menuCode: MENU_CODES.PURCHASE_RECEIPT, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.WAREHOUSE] },
+  { path: '/purchase/incoming-inspection', element: <IncomingInspectionPage />, menuCode: MENU_CODES.PURCHASE_INCOMING_INSPECTION, fallbackRoles: [UserRole.BOSS, UserRole.QC, UserRole.PURCHASER, UserRole.SUPERVISOR] },
+  { path: '/purchase/returns', element: <ReturnOrderPage />, menuCode: MENU_CODES.PURCHASE_RETURN, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR] },
+  { path: '/purchase/settlements', element: <PurchaseSettlementPage />, menuCode: MENU_CODES.PURCHASE_SETTLEMENT, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR] },
+  { path: '/sales/orders', element: <OrderPage />, menuCode: MENU_CODES.SALES_ORDER_CREATE, fallbackRoles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR] },
+  { path: '/sales/order-list', element: <SalesOrderListPage />, menuCode: MENU_CODES.SALES_ORDER_LIST, fallbackRoles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR] },
+  { path: '/sales/customers', element: <CustomerPage />, menuCode: MENU_CODES.SALES_CUSTOMER, fallbackRoles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR] },
+  { path: '/settlement', element: <SettlementPage />, menuCode: MENU_CODES.SALES_SETTLEMENT, fallbackRoles: [UserRole.BOSS, UserRole.SALES, UserRole.SUPERVISOR] },
+  { path: '/schedule-suggestions', element: <ScheduleSuggestionPage />, menuCode: MENU_CODES.SCHEDULE_SUGGESTION, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER] },
+  { path: '/production/schedule', element: <SchedulePage />, menuCode: MENU_CODES.PRODUCTION_SCHEDULE, fallbackRoles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR] },
+  { path: '/production/tasks', element: <TaskPage />, menuCode: MENU_CODES.PRODUCTION_TASK, fallbackRoles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER] },
+  { path: '/production/orders', element: <ProductionOrderPage />, menuCode: MENU_CODES.PRODUCTION_ORDER, fallbackRoles: [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR] },
+  { path: '/production/shortage', element: <ShortageBoard />, menuCode: MENU_CODES.PRODUCTION_SHORTAGE, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER] },
+  { path: '/stocktaking', element: <StocktakingPage />, menuCode: MENU_CODES.STOCKTAKING, fallbackRoles: [UserRole.BOSS, UserRole.WAREHOUSE, UserRole.SUPERVISOR] },
+  { path: '/quality/trace', element: <TracePage />, menuCode: MENU_CODES.QUALITY_TRACE, fallbackRoles: [UserRole.BOSS, UserRole.QC, UserRole.SUPERVISOR, UserRole.SALES] },
+  { path: '/master-data/sku', element: <SkuPage />, menuCode: MENU_CODES.MASTER_DATA_SKU, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.WAREHOUSE, UserRole.SUPERVISOR] },
+  { path: '/master-data/warehouse-location', element: <WarehouseLocationPage />, menuCode: MENU_CODES.MASTER_DATA_WAREHOUSE_LOCATION, fallbackRoles: [UserRole.ADMIN, UserRole.BOSS, UserRole.PURCHASER, UserRole.WAREHOUSE, UserRole.SUPERVISOR] },
+  { path: '/master-data/bom', element: <BomPage />, menuCode: MENU_CODES.MASTER_DATA_BOM, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.PURCHASER] },
+  { path: '/master-data/supplier', element: <SupplierPage />, menuCode: MENU_CODES.MASTER_DATA_SUPPLIER, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR] },
+  { path: '/master-data/process-config', element: <ProcessConfigPage />, menuCode: MENU_CODES.MASTER_DATA_PROCESS_CONFIG, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR] },
+  { path: '/master-data/sku-process', element: <SkuProcessPage />, menuCode: MENU_CODES.MASTER_DATA_SKU_PROCESS, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR] },
+  { path: '/master-data/sku-category', element: <CategoryConfigPage />, menuCode: MENU_CODES.MASTER_DATA_SKU_CATEGORY, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR] },
+  { path: '/analytics', element: <AnalyticsPage />, menuCode: MENU_CODES.ANALYTICS, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR] },
+  { path: '/report/wages', element: <WageReportPage />, menuCode: MENU_CODES.REPORT_WAGE, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR] },
+  { path: '/report/my-wages', element: <MyWagePage />, menuCode: MENU_CODES.REPORT_MY_WAGE, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER] },
+  { path: '/notifications', element: <NotificationPage />, menuCode: MENU_CODES.NOTIFICATION, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.SALES, UserRole.WAREHOUSE, UserRole.WORKER, UserRole.QC] },
+  { path: '/ai-chat', element: <AiChatRoute />, menuCode: MENU_CODES.AI_CHAT, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.SALES] },
+  { path: '/system/tenants', element: <TenantConfigPage />, menuCode: MENU_CODES.SYSTEM_TENANT_CONFIG, fallbackRoles: SYSTEM_ADMIN_ROLES },
+  { path: '/system/menus', element: <MenuFeaturePage />, menuCode: MENU_CODES.SYSTEM_MENU_CONFIG, fallbackRoles: SYSTEM_ADMIN_ROLES },
+  { path: '/system/roles', element: <RoleConfigPage />, menuCode: MENU_CODES.SYSTEM_ROLE_CONFIG, fallbackRoles: SYSTEM_ADMIN_ROLES },
+  { path: '/system/users', element: <UserConfigPage />, menuCode: MENU_CODES.SYSTEM_USER_CONFIG, fallbackRoles: SYSTEM_ADMIN_ROLES },
+  { path: '/system/role-permissions', element: <RoleGrantPage />, menuCode: MENU_CODES.SYSTEM_ROLE_PERMISSION_CONFIG, fallbackRoles: SYSTEM_ADMIN_ROLES },
+  { path: '/system/user-role-assignments', element: <UserRoleAssignmentPage />, menuCode: MENU_CODES.SYSTEM_USER_ROLE_ASSIGNMENT, fallbackRoles: SYSTEM_ADMIN_ROLES },
+];
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -144,108 +195,26 @@ export default function App() {
         <Route element={<RequireAuth />}>
           <Route element={<AppLayout />}>
             <Route index element={<DefaultHomeRedirect />} />
-            <Route path="/dashboard" element={<DashboardRoute />} />
             <Route element={<RequirePlatformScope />}>
               <Route path="/platform/home" element={<PlatformHomePage />} />
             </Route>
-            <Route path="/inventory" element={<InventoryPage />} />
-            <Route path="/purchase/suggestions" element={<SuggestionPage />} />
-            <Route path="/purchase/match" element={<MatchPage />} />
-            <Route path="/sales/orders" element={<OrderPage />} />
-            <Route path="/sales/order-list" element={<SalesOrderListPage />} />
-            <Route path="/sales/customers" element={<CustomerPage />} />
-            <Route path="/production/schedule" element={<SchedulePage />} />
-            <Route path="/production/tasks" element={<TaskPage />} />
-            <Route path="/master-data/sku" element={<SkuPage />} />
-            <Route path="/master-data/bom" element={<BomPage />} />
-            <Route path="/quality/trace" element={<TracePage />} />
-            <Route path="/master-data/supplier" element={<SupplierPage />} />
-            <Route path="/master-data/process-config" element={<ProcessConfigPage />} />
-            <Route path="/master-data/sku-process" element={<SkuProcessPage />} />
-            <Route path="/purchase/prices" element={<PricePage />} />
-            <Route path="/master-data/sku-category" element={<CategoryConfigPage />} />
-            <Route path="/master-data/warehouse-location" element={<WarehouseLocationPage />} />
-            <Route path="/report/wages" element={<WageReportPage />} />
-            <Route path="/report/my-wages" element={<MyWagePage />} />
-            <Route path="/production/orders" element={<ProductionOrderPage />} />
-            <Route path="/production/shortage" element={<ShortageBoard />} />
-            <Route path="/purchase/purchase-suggestions" element={<PurchaseSuggestionPage />} />
-            <Route path="/purchase/orders" element={<PurchaseOrderPage />} />
-            <Route path="/purchase/deliveries" element={<PurchaseDeliveryPage />} />
-            <Route path="/purchase/receipts" element={<PurchaseReceiptPage />} />
-            <Route path="/purchase/incoming-inspection" element={<IncomingInspectionPage />} />
-            <Route path="/purchase/returns" element={<ReturnOrderPage />} />
-            <Route path="/purchase/settlements" element={<PurchaseSettlementPage />} />
-            <Route path="/schedule-suggestions" element={<ScheduleSuggestionPage />} />
-            <Route path="/ai-chat" element={<AiChatRoute />} />
-            <Route path="/notifications" element={<NotificationPage />} />
-            <Route path="/stocktaking" element={<StocktakingPage />} />
-            <Route path="/settlement" element={<SettlementPage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route
-              element={(
-                <RequireMenuAccess
-                  menuCode="system.tenant.config"
-                  fallbackRoles={SYSTEM_ADMIN_ROLES}
-                />
-              )}
-            >
-              <Route path="/system/tenants" element={<TenantConfigPage />} />
-            </Route>
-            <Route
-              element={(
-                <RequireMenuAccess
-                  menuCode="system.menu.config"
-                  fallbackRoles={SYSTEM_ADMIN_ROLES}
-                />
-              )}
-            >
-              <Route path="/system/menus" element={<MenuFeaturePage />} />
-            </Route>
-            <Route
-              element={(
-                <RequireMenuAccess
-                  menuCode="system.role.config"
-                  fallbackRoles={SYSTEM_ADMIN_ROLES}
-                />
-              )}
-            >
-              <Route path="/system/roles" element={<RoleConfigPage />} />
-            </Route>
-            <Route
-              element={(
-                <RequireMenuAccess
-                  menuCode="system.user.config"
-                  fallbackRoles={SYSTEM_ADMIN_ROLES}
-                />
-              )}
-            >
-              <Route path="/system/users" element={<UserConfigPage />} />
-            </Route>
-            <Route
-              element={(
-                <RequireMenuAccess
-                  menuCode="system.role.permission.config"
-                  fallbackRoles={SYSTEM_ADMIN_ROLES}
-                />
-              )}
-            >
-              <Route path="/system/role-permissions" element={<RoleGrantPage />} />
-            </Route>
-            <Route
-              element={(
-                <RequireMenuAccess
-                  menuCode="system.user.role.assignment"
-                  fallbackRoles={SYSTEM_ADMIN_ROLES}
-                />
-              )}
-            >
-              <Route path="/system/user-role-assignments" element={<UserRoleAssignmentPage />} />
-            </Route>
+            {MENU_GUARDED_ROUTES.map((route) => (
+              <Route
+                key={route.path}
+                element={(
+                  <RequireMenuAccess
+                    menuCode={route.menuCode}
+                    fallbackRoles={route.fallbackRoles}
+                  />
+                )}
+              >
+                <Route path={route.path} element={route.element} />
+              </Route>
+            ))}
             <Route
               element={(
                 <RequireActionAccess
-                  actionCode="system.audit.view"
+                  actionCode={ACTION_CODES.SYSTEM_AUDIT_VIEW}
                   fallbackRoles={[UserRole.ADMIN, UserRole.BOSS]}
                 />
               )}

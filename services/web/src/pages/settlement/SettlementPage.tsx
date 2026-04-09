@@ -10,9 +10,9 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import Modal from '@/components/common/Modal';
+import { ACTION_CODES } from '@/constants/accessControl';
+import { usePermission } from '@/hooks/usePermission';
 import { useAppStore } from '@/stores/appStore';
-import { useAuthStore } from '@/stores/authStore';
-import { UserRole } from '@/types/enums';
 import Button from '@/components/common/Button';
 import {
   settlementApi,
@@ -92,7 +92,7 @@ function isOverdueSettlement(status: SettlementStatus, dueDate?: string): boolea
 
 export default function SettlementPage() {
   const { setPageTitle, showToast } = useAppStore();
-  const { hasAnyRole } = useAuthStore();
+  const { can } = usePermission();
   const [activeTab, setActiveTab] = useState<TabKey>('');
   const [page, setPage] = useState(1);
   const [pendingPage, setPendingPage] = useState(1);
@@ -107,10 +107,10 @@ export default function SettlementPage() {
 
   useEffect(() => { setPageTitle('销售结算'); }, [setPageTitle]);
 
-  const isBoss = hasAnyRole([UserRole.BOSS]);
-  const canManageSettlement = hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]);
-  const canViewReceivable = hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]);
-  const canViewPendingOrders = hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR, UserRole.SALES]);
+  const isBoss = can(ACTION_CODES.SALES_SETTLEMENT_BOSS);
+  const canManageSettlement = can(ACTION_CODES.SALES_SETTLEMENT_MANAGE);
+  const canViewReceivable = can(ACTION_CODES.SALES_SETTLEMENT_RECEIVABLE_VIEW);
+  const canViewPendingOrders = can(ACTION_CODES.SALES_SETTLEMENT_PENDING_VIEW);
 
   const query: SettlementListQuery = useMemo(() => ({
     page,

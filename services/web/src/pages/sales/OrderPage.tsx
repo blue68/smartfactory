@@ -20,9 +20,9 @@ import Button from '@/components/common/Button';
 import Modal from '@/components/common/Modal';
 import styles from './OrderPage.module.css';
 
-// ─── 静态预估数据（库存可用性文本后端暂无专用字段，保留 mock）────────────────
-// TODO: inventory.text 等待后端 /api/sales/orders/estimate 接口支持后替换
-const ESTIMATE_INVENTORY_TEXT = '原材料充足，成品库存 0 套';
+function formatLocalDate(date: Date): string {
+  return date.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+}
 
 // ─── 约束检查维度标签映射 ─────────────────────────────────────────────────────
 const CONSTRAINT_CHECK_LABELS: Record<string, string> = {
@@ -157,9 +157,9 @@ export default function OrderPage() {
     customer: '',
     orderType: 'normal',
     product: '',
-    qty: '8',
-    unitPrice: '0',
-    deadline: '2026-03-25',
+    qty: '',
+    unitPrice: '',
+    deadline: '',
     notes: '',
   });
 
@@ -177,7 +177,7 @@ export default function OrderPage() {
 
   // Draft save state
   const [draftLabel, setDraftLabel] = useState('草稿');
-  const [autoSaveText, setAutoSaveText] = useState('自动保存 10 秒前');
+  const [autoSaveText, setAutoSaveText] = useState('尚未保存');
 
   const createMutation = useCreateSalesOrder();
   const confirmMutation = useConfirmSalesOrder();
@@ -186,6 +186,8 @@ export default function OrderPage() {
   useEffect(() => {
     setPageTitle('新建销售订单');
   }, [setPageTitle]);
+
+  const todayLabel = useMemo(() => formatLocalDate(new Date()), []);
 
   // Cleanup countdown on unmount
   useEffect(() => {
@@ -579,7 +581,7 @@ export default function OrderPage() {
                   value={form.deadline}
                   onChange={handleFormChange}
                 />
-                <span className={styles.form_hint}>当前日期：2026-03-12</span>
+                <span className={styles.form_hint}>当前日期：{todayLabel}</span>
               </div>
 
               {/* 备注 */}
@@ -608,7 +610,7 @@ export default function OrderPage() {
             ? `当前负荷 ${urgentMutation.data.capacityLoadCheck.currentValue}，${
                 urgentMutation.data.capacityLoadCheck.passed ? '可接单' : '产能已接近上限'
               }`
-            : '当前利用率 72%，可接单'; // TODO: 接入 /api/sales/orders/estimate 接口后替换
+            : '待填写订单信息后评估';
 
           // TODO: 接入实时产能/交期预估接口后，用真实 estimatedDelivery 替换
           const estimatedDelivery = null;
@@ -632,8 +634,7 @@ export default function OrderPage() {
                   <div className={styles.estimate_row}>
                     <span className={`${styles.estimate_dot} ${styles['estimate_dot--green']}`} />
                     <span className={styles.estimate_label}>库存可用性</span>
-                    {/* 库存可用性文本：后端暂无专用字段，保留静态文本 */}
-                    <span className={styles.estimate_value}>{ESTIMATE_INVENTORY_TEXT}</span>
+                    <span className={styles.estimate_value}>待选择客户和产品后评估</span>
                   </div>
                   <div className={styles.estimate_row}>
                     <span

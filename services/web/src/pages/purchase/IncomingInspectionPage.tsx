@@ -100,112 +100,6 @@ function parseQty(value?: string | number | null): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-// ── Mock data for dev ──────────────────────────────────────────────────────────
-
-const MOCK_INSPECTIONS: InspectionRow[] = [
-  {
-    id: 1,
-    inspectionNo: 'QC-2026-001',
-    poId: 101,
-    poNo: 'PO-2026-088',
-    deliveryNoteId: 201,
-    inspectorId: 1,
-    inspectionDate: '2026-03-12',
-    status: 'passed',
-    overallResult: 'pass',
-    receiptTriggered: true,
-    returnTriggered: false,
-    notes: null,
-    completedAt: '2026-03-12T14:30:00Z',
-    supplierName: '广州皮革城',
-  },
-  {
-    id: 2,
-    inspectionNo: 'QC-2026-002',
-    poId: 102,
-    poNo: 'PO-2026-090',
-    deliveryNoteId: 202,
-    inspectorId: 1,
-    inspectionDate: '2026-03-13',
-    status: 'in_progress',
-    overallResult: null,
-    receiptTriggered: false,
-    returnTriggered: false,
-    notes: '部分样品待复检',
-    completedAt: null,
-    supplierName: '华森木业',
-  },
-  {
-    id: 3,
-    inspectionNo: 'QC-2026-003',
-    poId: 103,
-    poNo: 'PO-2026-091',
-    deliveryNoteId: null,
-    inspectorId: 1,
-    inspectionDate: '2026-03-14',
-    status: 'failed',
-    overallResult: 'fail',
-    receiptTriggered: false,
-    returnTriggered: true,
-    notes: '色差严重，全批退货',
-    completedAt: '2026-03-14T10:00:00Z',
-    supplierName: '广州板材',
-  },
-  {
-    id: 4,
-    inspectionNo: 'QC-2026-004',
-    poId: 104,
-    poNo: 'PO-2026-092',
-    deliveryNoteId: 203,
-    inspectorId: 2,
-    inspectionDate: '2026-03-14',
-    status: 'draft',
-    overallResult: null,
-    receiptTriggered: false,
-    returnTriggered: false,
-    notes: null,
-    completedAt: null,
-    supplierName: '深圳五金',
-  },
-];
-
-const MOCK_ITEMS: IncomingInspectionItem[] = [
-  {
-    id: 1,
-    inspectionId: 1,
-    skuId: 101,
-    poItemId: 1001,
-    qtyDelivered: '50',
-    qtySampled: '10',
-    qtyPassed: '10',
-    qtyFailed: '0',
-    result: 'pass',
-    defectTypes: null,
-    defectImages: null,
-    disposition: 'accept',
-    notes: null,
-    skuCode: 'MAT-LEATHER-001',
-    skuName: '进口牛皮 1.2mm 棕色',
-  },
-  {
-    id: 2,
-    inspectionId: 1,
-    skuId: 102,
-    poItemId: 1002,
-    qtyDelivered: '20',
-    qtySampled: '5',
-    qtyPassed: '5',
-    qtyFailed: '0',
-    result: 'pass',
-    defectTypes: null,
-    defectImages: null,
-    disposition: 'accept',
-    notes: null,
-    skuCode: 'MAT-WOOD-002',
-    skuName: '红橡木板 200×2400',
-  },
-];
-
 // ── Create Modal Form ──────────────────────────────────────────────────────────
 
 interface CreateForm {
@@ -642,10 +536,7 @@ export default function IncomingInspectionPage() {
   );
   const [editableItems, setEditableItems] = useState<EditableInspectionItem[]>([]);
 
-  // Use mock data as fallback
-  const allRows: InspectionRow[] = (data?.list && data.list.length > 0)
-    ? (data.list as InspectionRow[])
-    : MOCK_INSPECTIONS;
+  const allRows: InspectionRow[] = (data?.list ?? []) as InspectionRow[];
 
   const currentRecord = detailData ?? allRows.find((r) => r.id === selectedId);
   const { data: previewReceiptData } = useInspectionPreviewReceipt(
@@ -671,8 +562,7 @@ export default function IncomingInspectionPage() {
   const statsFailed = allRows.filter((r) => r.status === 'failed' || r.status === 'partially_passed').length;
 
   // Detail items
-  const detailItems: IncomingInspectionItem[] =
-    detailData?.items ?? (selectedId === 1 ? MOCK_ITEMS : EMPTY_INSPECTION_ITEMS);
+  const detailItems: IncomingInspectionItem[] = detailData?.items ?? EMPTY_INSPECTION_ITEMS;
   const aggregatedDetailItems = useMemo(
     () => aggregateInspectionItems(detailItems),
     [detailItems],

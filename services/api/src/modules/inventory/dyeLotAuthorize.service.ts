@@ -2,15 +2,14 @@ import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
-import { matchesTenantRoleAccess } from '../../shared/roleAccess';
 
 // ─── 常量 ──────────────────────────────────────────────────────
 
 /** 默认授权申请有效期：2 小时（分钟数，可从租户配置中覆盖） */
 const DEFAULT_EXPIRE_MINUTES = 120;
 
-/** 允许执行授权操作的角色（AC-002） */
-const AUTHORIZE_ALLOWED_ROLES = ['supervisor', 'admin', 'boss'];
+/** 允许执行授权审批的权限点 */
+const AUTHORIZE_ALLOWED_ACTION_CODES = ['inventory:maintain'];
 
 // ─── 放行原因枚举 ──────────────────────────────────────────────
 
@@ -64,12 +63,12 @@ export interface AuthorizeRequestRecord {
 export class DyeLotAuthorizeService {
   private readonly tenantId: number;
   private readonly userId: number;
-  private readonly userRoles: string[];
+  private readonly actionCodes: string[];
 
-  constructor(ctx: TenantContext & { roles?: string[] }) {
+  constructor(ctx: TenantContext) {
     this.tenantId  = ctx.tenantId;
     this.userId    = ctx.userId;
-    this.userRoles = ctx.roles ?? [];
+    this.actionCodes = ctx.actionCodes ?? [];
   }
 
   // ── 创建授权申请（仓管提交） ──────────────────────────────
@@ -366,10 +365,12 @@ export class DyeLotAuthorizeService {
 
   /** 断言当前用户具备授权角色 */
   private assertAuthorizeRole(): void {
-    const hasRole = matchesTenantRoleAccess(this.userRoles, AUTHORIZE_ALLOWED_ROLES);
-    if (!hasRole) {
+    const hasPermission = AUTHORIZE_ALLOWED_ACTION_CODES.some((actionCode) =>
+      this.actionCodes.includes(actionCode),
+    );
+    if (!hasPermission) {
       throw AppError.forbidden(
-        `该操作需要以下角色之一：${AUTHORIZE_ALLOWED_ROLES.join(', ')}`,
+        `该操作需要以下权限之一：${AUTHORIZE_ALLOWED_ACTION_CODES.join(', ')}`,
       );
     }
   }

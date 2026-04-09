@@ -176,22 +176,28 @@ export function requireDirectRoles(...allowedRoles: string[]) {
   };
 }
 
+async function rebuildPermissionSnapshot(req: Request): Promise<PermissionSnapshot> {
+  const roleCodes = await accessControlService.resolveUserRoleCodes(req.userId, req.originTenantId);
+  req.roles = roleCodes;
+  req.user.roles = roleCodes;
+
+  const snapshot = await accessControlService.buildPermissionSnapshot(
+    req.tenantId,
+    roleCodes,
+    {
+      scopeLevel: req.scopeLevel,
+      originTenantId: req.originTenantId,
+      contextTenantId: req.contextTenantId,
+    },
+  );
+  req.permissionSnapshot = snapshot;
+  return snapshot;
+}
+
 export function requirePermissions(...requiredPermissions: string[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     void (async () => {
-      const roleCodes = await accessControlService.resolveUserRoleCodes(req.userId, req.originTenantId);
-      req.roles = roleCodes;
-      req.user.roles = roleCodes;
-      const snapshot = await accessControlService.buildPermissionSnapshot(
-        req.tenantId,
-        roleCodes,
-        {
-          scopeLevel: req.scopeLevel,
-          originTenantId: req.originTenantId,
-          contextTenantId: req.contextTenantId,
-        },
-      );
-      req.permissionSnapshot = snapshot;
+      const snapshot = await rebuildPermissionSnapshot(req);
 
       const hasPermission = requiredPermissions.some((permission) =>
         snapshot.actionCodes.includes(permission),
@@ -205,22 +211,29 @@ export function requirePermissions(...requiredPermissions: string[]) {
   };
 }
 
+export function requirePermissionsOrRoles(requiredPermissions: string[], ...allowedRoles: string[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    void (async () => {
+      const snapshot = await rebuildPermissionSnapshot(req);
+      const hasPermission = requiredPermissions.some((permission) =>
+        snapshot.actionCodes.includes(permission),
+      );
+      const hasRole = matchesTenantRoleAccess(req.user?.roles, allowedRoles, req.scopeLevel);
+
+      if (!hasPermission && !hasRole) {
+        const permissionText = requiredPermissions.join(', ');
+        const roleText = allowedRoles.join(', ');
+        throw AppError.forbidden(`该操作需要以下权限之一：${permissionText}，或以下角色之一：${roleText}`);
+      }
+      next();
+    })().catch(next);
+  };
+}
+
 export function requireTenantFeature(...featureCodes: string[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     void (async () => {
-      const roleCodes = await accessControlService.resolveUserRoleCodes(req.userId, req.originTenantId);
-      req.roles = roleCodes;
-      req.user.roles = roleCodes;
-      const snapshot = await accessControlService.buildPermissionSnapshot(
-        req.tenantId,
-        roleCodes,
-        {
-          scopeLevel: req.scopeLevel,
-          originTenantId: req.originTenantId,
-          contextTenantId: req.contextTenantId,
-        },
-      );
-      req.permissionSnapshot = snapshot;
+      const snapshot = await rebuildPermissionSnapshot(req);
 
       const matched = featureCodes.every((feature) => snapshot.featureFlags.includes(feature));
       if (!matched) {

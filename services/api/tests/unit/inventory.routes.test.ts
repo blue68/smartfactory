@@ -1,13 +1,16 @@
-const requireRolesMock = jest.fn((...allowedRoles: string[]) => {
+const requirePermissionsOrRolesMock = jest.fn((requiredPermissions: string[], ...allowedRoles: string[]) => {
   const middleware = (_req: unknown, _res: unknown, next: () => void) => next();
   (middleware as typeof middleware & { allowedRoles?: string[] }).allowedRoles = allowedRoles;
+  (
+    middleware as typeof middleware & { requiredPermissions?: string[] }
+  ).requiredPermissions = requiredPermissions;
   return middleware;
 });
 const authMiddlewareMock = jest.fn((_req: unknown, _res: unknown, next: () => void) => next());
 
 jest.mock('../../src/middleware/auth', () => ({
   authMiddleware: authMiddlewareMock,
-  requireRoles: requireRolesMock,
+  requirePermissionsOrRoles: requirePermissionsOrRolesMock,
 }));
 
 jest.mock('../../src/app', () => ({
@@ -66,10 +69,11 @@ function getRouteLayer(path: string, method: string) {
   );
 }
 
-function getRouteRoles(path: string, method: string): string[] | undefined {
+function getRouteGuard(path: string, method: string) {
   const layer = getRouteLayer(path, method);
-  const roleLayer = layer?.route?.stack?.find((stackLayer: any) => (stackLayer.handle as any)?.allowedRoles);
-  return (roleLayer?.handle as any)?.allowedRoles;
+  return layer?.route?.stack?.find((stackLayer: any) =>
+    (stackLayer.handle as any)?.allowedRoles || (stackLayer.handle as any)?.requiredPermissions,
+  )?.handle as { allowedRoles?: string[]; requiredPermissions?: string[] } | undefined;
 }
 
 describe('inventory.routes wiring', () => {
@@ -91,22 +95,40 @@ describe('inventory.routes wiring', () => {
     expect(routePaths.indexOf('/repair')).toBeLessThan(routePaths.indexOf('/:skuId/dye-lots'));
   });
 
-  it('declares expected role guards for reconcile/repair and key inventory routes', () => {
-    expect(getRouteRoles('/daily-snapshots', 'get')).toBeUndefined();
-    expect(getRouteRoles('/warehouses', 'post')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
-    expect(getRouteRoles('/warehouses/:id', 'put')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
-    expect(getRouteRoles('/warehouses/:id', 'delete')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
-    expect(getRouteRoles('/locations', 'post')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
-    expect(getRouteRoles('/locations/:id', 'put')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
-    expect(getRouteRoles('/locations/:id', 'delete')).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
-    expect(getRouteRoles('/warehouses/import-csv', 'post')).toEqual(['supervisor', 'boss']);
-    expect(getRouteRoles('/locations/import-csv', 'post')).toEqual(['supervisor', 'boss']);
-    expect(getRouteRoles('/snapshots/rebuild', 'post')).toEqual(['supervisor', 'boss']);
-    expect(getRouteRoles('/reconcile', 'post')).toEqual(['supervisor', 'boss']);
-    expect(getRouteRoles('/repair', 'post')).toEqual(['supervisor', 'boss']);
-    expect(getRouteRoles('/waste', 'post')).toEqual(['warehouse', 'supervisor', 'boss']);
-    expect(getRouteRoles('/inbound', 'post')).toEqual(['warehouse', 'boss', 'purchaser']);
-    expect(getRouteRoles('/outbound', 'post')).toEqual(['warehouse', 'supervisor']);
-    expect(getRouteRoles('/stock-alert/trigger', 'post')).toEqual(['supervisor', 'boss']);
+  it('declares expected permission and role guards for key inventory routes', () => {
+    expect(getRouteGuard('/daily-snapshots', 'get')?.requiredPermissions).toEqual(['inventory:view']);
+    expect(getRouteGuard('/warehouses', 'post')?.requiredPermissions).toEqual(['warehouse:location:manage']);
+    expect(getRouteGuard('/warehouses', 'post')?.allowedRoles).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteGuard('/warehouses/:id', 'put')?.requiredPermissions).toEqual(['warehouse:location:manage']);
+    expect(getRouteGuard('/warehouses/:id', 'put')?.allowedRoles).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteGuard('/warehouses/:id', 'delete')?.requiredPermissions).toEqual(['warehouse:location:manage']);
+    expect(getRouteGuard('/warehouses/:id', 'delete')?.allowedRoles).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteGuard('/locations', 'post')?.requiredPermissions).toEqual(['warehouse:location:manage']);
+    expect(getRouteGuard('/locations', 'post')?.allowedRoles).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteGuard('/locations/:id', 'put')?.requiredPermissions).toEqual(['warehouse:location:manage']);
+    expect(getRouteGuard('/locations/:id', 'put')?.allowedRoles).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteGuard('/locations/:id', 'delete')?.requiredPermissions).toEqual(['warehouse:location:manage']);
+    expect(getRouteGuard('/locations/:id', 'delete')?.allowedRoles).toEqual(['supervisor', 'boss', 'admin', 'warehouse']);
+    expect(getRouteGuard('/warehouses/import-csv', 'post')?.requiredPermissions).toEqual(['warehouse:location:import']);
+    expect(getRouteGuard('/warehouses/import-csv', 'post')?.allowedRoles).toEqual(['supervisor', 'boss']);
+    expect(getRouteGuard('/locations/import-csv', 'post')?.requiredPermissions).toEqual(['warehouse:location:import']);
+    expect(getRouteGuard('/locations/import-csv', 'post')?.allowedRoles).toEqual(['supervisor', 'boss']);
+    expect(getRouteGuard('/snapshots/rebuild', 'post')?.requiredPermissions).toEqual(['inventory:maintain']);
+    expect(getRouteGuard('/snapshots/rebuild', 'post')?.allowedRoles).toEqual(['supervisor', 'boss']);
+    expect(getRouteGuard('/reconcile', 'post')?.requiredPermissions).toEqual(['inventory:maintain']);
+    expect(getRouteGuard('/reconcile', 'post')?.allowedRoles).toEqual(['supervisor', 'boss']);
+    expect(getRouteGuard('/repair', 'post')?.requiredPermissions).toEqual(['inventory:maintain']);
+    expect(getRouteGuard('/repair', 'post')?.allowedRoles).toEqual(['supervisor', 'boss']);
+    expect(getRouteGuard('/waste', 'post')?.requiredPermissions).toEqual(['inventory:waste']);
+    expect(getRouteGuard('/waste', 'post')?.allowedRoles).toEqual(['warehouse', 'supervisor', 'boss']);
+    expect(getRouteGuard('/inbound', 'post')?.requiredPermissions).toEqual(['inventory:inbound']);
+    expect(getRouteGuard('/inbound', 'post')?.allowedRoles).toEqual(['warehouse', 'boss', 'purchaser', 'purchase']);
+    expect(getRouteGuard('/outbound', 'post')?.requiredPermissions).toEqual(['inventory:outbound']);
+    expect(getRouteGuard('/outbound', 'post')?.allowedRoles).toEqual(['warehouse', 'supervisor']);
+    expect(getRouteGuard('/stocktake', 'post')?.requiredPermissions).toEqual(['stocktaking:create']);
+    expect(getRouteGuard('/stocktake/:id/items', 'post')?.requiredPermissions).toEqual(['stocktaking:create']);
+    expect(getRouteGuard('/stocktake/:id/diff', 'get')?.requiredPermissions).toEqual(['stocktaking:view']);
+    expect(getRouteGuard('/stock-alert/trigger', 'post')?.requiredPermissions).toEqual(['inventory:maintain']);
+    expect(getRouteGuard('/stock-alert/trigger', 'post')?.allowedRoles).toEqual(['supervisor', 'boss']);
   });
 });

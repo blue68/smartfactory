@@ -638,7 +638,7 @@ export default function MatchPage() {
             本月总采购
           </div>
           <div className={`${styles.stat_card__value} ${styles['stat_card__value--all']}`}>
-            {total || 48}
+            {total ?? 0}
           </div>
           <div className={styles.stat_card__sub}>笔采购单</div>
         </div>
@@ -649,7 +649,7 @@ export default function MatchPage() {
             已匹配
           </div>
           <div className={`${styles.stat_card__value} ${styles['stat_card__value--matched']}`}>
-            {data?.list?.filter((r) => r.matchStatus === MatchStatus.MATCHED || r.matchStatus === MatchStatus.CONFIRMED).length ?? 35}
+            {data?.list?.filter((r) => r.matchStatus === MatchStatus.MATCHED || r.matchStatus === MatchStatus.CONFIRMED).length ?? 0}
           </div>
           <div className={styles.stat_card__sub}>三单完全匹配</div>
         </div>
@@ -663,7 +663,7 @@ export default function MatchPage() {
             {data?.list?.filter((r) =>
               r.matchStatus === MatchStatus.QTY_DIFF ||
               r.matchStatus === MatchStatus.PRICE_DIFF,
-            ).length ?? 11}
+            ).length ?? 0}
           </div>
           <div className={styles.stat_card__sub}>数量 / 规格差异</div>
         </div>
@@ -674,7 +674,7 @@ export default function MatchPage() {
             价格预警
           </div>
           <div className={`${styles.stat_card__value} ${styles['stat_card__value--price']}`}>
-            {data?.list?.filter((r) => r.matchStatus === MatchStatus.PRICE_WARNING).length ?? 2}
+            {data?.list?.filter((r) => r.matchStatus === MatchStatus.PRICE_WARNING).length ?? 0}
           </div>
           <div className={styles.stat_card__sub}>超历史均价 20%</div>
         </div>
@@ -686,10 +686,10 @@ export default function MatchPage() {
         <div className={styles.tab_group} role="tablist" aria-label="匹配状态筛选">
           {(
             [
-              { val: '' as const,                      label: '全部',   countClass: 'all',     count: total || 48 },
-              { val: MatchStatus.MATCHED as const,     label: '已匹配', countClass: 'matched', count: data?.list?.filter((r) => r.matchStatus === MatchStatus.MATCHED || r.matchStatus === MatchStatus.CONFIRMED).length ?? 35 },
-              { val: MatchStatus.QTY_DIFF as const,    label: '待处理', countClass: 'pending', count: data?.list?.filter((r) => r.matchStatus === MatchStatus.QTY_DIFF || r.matchStatus === MatchStatus.PRICE_DIFF).length ?? 11 },
-              { val: MatchStatus.PRICE_WARNING as const, label: '价格预警', countClass: 'price', count: data?.list?.filter((r) => r.matchStatus === MatchStatus.PRICE_WARNING).length ?? 2 },
+              { val: '' as const,                      label: '全部',   countClass: 'all',     count: total ?? 0 },
+              { val: MatchStatus.MATCHED as const,     label: '已匹配', countClass: 'matched', count: data?.list?.filter((r) => r.matchStatus === MatchStatus.MATCHED || r.matchStatus === MatchStatus.CONFIRMED).length ?? 0 },
+              { val: MatchStatus.QTY_DIFF as const,    label: '待处理', countClass: 'pending', count: data?.list?.filter((r) => r.matchStatus === MatchStatus.QTY_DIFF || r.matchStatus === MatchStatus.PRICE_DIFF).length ?? 0 },
+              { val: MatchStatus.PRICE_WARNING as const, label: '价格预警', countClass: 'price', count: data?.list?.filter((r) => r.matchStatus === MatchStatus.PRICE_WARNING).length ?? 0 },
             ] as const
           ).map(({ val, label, countClass, count }) => (
             <button
@@ -741,7 +741,7 @@ export default function MatchPage() {
           <span style={{ fontSize: '1.125rem' }}>📋</span>
           <span className={styles.table_card__title}>三单匹配明细</span>
           <span className={styles.table_card__meta}>
-            共 {total || 48} 条，显示第 {(page - 1) * 10 + 1}–{Math.min(page * 10, total || 48)} 条
+            共 {total ?? 0} 条，显示第 {(page - 1) * 10 + 1}–{Math.min(page * 10, total ?? 0)} 条
           </span>
         </div>
 

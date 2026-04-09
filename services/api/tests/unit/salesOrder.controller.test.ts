@@ -1,3 +1,8 @@
+process.env.JWT_SECRET =
+  process.env.TEST_JWT_SECRET
+  ?? process.env.JWT_SECRET
+  ?? 'local-test-jwt-secret-key-2026-smartfactory-at-least-32-chars';
+
 /**
  * [artifact:自动化测试] — 销售订单 Controller 集成测试
  *
@@ -15,6 +20,55 @@
 import { authHeader } from '../helpers/setup';
 
 jest.mock('../../src/modules/sales-order/salesOrder.service');
+jest.mock('../../src/shared/queue-service', () => ({
+  queueService: {
+    addJob: jest.fn(),
+    getJobStatus: jest.fn(),
+  },
+}));
+
+const TEST_ROLE_MAP: Record<number, string[]> = {
+  31: ['boss'],
+  32: ['worker'],
+  33: ['sales'],
+};
+const ACTIONS_BY_ROLE: Record<string, string[]> = {
+  boss: [
+    'sales:order:view',
+    'sales:order:create',
+    'sales:order:approve',
+    'sales:order:urgent-analyze',
+    'sales:order-list:create',
+    'sales:order-list:approve',
+    'sales:order-list:ship',
+  ],
+  sales: [
+    'sales:order:view',
+    'sales:order:create',
+    'sales:order:urgent-analyze',
+    'sales:order-list:create',
+  ],
+};
+
+function buildActionCodes(roleCodes: string[]): string[] {
+  return Array.from(new Set(roleCodes.flatMap((role) => ACTIONS_BY_ROLE[role] ?? [])));
+}
+
+jest.mock('../../src/modules/access-control/access-control.service', () => ({
+  accessControlService: {
+    resolveUserRoleCodes: jest.fn(async (userId: number) => TEST_ROLE_MAP[userId] ?? ['boss']),
+    buildPermissionSnapshot: jest.fn(async (tenantId: number, roleCodes: string[]) => ({
+      version: 'unit-test',
+      scopeLevel: 'tenant',
+      originTenantId: tenantId,
+      contextTenantId: tenantId,
+      menuCodes: [],
+      actionCodes: buildActionCodes(roleCodes),
+      dataScopes: [],
+      featureFlags: ['rbac_center'],
+    })),
+  },
+}));
 
 import request from 'supertest';
 import app from '../../src/app';
@@ -227,7 +281,7 @@ describe('POST /api/sales-orders/:id/approve', () => {
 
     const res = await request(app)
       .post('/api/sales-orders/1/approve')
-      .set('Authorization', authHeader({ roles: ['boss'] }));
+      .set('Authorization', authHeader({ userId: 31, roles: ['boss'] }));
 
     expect(res.status).toBe(200);
     expect(res.body.message).toBe('订单已审批通过');
@@ -236,7 +290,7 @@ describe('POST /api/sales-orders/:id/approve', () => {
   it('非 boss 角色返回 403', async () => {
     const res = await request(app)
       .post('/api/sales-orders/1/approve')
-      .set('Authorization', authHeader({ roles: ['worker'] }));
+      .set('Authorization', authHeader({ userId: 32, roles: ['worker'] }));
 
     expect(res.status).toBe(403);
   });
@@ -250,7 +304,7 @@ describe('POST /api/sales-orders/:id/reject', () => {
 
     const res = await request(app)
       .post('/api/sales-orders/1/reject')
-      .set('Authorization', authHeader({ roles: ['boss'] }))
+      .set('Authorization', authHeader({ userId: 31, roles: ['boss'] }))
       .send({ reason: '交期无法满足' });
 
     expect(res.status).toBe(200);
@@ -260,7 +314,7 @@ describe('POST /api/sales-orders/:id/reject', () => {
   it('缺少 reason 返回 400', async () => {
     const res = await request(app)
       .post('/api/sales-orders/1/reject')
-      .set('Authorization', authHeader({ roles: ['boss'] }))
+      .set('Authorization', authHeader({ userId: 31, roles: ['boss'] }))
       .send({});
 
     expect(res.status).toBe(400);
@@ -269,7 +323,7 @@ describe('POST /api/sales-orders/:id/reject', () => {
   it('非 boss 角色返回 403', async () => {
     const res = await request(app)
       .post('/api/sales-orders/1/reject')
-      .set('Authorization', authHeader({ roles: ['sales'] }))
+      .set('Authorization', authHeader({ userId: 33, roles: ['sales'] }))
       .send({ reason: '测试' });
 
     expect(res.status).toBe(403);

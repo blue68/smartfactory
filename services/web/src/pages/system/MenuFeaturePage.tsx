@@ -297,12 +297,12 @@ export default function MenuFeaturePage() {
       </div>
 
       <div className={styles.split}>
-        <section className={styles.card}>
+        <section className={`${styles.card} ${styles.stickyCard}`}>
           <div className={styles.cardHeader}>
             <h2 className={styles.cardTitle}>菜单树</h2>
             <span className={styles.tag}>{menuList.length} 项</span>
           </div>
-          <div className={styles.cardBody}>
+          <div className={`${styles.cardBody} ${styles.scrollCardBody}`}>
             {error && <div className={styles.hint}>菜单树加载失败：{(error as Error).message}</div>}
             {!error && (
               <div className={styles.list}>

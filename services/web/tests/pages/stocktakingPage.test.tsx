@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   confirmMutate: vi.fn(),
   createAdjustmentMutate: vi.fn(),
   updateItemsMutate: vi.fn(),
+  permissionCan: vi.fn(),
 }));
 
 vi.mock('@/api/stocktaking', () => ({
@@ -50,6 +51,14 @@ vi.mock('@/stores/appStore', () => ({
   }),
 }));
 
+vi.mock('@/hooks/usePermission', () => ({
+  usePermission: () => ({
+    can: mocks.permissionCan,
+    canAny: vi.fn(),
+    canAll: vi.fn(),
+  }),
+}));
+
 vi.mock('@/api/inventory', () => ({
   useWarehouseOptions: mocks.useWarehouseOptions,
   useLocationOptions: mocks.useLocationOptions,
@@ -58,6 +67,7 @@ vi.mock('@/api/inventory', () => ({
 describe('StocktakingPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.permissionCan.mockReturnValue(true);
     mocks.useCreateStocktaking.mockReturnValue({
       mutate: mocks.createMutate,
       isPending: false,
@@ -259,5 +269,90 @@ describe('StocktakingPage', () => {
       );
     });
     expect(screen.getByText('实盘数量已保存（1 条）')).toBeInTheDocument();
+  });
+
+  it('没有 stocktaking:create 权限时不展示新建入口和保存按钮', async () => {
+    mocks.permissionCan.mockImplementation((code: string) => code !== 'stocktaking:create');
+    mocks.useStocktakingList.mockReturnValue({
+      data: {
+        list: [{
+          id: 11,
+          taskNo: 'PD-11',
+          scope: 'all',
+          status: 'draft',
+          totalItems: 1,
+          diffItems: 0,
+          createdAt: '2026-04-02T10:00:00.000Z',
+        }],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      },
+      isLoading: false,
+      error: null,
+    });
+
+    render(<StocktakingPage />);
+
+    expect(screen.queryByRole('button', { name: /新建盘点/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看盘点明细' }));
+
+    expect(await screen.findByText('盘点明细')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '保存实盘数量' })).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue('13.0000')).toBeDisabled();
+  });
+
+  it('没有提交权限时不展示提交按钮', () => {
+    mocks.permissionCan.mockImplementation((code: string) => code !== 'stocktaking:submit');
+    mocks.useStocktakingList.mockReturnValue({
+      data: {
+        list: [{
+          id: 11,
+          taskNo: 'PD-11',
+          scope: 'all',
+          status: 'in_progress',
+          totalItems: 1,
+          diffItems: 0,
+          createdAt: '2026-04-02T10:00:00.000Z',
+        }],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      },
+      isLoading: false,
+      error: null,
+    });
+
+    render(<StocktakingPage />);
+
+    expect(screen.queryByRole('button', { name: '提交盘点任务 PD-11' })).not.toBeInTheDocument();
+  });
+
+  it('没有确认权限时不展示调整入账和确认按钮', () => {
+    mocks.permissionCan.mockImplementation((code: string) => code !== 'stocktaking:confirm');
+    mocks.useStocktakingList.mockReturnValue({
+      data: {
+        list: [{
+          id: 13,
+          taskNo: 'PD-13',
+          scope: 'all',
+          status: 'pending_confirm',
+          totalItems: 1,
+          diffItems: 1,
+          createdAt: '2026-04-02T10:00:00.000Z',
+        }],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      },
+      isLoading: false,
+      error: null,
+    });
+
+    render(<StocktakingPage />);
+
+    expect(screen.queryByRole('button', { name: '生成盘点差异调整单 PD-13' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '确认盘点任务 PD-13' })).not.toBeInTheDocument();
   });
 });

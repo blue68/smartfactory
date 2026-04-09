@@ -5,6 +5,8 @@ import Drawer from '@/components/common/Drawer';
 import Button from '@/components/common/Button';
 import Table from '@/components/common/Table';
 import type { Column } from '@/components/common/Table';
+import { ACTION_CODES } from '@/constants/accessControl';
+import { usePermission } from '@/hooks/usePermission';
 import {
   useSalesOrderList,
   useSalesOrder,
@@ -34,8 +36,6 @@ import type {
 import { useCustomerOptions } from '@/api/customer';
 import { useSkuList } from '@/api/sku';
 import { useWarehouseOptions, useLocationOptions } from '@/api/inventory';
-import { useAuthStore } from '@/stores/authStore';
-import { UserRole } from '@/types/enums';
 import styles from './SalesOrderListPage.module.css';
 
 // ---------------------------------------------------------------------------
@@ -71,21 +71,20 @@ const STATUS_OPTIONS: { value: SalesOrderStatus | ''; label: string }[] = [
 
 /** 创建订单 / 提交审批: boss, supervisor, sales */
 function useCanCreateOrder() {
-  return useAuthStore((s) =>
-    s.hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR, UserRole.SALES]),
-  );
+  const { can } = usePermission();
+  return can(ACTION_CODES.SALES_ORDER_LIST_CREATE);
 }
 
 /** 审批通过 / 驳回 / 确认订单 / 关闭: boss only */
 function useCanApprove() {
-  return useAuthStore((s) => s.hasRole(UserRole.BOSS));
+  const { can } = usePermission();
+  return can(ACTION_CODES.SALES_ORDER_LIST_APPROVE);
 }
 
 /** 发货 / 完成: boss, supervisor */
 function useCanShip() {
-  return useAuthStore((s) =>
-    s.hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]),
-  );
+  const { can } = usePermission();
+  return can(ACTION_CODES.SALES_ORDER_LIST_SHIP);
 }
 
 // Keep a convenience alias used for the pending-approvals banner (boss sees it)

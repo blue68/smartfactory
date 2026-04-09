@@ -3,11 +3,20 @@ const requireRolesMock = jest.fn((...allowedRoles: string[]) => {
   (middleware as typeof middleware & { allowedRoles?: string[] }).allowedRoles = allowedRoles;
   return middleware;
 });
+const requirePermissionsOrRolesMock = jest.fn((requiredPermissions: string[], ...allowedRoles: string[]) => {
+  const middleware = (_req: unknown, _res: unknown, next: () => void) => next();
+  (middleware as typeof middleware & { allowedRoles?: string[] }).allowedRoles = allowedRoles;
+  (
+    middleware as typeof middleware & { requiredPermissions?: string[] }
+  ).requiredPermissions = requiredPermissions;
+  return middleware;
+});
 const authMiddlewareMock = jest.fn((_req: unknown, _res: unknown, next: () => void) => next());
 
 jest.mock('../../src/middleware/auth', () => ({
   authMiddleware: authMiddlewareMock,
   requireRoles: requireRolesMock,
+  requirePermissionsOrRoles: requirePermissionsOrRolesMock,
 }));
 
 jest.mock('../../src/app', () => ({
@@ -46,10 +55,11 @@ function getRouteLayer(path: string, method: string) {
   );
 }
 
-function getRouteRoles(path: string, method: string): string[] | undefined {
+function getRouteGuard(path: string, method: string) {
   const layer = getRouteLayer(path, method);
-  const roleLayer = layer?.route?.stack?.find((stackLayer: any) => (stackLayer.handle as any)?.allowedRoles);
-  return (roleLayer?.handle as any)?.allowedRoles;
+  return layer?.route?.stack?.find((stackLayer: any) =>
+    (stackLayer.handle as any)?.allowedRoles || (stackLayer.handle as any)?.requiredPermissions,
+  )?.handle as { allowedRoles?: string[]; requiredPermissions?: string[] } | undefined;
 }
 
 describe('sales.routes wiring', () => {
@@ -66,22 +76,27 @@ describe('sales.routes wiring', () => {
     expect(routePaths.indexOf('/export/csv')).toBeLessThan(routePaths.indexOf('/:id'));
   });
 
-  it('declares expected role guards for critical sales routes', () => {
-    expect(getRouteRoles('/', 'post')).toEqual(['sales', 'boss']);
-    expect(getRouteRoles('/:id/approve', 'post')).toEqual(['boss']);
-    expect(getRouteRoles('/analyze-urgent', 'post')).toEqual(['sales', 'boss', 'supervisor']);
-    expect(getRouteRoles('/:id/ship', 'post')).toEqual(['warehouse', 'supervisor']);
-    expect(getRouteRoles('/:id/deliveries/:deliveryId/confirm', 'post')).toEqual([
-      'boss',
-      'supervisor',
-      'sales',
-    ]);
+  it('declares expected permission and role guards for critical sales routes', () => {
+    expect(getRouteGuard('/', 'post')?.requiredPermissions).toEqual(['sales:order:create']);
+    expect(getRouteGuard('/', 'post')?.allowedRoles).toEqual(['sales', 'boss']);
+    expect(getRouteGuard('/:id/approve', 'post')?.requiredPermissions).toEqual(['sales:order:approve']);
+    expect(getRouteGuard('/:id/approve', 'post')?.allowedRoles).toEqual(['boss']);
+    expect(getRouteGuard('/analyze-urgent', 'post')?.requiredPermissions).toEqual(['sales:order:urgent-analyze']);
+    expect(getRouteGuard('/analyze-urgent', 'post')?.allowedRoles).toEqual(['sales', 'boss', 'supervisor']);
+    expect(getRouteGuard('/:id/ship', 'post')?.requiredPermissions).toEqual(['sales:order-list:ship']);
+    expect(getRouteGuard('/:id/ship', 'post')?.allowedRoles).toEqual(['warehouse', 'supervisor']);
+    expect(getRouteGuard('/:id/deliveries/:deliveryId/confirm', 'post')?.requiredPermissions).toEqual(['settlement:manage', 'settlement:pending:view']);
+    expect(getRouteGuard('/:id/deliveries/:deliveryId/confirm', 'post')?.allowedRoles).toEqual(['boss', 'supervisor', 'sales']);
   });
 
-  it('declares expected settlement and receivable role guards', () => {
-    expect(getRouteRoles('/receivables', 'get')).toEqual(['boss', 'sales']);
-    expect(getRouteRoles('/:id/settlement', 'post')).toEqual(['boss', 'sales']);
-    expect(getRouteRoles('/settlements/:settlementId/payments', 'post')).toEqual(['boss', 'sales']);
-    expect(getRouteRoles('/settlements/:settlementId/invoice', 'put')).toEqual(['boss', 'sales']);
+  it('declares expected settlement and receivable permission guards', () => {
+    expect(getRouteGuard('/receivables', 'get')?.requiredPermissions).toEqual(['settlement:receivable:view']);
+    expect(getRouteGuard('/receivables', 'get')?.allowedRoles).toEqual(['boss', 'sales']);
+    expect(getRouteGuard('/:id/settlement', 'post')?.requiredPermissions).toEqual(['settlement:manage', 'settlement:pending:view']);
+    expect(getRouteGuard('/:id/settlement', 'post')?.allowedRoles).toEqual(['boss', 'sales']);
+    expect(getRouteGuard('/settlements/:settlementId/payments', 'post')?.requiredPermissions).toEqual(['settlement:boss', 'settlement:manage']);
+    expect(getRouteGuard('/settlements/:settlementId/payments', 'post')?.allowedRoles).toEqual(['boss', 'sales']);
+    expect(getRouteGuard('/settlements/:settlementId/invoice', 'put')?.requiredPermissions).toEqual(['settlement:manage']);
+    expect(getRouteGuard('/settlements/:settlementId/invoice', 'put')?.allowedRoles).toEqual(['boss', 'sales']);
   });
 });

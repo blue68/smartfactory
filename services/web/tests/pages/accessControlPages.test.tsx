@@ -1,5 +1,7 @@
+import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import RoleConfigPage from '@/pages/system/RoleConfigPage';
 import RoleGrantPage from '@/pages/system/RoleGrantPage';
 import TenantConfigPage from '@/pages/system/TenantConfigPage';
@@ -63,6 +65,10 @@ vi.mock('@/stores/appStore', () => ({
   }),
 }));
 
+function renderWithRouter(ui: ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
 describe('Access control system pages', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -99,6 +105,25 @@ describe('Access control system pages', () => {
     };
 
     const menuTreeData = [
+      {
+        id: 100,
+        tenantId: 0,
+        parentId: null,
+        code: 'ai.module',
+        name: 'AI',
+        routePath: null,
+        children: [
+          {
+            id: 102,
+            tenantId: 0,
+            parentId: 100,
+            code: 'ai.chat',
+            name: 'AI 助手',
+            routePath: '/ai-chat',
+            children: [],
+          },
+        ],
+      },
       {
         id: 101,
         tenantId: 0,
@@ -137,6 +162,15 @@ describe('Access control system pages', () => {
         code: 'system.role.manage',
         name: '角色管理',
         actionType: 'custom',
+        status: 'active',
+      },
+      {
+        id: 1002,
+        tenantId: 0,
+        menuId: 102,
+        code: 'ai:chat:view',
+        name: '使用 AI 助手',
+        actionType: 'view',
         status: 'active',
       },
     ];
@@ -272,6 +306,12 @@ describe('Access control system pages', () => {
     expect(screen.getByRole('button', { name: '保存授权' })).toBeDisabled();
   });
 
+  it('RoleGrantPage lists business menus from the online permission catalog', () => {
+    render(<RoleGrantPage />);
+
+    expect(screen.getByText('AI 助手')).toBeInTheDocument();
+  });
+
   it('RoleGrantPage warns when trying to save a system preset role', async () => {
     render(<RoleGrantPage />);
 
@@ -292,7 +332,7 @@ describe('Access control system pages', () => {
       error: null,
     });
 
-    render(<TenantConfigPage />);
+    renderWithRouter(<TenantConfigPage />);
 
     expect(screen.getByText('暂无租户数据。')).toBeInTheDocument();
   });
@@ -304,13 +344,13 @@ describe('Access control system pages', () => {
       error: new Error('403 Forbidden'),
     });
 
-    render(<TenantConfigPage />);
+    renderWithRouter(<TenantConfigPage />);
 
     expect(screen.getByText('租户加载失败：403 Forbidden')).toBeInTheDocument();
   });
 
   it('TenantConfigPage shows validation warning when saving empty tenant form', async () => {
-    render(<TenantConfigPage />);
+    renderWithRouter(<TenantConfigPage />);
 
     fireEvent.click(screen.getByRole('button', { name: '+ 新建租户' }));
     fireEvent.click(screen.getByRole('button', { name: '创建租户' }));

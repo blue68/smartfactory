@@ -5,6 +5,7 @@ import { AppError } from '../../src/shared/AppError';
 import {
   authMiddleware,
   requireDirectRoles,
+  requirePermissionsOrRoles,
   requireRoles,
   requirePermissions,
   requireTenantFeature,
@@ -203,6 +204,14 @@ describe('Access control service and middleware', () => {
       const result = await accessControlService.buildPermissionSnapshot(1, ['tenant_admin']);
 
       expect(result.menuCodes).toEqual(expect.arrayContaining([
+        'overview.dashboard',
+        'purchase.order',
+        'sales.order.list',
+        'production.task',
+        'warehouse.inventory',
+        'master_data.sku',
+        'report.analytics',
+        'ai.chat',
         'system.management',
         'system.menu.config',
         'system.role.config',
@@ -211,6 +220,11 @@ describe('Access control service and middleware', () => {
         'system.user.role.assignment',
       ]));
       expect(result.actionCodes).toEqual(expect.arrayContaining([
+        'dashboard:view',
+        'purchase:order:create',
+        'sales:order-list:create',
+        'production:task:operate',
+        'warehouse:location:manage',
         'system.menu.manage',
         'system.role.manage',
         'system.user.manage',
@@ -281,6 +295,91 @@ describe('Access control service and middleware', () => {
       middleware(req, {} as any, next);
 
       expect(next).toHaveBeenCalledWith();
+    });
+  });
+
+  describe('requirePermissionsOrRoles', () => {
+    it('allows custom role when DB-backed permission matches even without legacy role', async () => {
+      const resolveSpy = jest
+        .spyOn(accessControlService, 'resolveUserRoleCodes')
+        .mockResolvedValue(['custom_scheduler']);
+      const snapshotSpy = jest
+        .spyOn(accessControlService, 'buildPermissionSnapshot')
+        .mockResolvedValue({
+          version: 'db-unit-test',
+          scopeLevel: 'tenant',
+          originTenantId: 9,
+          contextTenantId: 9,
+          menuCodes: [],
+          actionCodes: ['production:task:operate'],
+          dataScopes: [],
+          featureFlags: ['rbac_center'],
+        });
+
+      const middleware = requirePermissionsOrRoles(['production:task:operate'], 'worker');
+      const req = {
+        userId: 3,
+        tenantId: 9,
+        originTenantId: 9,
+        contextTenantId: 9,
+        scopeLevel: 'tenant',
+        roles: ['worker'],
+        user: {
+          roles: ['worker'],
+        },
+      } as any;
+      const next = jest.fn();
+
+      middleware(req, {} as any, next);
+      await flushAsyncMiddleware();
+
+      expect(next).toHaveBeenCalledWith();
+      expect(req.roles).toEqual(['custom_scheduler']);
+      expect(req.permissionSnapshot?.actionCodes).toContain('production:task:operate');
+
+      resolveSpy.mockRestore();
+      snapshotSpy.mockRestore();
+    });
+
+    it('falls back to legacy roles when permission is not granted', async () => {
+      const resolveSpy = jest
+        .spyOn(accessControlService, 'resolveUserRoleCodes')
+        .mockResolvedValue(['manager']);
+      const snapshotSpy = jest
+        .spyOn(accessControlService, 'buildPermissionSnapshot')
+        .mockResolvedValue({
+          version: 'db-unit-test',
+          scopeLevel: 'tenant',
+          originTenantId: 9,
+          contextTenantId: 9,
+          menuCodes: [],
+          actionCodes: [],
+          dataScopes: [],
+          featureFlags: ['rbac_center'],
+        });
+
+      const middleware = requirePermissionsOrRoles(['report:wage:manage'], 'manager');
+      const req = {
+        userId: 3,
+        tenantId: 9,
+        originTenantId: 9,
+        contextTenantId: 9,
+        scopeLevel: 'tenant',
+        roles: ['sales'],
+        user: {
+          roles: ['sales'],
+        },
+      } as any;
+      const next = jest.fn();
+
+      middleware(req, {} as any, next);
+      await flushAsyncMiddleware();
+
+      expect(next).toHaveBeenCalledWith();
+      expect(req.roles).toEqual(['manager']);
+
+      resolveSpy.mockRestore();
+      snapshotSpy.mockRestore();
     });
   });
 

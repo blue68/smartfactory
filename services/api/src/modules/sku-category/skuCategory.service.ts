@@ -40,13 +40,16 @@ export class SkuCategoryService {
   // ───────────────────────────────── 查询 ──────────────────────────────────
 
   /**
-   * 获取完整类目树（系统预置 + 租户自定义）
-   * 支持 level 过滤、parentId 过滤、是否包含已停用
+   * 获取完整类目树。
+   * editableView=true 时，用于租户配置页面：
+   * - 保留系统一级类目作为基础骨架
+   * - 隐藏系统二级类目，只显示当前租户自己的二级类目
    */
   async getTree(opts: {
     level?: 1 | 2;
     parentId?: number;
     includeInactive?: boolean;
+    editableView?: boolean;
   }): Promise<CategoryTreeNode[]> {
     const conditions: string[] = [
       '(tenant_id = 0 OR tenant_id = ?)',
@@ -104,7 +107,11 @@ export class SkuCategoryService {
       }
     }
 
-    const nodes: CategoryTreeNode[] = rows.map((r) => ({
+    const visibleRows = opts.editableView
+      ? rows.filter((r) => Number(r.level) === 1 || Number(r.tenantId) === this.tenantId)
+      : rows;
+
+    const nodes: CategoryTreeNode[] = visibleRows.map((r) => ({
       id: Number(r.id),
       tenantId: Number(r.tenantId),
       level: r.level,
@@ -164,15 +171,24 @@ export class SkuCategoryService {
 
     // code 唯一性已由数据库 uk_tenant_level_code 约束兜底，
     // 这里提前查询给出友好错误信息，避免 DB 级 ER_DUP_ENTRY。
-    const existing = await AppDataSource.query<Array<{ cnt: number }>>(
-      `SELECT COUNT(*) AS cnt
-       FROM sku_categories
-       WHERE (tenant_id = 0 OR tenant_id = ?) AND level = ? AND code = ?
-       LIMIT 1`,
-      [this.tenantId, params.level, params.code],
-    );
+    const normalizedCode = params.code.toUpperCase();
+    const existing = params.level === 2
+      ? await AppDataSource.query<Array<{ cnt: number }>>(
+          `SELECT COUNT(*) AS cnt
+           FROM sku_categories
+           WHERE tenant_id = ? AND level = ? AND code = ?
+           LIMIT 1`,
+          [this.tenantId, params.level, normalizedCode],
+        )
+      : await AppDataSource.query<Array<{ cnt: number }>>(
+          `SELECT COUNT(*) AS cnt
+           FROM sku_categories
+           WHERE (tenant_id = 0 OR tenant_id = ?) AND level = ? AND code = ?
+           LIMIT 1`,
+          [this.tenantId, params.level, normalizedCode],
+        );
     if (Number(existing[0]?.cnt ?? 0) > 0) {
-      throw AppError.conflict(`编码 "${params.code}" 在当前级别下已存在`);
+      throw AppError.conflict(`编码 "${normalizedCode}" 在当前级别下已存在`);
     }
 
     // 同名校验（同一租户同级别下名称不重复）
@@ -195,7 +211,7 @@ export class SkuCategoryService {
       tenantId: this.tenantId,
       level: params.level,
       parentId: params.parentId,
-      code: params.code.toUpperCase(),
+      code: normalizedCode,
       name: params.name,
       sortOrder: params.sortOrder ?? 0,
       isActive: true,

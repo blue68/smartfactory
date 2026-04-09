@@ -25,7 +25,6 @@ import { ResponseCode } from '../../shared/ApiResponse';
 import { generateNo } from '../../shared/generateNo';
 import { queueService } from '../../shared/queue-service';
 import { QUEUE_SUGGESTION_CALCULATE } from '../../shared/queue.config';
-import { hasTenantSuperRole } from '../../shared/roleAccess';
 import { PurchaseSuggestionEngine } from './purchase-suggestion.engine';
 import { ProductionSuggestionEngine } from './production-suggestion.engine';
 import type { TenantContext } from '../../shared/BaseRepository';
@@ -134,15 +133,15 @@ interface SuggestionBatchDTO {
 export class ScheduleSuggestionService {
   private readonly tenantId: number;
   private readonly userId: number;
-  private readonly roles: string[];
+  private readonly actionCodes: string[];
 
   private readonly purchaseEngine = new PurchaseSuggestionEngine();
   private readonly productionEngine = new ProductionSuggestionEngine();
 
-  constructor(ctx: TenantContext) {
+  constructor(ctx: TenantContext & { actionCodes?: string[] }) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
-    this.roles = ctx.roles ?? [];
+    this.actionCodes = ctx.actionCodes ?? [];
   }
 
   // ─── triggerCalculation ──────────────────────────────────────────────────────
@@ -362,7 +361,7 @@ export class ScheduleSuggestionService {
 
     if (!batch) return null;
 
-    const items = await this.queryBatchItems(batch.id, this.isPurchaseOnlyRole());
+    const items = await this.queryBatchItems(batch.id, this.resolveVisibleItemType());
     return this.mapBatchToDTO(batch, items);
   }
 
@@ -475,7 +474,7 @@ export class ScheduleSuggestionService {
       throw AppError.notFound(`调度批次 #${suggestionId} 不存在`, ResponseCode.NOT_FOUND);
     }
 
-    const items = await this.queryBatchItems(suggestionId, this.isPurchaseOnlyRole());
+    const items = await this.queryBatchItems(suggestionId, this.resolveVisibleItemType());
     return this.mapBatchToDTO(batch, items);
   }
 
@@ -647,24 +646,34 @@ export class ScheduleSuggestionService {
 
   // ─── 私有辅助方法 ────────────────────────────────────────────────────────────
 
+  private resolveVisibleItemType(): 'all' | 'purchase' | 'production' {
+    const hasPurchaseView = this.actionCodes.includes('schedule:suggestion:purchase:view');
+    const hasProductionView = this.actionCodes.includes('schedule:suggestion:production:view');
+
+    if (hasPurchaseView && !hasProductionView) {
+      return 'purchase';
+    }
+    if (hasProductionView && !hasPurchaseView) {
+      return 'production';
+    }
+    return 'all';
+  }
+
   private isPurchaseOnlyRole(): boolean {
     return (
-      this.roles.includes('purchase') &&
-      !this.roles.includes('supervisor') &&
-      !this.roles.includes('boss') &&
-      !hasTenantSuperRole(this.roles)
+      this.resolveVisibleItemType() === 'purchase'
     );
   }
 
   private async queryBatchItems(
     suggestionId: number,
-    purchaseOnly: boolean,
+    visibleItemType: 'all' | 'purchase' | 'production',
   ): Promise<ScheduleSuggestionItemRow[]> {
     const params: unknown[] = [suggestionId, this.tenantId];
     let itemTypeFilter = '';
-    if (purchaseOnly) {
+    if (visibleItemType !== 'all') {
       itemTypeFilter = 'AND ssi.item_type = ?';
-      params.push('purchase');
+      params.push(visibleItemType);
     }
 
     return AppDataSource.query<ScheduleSuggestionItemRow[]>(

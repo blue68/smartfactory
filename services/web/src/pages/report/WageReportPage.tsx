@@ -16,8 +16,8 @@ import type {
   WageTaskReportRow,
   WageTaskReportParams,
 } from '@/api/wage';
-import { useAuthStore } from '@/stores/authStore';
-import { UserRole } from '@/types/enums';
+import { ACTION_CODES } from '@/constants/accessControl';
+import { usePermission } from '@/hooks/usePermission';
 
 const EMPTY_WAGE_ROWS: WageReportRow[] = [];
 const EMPTY_WAGE_TASK_ROWS: WageTaskReportRow[] = [];
@@ -38,8 +38,8 @@ function getCurrentMonthRange(): { from: string; to: string } {
 // ─── 权限 Hook：判断是否为管理员（老板或车间主管） ─────────
 
 function useIsAdmin(): boolean {
-  const hasAnyRole = useAuthStore((s) => s.hasAnyRole);
-  return hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]);
+  const { can } = usePermission();
+  return can(ACTION_CODES.REPORT_WAGE_MANAGE);
 }
 
 // ─── 图表组件 ─────────────────────────────────────────────

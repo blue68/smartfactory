@@ -1,23 +1,23 @@
 import { Router, Request, Response } from 'express';
 import { salesController } from './sales.controller';
 import { SalesService } from './sales.service';
-import { authMiddleware, requireRoles } from '../../middleware/auth';
+import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
 const router = Router();
 router.use(authMiddleware);
 
-router.get('/',                   asyncHandler(salesController.list.bind(salesController)));
+router.get('/', requirePermissionsOrRoles(['sales:order:view'], 'sales', 'boss', 'supervisor'), asyncHandler(salesController.list.bind(salesController)));
 
 // BE-P2-008: 应收账款汇总（必须在 /:id 之前注册）
 router.get('/receivables',
-  requireRoles('boss', 'sales'),
+  requirePermissionsOrRoles(['settlement:receivable:view'], 'boss', 'sales'),
   asyncHandler(salesController.getReceivables.bind(salesController)),
 );
 
 // BE-P2-014: 销售订单 CSV 导出
 // 注意：固定路由 export/csv 必须在参数路由 /:id 之前注册，避免 Express 路由歧义
-router.get('/export/csv', asyncHandler(async (req: Request, res: Response) => {
+router.get('/export/csv', requirePermissionsOrRoles(['sales:order:view'], 'sales', 'boss', 'supervisor'), asyncHandler(async (req: Request, res: Response) => {
   const svc = new SalesService({ tenantId: req.tenantId, userId: req.userId, roles: req.roles ?? [] });
   const HEADERS = ['订单号', '客户名称', '总金额', '状态', '预计交期', '创建时间'];
 
@@ -62,55 +62,55 @@ router.get('/export/csv', asyncHandler(async (req: Request, res: Response) => {
   res.end();
 }));
 
-router.get('/:id',                asyncHandler(salesController.getOne.bind(salesController)));
+router.get('/:id', requirePermissionsOrRoles(['sales:order:view'], 'sales', 'boss', 'supervisor'), asyncHandler(salesController.getOne.bind(salesController)));
 router.post('/',
-  requireRoles('sales', 'boss'),
+  requirePermissionsOrRoles(['sales:order:create'], 'sales', 'boss'),
   asyncHandler(salesController.create.bind(salesController)),
 );
 router.post('/:id/approve',
-  requireRoles('boss'),
+  requirePermissionsOrRoles(['sales:order:approve'], 'boss'),
   asyncHandler(salesController.approve.bind(salesController)),
 );
 router.post('/analyze-urgent',
-  requireRoles('sales', 'boss', 'supervisor'),
+  requirePermissionsOrRoles(['sales:order:urgent-analyze'], 'sales', 'boss', 'supervisor'),
   asyncHandler(salesController.analyzeUrgent.bind(salesController)),
 );
 
 // BE-P1-006: 修改销售订单（注意：必须在 /:id/cancel 之前注册，避免路由冲突）
 router.put('/orders/:id',
-  requireRoles('sales', 'boss'),
+  requirePermissionsOrRoles(['sales:order:create'], 'sales', 'boss'),
   asyncHandler(salesController.updateOrder.bind(salesController)),
 );
 
 // BE-P1-007: 取消销售订单
 router.post('/orders/:id/cancel',
-  requireRoles('sales', 'boss'),
+  requirePermissionsOrRoles(['sales:order:create'], 'sales', 'boss'),
   asyncHandler(salesController.cancelOrder.bind(salesController)),
 );
 
 // BE-P2-007: 发货确认（仓库/主管操作）
 router.post('/:id/ship',
-  requireRoles('warehouse', 'supervisor'),
+  requirePermissionsOrRoles(['sales:order-list:ship'], 'warehouse', 'supervisor'),
   asyncHandler(salesController.shipOrder.bind(salesController)),
 );
 
 // BE-P2-007: 收货确认（老板/主管/销售确认）
 router.post('/:id/deliveries/:deliveryId/confirm',
-  requireRoles('boss', 'supervisor', 'sales'),
+  requirePermissionsOrRoles(['settlement:manage', 'settlement:pending:view'], 'boss', 'supervisor', 'sales'),
   asyncHandler(salesController.confirmReceipt.bind(salesController)),
 );
 
 // BE-P2-008: 财务结算
 router.post('/:id/settlement',
-  requireRoles('boss', 'sales'),
+  requirePermissionsOrRoles(['settlement:manage', 'settlement:pending:view'], 'boss', 'sales'),
   asyncHandler(salesController.createSettlement.bind(salesController)),
 );
 router.post('/settlements/:settlementId/payments',
-  requireRoles('boss', 'sales'),
+  requirePermissionsOrRoles(['settlement:boss', 'settlement:manage'], 'boss', 'sales'),
   asyncHandler(salesController.recordPayment.bind(salesController)),
 );
 router.put('/settlements/:settlementId/invoice',
-  requireRoles('boss', 'sales'),
+  requirePermissionsOrRoles(['settlement:manage'], 'boss', 'sales'),
   asyncHandler(salesController.updateInvoice.bind(salesController)),
 );
 

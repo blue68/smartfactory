@@ -153,6 +153,17 @@
   padding: 0.95rem 1rem;
 }
 
+.stickyCard {
+  position: sticky;
+  top: 1rem;
+}
+
+.scrollCardBody {
+  max-height: calc(100vh - 13rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .tableWrap {
   overflow-x: auto;
 }
@@ -192,6 +203,7 @@
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 0.9rem;
+  align-items: start;
 }
 
 .list {
@@ -542,6 +554,15 @@
 
   .split {
     grid-template-columns: 1fr;
+  }
+
+  .stickyCard {
+    position: static;
+  }
+
+  .scrollCardBody {
+    max-height: none;
+    overflow-y: visible;
   }
 
   .catalogGrid {

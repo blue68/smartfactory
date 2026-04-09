@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { stocktakingController } from './stocktaking.controller';
-import { authMiddleware, requireRoles } from '../../middleware/auth';
+import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
 const router = Router();
@@ -11,63 +11,63 @@ router.use(authMiddleware);
 // F-105: 创建盘点任务
 router.post(
   '/',
-  requireRoles('boss', 'warehouse'),
+  requirePermissionsOrRoles(['stocktaking:create'], 'boss', 'warehouse'),
   asyncHandler(stocktakingController.createTask.bind(stocktakingController)),
 );
 
 // F-105: 盘点任务列表
 router.get(
   '/',
-  requireRoles('boss', 'warehouse', 'supervisor'),
+  requirePermissionsOrRoles(['stocktaking:view'], 'boss', 'warehouse', 'supervisor'),
   asyncHandler(stocktakingController.listTasks.bind(stocktakingController)),
 );
 
 // F-105: 盘点任务详情（含明细）
 router.get(
   '/:id',
-  requireRoles('boss', 'warehouse', 'supervisor'),
+  requirePermissionsOrRoles(['stocktaking:view'], 'boss', 'warehouse', 'supervisor'),
   asyncHandler(stocktakingController.getTask.bind(stocktakingController)),
 );
 
 // F-105: 导出盘点表（Excel）
 router.post(
   '/:id/export',
-  requireRoles('boss', 'warehouse', 'supervisor'),
+  requirePermissionsOrRoles(['stocktaking:view'], 'boss', 'warehouse', 'supervisor'),
   asyncHandler(stocktakingController.exportTask.bind(stocktakingController)),
 );
 
 // F-105: 批量录入盘点结果
 router.put(
   '/:id/items',
-  requireRoles('boss', 'warehouse'),
+  requirePermissionsOrRoles(['stocktaking:create'], 'boss', 'warehouse'),
   asyncHandler(stocktakingController.updateItems.bind(stocktakingController)),
 );
 
 // F-105: 差异分析报告
 router.get(
   '/:id/diff',
-  requireRoles('boss', 'warehouse', 'supervisor'),
+  requirePermissionsOrRoles(['stocktaking:view'], 'boss', 'warehouse', 'supervisor'),
   asyncHandler(stocktakingController.getDiff.bind(stocktakingController)),
 );
 
 // F-105: 提交待确认（warehouse/boss）
 router.post(
   '/:id/submit',
-  requireRoles('boss', 'warehouse'),
+  requirePermissionsOrRoles(['stocktaking:submit'], 'boss', 'warehouse'),
   asyncHandler(stocktakingController.submitTask.bind(stocktakingController)),
 );
 
 // 库存仓位对齐：盘点差异一键生成调整单（支持预览/执行）
 router.post(
   '/:id/adjustment-order',
-  requireRoles('boss'),
+  requirePermissionsOrRoles(['stocktaking:confirm'], 'boss'),
   asyncHandler(stocktakingController.createAdjustmentOrder.bind(stocktakingController)),
 );
 
 // F-105: 确认盘点（仅 boss，调整库存）
 router.post(
   '/:id/confirm',
-  requireRoles('boss'),
+  requirePermissionsOrRoles(['stocktaking:confirm'], 'boss'),
   asyncHandler(stocktakingController.confirmTask.bind(stocktakingController)),
 );
 
