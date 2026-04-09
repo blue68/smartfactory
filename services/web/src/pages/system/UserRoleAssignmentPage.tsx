@@ -9,6 +9,10 @@ import {
 import { useAppStore } from '@/stores/appStore';
 import styles from './SystemPageShell.module.css';
 
+function getRoleDisplayName(role: { code?: string; name: string }): string {
+  return role.code === 'purchase' ? `${role.name}（旧编码兼容）` : role.name;
+}
+
 export default function UserRoleAssignmentPage() {
   const setPageTitle = useAppStore((s) => s.setPageTitle);
   const showToast = useAppStore((s) => s.showToast);
@@ -215,7 +219,7 @@ export default function UserRoleAssignmentPage() {
                             checked={selectedRoleIds.includes(role.id)}
                             onChange={() => toggleRole(role.id)}
                           />
-                          <span>{role.name}</span>
+                          <span>{getRoleDisplayName(role)}</span>
                         </label>
                       ))}
                     </div>
@@ -229,7 +233,7 @@ export default function UserRoleAssignmentPage() {
                     >
                       <option value="">请选择主角色</option>
                       {roleList.filter((role) => selectedRoleIds.includes(role.id)).map((role) => (
-                        <option key={role.id} value={role.id}>{role.name}</option>
+                        <option key={role.id} value={role.id}>{getRoleDisplayName(role)}</option>
                       ))}
                     </select>
                   </div>
@@ -273,7 +277,7 @@ export default function UserRoleAssignmentPage() {
                     {!assignmentError && !assignmentLoading && assignments.map((item) => (
                       <tr key={item.id}>
                         <td>{item.roleCode}</td>
-                        <td>{item.roleName}</td>
+                        <td>{getRoleDisplayName({ code: item.roleCode, name: item.roleName })}</td>
                         <td>{item.isPrimary ? '是' : '否'}</td>
                         <td>{item.effectiveFrom ? String(item.effectiveFrom).slice(0, 10) : '-'}</td>
                         <td>{item.effectiveTo ? String(item.effectiveTo).slice(0, 10) : '-'}</td>

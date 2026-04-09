@@ -97,6 +97,131 @@ describe('Access control service and middleware', () => {
     });
   });
 
+  describe('role visibility boundaries', () => {
+    it('listRoles excludes platform-scoped roles for tenant context', async () => {
+      querySpy.mockImplementation(async (sql: string, params?: any[]) => {
+        if (sql.includes('information_schema.columns')) {
+          const columnName = params?.[1];
+          return [{ total: ['status', 'role_scope', 'data_scope_template', 'priority', 'assignable'].includes(columnName) ? 1 : 0 }];
+        }
+        if (sql.includes('SELECT COUNT(*) AS total FROM roles r')) {
+          return [{ total: 1 }];
+        }
+        if (sql.includes('SELECT r.id,')) {
+          return [{
+            id: 2,
+            tenantId: 0,
+            code: 'tenant_admin',
+            name: '租户管理员',
+            description: 'tenant scope role',
+            roleType: 'system',
+            roleScope: 'tenant',
+            status: 'active',
+            priority: 90,
+            assignable: 1,
+            dataScopeTemplate: 'all',
+            assignedUserCount: 3,
+            updatedAt: '2026-04-09T00:00:00.000Z',
+          }];
+        }
+        return [];
+      });
+
+      const result = await accessControlService.listRoles(
+        {
+          tenantId: 7,
+          userId: 101,
+          roles: ['tenant_admin'],
+          originTenantId: 7,
+          contextTenantId: 7,
+          scopeLevel: 'tenant',
+        },
+        { page: 1, pageSize: 20 },
+      );
+
+      expect(result.total).toBe(1);
+      expect(result.list).toHaveLength(1);
+      expect(result.list[0]).toMatchObject({ code: 'tenant_admin' });
+      expect(querySpy.mock.calls.some(([sql]) =>
+        String(sql).includes("COALESCE(r.role_scope, 'tenant') <> 'platform'"))).toBe(true);
+    });
+
+    it('getRolePermissionDetail rejects platform-scoped role for tenant context', async () => {
+      querySpy.mockImplementation(async (sql: string, params?: any[]) => {
+        if (sql.includes('information_schema.columns')) {
+          return [{ total: params?.[1] === 'role_scope' ? 1 : 0 }];
+        }
+        if (sql.includes('FROM roles')) {
+          return [{
+            id: 9001,
+            code: 'platform_super_admin',
+            name: '平台超级管理员',
+            tenant_id: 0,
+            roleScope: 'platform',
+          }];
+        }
+        return [];
+      });
+
+      await expect(accessControlService.getRolePermissionDetail(
+        {
+          tenantId: 7,
+          userId: 101,
+          roles: ['tenant_admin'],
+          originTenantId: 7,
+          contextTenantId: 7,
+          scopeLevel: 'tenant',
+        },
+        9001,
+      )).rejects.toThrow('角色不存在');
+    });
+
+    it('assignUserRoles rejects platform-scoped role assignment for tenant context', async () => {
+      querySpy.mockImplementation(async (sql: string, params?: any[]) => {
+        if (sql.includes('SELECT id FROM users')) {
+          return [{ id: 55 }];
+        }
+        if (sql.includes('information_schema.columns')) {
+          const columnName = params?.[1];
+          return [{ total: ['status', 'assignable', 'role_scope'].includes(columnName) ? 1 : 0 }];
+        }
+        if (sql.includes('information_schema.tables')) {
+          return [{ total: 0 }];
+        }
+        if (sql.includes('FROM user_roles ur')) {
+          return [];
+        }
+        if (sql.includes('FROM roles')) {
+          return [{
+            id: 9001,
+            tenantId: 0,
+            code: 'platform_super_admin',
+            name: '平台超级管理员',
+            roleScope: 'platform',
+            status: 'active',
+            assignable: 1,
+          }];
+        }
+        return [];
+      });
+
+      await expect(accessControlService.assignUserRoles(
+        {
+          tenantId: 7,
+          userId: 101,
+          roles: ['tenant_admin'],
+          originTenantId: 7,
+          contextTenantId: 7,
+          scopeLevel: 'tenant',
+        },
+        55,
+        {
+          assignments: [{ roleId: 9001, isPrimary: true }],
+        },
+      )).rejects.toThrow('不允许在租户态分配');
+    });
+  });
+
   describe('buildPermissionSnapshot', () => {
     it('builds DB-backed permission snapshot, preserves parsed JSON scope values, and respects enabled tenant features', async () => {
       querySpy
@@ -149,6 +274,7 @@ describe('Access control service and middleware', () => {
           { permission_type: 'menu', permission_key: 'system.tenant.config', scope_type: null, scope_value_json: null },
           { permission_type: 'menu', permission_key: 'system.role.config', scope_type: null, scope_value_json: null },
           { permission_type: 'action', permission_key: 'system.tenant.manage', scope_type: null, scope_value_json: null },
+          { permission_type: 'action', permission_key: 'system.audit.view', scope_type: null, scope_value_json: null },
           { permission_type: 'action', permission_key: 'system.role.manage', scope_type: null, scope_value_json: null },
         ])
         .mockResolvedValueOnce([{ total: 1 }])
@@ -161,7 +287,24 @@ describe('Access control service and middleware', () => {
       expect(result.actionCodes).toContain('system.role.manage');
       expect(result.menuCodes).not.toContain('system.tenant.config');
       expect(result.actionCodes).not.toContain('system.tenant.manage');
+      expect(result.actionCodes).not.toContain('system.audit.view');
       expect(result.actionCodes).not.toContain('platform.tenant.switch');
+    });
+
+    it('prunes platform-only audit permission from tenant snapshot even when tenant feature table is absent', async () => {
+      querySpy
+        .mockResolvedValueOnce([{ total: 1 }])
+        .mockResolvedValueOnce([
+          { permission_type: 'action', permission_key: 'system.audit.view', scope_type: null, scope_value_json: null },
+          { permission_type: 'action', permission_key: 'system.role.manage', scope_type: null, scope_value_json: null },
+        ])
+        .mockResolvedValueOnce([{ total: 0 }]);
+
+      const result = await accessControlService.buildPermissionSnapshot(66, ['admin']);
+
+      expect(result.scopeLevel).toBe('tenant');
+      expect(result.actionCodes).toContain('system.role.manage');
+      expect(result.actionCodes).not.toContain('system.audit.view');
     });
 
     it('keeps platform-scoped fallback features when tenant feature table exists', async () => {

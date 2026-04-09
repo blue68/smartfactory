@@ -12,7 +12,7 @@ import {
 const RBAC_CENTER_MENU_CODES = new Set(getSystemMenuSeeds().map((item) => item.code));
 const RBAC_CENTER_ACTION_CODES = new Set(getSystemActionSeeds().map((item) => item.code));
 const PLATFORM_ONLY_MENU_CODES = new Set(['system.tenant.config']);
-const PLATFORM_ONLY_ACTION_CODES = new Set(['system.tenant.manage', 'platform.tenant.switch']);
+const PLATFORM_ONLY_ACTION_CODES = new Set(['system.tenant.manage', 'platform.tenant.switch', 'system.audit.view']);
 
 interface TenantContext {
   tenantId: number;
@@ -155,6 +155,44 @@ export class AccessControlService {
     if (!this.isPlatformSuperAdmin(ctx)) {
       throw AppError.forbidden('仅 platform_super_admin 可执行该操作');
     }
+  }
+
+  private async buildRoleVisibilityFilter(
+    ctx: TenantContext,
+    alias: string,
+  ): Promise<{ clause: string; params: Array<string | number> }> {
+    if (this.isPlatformSuperAdmin(ctx)) {
+      return { clause: '1=1', params: [] };
+    }
+
+    const hasRoleScope = await this.columnExists('roles', 'role_scope');
+    if (hasRoleScope) {
+      return {
+        clause: `COALESCE(${alias}.role_scope, 'tenant') <> 'platform'`,
+        params: [],
+      };
+    }
+
+    return {
+      clause: `${alias}.code <> ?`,
+      params: ['platform_super_admin'],
+    };
+  }
+
+  private async isRoleVisibleToContext(
+    ctx: TenantContext,
+    role: { code?: string | null; roleScope?: string | null },
+  ): Promise<boolean> {
+    if (this.isPlatformSuperAdmin(ctx)) {
+      return true;
+    }
+
+    const hasRoleScope = await this.columnExists('roles', 'role_scope');
+    if (hasRoleScope) {
+      return (role.roleScope ?? 'tenant') !== 'platform';
+    }
+
+    return role.code !== 'platform_super_admin';
   }
 
   private applyTenantFeatureGuards(
@@ -399,9 +437,10 @@ export class AccessControlService {
           : fallback.featureFlags,
       };
 
-      return shouldUseTenantFeatureFlags
-        ? this.applyTenantFeatureGuards(snapshot, snapshot.featureFlags)
-        : snapshot;
+      if (snapshot.scopeLevel === 'tenant') {
+        return this.applyTenantFeatureGuards(snapshot, snapshot.featureFlags);
+      }
+      return snapshot;
     } catch {
       return fallback;
     }
@@ -1172,11 +1211,15 @@ export class AccessControlService {
     const pageSize = normalizePageSize(query.pageSize);
     const effectiveTenantId = this.resolveScopedTenantId(ctx, query.tenantId ?? ctx.tenantId);
     const hasStatus = await this.columnExists('roles', 'status');
+    const hasRoleScope = await this.columnExists('roles', 'role_scope');
     const hasDataScopeTemplate = await this.columnExists('roles', 'data_scope_template');
     const hasPriority = await this.columnExists('roles', 'priority');
     const hasAssignable = await this.columnExists('roles', 'assignable');
     const where: string[] = ['r.tenant_id IN (0, ?)'];
     const params: Array<string | number> = [effectiveTenantId];
+    const visibilityFilter = await this.buildRoleVisibilityFilter(ctx, 'r');
+    where.push(visibilityFilter.clause);
+    params.push(...visibilityFilter.params);
 
     if (query.keyword) {
       where.push('(r.name LIKE ? OR r.code LIKE ?)');
@@ -1205,6 +1248,7 @@ export class AccessControlService {
               r.name,
               r.description,
               CASE WHEN r.tenant_id = 0 THEN 'system' ELSE 'custom' END AS roleType,
+              ${hasRoleScope ? 'r.role_scope' : "'tenant'"} AS roleScope,
               ${hasStatus ? 'r.status' : "'active'"} AS status,
               ${hasPriority ? 'r.priority' : '0'} AS priority,
               ${hasAssignable ? 'r.assignable' : '1'} AS assignable,
@@ -1214,7 +1258,7 @@ export class AccessControlService {
          FROM roles r
          LEFT JOIN user_roles ur ON ur.role_id = r.id AND ur.tenant_id = r.tenant_id
         WHERE ${where.join(' AND ')}
-        GROUP BY r.id, r.tenant_id, r.code, r.name, r.description, r.updated_at${hasStatus ? ', r.status' : ''}${hasPriority ? ', r.priority' : ''}${hasAssignable ? ', r.assignable' : ''}${hasDataScopeTemplate ? ', r.data_scope_template' : ''}
+        GROUP BY r.id, r.tenant_id, r.code, r.name, r.description, r.updated_at${hasRoleScope ? ', r.role_scope' : ''}${hasStatus ? ', r.status' : ''}${hasPriority ? ', r.priority' : ''}${hasAssignable ? ', r.assignable' : ''}${hasDataScopeTemplate ? ', r.data_scope_template' : ''}
         ORDER BY r.tenant_id ASC, r.id ASC
         LIMIT ? OFFSET ?`,
       [...params, pageSize, (page - 1) * pageSize],
@@ -1590,11 +1634,18 @@ export class AccessControlService {
   }
 
   async getRolePermissionDetail(ctx: TenantContext, roleId: number) {
-    const [role] = await AppDataSource.query<Array<{ id: number; code: string; name: string; tenant_id: number }>>(
-      'SELECT id, code, name, tenant_id FROM roles WHERE id = ? AND tenant_id IN (0, ?) LIMIT 1',
+    const hasRoleScope = await this.columnExists('roles', 'role_scope');
+    const [role] = await AppDataSource.query<Array<{ id: number; code: string; name: string; tenant_id: number; roleScope?: string | null }>>(
+      `SELECT id, code, name, tenant_id, ${hasRoleScope ? 'role_scope' : 'NULL'} AS roleScope
+         FROM roles
+        WHERE id = ? AND tenant_id IN (0, ?)
+        LIMIT 1`,
       [roleId, ctx.tenantId],
     );
     if (!role) {
+      throw AppError.notFound('角色不存在', ResponseCode.NOT_FOUND);
+    }
+    if (!(await this.isRoleVisibleToContext(ctx, role))) {
       throw AppError.notFound('角色不存在', ResponseCode.NOT_FOUND);
     }
 
@@ -1712,6 +1763,8 @@ export class AccessControlService {
   }
 
   async getUserRoleAssignments(ctx: TenantContext, userId: number) {
+    const hasRoleScope = await this.columnExists('roles', 'role_scope');
+    const visibilityFilter = await this.buildRoleVisibilityFilter(ctx, 'r');
     if (await this.tableExists('user_role_assignments')) {
       return AppDataSource.query(
         `SELECT ura.id,
@@ -1727,8 +1780,9 @@ export class AccessControlService {
            INNER JOIN roles r ON r.id = ura.role_id AND r.tenant_id IN (0, ura.tenant_id)
           WHERE ura.tenant_id = ?
             AND ura.user_id = ?
+            AND ${visibilityFilter.clause}
           ORDER BY ura.is_primary DESC, ura.id ASC`,
-        [ctx.tenantId, userId],
+        [ctx.tenantId, userId, ...visibilityFilter.params],
       );
     }
 
@@ -1746,8 +1800,11 @@ export class AccessControlService {
          INNER JOIN roles r ON r.id = ur.role_id AND r.tenant_id IN (0, ur.tenant_id)
         WHERE ur.tenant_id = ?
           AND ur.user_id = ?
+          AND ${hasRoleScope ? "COALESCE(r.role_scope, 'tenant') <> 'platform'" : 'r.code <> ?'}
         ORDER BY ur.id ASC`,
-      [ctx.tenantId, userId],
+      hasRoleScope
+        ? [ctx.tenantId, userId]
+        : [ctx.tenantId, userId, 'platform_super_admin'],
     );
   }
 
@@ -1773,17 +1830,23 @@ export class AccessControlService {
     const roleIds = Array.from(new Set(payload.assignments.map((item) => item.roleId)));
     const roleHasStatus = await this.columnExists('roles', 'status');
     const roleHasAssignable = await this.columnExists('roles', 'assignable');
+    const roleHasScope = await this.columnExists('roles', 'role_scope');
     const roles = roleIds.length > 0
       ? await AppDataSource.query<Array<{
           id: number;
           tenantId: number;
+          code: string;
           name: string;
+          roleScope?: string | null;
           status?: string;
           assignable?: number;
         }>>(
           `SELECT id,
                   tenant_id AS tenantId,
-                  name${roleHasStatus ? ', status' : ''}${roleHasAssignable ? ', assignable' : ''}
+                  code,
+                  name,
+                  ${roleHasScope ? 'role_scope' : 'NULL'} AS roleScope
+                  ${roleHasStatus ? ', status' : ''}${roleHasAssignable ? ', assignable' : ''}
              FROM roles
             WHERE id IN (${buildInClause(roleIds)})
               AND tenant_id IN (0, ?)`,
@@ -1793,6 +1856,15 @@ export class AccessControlService {
 
     if (roles.length !== roleIds.length) {
       throw AppError.badRequest('存在不属于当前租户的角色，无法分配', ResponseCode.INVALID_PARAMS);
+    }
+
+    const platformRole = roles.find((role) =>
+      roleHasScope
+        ? (role.roleScope ?? 'tenant') === 'platform'
+        : role.code === 'platform_super_admin',
+    );
+    if (platformRole && !this.isPlatformSuperAdmin(ctx)) {
+      throw AppError.badRequest(`角色 ${platformRole.name} 不允许在租户态分配`, ResponseCode.INVALID_PARAMS);
     }
 
     const invalidRole = roles.find((role) => {

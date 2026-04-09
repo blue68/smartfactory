@@ -211,15 +211,17 @@ export default function App() {
                 <Route path={route.path} element={route.element} />
               </Route>
             ))}
-            <Route
-              element={(
-                <RequireActionAccess
-                  actionCode={ACTION_CODES.SYSTEM_AUDIT_VIEW}
-                  fallbackRoles={[UserRole.ADMIN, UserRole.BOSS]}
-                />
-              )}
-            >
-              <Route path="/system/audit-logs" element={<SystemAuditPage />} />
+            <Route element={<RequirePlatformScope />}>
+              <Route
+                element={(
+                  <RequireActionAccess
+                    actionCode={ACTION_CODES.SYSTEM_AUDIT_VIEW}
+                    fallbackRoles={[UserRole.ADMIN, UserRole.BOSS]}
+                  />
+                )}
+              >
+                <Route path="/system/audit-logs" element={<SystemAuditPage />} />
+              </Route>
             </Route>
           </Route>
         </Route>

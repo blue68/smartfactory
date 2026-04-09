@@ -41,7 +41,6 @@ const ROLE_ACTION_FALLBACK: Record<string, string[]> = {
     'system.user.manage',
     'system.role.grant',
     'system.user.assign',
-    'system.audit.view',
   ],
   admin: [
     'system.menu.manage',
@@ -49,7 +48,6 @@ const ROLE_ACTION_FALLBACK: Record<string, string[]> = {
     'system.user.manage',
     'system.role.grant',
     'system.user.assign',
-    'system.audit.view',
   ],
   tenant_admin: [
     'system.menu.manage',

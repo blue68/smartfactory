@@ -34,6 +34,10 @@ function parseCodeList(input: string) {
   ));
 }
 
+function getRoleDisplayName(role: { code: string; name: string }): string {
+  return role.code === 'purchase' ? `${role.name}（旧编码兼容）` : role.name;
+}
+
 export default function RoleGrantPage() {
   const setPageTitle = useAppStore((s) => s.setPageTitle);
   const showToast = useAppStore((s) => s.showToast);
@@ -207,7 +211,7 @@ export default function RoleGrantPage() {
                       className={`${styles.listItem} ${activeRoleId === role.id ? styles.listItemActive : ''}`}
                       onClick={() => setActiveRoleId(role.id)}
                     >
-                      {role.name}（{role.code}）
+                      {getRoleDisplayName(role)}（{role.code}）
                     </button>
                   ))}
                 </div>
@@ -231,7 +235,7 @@ export default function RoleGrantPage() {
                 {!grantLoading && grantDetail && (
                   <>
                     <div className={styles.hint}>
-                      角色：{grantDetail.roleName}（{grantDetail.roleCode}） · 当前菜单 {selectedMenuCodes.length} 个 · 功能点 {selectedActionCodes.length} 个
+                      角色：{getRoleDisplayName({ code: grantDetail.roleCode, name: grantDetail.roleName })}（{grantDetail.roleCode}） · 当前菜单 {selectedMenuCodes.length} 个 · 功能点 {selectedActionCodes.length} 个
                     </div>
                     {isSystemRole && (
                       <div className={styles.warningBox}>当前为系统预置角色，仅支持查看授权明细，不允许直接保存修改。</div>

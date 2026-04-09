@@ -57,7 +57,6 @@ const TENANT_RBAC_ACTION_CODES = [
   'system.user.manage',
   'system.role.grant',
   'system.user.assign',
-  'system.audit.view',
 ] as const;
 
 const SYSTEM_MENU_DEFINITIONS: MenuSeedDefinition[] = [
@@ -850,7 +849,7 @@ const SYSTEM_ACTION_DEFINITIONS: ActionSeedDefinition[] = [
   { id: 9021004, tenantId: 0, menuId: 9001104, code: 'system.user.manage', name: '人员管理', actionType: 'custom', status: 'active', defaultEnabled: true, roleCodes: ['admin', 'tenant_admin', 'boss', 'supervisor', 'platform_super_admin'] },
   { id: 9021005, tenantId: 0, menuId: 9001105, code: 'system.role.grant', name: '角色授权', actionType: 'custom', status: 'active', defaultEnabled: true, roleCodes: ['admin', 'tenant_admin', 'boss', 'supervisor', 'platform_super_admin'] },
   { id: 9021006, tenantId: 0, menuId: 9001106, code: 'system.user.assign', name: '人员角色分配', actionType: 'custom', status: 'active', defaultEnabled: true, roleCodes: ['admin', 'tenant_admin', 'boss', 'supervisor', 'platform_super_admin'] },
-  { id: 9021007, tenantId: 0, menuId: 9001001, code: 'system.audit.view', name: '权限审计查看', actionType: 'custom', status: 'active', defaultEnabled: true, roleCodes: ['admin', 'tenant_admin', 'boss', 'platform_super_admin'] },
+  { id: 9021007, tenantId: 0, menuId: 9001001, code: 'system.audit.view', name: '权限审计查看', actionType: 'custom', status: 'active', defaultEnabled: true, roleCodes: ['platform_super_admin'] },
   { id: 9021008, tenantId: 0, menuId: 9001101, code: 'platform.tenant.switch', name: '切换租户上下文', actionType: 'custom', status: 'active', defaultEnabled: true, roleCodes: ['platform_super_admin'] },
   { id: 9022001, tenantId: 0, menuId: 9002101, code: 'dashboard:view', name: '查看概览', actionType: 'view', status: 'active', defaultEnabled: true, roleCodes: ['admin', 'tenant_admin', 'boss', 'supervisor'] },
   { id: 9023001, tenantId: 0, menuId: 9008101, code: 'sku:view', name: '查看SKU', actionType: 'view', status: 'active', defaultEnabled: true, roleCodes: ['admin', 'tenant_admin', 'boss', 'supervisor', 'purchaser', 'warehouse'] },
