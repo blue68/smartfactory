@@ -51,6 +51,7 @@ import UserRoleAssignmentPage from '@/pages/system/UserRoleAssignmentPage';
 import SystemAuditPage from '@/pages/system/SystemAuditPage';
 import PlatformHomePage from '@/pages/system/PlatformHomePage';
 import { UserRole } from '@/types/enums';
+import { matchesRoleAccess } from '@/utils/roleAccess';
 
 /** 认证守卫：未登录跳转 /login */
 function RequireAuth() {
@@ -102,7 +103,7 @@ function RequireMenuAccess({
 
   const hasAccess = permissionSnapshot
     ? permissionSnapshot.menuCodes.includes(menuCode)
-    : user?.roles?.some((role) => fallbackRoles.includes(role)) ?? false;
+    : matchesRoleAccess(user?.roles, fallbackRoles, user?.scopeLevel);
 
   if (!hasAccess) {
     return <Navigate to="/dashboard" replace />;
@@ -122,7 +123,7 @@ function RequireActionAccess({
 
   const hasAccess = permissionSnapshot
     ? permissionSnapshot.actionCodes.includes(actionCode)
-    : user?.roles?.some((role) => fallbackRoles.includes(role)) ?? false;
+    : matchesRoleAccess(user?.roles, fallbackRoles, user?.scopeLevel);
 
   if (!hasAccess) {
     return <Navigate to="/dashboard" replace />;

@@ -212,7 +212,7 @@ function generateCode128SvgDataUrl(value: string): string {
 
 export default function WarehouseLocationPage() {
   const { setPageTitle } = useAppStore();
-  const { user } = useAuthStore();
+  const hasAnyRole = useAuthStore((s) => s.hasAnyRole);
   const [messageApi, contextHolder] = message.useMessage();
   const [activeTab, setActiveTab] = useState<MasterDataTab>('warehouse');
   const [onlyActive, setOnlyActive] = useState(true);
@@ -248,18 +248,15 @@ export default function WarehouseLocationPage() {
   const updateLocation = useUpdateLocation();
   const deleteLocation = useDeleteLocation();
 
-  const canManage = useMemo(() => {
-    const roles = user?.roles ?? [];
-    return roles.includes(UserRole.ADMIN)
-      || roles.includes(UserRole.BOSS)
-      || roles.includes(UserRole.SUPERVISOR)
-      || roles.includes(UserRole.WAREHOUSE);
-  }, [user?.roles]);
+  const canManage = useMemo(
+    () => hasAnyRole([UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE]),
+    [hasAnyRole],
+  );
 
-  const canImport = useMemo(() => {
-    const roles = user?.roles ?? [];
-    return roles.includes(UserRole.BOSS) || roles.includes(UserRole.SUPERVISOR);
-  }, [user?.roles]);
+  const canImport = useMemo(
+    () => hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]),
+    [hasAnyRole],
+  );
 
   const isBusy = importWarehouses.isPending
     || importLocations.isPending

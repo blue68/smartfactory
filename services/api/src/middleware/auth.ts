@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 import { AppError } from '../shared/AppError';
 import { ResponseCode } from '../shared/ApiResponse';
+import { matchesDirectRoleAccess, matchesTenantRoleAccess } from '../shared/roleAccess';
 import {
   buildFallbackPermissionSnapshot,
   type AccessScopeLevel,
@@ -157,8 +158,17 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
  */
 export function requireRoles(...allowedRoles: string[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
-    const userRoles = req.user?.roles ?? [];
-    const hasRole = allowedRoles.some((role) => userRoles.includes(role));
+    const hasRole = matchesTenantRoleAccess(req.user?.roles, allowedRoles, req.scopeLevel);
+    if (!hasRole) {
+      throw AppError.forbidden(`该操作需要以下角色之一：${allowedRoles.join(', ')}`);
+    }
+    next();
+  };
+}
+
+export function requireDirectRoles(...allowedRoles: string[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const hasRole = matchesDirectRoleAccess(req.user?.roles, allowedRoles);
     if (!hasRole) {
       throw AppError.forbidden(`该操作需要以下角色之一：${allowedRoles.join(', ')}`);
     }

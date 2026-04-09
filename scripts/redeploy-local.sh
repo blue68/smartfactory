@@ -72,7 +72,29 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
 fi
 export MYSQL_PWD="${DB_PASS:-}"
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/V2_schema_fixes.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/V2_sprint1_r06_task_exceptions.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/V2_p04_r06_gaps.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/V2_p0_batch2_gaps.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/V2_p1_notifications.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/V3_workstation_types.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/V2_sprint1_r01_r05.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/M20260329_half_finished_phase1.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/M20260329_phase2_scheduler_operations.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/V2_sprint4_schedule_tables.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
   < "$ROOT_DIR/services/api/src/migrations/V7_purchase_settlements.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/infra/db/local-dev-schema-sync.sql"
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
   < "$ROOT_DIR/services/api/src/migrations/V8_purchase_dye_lot.sql"
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \

@@ -64,8 +64,17 @@ export async function fetchUserRoleAssignments(userId: number): Promise<UserRole
   return request.get<UserRoleAssignment[]>(`${BASE}/users/${userId}/role-assignments`);
 }
 
-export async function createTenant(payload: TenantMutationPayload): Promise<{ id: number }> {
-  return request.post<{ id: number }>(`${BASE}/tenants`, payload);
+export interface CreatedTenantResult {
+  id: number;
+  defaultAdminUserId?: number;
+  defaultAdminUsername?: string;
+  defaultAdminName?: string;
+  defaultAdminPassword?: string;
+  defaultAdminRoleCode?: string;
+}
+
+export async function createTenant(payload: TenantMutationPayload): Promise<CreatedTenantResult> {
+  return request.post<CreatedTenantResult>(`${BASE}/tenants`, payload);
 }
 
 export async function updateTenant(id: number, payload: TenantMutationPayload): Promise<{ success: boolean }> {

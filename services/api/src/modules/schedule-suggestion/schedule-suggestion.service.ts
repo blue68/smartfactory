@@ -25,6 +25,7 @@ import { ResponseCode } from '../../shared/ApiResponse';
 import { generateNo } from '../../shared/generateNo';
 import { queueService } from '../../shared/queue-service';
 import { QUEUE_SUGGESTION_CALCULATE } from '../../shared/queue.config';
+import { hasTenantSuperRole } from '../../shared/roleAccess';
 import { PurchaseSuggestionEngine } from './purchase-suggestion.engine';
 import { ProductionSuggestionEngine } from './production-suggestion.engine';
 import type { TenantContext } from '../../shared/BaseRepository';
@@ -650,7 +651,8 @@ export class ScheduleSuggestionService {
     return (
       this.roles.includes('purchase') &&
       !this.roles.includes('supervisor') &&
-      !this.roles.includes('boss')
+      !this.roles.includes('boss') &&
+      !hasTenantSuperRole(this.roles)
     );
   }
 

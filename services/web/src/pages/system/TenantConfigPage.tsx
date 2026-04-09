@@ -21,6 +21,11 @@ const EMPTY_FORM: TenantMutationPayload = {
   code: '',
   name: '',
   status: 'active',
+  defaultAdmin: {
+    username: '',
+    realName: '',
+    initialPassword: '123456',
+  },
 };
 
 const FEATURE_CATALOG: Record<string, { label: string; description: string; category: string }> = {
@@ -165,7 +170,14 @@ export default function TenantConfigPage() {
 
   const openCreate = () => {
     setEditingTenant(null);
-    setForm(EMPTY_FORM);
+    setForm({
+      ...EMPTY_FORM,
+      defaultAdmin: {
+        username: '',
+        realName: '',
+        initialPassword: '123456',
+      },
+    });
     setModalOpen(true);
   };
 
@@ -175,6 +187,7 @@ export default function TenantConfigPage() {
       code: tenant.code,
       name: tenant.name,
       status: tenant.status,
+      defaultAdmin: EMPTY_FORM.defaultAdmin,
     });
     setModalOpen(true);
   };
@@ -182,6 +195,10 @@ export default function TenantConfigPage() {
   const handleSave = async () => {
     if (!form.code.trim() || !form.name.trim()) {
       showToast({ type: 'warning', message: '请填写租户编码和租户名称' });
+      return;
+    }
+    if (!editingTenant && (!form.defaultAdmin?.username?.trim() || !form.defaultAdmin?.realName?.trim())) {
+      showToast({ type: 'warning', message: '请填写默认管理员账号和姓名' });
       return;
     }
 
@@ -193,12 +210,20 @@ export default function TenantConfigPage() {
         });
         showToast({ type: 'success', message: '租户信息已更新' });
       } else {
-        await createTenantMutation.mutateAsync({
+        const created = await createTenantMutation.mutateAsync({
           code: form.code.trim(),
           name: form.name.trim(),
           status: form.status,
+          defaultAdmin: {
+            username: form.defaultAdmin?.username?.trim() || `${form.code.trim().toLowerCase()}_admin`,
+            realName: form.defaultAdmin?.realName?.trim() || `${form.name.trim()}管理员`,
+            initialPassword: form.defaultAdmin?.initialPassword?.trim() || '123456',
+          },
         });
-        showToast({ type: 'success', message: '租户已创建' });
+        showToast({
+          type: 'success',
+          message: `租户已创建，默认管理员 ${created.defaultAdminUsername ?? form.defaultAdmin?.username?.trim()} 已可登录`,
+        });
       }
       closeModal();
     } catch (err) {
@@ -444,8 +469,64 @@ export default function TenantConfigPage() {
           </div>
           <div className={styles.field}>
             <span className={styles.fieldLabel}>说明</span>
-            <div className={styles.hint}>当前先维护租户编码、名称、状态。套餐、功能开关与到期策略仍按后续阶段补齐。</div>
+            <div className={styles.hint}>
+              {editingTenant
+                ? '当前先维护租户编码、名称、状态。套餐、功能开关与到期策略仍按后续阶段补齐。'
+                : '创建时会自动为该租户生成默认管理员账号并开通权限中心能力。'}
+            </div>
           </div>
+          {!editingTenant && (
+            <>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>默认管理员账号</span>
+                <input
+                  className={styles.input}
+                  value={form.defaultAdmin?.username ?? ''}
+                  onChange={(event) => setForm((prev) => ({
+                    ...prev,
+                    defaultAdmin: {
+                      username: event.target.value,
+                      realName: prev.defaultAdmin?.realName ?? '',
+                      initialPassword: prev.defaultAdmin?.initialPassword ?? '123456',
+                    },
+                  }))}
+                  placeholder="例如 factory001_admin"
+                />
+              </div>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>默认管理员姓名</span>
+                <input
+                  className={styles.input}
+                  value={form.defaultAdmin?.realName ?? ''}
+                  onChange={(event) => setForm((prev) => ({
+                    ...prev,
+                    defaultAdmin: {
+                      username: prev.defaultAdmin?.username ?? '',
+                      realName: event.target.value,
+                      initialPassword: prev.defaultAdmin?.initialPassword ?? '123456',
+                    },
+                  }))}
+                  placeholder="例如 张厂长"
+                />
+              </div>
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>初始密码</span>
+                <input
+                  className={styles.input}
+                  value={form.defaultAdmin?.initialPassword ?? '123456'}
+                  onChange={(event) => setForm((prev) => ({
+                    ...prev,
+                    defaultAdmin: {
+                      username: prev.defaultAdmin?.username ?? '',
+                      realName: prev.defaultAdmin?.realName ?? '',
+                      initialPassword: event.target.value,
+                    },
+                  }))}
+                  placeholder="默认 123456"
+                />
+              </div>
+            </>
+          )}
         </div>
       </Modal>
 

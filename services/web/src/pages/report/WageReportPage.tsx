@@ -38,11 +38,8 @@ function getCurrentMonthRange(): { from: string; to: string } {
 // ─── 权限 Hook：判断是否为管理员（老板或车间主管） ─────────
 
 function useIsAdmin(): boolean {
-  const { user } = useAuthStore();
-  if (!user?.roles?.length) return false;
-  return user.roles.some((r) =>
-    [UserRole.BOSS, UserRole.SUPERVISOR].includes(r as UserRole),
-  );
+  const hasAnyRole = useAuthStore((s) => s.hasAnyRole);
+  return hasAnyRole([UserRole.BOSS, UserRole.SUPERVISOR]);
 }
 
 // ─── 图表组件 ─────────────────────────────────────────────

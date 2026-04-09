@@ -179,6 +179,12 @@ const ROLE_PERMISSION_GRANTS: Record<
     dataScopes: [{ scopeType: 'all', scopeValues: [] }],
     featureFlags: ['rbac_center', 'tenant_admin'],
   },
+  tenant_admin: {
+    menuCodes: [...TENANT_RBAC_MENU_CODES],
+    actionCodes: [...TENANT_RBAC_ACTION_CODES],
+    dataScopes: [{ scopeType: 'all', scopeValues: [] }],
+    featureFlags: ['rbac_center', 'tenant_admin'],
+  },
   boss: {
     menuCodes: [...TENANT_RBAC_MENU_CODES],
     actionCodes: [...TENANT_RBAC_ACTION_CODES],

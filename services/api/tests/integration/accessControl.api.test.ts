@@ -23,7 +23,6 @@ const ADMIN_ROLE_CODE = "ac_int_admin";
 const TARGET_ROLE_CODE = "ac_int_operator";
 const PLATFORM_ROLE_CODE = "platform_super_admin";
 
-const FEATURE_MANAGE_ACTION_CODE = "system.tenant.manage";
 const MENU_MANAGE_ACTION_CODE = "system.menu.manage";
 const GRANTED_MENU_CODE = "system.role.permission.config";
 const GRANTED_ACTION_CODE = "system.audit.view";
@@ -54,6 +53,16 @@ interface IdRow extends RowDataPacket {
   id: number;
 }
 
+interface TenantFeatureRow extends RowDataPacket {
+  feature_code: string;
+  is_enabled: number;
+}
+
+interface BootstrapAssignmentRow extends RowDataPacket {
+  role_code: string;
+  source_type: string;
+}
+
 function getDbPool(): Pool {
   if (!dbPool) {
     dbPool = mysql.createPool({
@@ -82,11 +91,26 @@ async function columnExists(tableName: string, columnName: string): Promise<bool
   return Number(rows[0]?.total ?? 0) > 0;
 }
 
-async function login(agent: ReturnType<typeof request.agent>, username: string) {
+async function cleanupTenantCascade(tenantId: number) {
+  const pool = getDbPool();
+  await pool.execute("DELETE FROM access_audit_logs WHERE tenant_id = ?", [tenantId]);
+  await pool.execute("DELETE FROM user_role_assignments WHERE tenant_id = ?", [tenantId]);
+  await pool.execute("DELETE FROM user_roles WHERE tenant_id = ?", [tenantId]);
+  await pool.execute("DELETE FROM tenant_feature_flags WHERE tenant_id = ?", [tenantId]);
+  await pool.execute("DELETE FROM users WHERE tenant_id = ?", [tenantId]);
+  await pool.execute("DELETE FROM tenants WHERE id = ?", [tenantId]);
+}
+
+async function login(
+  agent: ReturnType<typeof request.agent>,
+  username: string,
+  tenantCode = TEST_TENANT_CODE,
+  password = LOGIN_PASSWORD,
+) {
   const response = await agent.post("/api/auth/login").send({
     username,
-    password: LOGIN_PASSWORD,
-    tenantCode: TEST_TENANT_CODE,
+    password,
+    tenantCode,
   });
 
   expect(response.status).toBe(200);
@@ -465,7 +489,6 @@ describe("权限控制模块 API 集成测试", () => {
 
     expect(adminLogin.permissionSnapshot.actionCodes).toEqual(
       expect.arrayContaining([
-        FEATURE_MANAGE_ACTION_CODE,
         MENU_MANAGE_ACTION_CODE,
         "system.role.grant",
         "system.user.assign",
@@ -627,12 +650,12 @@ describe("权限控制模块 API 集成测试", () => {
   });
 
   test("管理员可维护租户功能开关并通过审计接口查询变更", async () => {
-    const adminAgent = request.agent(BASE_URL);
-    const adminLogin = await login(adminAgent, ADMIN_USERNAME);
+    const platformAgent = request.agent(BASE_URL);
+    const platformAuth = await platformLogin(platformAgent);
 
-    const featureListResponse = await adminAgent
+    const featureListResponse = await platformAgent
       .get(`/api/access-control/tenants/${TEST_TENANT_ID}/feature-flags`)
-      .set("Authorization", `Bearer ${adminLogin.accessToken}`);
+      .set("Authorization", `Bearer ${platformAuth.accessToken}`);
 
     expect(featureListResponse.status).toBe(200);
     expect(featureListResponse.body.code).toBe(0);
@@ -643,9 +666,9 @@ describe("权限控制模块 API 集成测试", () => {
       ]),
     );
 
-    const updateResponse = await adminAgent
+    const updateResponse = await platformAgent
       .put(`/api/access-control/tenants/${TEST_TENANT_ID}/feature-flags`)
-      .set("Authorization", `Bearer ${adminLogin.accessToken}`)
+      .set("Authorization", `Bearer ${platformAuth.accessToken}`)
       .send({
         flags: [
           {
@@ -668,11 +691,11 @@ describe("权限控制模块 API 集成测试", () => {
     expect(updateResponse.status).toBe(200);
     expect(updateResponse.body.code).toBe(0);
 
-    const auditResponse = await adminAgent
+    const auditResponse = await platformAgent
       .get(
         `/api/access-control/audit-logs?tenantId=${TEST_TENANT_ID}&module=tenant_feature&keyword=${TEST_TENANT_CODE}`,
       )
-      .set("Authorization", `Bearer ${adminLogin.accessToken}`);
+      .set("Authorization", `Bearer ${platformAuth.accessToken}`);
 
     expect(auditResponse.status).toBe(200);
     expect(auditResponse.body.code).toBe(0);
@@ -896,6 +919,126 @@ describe("权限控制模块 API 集成测试", () => {
         }),
       ]),
     );
+  });
+
+  test("platform_super_admin 新建租户后默认管理员可登录并拿到权限中心快照", async () => {
+    const suffix = `${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 10)}`;
+    const tenantCode = `ACBOOT${suffix}`;
+    const tenantName = `权限自助租户-${suffix}`;
+    const defaultAdminUsername = `acboot_${suffix}_admin`;
+    const defaultAdminPassword = "AccessInt!2026";
+    let createdTenantId = 0;
+
+    try {
+      const platformAgent = request.agent(BASE_URL);
+      const platformAuth = await platformLogin(platformAgent);
+
+      const createResponse = await platformAgent
+        .post("/api/access-control/tenants")
+        .set("Authorization", `Bearer ${platformAuth.accessToken}`)
+        .send({
+          code: tenantCode,
+          name: tenantName,
+          status: "active",
+          defaultAdmin: {
+            username: defaultAdminUsername,
+            realName: "权限租户管理员",
+            initialPassword: defaultAdminPassword,
+          },
+        });
+
+      expect(createResponse.status).toBe(201);
+      expect(createResponse.body.code).toBe(0);
+      createdTenantId = Number(createResponse.body.data.id);
+      expect(createdTenantId).toBeGreaterThan(0);
+      expect(createResponse.body.data.defaultAdminUsername).toBe(defaultAdminUsername);
+      expect(createResponse.body.data.defaultAdminPassword).toBe(defaultAdminPassword);
+      expect(["tenant_admin", "admin", "boss"]).toContain(createResponse.body.data.defaultAdminRoleCode);
+
+      const [featureRows] = await getDbPool().query<TenantFeatureRow[]>(
+        `SELECT feature_code, is_enabled
+           FROM tenant_feature_flags
+          WHERE tenant_id = ?
+          ORDER BY feature_code`,
+        [createdTenantId],
+      );
+      expect(featureRows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ feature_code: "rbac_center", is_enabled: 1 }),
+          expect.objectContaining({ feature_code: "tenant_admin", is_enabled: 1 }),
+        ]),
+      );
+
+      if (await columnExists("user_role_assignments", "source_type")) {
+        const [assignmentRows] = await getDbPool().query<BootstrapAssignmentRow[]>(
+          `SELECT r.code AS role_code, ura.source_type
+             FROM user_role_assignments ura
+             INNER JOIN roles r ON r.id = ura.role_id
+            WHERE ura.tenant_id = ?
+              AND ura.user_id = ?`,
+          [createdTenantId, Number(createResponse.body.data.defaultAdminUserId)],
+        );
+        expect(assignmentRows).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              role_code: createResponse.body.data.defaultAdminRoleCode,
+              source_type: "template",
+            }),
+          ]),
+        );
+      }
+
+      const tenantAdminAgent = request.agent(BASE_URL);
+      const tenantAdminLogin = await login(
+        tenantAdminAgent,
+        defaultAdminUsername,
+        tenantCode,
+        defaultAdminPassword,
+      );
+
+      expect(tenantAdminLogin.permissionSnapshot.featureFlags).toEqual(
+        expect.arrayContaining(["rbac_center", "tenant_admin"]),
+      );
+      expect(tenantAdminLogin.permissionSnapshot.menuCodes).toEqual(
+        expect.arrayContaining([
+          "system.management",
+          "system.menu.config",
+          "system.role.config",
+          "system.user.config",
+          "system.user.role.assignment",
+        ]),
+      );
+      expect(tenantAdminLogin.permissionSnapshot.actionCodes).toEqual(
+        expect.arrayContaining([
+          "system.menu.manage",
+          "system.role.manage",
+          "system.user.manage",
+          "system.user.assign",
+        ]),
+      );
+
+      const menuTreeResponse = await tenantAdminAgent
+        .get("/api/access-control/menus/tree")
+        .set("Authorization", `Bearer ${tenantAdminLogin.accessToken}`);
+      expect(menuTreeResponse.status).toBe(200);
+      expect(menuTreeResponse.body.code).toBe(0);
+
+      const roleListResponse = await tenantAdminAgent
+        .get("/api/access-control/roles?page=1&pageSize=20")
+        .set("Authorization", `Bearer ${tenantAdminLogin.accessToken}`);
+      expect(roleListResponse.status).toBe(200);
+      expect(roleListResponse.body.code).toBe(0);
+
+      const userListResponse = await tenantAdminAgent
+        .get("/api/access-control/users?page=1&pageSize=20")
+        .set("Authorization", `Bearer ${tenantAdminLogin.accessToken}`);
+      expect(userListResponse.status).toBe(200);
+      expect(userListResponse.body.code).toBe(0);
+    } finally {
+      if (createdTenantId > 0) {
+        await cleanupTenantCascade(createdTenantId);
+      }
+    }
   });
 
   test("普通租户管理员不能通过 tenantId 参数天然跨租户", async () => {

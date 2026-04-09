@@ -3,13 +3,16 @@ import { test, expect } from '@playwright/test';
 import {
   APP_BASE_URL,
   cleanupAccessControlScenario,
+  cleanupTenantByCode,
   closeAccessControlFlowDbPool,
   ensurePlatformSuperAdminAccount,
   loginAsPlatformSuperAdmin,
   loginAsSystemAdmin,
+  loginAsTenantUser,
   seedAccessControlScenario,
   waitForAuditLog,
   waitForFeatureFlagState,
+  waitForTenantBootstrap,
 } from './helpers/accessControlFlow';
 
 test.describe.serial('权限中心前端交互（真实后端）', () => {
@@ -17,6 +20,74 @@ test.describe.serial('权限中心前端交互（真实后端）', () => {
 
   test.afterAll(async () => {
     await closeAccessControlFlowDbPool();
+  });
+
+  test('platform_super_admin 新建租户后，默认管理员可登录并进入权限中心关键页面 @permission-control-smoke', async ({ page }) => {
+    await ensurePlatformSuperAdminAccount();
+    const suffix = `${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 10)}`;
+    const tenantCode = `PWBOOT${suffix}`;
+    const tenantName = `权限自助租户-${suffix}`;
+    const defaultAdminUsername = `pwboot_${suffix}_admin`;
+    const defaultAdminPassword = 'Dev123!2026';
+
+    try {
+      await loginAsPlatformSuperAdmin(page);
+      await page.goto(`${APP_BASE_URL}/system/tenants`);
+
+      const content = page.locator('#main-content');
+      await expect(content.getByRole('heading', { name: '租户配置' })).toBeVisible();
+      await content.getByRole('button', { name: '+ 新建租户' }).click();
+
+      const modal = page.getByRole('dialog', { name: '新增租户' });
+      await expect(modal).toBeVisible();
+      await modal.getByPlaceholder('例如 TENANT-EAST-01').fill(tenantCode);
+      await modal.getByPlaceholder('例如 华东家具厂').fill(tenantName);
+      await modal.getByPlaceholder('例如 factory001_admin').fill(defaultAdminUsername);
+      await modal.getByPlaceholder('例如 张厂长').fill('默认管理员');
+      await modal.getByPlaceholder('默认 123456').fill(defaultAdminPassword);
+
+      const createResponsePromise = page.waitForResponse((response) => (
+        response.url().includes('/api/access-control/tenants')
+        && response.request().method() === 'POST'
+        && response.ok()
+      ));
+      await modal.getByRole('button', { name: '创建租户' }).click();
+      const createResponse = await createResponsePromise;
+      const createPayload = await createResponse.json();
+
+      expect(createPayload.code).toBe(0);
+      expect(createPayload.data.defaultAdminUsername).toBe(defaultAdminUsername);
+      expect(createPayload.data.defaultAdminPassword).toBe(defaultAdminPassword);
+      await waitForTenantBootstrap(tenantCode, defaultAdminUsername);
+
+      await page.getByRole('button', { name: '用户菜单' }).click();
+      await Promise.all([
+        page.waitForURL(/\/login$/),
+        page.getByRole('menuitem', { name: /退出登录/ }).click(),
+      ]);
+
+      await loginAsTenantUser(page, {
+        username: defaultAdminUsername,
+        password: defaultAdminPassword,
+        tenantCode,
+      });
+
+      await expect(page.getByText(`租户态 · ${tenantName}`)).toBeVisible();
+
+      await page.goto(`${APP_BASE_URL}/system/menus`);
+      await expect(page.locator('#main-content').getByRole('heading', { name: '菜单与功能' })).toBeVisible();
+
+      await page.goto(`${APP_BASE_URL}/system/roles`);
+      await expect(page.locator('#main-content').getByRole('heading', { name: '角色配置' })).toBeVisible();
+
+      await page.goto(`${APP_BASE_URL}/system/users`);
+      await expect(page.locator('#main-content').getByRole('heading', { name: '人员配置' })).toBeVisible();
+
+      await page.goto(`${APP_BASE_URL}/system/user-role-assignments`);
+      await expect(page.locator('#main-content').getByRole('heading', { name: '人员角色分配' })).toBeVisible();
+    } finally {
+      await cleanupTenantByCode(tenantCode);
+    }
   });
 
   test('platform_super_admin 可维护租户功能开关并生成审计记录 @permission-control-smoke', async ({ page }) => {

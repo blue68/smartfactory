@@ -78,12 +78,11 @@ const PERMISSION_MAP = {
 export type PermissionKey = keyof typeof PERMISSION_MAP;
 
 export function usePermission() {
-  const { user } = useAuthStore();
+  const hasAnyRole = useAuthStore((s) => s.hasAnyRole);
 
   const can = (permission: PermissionKey): boolean => {
-    if (!user?.roles?.length) return false;
     const allowed = PERMISSION_MAP[permission] as readonly UserRole[];
-    return user.roles.some((role) => allowed.includes(role));
+    return hasAnyRole([...allowed]);
   };
 
   const canAny = (permissions: PermissionKey[]): boolean => {

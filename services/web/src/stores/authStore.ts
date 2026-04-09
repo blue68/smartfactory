@@ -8,6 +8,7 @@ import { getAccessToken, saveAccessToken, clearTokens } from '@/utils/request';
 import type { User } from '@/types/models';
 import type { UserRole } from '@/types/enums';
 import type { PermissionSnapshot } from '@/types/accessControl';
+import { matchesRoleAccess } from '@/utils/roleAccess';
 
 const PERMISSION_SNAPSHOT_KEY = 'sf_permission_snapshot';
 
@@ -104,13 +105,12 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   hasRole: (role) => {
     const { user } = get();
-    return user?.roles?.includes(role) ?? false;
+    return matchesRoleAccess(user?.roles, [role], user?.scopeLevel);
   },
 
   hasAnyRole: (roles) => {
     const { user } = get();
-    if (!user?.roles) return false;
-    return roles.some((r) => user.roles.includes(r));
+    return matchesRoleAccess(user?.roles, roles, user?.scopeLevel);
   },
 
   hasPermission: (actionCode) => {

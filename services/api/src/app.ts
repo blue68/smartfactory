@@ -5,7 +5,7 @@ import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { errorHandler } from './middleware/errorHandler';
 import { apmMiddleware, metricsHandler } from './middleware/apm';
-import { authMiddleware, requireRoles } from './middleware/auth';
+import { authMiddleware, requireDirectRoles, requireRoles } from './middleware/auth';
 
 // 路由模块
 import authRoutes      from './modules/auth/auth.routes';
@@ -161,8 +161,8 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth/login', authLimiter as RequestHandler);
 
-// ── APM 指标端点（BE-P2-012，需认证 + boss 角色）──────────
-app.get('/api/health/metrics', authMiddleware, requireRoles('boss'), metricsHandler);
+// ── APM 指标端点（BE-P2-012，需认证 + 直接 boss 角色）──────────
+app.get('/api/health/metrics', authMiddleware, requireDirectRoles('boss'), metricsHandler);
 
 // ── API 路由注册 ────────────────────────────────────────────
 app.use('/api/auth',       authRoutes);

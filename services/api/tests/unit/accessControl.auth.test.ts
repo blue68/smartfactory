@@ -4,6 +4,8 @@ import { buildFallbackPermissionSnapshot } from '../../src/modules/access-contro
 import { AppError } from '../../src/shared/AppError';
 import {
   authMiddleware,
+  requireDirectRoles,
+  requireRoles,
   requirePermissions,
   requireTenantFeature,
   signRefreshToken,
@@ -16,6 +18,7 @@ function flushAsyncMiddleware(): Promise<void> {
 
 describe('Access control service and middleware', () => {
   const querySpy = jest.spyOn(AppDataSource, 'query');
+  const transactionSpy = jest.spyOn(AppDataSource, 'transaction');
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -23,6 +26,7 @@ describe('Access control service and middleware', () => {
 
   afterAll(() => {
     querySpy.mockRestore();
+    transactionSpy.mockRestore();
   });
 
   describe('authMiddleware', () => {
@@ -192,6 +196,92 @@ describe('Access control service and middleware', () => {
       expect(result.featureFlags).toEqual(fallback.featureFlags);
       expect(querySpy).toHaveBeenCalledTimes(1);
     });
+
+    it('grants tenant RBAC menus and actions to tenant_admin fallback role', async () => {
+      querySpy.mockResolvedValueOnce([{ total: 0 }]);
+
+      const result = await accessControlService.buildPermissionSnapshot(1, ['tenant_admin']);
+
+      expect(result.menuCodes).toEqual(expect.arrayContaining([
+        'system.management',
+        'system.menu.config',
+        'system.role.config',
+        'system.user.config',
+        'system.role.permission.config',
+        'system.user.role.assignment',
+      ]));
+      expect(result.actionCodes).toEqual(expect.arrayContaining([
+        'system.menu.manage',
+        'system.role.manage',
+        'system.user.manage',
+        'system.role.grant',
+        'system.user.assign',
+        'system.audit.view',
+      ]));
+      expect(result.featureFlags).toEqual(expect.arrayContaining(['rbac_center', 'tenant_admin']));
+    });
+  });
+
+  describe('requireRoles', () => {
+    it('allows tenant admin-like roles to pass tenant-scoped legacy role guards', () => {
+      const middleware = requireRoles('boss');
+      const req = {
+        scopeLevel: 'tenant',
+        user: {
+          roles: ['tenant_admin'],
+        },
+      } as any;
+      const next = jest.fn();
+
+      middleware(req, {} as any, next);
+
+      expect(next).toHaveBeenCalledWith();
+    });
+
+    it('does not bypass platform_super_admin-only legacy role guards', () => {
+      const middleware = requireRoles('platform_super_admin');
+      const req = {
+        scopeLevel: 'tenant',
+        user: {
+          roles: ['tenant_admin'],
+        },
+      } as any;
+      const next = jest.fn();
+
+      expect(() => middleware(req, {} as any, next)).toThrow(AppError);
+      expect(next).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('requireDirectRoles', () => {
+    it('does not allow tenant_admin to bypass direct boss-only guards', () => {
+      const middleware = requireDirectRoles('boss');
+      const req = {
+        scopeLevel: 'tenant',
+        user: {
+          roles: ['tenant_admin'],
+        },
+      } as any;
+      const next = jest.fn();
+
+      expect(() => middleware(req, {} as any, next)).toThrow(AppError);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('allows exact boss role to pass direct guards', () => {
+      const middleware = requireDirectRoles('boss');
+      const req = {
+        scopeLevel: 'tenant',
+        user: {
+          roles: ['boss'],
+        },
+      } as any;
+      const next = jest.fn();
+
+      middleware(req, {} as any, next);
+
+      expect(next).toHaveBeenCalledWith();
+    });
   });
 
   describe('menu tree scope filtering', () => {
@@ -233,6 +323,64 @@ describe('Access control service and middleware', () => {
       const actionCodes = (result as Array<{ code: string }>).map((item) => item.code);
       expect(actionCodes).not.toContain('system.tenant.manage');
       expect(actionCodes).not.toContain('platform.tenant.switch');
+    });
+  });
+
+  describe('createTenant', () => {
+    it('creates default admin, enables tenant features, and writes template-scoped role assignment', async () => {
+      const managerQuery = jest.fn()
+        .mockResolvedValueOnce({ insertId: 31 })
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({ insertId: 501 })
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({});
+
+      transactionSpy.mockImplementationOnce(async (callback: any) => callback({ query: managerQuery }));
+      querySpy
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ total: 1 }])
+        .mockResolvedValueOnce([{ id: 9001, code: 'tenant_admin', tenantId: 0 }])
+        .mockResolvedValueOnce([{ total: 1 }])
+        .mockResolvedValueOnce([{ total: 1 }])
+        .mockResolvedValueOnce([{ total: 1 }])
+        .mockResolvedValueOnce([{ total: 0 }]);
+
+      const result = await accessControlService.createTenant({
+        tenantId: 0,
+        userId: 7,
+        roles: ['platform_super_admin'],
+        originTenantId: 0,
+        contextTenantId: null,
+        scopeLevel: 'platform',
+      }, {
+        code: 'FACTORY001',
+        name: '华东一厂',
+        defaultAdmin: {
+          username: 'factory001_admin',
+          realName: '张厂长',
+          initialPassword: 'Init@123456',
+        },
+      });
+
+      expect(result).toMatchObject({
+        id: 31,
+        defaultAdminUserId: 501,
+        defaultAdminUsername: 'factory001_admin',
+        defaultAdminName: '张厂长',
+        defaultAdminPassword: 'Init@123456',
+        defaultAdminRoleCode: 'tenant_admin',
+      });
+      expect(managerQuery.mock.calls[1]?.[0]).toContain('INSERT INTO tenant_feature_flags');
+      expect(managerQuery.mock.calls[3]?.[0]).toContain('INSERT INTO user_role_assignments');
+      expect(managerQuery.mock.calls[3]?.[1]).toEqual(expect.arrayContaining([
+        31,
+        501,
+        9001,
+        'tenant',
+        'active',
+        'template',
+      ]));
+      expect(managerQuery.mock.calls[4]?.[0]).toContain('INSERT INTO user_roles');
     });
   });
 

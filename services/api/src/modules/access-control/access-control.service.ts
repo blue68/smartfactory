@@ -49,6 +49,12 @@ interface AuditLogPayload {
   diffJson?: Record<string, unknown> | null;
 }
 
+interface DefaultAdminPayload {
+  username: string;
+  realName: string;
+  initialPassword?: string;
+}
+
 function normalizePage(input?: number): number {
   return Number.isFinite(input) && (input ?? 0) > 0 ? Number(input) : 1;
 }
@@ -94,6 +100,15 @@ function parseJsonColumn<T>(value: unknown, fallback: T): T {
     }
   }
   return value as T;
+}
+
+function normalizeAccountCode(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40);
 }
 
 function toTree<T extends { id: number; parentId: number | null; children?: T[] }>(items: T[]): T[] {
@@ -236,6 +251,38 @@ export class AccessControlService {
         operatorName,
       ],
     );
+  }
+
+  private async resolveDefaultAdminRole(): Promise<{ id: number; code: string; tenantId: number }> {
+    const hasStatus = await this.columnExists('roles', 'status');
+    const rows = await AppDataSource.query<Array<{ id: number; code: string; tenantId: number }>>(
+      `SELECT id, code, tenant_id AS tenantId
+         FROM roles
+        WHERE tenant_id = 0
+          AND code IN ('tenant_admin', 'admin', 'boss')${hasStatus ? " AND status = 'active'" : ''}
+        ORDER BY CASE code
+          WHEN 'tenant_admin' THEN 1
+          WHEN 'admin' THEN 2
+          WHEN 'boss' THEN 3
+          ELSE 9
+        END ASC
+        LIMIT 1`,
+    );
+
+    if (!rows[0]) {
+      throw AppError.badRequest('未找到可分配的默认管理员角色，请先初始化系统预置角色', ResponseCode.NOT_FOUND);
+    }
+
+    return rows[0];
+  }
+
+  private buildDefaultAdminPayload(payload: DefaultAdminPayload | undefined, tenant: { code: string; name: string }): Required<DefaultAdminPayload> {
+    const normalizedCode = normalizeAccountCode(payload?.username || tenant.code) || 'tenant';
+    return {
+      username: payload?.username?.trim() || `${normalizedCode}_admin`,
+      realName: payload?.realName?.trim() || `${tenant.name}管理员`,
+      initialPassword: payload?.initialPassword?.trim() || '123456',
+    };
   }
 
   async resolveUserRoleCodes(userId: number, tenantId: number): Promise<string[]> {
@@ -386,6 +433,38 @@ export class AccessControlService {
       params,
     );
 
+    const hasTimedAssignments = await this.tableExists('user_role_assignments');
+    const defaultAdminNameSelect = hasTimedAssignments
+      ? `(
+           SELECT COALESCE(MIN(u.real_name), MIN(u.username))
+             FROM users u
+             INNER JOIN user_role_assignments ura
+               ON ura.user_id = u.id
+              AND ura.tenant_id = u.tenant_id
+             INNER JOIN roles r
+               ON r.id = ura.role_id
+              AND r.tenant_id IN (0, ura.tenant_id)
+            WHERE u.tenant_id = tenants.id
+              AND u.status = 'active'
+              AND ura.assignment_status = 'active'
+              AND (ura.effective_from IS NULL OR ura.effective_from <= NOW())
+              AND (ura.effective_to IS NULL OR ura.effective_to >= NOW())
+              AND r.code IN ('tenant_admin', 'admin', 'boss')
+         )`
+      : `(
+           SELECT COALESCE(MIN(u.real_name), MIN(u.username))
+             FROM users u
+             INNER JOIN user_roles ur
+               ON ur.user_id = u.id
+              AND ur.tenant_id = u.tenant_id
+             INNER JOIN roles r
+               ON r.id = ur.role_id
+              AND r.tenant_id IN (0, ur.tenant_id)
+            WHERE u.tenant_id = tenants.id
+              AND u.status = 'active'
+              AND r.code IN ('tenant_admin', 'admin', 'boss')
+         )`;
+
     const rows = await AppDataSource.query<Array<Record<string, unknown>>>(
       `SELECT id,
               code,
@@ -393,7 +472,7 @@ export class AccessControlService {
               status,
               NULL AS packageType,
               NULL AS featureCount,
-              NULL AS defaultAdminName,
+              ${defaultAdminNameSelect} AS defaultAdminName,
               NULL AS expiresAt,
               updated_at AS updatedAt
          FROM tenants
@@ -406,7 +485,7 @@ export class AccessControlService {
     return buildPaginated(rows, Number(countRow?.total ?? 0), page, pageSize);
   }
 
-  async createTenant(ctx: TenantContext, payload: { code: string; name: string; status?: string }) {
+  async createTenant(ctx: TenantContext, payload: { code: string; name: string; status?: string; defaultAdmin?: DefaultAdminPayload }) {
     this.assertPlatformOnly(ctx);
 
     const existing = await AppDataSource.query<Array<{ id: number }>>(
@@ -417,24 +496,129 @@ export class AccessControlService {
       throw new AppError('租户编码已存在', ResponseCode.CONFLICT, 409);
     }
 
-    const result = await AppDataSource.query<{ insertId: number } & Array<never>>(
-      `INSERT INTO tenants (code, name, status, settings, created_at, updated_at)
-       VALUES (?, ?, ?, JSON_OBJECT(), NOW(3), NOW(3))`,
-      [payload.code, payload.name, payload.status ?? 'active'],
-    );
+    const defaultAdmin = this.buildDefaultAdminPayload(payload.defaultAdmin, {
+      code: payload.code,
+      name: payload.name,
+    });
+    const defaultAdminRole = await this.resolveDefaultAdminRole();
+    const hasTimedAssignments = await this.tableExists('user_role_assignments');
+    const hasRoleScope = hasTimedAssignments && await this.columnExists('user_role_assignments', 'role_scope');
+    const hasTenantFeatureFlags = await this.tableExists('tenant_feature_flags');
 
-    const tenantId = Number((result as unknown as { insertId?: number }).insertId ?? 0);
+    const created = await AppDataSource.transaction(async (manager) => {
+      const tenantResult = await manager.query<{ insertId: number } & Array<never>>(
+        `INSERT INTO tenants (code, name, status, settings, created_at, updated_at)
+         VALUES (?, ?, ?, JSON_OBJECT(), NOW(3), NOW(3))`,
+        [payload.code, payload.name, payload.status ?? 'active'],
+      );
+      const tenantId = Number((tenantResult as unknown as { insertId?: number }).insertId ?? 0);
+
+      if (hasTenantFeatureFlags) {
+        await manager.query(
+          `INSERT INTO tenant_feature_flags
+             (tenant_id, feature_code, feature_name, is_enabled, source_type, remark, created_by, updated_by)
+           VALUES
+             (?, 'rbac_center', '权限中心', 1, 'manual', 'default enabled when tenant is created', ?, ?),
+             (?, 'tenant_admin', '租户治理能力', 1, 'manual', 'default enabled when tenant is created', ?, ?)
+           ON DUPLICATE KEY UPDATE
+             feature_name = VALUES(feature_name),
+             is_enabled = VALUES(is_enabled),
+             source_type = VALUES(source_type),
+             remark = VALUES(remark),
+             updated_by = VALUES(updated_by),
+             updated_at = NOW(3)`,
+          [tenantId, ctx.userId, ctx.userId, tenantId, ctx.userId, ctx.userId],
+        );
+      }
+
+      const passwordHash = await bcrypt.hash(defaultAdmin.initialPassword, 10);
+      const userResult = await manager.query<Array<never>>(
+        `INSERT INTO users
+           (tenant_id, username, password_hash, real_name, status, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, 'active', NOW(3), NOW(3), ?, ?)`,
+        [tenantId, defaultAdmin.username, passwordHash, defaultAdmin.realName, ctx.userId, ctx.userId],
+      ) as unknown as { insertId?: number };
+      const defaultAdminUserId = Number(userResult.insertId ?? 0);
+
+      if (hasTimedAssignments) {
+        const assignmentColumns = [
+          'tenant_id',
+          'user_id',
+          'role_id',
+          'is_primary',
+          'effective_from',
+          'effective_to',
+          'assignment_status',
+          'source_type',
+          'remark',
+          'created_by',
+          'updated_by',
+        ];
+        const assignmentValues: Array<number | string | null> = [
+          tenantId,
+          defaultAdminUserId,
+          defaultAdminRole.id,
+          1,
+          null,
+          null,
+          'active',
+          'template',
+          'default tenant admin',
+          ctx.userId,
+          ctx.userId,
+        ];
+        if (hasRoleScope) {
+          assignmentColumns.splice(3, 0, 'role_scope');
+          assignmentValues.splice(3, 0, 'tenant');
+        }
+
+        await manager.query(
+          `INSERT INTO user_role_assignments
+             (${assignmentColumns.join(', ')}, created_at, updated_at)
+           VALUES (${assignmentColumns.map(() => '?').join(', ')}, NOW(3), NOW(3))`,
+          assignmentValues,
+        );
+      }
+
+      await manager.query(
+        `INSERT INTO user_roles (tenant_id, user_id, role_id, created_at)
+         VALUES (?, ?, ?, NOW(3))`,
+        [tenantId, defaultAdminUserId, defaultAdminRole.id],
+      );
+
+      return {
+        tenantId,
+        defaultAdminUserId,
+      };
+    });
+
     await this.writeAuditLog(ctx, {
-      tenantId,
+      tenantId: created.tenantId,
       module: 'tenant',
       action: 'create',
       targetType: 'tenant',
-      targetId: tenantId,
+      targetId: created.tenantId,
       targetCode: payload.code,
-      afterJson: { code: payload.code, name: payload.name, status: payload.status ?? 'active' },
+      afterJson: {
+        code: payload.code,
+        name: payload.name,
+        status: payload.status ?? 'active',
+        defaultAdmin: {
+          username: defaultAdmin.username,
+          realName: defaultAdmin.realName,
+          roleCode: defaultAdminRole.code,
+        },
+      },
       diffJson: { created: true },
     });
-    return { id: tenantId };
+    return {
+      id: created.tenantId,
+      defaultAdminUserId: created.defaultAdminUserId,
+      defaultAdminUsername: defaultAdmin.username,
+      defaultAdminName: defaultAdmin.realName,
+      defaultAdminPassword: defaultAdmin.initialPassword,
+      defaultAdminRoleCode: defaultAdminRole.code,
+    };
   }
 
   async updateTenant(ctx: TenantContext, tenantId: number, payload: { code: string; name: string; status?: string }) {

@@ -36,6 +36,11 @@ export interface TenantMutationPayload {
   code: string;
   name: string;
   status?: string;
+  defaultAdmin?: {
+    username: string;
+    realName: string;
+    initialPassword?: string;
+  };
 }
 
 export interface TenantFeatureFlagItem {

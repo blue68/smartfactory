@@ -7,6 +7,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useAppStore } from '@/stores/appStore';
 import { UserRole } from '@/types/enums';
+import { matchesRoleAccess } from '@/utils/roleAccess';
 import styles from './Sidebar.module.css';
 
 interface NavItem {
@@ -363,7 +364,7 @@ export default function Sidebar() {
     if (actionCodeSet && item.actionCode) {
       return actionCodeSet.has(item.actionCode);
     }
-    return user?.roles?.some((r) => item.roles.includes(r)) ?? false;
+    return matchesRoleAccess(user?.roles, item.roles, user?.scopeLevel);
   });
 
   const groupedItems = groupNavItems(visibleItems);

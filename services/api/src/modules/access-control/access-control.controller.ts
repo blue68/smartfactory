@@ -20,7 +20,20 @@ const AuditLogsQuerySchema = ListQuerySchema.extend({
   dateTo: z.string().optional(),
 });
 
+const DefaultAdminSchema = z.object({
+  username: z.string().min(1, '默认管理员账号不能为空'),
+  realName: z.string().min(1, '默认管理员姓名不能为空'),
+  initialPassword: z.string().optional(),
+});
+
 const CreateTenantSchema = z.object({
+  code: z.string().min(1, '租户编码不能为空'),
+  name: z.string().min(1, '租户名称不能为空'),
+  status: z.string().optional(),
+  defaultAdmin: DefaultAdminSchema.optional(),
+});
+
+const UpdateTenantSchema = z.object({
   code: z.string().min(1, '租户编码不能为空'),
   name: z.string().min(1, '租户名称不能为空'),
   status: z.string().optional(),
@@ -125,7 +138,7 @@ function getCtx(req: Request) {
 export class AccessControlController {
   readonly listValidator = validate('query', ListQuerySchema);
   readonly createTenantValidator = validate('body', CreateTenantSchema);
-  readonly updateTenantValidator = validate('body', CreateTenantSchema);
+  readonly updateTenantValidator = validate('body', UpdateTenantSchema);
   readonly updateTenantStatusValidator = validate('body', UpdateTenantStatusSchema);
   readonly tenantFeatureFlagsValidator = validate('body', TenantFeatureFlagsSchema);
   readonly auditLogsValidator = validate('query', AuditLogsQuerySchema);

@@ -13,7 +13,7 @@ const ADMIN_USERNAME = process.env.PLAYWRIGHT_SYSTEM_ADMIN_USERNAME ?? 'admin_de
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_SYSTEM_ADMIN_PASSWORD ?? 'Dev123!2026';
 const ADMIN_TENANT_CODE = process.env.PLAYWRIGHT_SYSTEM_ADMIN_TENANT ?? 'FACTORY001';
 const PLATFORM_USER_ID = 99002;
-const PLATFORM_ROLE_ID = 99012;
+const PLATFORM_ROLE_SEED_ID = 99012;
 const PLATFORM_USERNAME = process.env.PLAYWRIGHT_PLATFORM_ADMIN_USERNAME ?? 'platform_root_playwright';
 const PLATFORM_PASSWORD = process.env.PLAYWRIGHT_PLATFORM_ADMIN_PASSWORD ?? 'Dev123!2026';
 const PLATFORM_REAL_NAME = process.env.PLAYWRIGHT_PLATFORM_ADMIN_REAL_NAME ?? 'Playwright平台管理员';
@@ -34,6 +34,15 @@ interface FeatureFlagRow extends RowDataPacket {
 
 interface CountRow extends RowDataPacket {
   total: number;
+}
+
+interface IdRow extends RowDataPacket {
+  id: number;
+}
+
+interface TenantBootstrapRow extends RowDataPacket {
+  tenantId: number;
+  userId: number;
 }
 
 export interface AccessControlScenario {
@@ -114,10 +123,22 @@ export async function closeAccessControlFlowDbPool(): Promise<void> {
 }
 
 export async function loginAsSystemAdmin(page: Page): Promise<void> {
+  await loginAsTenantUser(page, {
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD,
+    tenantCode: ADMIN_TENANT_CODE,
+  });
+}
+
+export async function loginAsTenantUser(page: Page, payload: {
+  username: string;
+  password: string;
+  tenantCode: string;
+}): Promise<void> {
   await page.goto(`${APP_BASE_URL}/login`);
-  await page.locator('#username').fill(ADMIN_USERNAME);
-  await page.locator('#password').fill(ADMIN_PASSWORD);
-  await page.locator('#tenantCode').fill(ADMIN_TENANT_CODE);
+  await page.locator('#username').fill(payload.username);
+  await page.locator('#password').fill(payload.password);
+  await page.locator('#tenantCode').fill(payload.tenantCode);
   await Promise.all([
     page.waitForURL(/\/dashboard$/),
     page.getByRole('button', { name: '登录' }).click(),
@@ -130,13 +151,18 @@ export async function loginAsPlatformSuperAdmin(page: Page): Promise<void> {
   await page.locator('#username').fill(PLATFORM_USERNAME);
   await page.locator('#password').fill(PLATFORM_PASSWORD);
   await Promise.all([
-    page.waitForURL(/\/dashboard$/),
+    page.waitForURL(/\/(dashboard|platform\/home)$/),
     page.getByRole('button', { name: '登录' }).click(),
   ]);
 }
 
 export async function ensurePlatformSuperAdminAccount(): Promise<void> {
   const pool = getDbPool();
+  const [existingPlatformRoles] = await pool.query<IdRow[]>(
+    'SELECT id FROM roles WHERE tenant_id = 0 AND code = ? LIMIT 1',
+    ['platform_super_admin'],
+  );
+  const platformRoleId = Number(existingPlatformRoles[0]?.id ?? PLATFORM_ROLE_SEED_ID);
   const [
     hasRoleScope,
     hasRoleType,
@@ -164,7 +190,7 @@ export async function ensurePlatformSuperAdminAccount(): Promise<void> {
   const roleColumns = ['id', 'tenant_id', 'code', 'name', 'description'];
   const rolePlaceholders = ['?', '?', '?', '?', '?'];
   const roleValues: Array<number | string> = [
-    PLATFORM_ROLE_ID,
+    platformRoleId,
     0,
     'platform_super_admin',
     '平台超级管理员',
@@ -266,7 +292,7 @@ export async function ensurePlatformSuperAdminAccount(): Promise<void> {
       (0, ?, 'action', 'system.audit.view', NULL, NULL, NULL, 0)
      ON DUPLICATE KEY UPDATE
       permission_key = VALUES(permission_key)`,
-    [PLATFORM_ROLE_ID, PLATFORM_ROLE_ID, PLATFORM_ROLE_ID, PLATFORM_ROLE_ID, PLATFORM_ROLE_ID],
+    [platformRoleId, platformRoleId, platformRoleId, platformRoleId, platformRoleId],
   );
 
   if (hasUserRoleAssignments) {
@@ -294,7 +320,7 @@ export async function ensurePlatformSuperAdminAccount(): Promise<void> {
 
     const assignmentColumns = ['tenant_id', 'user_id', 'role_id'];
     const assignmentPlaceholders = ['?', '?', '?'];
-    const assignmentValues: Array<number | string | null> = [0, PLATFORM_USER_ID, PLATFORM_ROLE_ID];
+    const assignmentValues: Array<number | string | null> = [0, PLATFORM_USER_ID, platformRoleId];
     const assignmentUpdates = ['role_id = VALUES(role_id)'];
 
     if (hasAssignmentRoleScope) {
@@ -364,7 +390,7 @@ export async function ensurePlatformSuperAdminAccount(): Promise<void> {
   await pool.execute(
     `INSERT IGNORE INTO user_roles (tenant_id, user_id, role_id)
      VALUES (?, ?, ?)`,
-    [0, PLATFORM_USER_ID, PLATFORM_ROLE_ID],
+    [0, PLATFORM_USER_ID, platformRoleId],
   );
 }
 
@@ -416,6 +442,49 @@ export async function cleanupAccessControlScenario(scenario: AccessControlScenar
   await pool.execute('DELETE FROM access_audit_logs WHERE target_code = ?', [scenario.tenantCode]);
   await pool.execute('DELETE FROM tenant_feature_flags WHERE tenant_id = ?', [scenario.tenantId]);
   await pool.execute('DELETE FROM tenants WHERE id = ?', [scenario.tenantId]);
+}
+
+export async function waitForTenantBootstrap(
+  tenantCode: string,
+  username: string,
+): Promise<{ tenantId: number; userId: number }> {
+  return poll(async () => {
+    const [rows] = await getDbPool().query<TenantBootstrapRow[]>(
+      `SELECT t.id AS tenantId, u.id AS userId
+         FROM tenants t
+         INNER JOIN users u ON u.tenant_id = t.id
+        WHERE t.code = ?
+          AND u.username = ?
+        LIMIT 1`,
+      [tenantCode, username],
+    );
+    if (!rows[0]) {
+      return null;
+    }
+    return {
+      tenantId: Number(rows[0].tenantId),
+      userId: Number(rows[0].userId),
+    };
+  });
+}
+
+export async function cleanupTenantByCode(tenantCode: string): Promise<void> {
+  const pool = getDbPool();
+  const [rows] = await pool.query<IdRow[]>(
+    'SELECT id FROM tenants WHERE code = ? LIMIT 1',
+    [tenantCode],
+  );
+  const tenantId = Number(rows[0]?.id ?? 0);
+  if (!tenantId) {
+    return;
+  }
+
+  await pool.execute('DELETE FROM access_audit_logs WHERE tenant_id = ? OR target_code = ?', [tenantId, tenantCode]);
+  await pool.execute('DELETE FROM user_role_assignments WHERE tenant_id = ?', [tenantId]);
+  await pool.execute('DELETE FROM user_roles WHERE tenant_id = ?', [tenantId]);
+  await pool.execute('DELETE FROM tenant_feature_flags WHERE tenant_id = ?', [tenantId]);
+  await pool.execute('DELETE FROM users WHERE tenant_id = ?', [tenantId]);
+  await pool.execute('DELETE FROM tenants WHERE id = ?', [tenantId]);
 }
 
 export async function waitForFeatureFlagState(

@@ -2,6 +2,7 @@ import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
+import { matchesTenantRoleAccess } from '../../shared/roleAccess';
 
 // ─── 常量 ──────────────────────────────────────────────────────
 
@@ -365,7 +366,7 @@ export class DyeLotAuthorizeService {
 
   /** 断言当前用户具备授权角色 */
   private assertAuthorizeRole(): void {
-    const hasRole = AUTHORIZE_ALLOWED_ROLES.some((r) => this.userRoles.includes(r));
+    const hasRole = matchesTenantRoleAccess(this.userRoles, AUTHORIZE_ALLOWED_ROLES);
     if (!hasRole) {
       throw AppError.forbidden(
         `该操作需要以下角色之一：${AUTHORIZE_ALLOWED_ROLES.join(', ')}`,
