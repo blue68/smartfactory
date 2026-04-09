@@ -50,6 +50,7 @@ describe('SalesService shipOrder inventory regression', () => {
       .mockResolvedValueOnce({ affectedRows: 1 })
       .mockResolvedValueOnce({ affectedRows: 1 })
       .mockResolvedValueOnce({ affectedRows: 1 })
+      .mockResolvedValueOnce({ affectedRows: 0 })
       .mockResolvedValueOnce([{ total: 1, fully_shipped: 1 }])
       .mockResolvedValueOnce({ affectedRows: 1 });
 
@@ -168,6 +169,7 @@ describe('SalesService shipOrder inventory regression', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 901 };
       if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('COUNT(*) AS total')) return [{ total: 1, fully_shipped: 1 }];
       if (sql.includes('UPDATE sales_orders SET status = ?')) {
         throw new Error('finalize sales order status failed');
@@ -210,6 +212,7 @@ describe('SalesService shipOrder inventory regression', () => {
       .mockResolvedValueOnce({ insertId: 902 })
       .mockResolvedValueOnce({ affectedRows: 1 })
       .mockResolvedValueOnce({ affectedRows: 1 })
+      .mockResolvedValueOnce({ affectedRows: 0 })
       .mockResolvedValueOnce([{ total: 1, fully_shipped: 1 }])
       .mockResolvedValueOnce({ affectedRows: 1 });
 

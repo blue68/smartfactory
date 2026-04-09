@@ -215,6 +215,9 @@ interface TraceTarget {
   skuCode: string;
   skuName: string;
   stockUnit: string;
+  warehouseId?: number | null;
+  warehouseCode?: string | null;
+  warehouseName?: string | null;
   source: 'inventory' | 'snapshot';
   snapshotDate?: string;
   keyword?: string;
@@ -225,6 +228,9 @@ interface AiReduceTarget {
   skuCode: string;
   skuName: string;
   stockUnit: string;
+  warehouseId?: number | null;
+  warehouseCode?: string | null;
+  warehouseName?: string | null;
   hasDyeLot: boolean;
   qtyOnHand: string;
   qtyAvailable: string;
@@ -349,6 +355,7 @@ export default function InventoryPage() {
     error: dailySnapshotError,
   } = useInventoryDailySnapshots({
     snapshotDate,
+    warehouseId: query.warehouseId,
     keyword: snapshotKeyword || undefined,
     page: snapshotPage,
     pageSize: 5,
@@ -364,6 +371,7 @@ export default function InventoryPage() {
       pageSize: 6,
       dateFrom: traceDateFrom || undefined,
       dateTo: traceDateTo || undefined,
+      warehouseId: traceTarget?.warehouseId ?? undefined,
       keyword: traceKeyword || undefined,
     },
     traceTarget !== null,
@@ -526,6 +534,9 @@ export default function InventoryPage() {
       skuCode: item.skuCode,
       skuName: item.skuName,
       stockUnit: item.stockUnit,
+      warehouseId: item.warehouseId ?? null,
+      warehouseCode: item.warehouseCode ?? null,
+      warehouseName: item.warehouseName ?? null,
       hasDyeLot: item.hasDyeLot,
       qtyOnHand: item.qtyOnHand,
       qtyAvailable: item.qtyAvailable,
@@ -754,6 +765,9 @@ export default function InventoryPage() {
             <div className={styles.snapshot_card__meta}>
               <span>记录数 {dailySnapshotData?.total ?? 0}</span>
               <span>日期 {resolvedSnapshotDate}</span>
+              <span>
+                仓库 {query.warehouseId ? (warehouseOptions?.find((item) => item.id === query.warehouseId)?.name ?? `#${query.warehouseId}`) : '全部'}
+              </span>
               <span>页码 {dailySnapshotData?.page ?? snapshotPage} / {snapshotTotalPages}</span>
               {snapshotKeyword ? <span>关键词 “{snapshotKeyword}”</span> : <span>未使用关键词筛选</span>}
             </div>
@@ -763,14 +777,17 @@ export default function InventoryPage() {
             ) : dailySnapshotError ? (
               <div className={styles.snapshot_card__error}>日结快照加载失败</div>
             ) : dailySnapshotPreview.length === 0 ? (
-              <div className={styles.snapshot_card__empty}>当前日期暂无日结快照</div>
+              <div className={styles.snapshot_card__empty}>
+                {query.warehouseId ? '当前日期/仓库暂无日结快照' : '当前日期暂无日结快照'}
+              </div>
             ) : (
               <div className={styles.snapshot_card__list}>
                 {dailySnapshotPreview.map((item) => (
-                  <div key={`${item.snapshotDate}-${item.skuId}`} className={styles.snapshot_card__row}>
+                  <div key={`${item.snapshotDate}-${item.warehouseId}-${item.skuId}`} className={styles.snapshot_card__row}>
                     <div className={styles.snapshot_card__sku}>
                       <strong>{item.skuName}</strong>
                       <span>{item.skuCode}</span>
+                      <span>{item.warehouseName ?? item.warehouseCode ?? '历史聚合 / 未知仓库'}</span>
                     </div>
                     <div className={styles.snapshot_card__qty}>
                       <span>在库 {item.qtyOnHand}</span>
@@ -787,6 +804,9 @@ export default function InventoryPage() {
                             skuCode: item.skuCode,
                             skuName: item.skuName,
                             stockUnit: item.stockUnit,
+                            warehouseId: item.warehouseId,
+                            warehouseCode: item.warehouseCode,
+                            warehouseName: item.warehouseName,
                             source: 'snapshot',
                             snapshotDate: item.snapshotDate,
                           })
@@ -1176,6 +1196,9 @@ export default function InventoryPage() {
                                       skuCode: item.skuCode,
                                       skuName: item.skuName,
                                       stockUnit: item.stockUnit,
+                                      warehouseId: item.warehouseId ?? null,
+                                      warehouseCode: item.warehouseCode ?? null,
+                                      warehouseName: item.warehouseName ?? null,
                                       source: 'inventory',
                                     })
                                   }
@@ -1214,6 +1237,9 @@ export default function InventoryPage() {
                                       skuCode: item.skuCode,
                                       skuName: item.skuName,
                                       stockUnit: item.stockUnit,
+                                      warehouseId: item.warehouseId ?? null,
+                                      warehouseCode: item.warehouseCode ?? null,
+                                      warehouseName: item.warehouseName ?? null,
                                       source: 'inventory',
                                       keyword: dyeLotNo,
                                     })
@@ -1496,6 +1522,11 @@ export default function InventoryPage() {
                 <div className={styles.trace_drawer__code}>
                   {traceTarget.skuCode} · 库存单位 {traceTarget.stockUnit}
                 </div>
+                {traceTarget.warehouseId ? (
+                  <div className={styles.trace_drawer__code}>
+                    仓库 {traceTarget.warehouseName ?? traceTarget.warehouseCode ?? `#${traceTarget.warehouseId}`}
+                  </div>
+                ) : null}
               </div>
               <div className={styles.trace_drawer__source}>
                 {traceTarget.source === 'snapshot'
@@ -1553,6 +1584,11 @@ export default function InventoryPage() {
 
             <div className={styles.trace_drawer__meta}>
               <span>记录数 {traceData?.total ?? 0}</span>
+              {traceTarget.warehouseId ? (
+                <span>仓库 {traceTarget.warehouseName ?? traceTarget.warehouseCode ?? `#${traceTarget.warehouseId}`}</span>
+              ) : (
+                <span>未限定仓库</span>
+              )}
               {traceKeyword ? <span>关键词 “{traceKeyword}”</span> : <span>未使用关键词筛选</span>}
               {traceTarget.source === 'snapshot' && traceTarget.snapshotDate ? (
                 <span>快照日期 {traceTarget.snapshotDate}</span>
@@ -1670,6 +1706,9 @@ export default function InventoryPage() {
                     skuCode: aiReduceTarget.skuCode,
                     skuName: aiReduceTarget.skuName,
                     stockUnit: aiReduceTarget.stockUnit,
+                    warehouseId: aiReduceTarget.warehouseId ?? null,
+                    warehouseCode: aiReduceTarget.warehouseCode ?? null,
+                    warehouseName: aiReduceTarget.warehouseName ?? null,
                     source: 'inventory',
                   });
                   closeAiReduceSuggestion();

@@ -71,6 +71,7 @@ describe('InventoryService auto snapshot sync', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1 };
       if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '15.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
@@ -119,6 +120,7 @@ describe('InventoryService auto snapshot sync', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 2 };
       if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '10.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
@@ -166,6 +168,7 @@ describe('InventoryService auto snapshot sync', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 3 };
       if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '14.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
@@ -208,6 +211,7 @@ describe('InventoryService auto snapshot sync', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 2 };
       if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) {
         throw new Error('tx failed after snapshot sync');
       }
@@ -247,6 +251,7 @@ describe('InventoryService auto snapshot sync', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1 };
       if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) {
         throw new Error('inbound tx failed after snapshot sync');
       }
@@ -289,6 +294,7 @@ describe('InventoryService auto snapshot sync', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 3 };
       if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) {
         throw new Error('waste tx failed after snapshot sync');
       }
@@ -332,6 +338,7 @@ describe('InventoryService auto snapshot sync', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 2 };
       if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '10.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
@@ -376,6 +383,7 @@ describe('InventoryService auto snapshot sync', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1 };
       if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '15.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
@@ -423,6 +431,7 @@ describe('InventoryService auto snapshot sync', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 3 };
       if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('qty_on_hand AS qty') && sql.includes('FROM inventory')) return [{ qty: '14.0000' }];
       throw new Error(`Unexpected SQL: ${sql}`);
     });

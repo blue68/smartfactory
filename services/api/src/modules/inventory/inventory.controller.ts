@@ -53,6 +53,7 @@ const ListInventorySchema = PaginationSchema.extend({
 const ListDailySnapshotSchema = PaginationSchema.extend({
   snapshotDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   skuId: z.coerce.number().int().positive().optional(),
+  warehouseId: z.coerce.number().int().positive().optional(),
   keyword: z.string().max(100).optional(),
 });
 

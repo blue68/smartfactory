@@ -37,6 +37,9 @@ describe('InventoryService listDailySnapshots', () => {
     mockQuery
       .mockResolvedValueOnce([{
         snapshotDate: '2026-03-30',
+        warehouseId: 5,
+        warehouseCode: 'WH-A',
+        warehouseName: 'A 仓',
         skuId: 301,
         skuCode: 'SKU-301',
         skuName: '半成品 A',
@@ -57,6 +60,9 @@ describe('InventoryService listDailySnapshots', () => {
     expect(result).toEqual({
       list: [{
         snapshotDate: '2026-03-30',
+        warehouseId: 5,
+        warehouseCode: 'WH-A',
+        warehouseName: 'A 仓',
         skuId: 301,
         skuCode: 'SKU-301',
         skuName: '半成品 A',
@@ -73,7 +79,8 @@ describe('InventoryService listDailySnapshots', () => {
     const countSql = String(mockQuery.mock.calls[1][0]);
     expect(listSql).toContain('FROM inventory_daily_snapshots ids');
     expect(listSql).toContain('ids.snapshot_date = ?');
-    expect(listSql).toContain('ORDER BY ids.sku_id ASC');
+    expect(listSql).toContain('LEFT JOIN warehouses w');
+    expect(listSql).toContain('ORDER BY ids.warehouse_id ASC, ids.sku_id ASC');
     expect(countSql).toContain('COUNT(*) AS total');
     expect(mockQuery.mock.calls[0][1]).toEqual([7, '2026-03-30', 20, 0]);
     expect(mockQuery.mock.calls[1][1]).toEqual([7, '2026-03-30']);
@@ -104,5 +111,45 @@ describe('InventoryService listDailySnapshots', () => {
     expect(listSql).toContain('ids.sku_id = ?');
     expect(listSql).toContain('(s.name LIKE ? OR s.sku_code LIKE ?)');
     expect(listParams).toEqual([7, '2026-03-30', 301, '%半成品%', '%半成品%', 10, 10]);
+  });
+
+  it('applies warehouse_assigned scope to daily snapshots', async () => {
+    mockQuery
+      .mockResolvedValueOnce([{ id: 9 }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: '0' }]);
+
+    const svc = new InventoryService({
+      tenantId: 7,
+      userId: 11,
+      roles: ['warehouse'],
+      permissionSnapshot: {
+        version: 'test',
+        scopeLevel: 'tenant',
+        originTenantId: 7,
+        contextTenantId: 7,
+        menuCodes: [],
+        actionCodes: [],
+        featureFlags: [],
+        dataScopes: [{ scopeType: 'warehouse_assigned', scopeValues: ['WH-A'] }],
+      },
+    });
+
+    const result = await svc.listDailySnapshots({
+      snapshotDate: '2026-03-30',
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(result).toEqual({
+      list: [],
+      total: 0,
+      snapshotDate: '2026-03-30',
+    });
+
+    const listSql = String(mockQuery.mock.calls[1]?.[0] ?? '');
+    const listParams = mockQuery.mock.calls[1]?.[1] as unknown[];
+    expect(listSql).toContain('ids.warehouse_id IN (?)');
+    expect(listParams).toEqual([7, '2026-03-30', 9, 20, 0]);
   });
 });

@@ -48,6 +48,7 @@ describe('WorkflowEngineService inventory idempotency', () => {
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) {
         return { affectedRows: 1 };
       }
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('FROM production_tasks pt') && sql.includes('INNER JOIN process_steps ps')) {
         return [{ id: 88, status: 'completed' }];
       }
@@ -114,6 +115,7 @@ describe('WorkflowEngineService inventory idempotency', () => {
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) {
         return { affectedRows: 1 };
       }
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('FROM production_tasks pt') && sql.includes('INNER JOIN process_steps ps')) {
         return [{ id: 88, status: 'completed' }];
       }

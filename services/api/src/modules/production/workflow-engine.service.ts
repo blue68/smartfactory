@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import { EntityManager } from 'typeorm';
 import { TenantContext } from '../../shared/BaseRepository';
 import { generateNo } from '../../shared/generateNo';
+import { syncInventoryDailySnapshotForSku } from '../inventory/daily-snapshot.util';
 import { resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
 
 interface TaskRow {
@@ -243,24 +244,7 @@ export class WorkflowEngineService {
     manager: EntityManager,
     skuId: number,
   ): Promise<void> {
-    await manager.query(
-      `INSERT INTO inventory_daily_snapshots
-         (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
-       SELECT
-         tenant_id,
-         CURDATE(),
-         sku_id,
-         qty_on_hand,
-         qty_reserved,
-         qty_on_hand - qty_reserved
-       FROM inventory
-       WHERE tenant_id = ? AND sku_id = ?
-       ON DUPLICATE KEY UPDATE
-         qty_on_hand = VALUES(qty_on_hand),
-         qty_reserved = VALUES(qty_reserved),
-         qty_available = VALUES(qty_available)`,
-      [this.tenantId, skuId],
-    );
+    await syncInventoryDailySnapshotForSku(manager, this.tenantId, skuId);
   }
 
   private _trackInventorySnapshotCacheInvalidation(manager: EntityManager, skuId: number): void {

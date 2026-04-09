@@ -193,6 +193,7 @@ describe('SchedulerService completeTask idempotency', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 701 };
       if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('SELECT dye_lot_no FROM order_dye_lot_bindings')) return [];
       if (sql.includes('INSERT INTO traceability_records')) return { insertId: 601 };
       throw new Error(`Unexpected SQL: ${sql}`);
@@ -316,6 +317,7 @@ describe('SchedulerService completeTask idempotency', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 701 };
       if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('SELECT dye_lot_no FROM order_dye_lot_bindings')) return [];
       if (sql.includes('INSERT INTO traceability_records')) return { insertId: 601 };
       throw new Error(`Unexpected SQL: ${sql}`);
@@ -417,6 +419,7 @@ describe('SchedulerService completeTask idempotency', () => {
       if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 701 };
       if (sql.includes('INSERT INTO inventory')) return { affectedRows: 1 };
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       if (sql.includes('SELECT dye_lot_no FROM order_dye_lot_bindings')) return [];
       if (sql.includes('INSERT INTO traceability_records')) {
         throw new Error('traceability insert failed');

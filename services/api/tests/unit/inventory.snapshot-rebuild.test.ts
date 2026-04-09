@@ -41,6 +41,7 @@ describe('InventoryService rebuildDailySnapshots', () => {
     mockQuery
       .mockResolvedValueOnce([{ cnt: '3' }])
       .mockResolvedValueOnce([{ sku_id: 301 }, { sku_id: 302 }, { sku_id: 303 }])
+      .mockResolvedValueOnce({ affectedRows: 3 })
       .mockResolvedValueOnce({ affectedRows: 3 });
 
     const svc = new InventoryService({ tenantId: 7, userId: 11, roles: ['boss'] });
@@ -59,13 +60,15 @@ describe('InventoryService rebuildDailySnapshots', () => {
     expect(String(mockQuery.mock.calls[0][0])).toContain('tenant_id = ?');
     expect(mockQuery.mock.calls[0][1]).toEqual([7]);
 
-    expect(String(mockQuery.mock.calls[1][0])).toContain('SELECT sku_id');
+    expect(String(mockQuery.mock.calls[1][0])).toContain('SELECT DISTINCT sku_id');
     expect(String(mockQuery.mock.calls[1][0])).toContain('ORDER BY sku_id ASC');
     expect(mockQuery.mock.calls[1][1]).toEqual([7]);
 
-    expect(String(mockQuery.mock.calls[2][0])).toContain('INSERT INTO inventory_daily_snapshots');
-    expect(String(mockQuery.mock.calls[2][0])).toContain('qty_on_hand - qty_reserved');
+    expect(String(mockQuery.mock.calls[2][0])).toContain('DELETE FROM inventory_daily_snapshots');
     expect(mockQuery.mock.calls[2][1]).toEqual(['2026-03-30', 7]);
+    expect(String(mockQuery.mock.calls[3][0])).toContain('INSERT INTO inventory_daily_snapshots');
+    expect(String(mockQuery.mock.calls[3][0])).toContain('COALESCE(warehouse_id, 0)');
+    expect(mockQuery.mock.calls[3][1]).toEqual(['2026-03-30', 7]);
     expect(mockRedisDel).toHaveBeenCalledTimes(3);
     expect(mockRedisDel).toHaveBeenNthCalledWith(1, 'inventory:7:301');
     expect(mockRedisDel).toHaveBeenNthCalledWith(2, 'inventory:7:302');
@@ -76,6 +79,7 @@ describe('InventoryService rebuildDailySnapshots', () => {
     mockQuery
       .mockResolvedValueOnce([{ cnt: '1' }])
       .mockResolvedValueOnce([{ sku_id: 301 }])
+      .mockResolvedValueOnce({ affectedRows: 1 })
       .mockResolvedValueOnce({ affectedRows: 1 });
 
     const svc = new InventoryService({ tenantId: 7, userId: 11, roles: ['boss'] });
@@ -92,6 +96,7 @@ describe('InventoryService rebuildDailySnapshots', () => {
     expect(String(mockQuery.mock.calls[0][0])).toContain('tenant_id = ? AND sku_id = ?');
     expect(mockQuery.mock.calls[0][1]).toEqual([7, 301]);
     expect(mockQuery.mock.calls[2][1]).toEqual(['2026-03-30', 7, 301]);
+    expect(mockQuery.mock.calls[3][1]).toEqual(['2026-03-30', 7, 301]);
     expect(mockRedisDel).toHaveBeenCalledWith('inventory:7:301');
   });
 
@@ -99,6 +104,7 @@ describe('InventoryService rebuildDailySnapshots', () => {
     mockQuery
       .mockResolvedValueOnce([{ cnt: '2' }])
       .mockResolvedValueOnce([{ sku_id: 301 }, { sku_id: 302 }])
+      .mockResolvedValueOnce({ affectedRows: 2 })
       .mockResolvedValueOnce({ affectedRows: 2 });
 
     const svc = new InventoryService({ tenantId: 7, userId: 11, roles: ['boss'] });
@@ -118,6 +124,7 @@ describe('InventoryService rebuildDailySnapshots', () => {
     expect(String(mockQuery.mock.calls[0][0])).toContain('sku_id IN (?, ?)');
     expect(mockQuery.mock.calls[0][1]).toEqual([7, 301, 302]);
     expect(mockQuery.mock.calls[2][1]).toEqual(['2026-03-30', 7, 301, 302]);
+    expect(mockQuery.mock.calls[3][1]).toEqual(['2026-03-30', 7, 301, 302]);
     expect(mockRedisDel).toHaveBeenCalledTimes(2);
   });
 
@@ -158,6 +165,7 @@ describe('InventoryService rebuildDailySnapshots', () => {
     mockQuery
       .mockResolvedValueOnce([{ cnt: '2' }])
       .mockResolvedValueOnce([{ sku_id: 301 }, { sku_id: 302 }])
+      .mockResolvedValueOnce({ affectedRows: 2 })
       .mockResolvedValueOnce({ affectedRows: 2 });
 
     const svc = new InventoryService({ tenantId: 7, userId: 11, roles: ['boss'] });

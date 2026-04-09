@@ -49,14 +49,13 @@ describe('StocktakingService confirmTask snapshot sync', () => {
 
     const manager = {
       query: jest.fn(async (sql: string) => {
-        if (sql.includes('SELECT qty_on_hand') && sql.includes('FOR UPDATE')) {
-          if (sql.includes('sku_id = ?')) {
-            return [{ qty_on_hand: '10.0000' }];
-          }
+        if (sql.includes('FROM inventory i') && sql.includes('LIMIT 1 FOR UPDATE')) {
+          return [{ id: 1, qty_on_hand: '10.0000', warehouse_id: 1, location_id: 1, stock_unit: 'pcs' }];
         }
         if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+        if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
         if (sql.includes('UPDATE stocktaking_tasks')) return { affectedRows: 1 };
         return [];
       }),
@@ -99,8 +98,8 @@ describe('StocktakingService confirmTask snapshot sync', () => {
 
     const manager = {
       query: jest.fn(async (sql: string) => {
-        if (sql.includes('SELECT qty_on_hand') && sql.includes('FOR UPDATE')) {
-          return [{ qty_on_hand: '5.0000' }];
+        if (sql.includes('FROM inventory i') && sql.includes('LIMIT 1 FOR UPDATE')) {
+          return [{ id: 1, qty_on_hand: '5.0000', warehouse_id: 1, location_id: 1, stock_unit: 'pcs' }];
         }
         throw new Error(`Unexpected SQL: ${sql}`);
       }),
@@ -139,12 +138,13 @@ describe('StocktakingService confirmTask snapshot sync', () => {
 
     const manager = {
       query: jest.fn(async (sql: string) => {
-        if (sql.includes('SELECT qty_on_hand') && sql.includes('FOR UPDATE')) {
-          return [{ qty_on_hand: '5.0000' }];
+        if (sql.includes('FROM inventory i') && sql.includes('LIMIT 1 FOR UPDATE')) {
+          return [{ id: 1, qty_on_hand: '5.0000', warehouse_id: 1, location_id: 1, stock_unit: 'pcs' }];
         }
         if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+        if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
         if (sql.includes('UPDATE stocktaking_tasks')) {
           throw new Error('confirm stocktaking failed');
         }
@@ -180,12 +180,13 @@ describe('StocktakingService confirmTask snapshot sync', () => {
 
     const manager = {
       query: jest.fn(async (sql: string) => {
-        if (sql.includes('SELECT qty_on_hand') && sql.includes('FOR UPDATE')) {
-          return [{ qty_on_hand: '5.0000' }];
+        if (sql.includes('FROM inventory i') && sql.includes('LIMIT 1 FOR UPDATE')) {
+          return [{ id: 1, qty_on_hand: '5.0000', warehouse_id: 1, location_id: 1, stock_unit: 'pcs' }];
         }
         if (sql.includes('UPDATE inventory')) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+        if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
         if (sql.includes('UPDATE stocktaking_tasks')) return { affectedRows: 1 };
         return [];
       }),

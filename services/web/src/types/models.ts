@@ -382,6 +382,9 @@ export interface InventoryListQuery {
 
 export interface DailyInventorySnapshotItem {
   snapshotDate: string;
+  warehouseId: number;
+  warehouseCode: string | null;
+  warehouseName: string | null;
   skuId: number;
   skuCode: string;
   skuName: string;
@@ -394,6 +397,7 @@ export interface DailyInventorySnapshotItem {
 export interface DailyInventorySnapshotQuery {
   snapshotDate?: string;
   skuId?: number;
+  warehouseId?: number;
   keyword?: string;
   page?: number;
   pageSize?: number;

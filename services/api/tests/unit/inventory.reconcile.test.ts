@@ -27,6 +27,12 @@ describe('InventoryService reconcileInventoryBalances', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRedisDel.mockResolvedValue(1);
+    jest.spyOn(InventoryService.prototype as any, 'ensureDefaultWarehouseLocation').mockResolvedValue({
+      warehouseId: 1,
+      locationId: 1,
+      warehouseCode: 'DEFAULT',
+      locationCode: 'DEFAULT-UNKNOWN',
+    });
     mockTransaction.mockImplementation(
       async (cb: (manager: { query: typeof mockQuery }) => Promise<unknown>) => {
         const manager = { query: mockQuery } as { query: typeof mockQuery; __inventorySnapshotSkuIds?: Set<number> };
@@ -111,7 +117,7 @@ describe('InventoryService reconcileInventoryBalances', () => {
     });
 
     expect(String(mockQuery.mock.calls[2][0])).toContain('INSERT INTO inventory');
-    expect(mockQuery.mock.calls[2][1]).toEqual([7, 301, '10.0000', '2.0000', '1.0000']);
+    expect(mockQuery.mock.calls[2][1]).toEqual([7, 301, 1, 1, 'reconcile:auto', '10.0000', '2.0000', '1.0000', 11]);
     expect(String(mockQuery.mock.calls[3][0])).toContain('INSERT INTO inventory_daily_snapshots');
     expect(mockQuery.mock.calls[3][1]).toEqual([7, 301]);
     expect(mockRedisDel).toHaveBeenCalledWith('inventory:7:301');
@@ -160,7 +166,7 @@ describe('InventoryService reconcileInventoryBalances', () => {
 
     expect(String(mockQuery.mock.calls[2][0])).toContain('FROM material_requirements mr');
     expect(String(mockQuery.mock.calls[3][0])).toContain('INSERT INTO inventory');
-    expect(mockQuery.mock.calls[3][1]).toEqual([7, 301, '10.0000', '3.5000', '1.0000']);
+    expect(mockQuery.mock.calls[3][1]).toEqual([7, 301, 1, 1, 'reconcile:auto', '10.0000', '3.5000', '1.0000', 11]);
     expect(String(mockQuery.mock.calls[4][0])).toContain('INSERT INTO inventory_daily_snapshots');
     expect(mockQuery.mock.calls[4][1]).toEqual([7, 301]);
     expect(mockRedisDel).toHaveBeenCalledWith('inventory:7:301');
@@ -211,7 +217,7 @@ describe('InventoryService reconcileInventoryBalances', () => {
 
     expect(String(mockQuery.mock.calls[3][0])).toContain('FROM purchase_order_items poi');
     expect(String(mockQuery.mock.calls[4][0])).toContain('INSERT INTO inventory');
-    expect(mockQuery.mock.calls[4][1]).toEqual([7, 301, '10.0000', '0.0000', '4.5000']);
+    expect(mockQuery.mock.calls[4][1]).toEqual([7, 301, 1, 1, 'reconcile:auto', '10.0000', '0.0000', '4.5000', 11]);
     expect(String(mockQuery.mock.calls[5][0])).toContain('INSERT INTO inventory_daily_snapshots');
     expect(mockQuery.mock.calls[5][1]).toEqual([7, 301]);
     expect(mockRedisDel).toHaveBeenCalledWith('inventory:7:301');
@@ -260,7 +266,7 @@ describe('InventoryService reconcileInventoryBalances', () => {
       }],
     });
 
-    expect(mockQuery.mock.calls[4][1]).toEqual([7, 305, '6.5000', '1.5000', '2.2500']);
+    expect(mockQuery.mock.calls[4][1]).toEqual([7, 305, 1, 1, 'reconcile:auto', '6.5000', '1.5000', '2.2500', 11]);
     expect(mockQuery.mock.calls[5][1]).toEqual([7, 305]);
     expect(mockRedisDel).toHaveBeenCalledWith('inventory:7:305');
   });

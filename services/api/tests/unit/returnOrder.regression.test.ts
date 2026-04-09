@@ -251,6 +251,7 @@ describe('ReturnOrderService inventory regressions', () => {
         return { affectedRows: 1 };
       }
       if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+      if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 

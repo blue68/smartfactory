@@ -17,6 +17,10 @@ import {
   ensureDefaultWarehouseLocation as ensureDefaultWarehouseLocationBinding,
   resolveWarehouseLocationBinding,
 } from './warehouse-location.resolver';
+import {
+  rebuildInventoryDailySnapshotsForScope,
+  syncInventoryDailySnapshotForSku,
+} from './daily-snapshot.util';
 
 // ─── 类型定义 ──────────────────────────────────────────────────
 
@@ -189,6 +193,9 @@ export interface LocationCsvImportResult {
 
 export interface DailyInventorySnapshotRow {
   snapshotDate: string;
+  warehouseId: number;
+  warehouseCode: string | null;
+  warehouseName: string | null;
   skuId: number;
   skuCode: string;
   skuName: string;
@@ -220,6 +227,7 @@ export interface RepairInventoryParams extends ReconcileInventoryParams {
 export interface DailyInventorySnapshotFilter {
   snapshotDate?: string;
   skuId?: number;
+  warehouseId?: number;
   keyword?: string;
   page: number;
   pageSize: number;
@@ -1500,17 +1508,24 @@ export class InventoryService {
   }> {
     const warehouseScope = await this.getWarehouseDataScope();
     const snapshotDate = params.snapshotDate ?? new Date().toISOString().slice(0, 10);
-    if (warehouseScope.mode !== 'all') {
-      // inventory_daily_snapshots 当前按 SKU 聚合，不包含 warehouse_id，无法安全做仓库级裁剪。
-      return { list: [], total: 0, snapshotDate };
-    }
-
     const conditions = ['ids.tenant_id = ?', 'ids.snapshot_date = ?'];
     const qParams: unknown[] = [this.tenantId, snapshotDate];
 
     if (params.skuId) {
       conditions.push('ids.sku_id = ?');
       qParams.push(params.skuId);
+    }
+    if (params.warehouseId) {
+      conditions.push('ids.warehouse_id = ?');
+      qParams.push(params.warehouseId);
+    }
+    if (warehouseScope.mode !== 'all') {
+      if (warehouseScope.mode === 'assigned') {
+        conditions.push(`ids.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})`);
+        qParams.push(...warehouseScope.warehouseIds);
+      } else {
+        return { list: [], total: 0, snapshotDate };
+      }
     }
     if (params.keyword) {
       conditions.push('(s.name LIKE ? OR s.sku_code LIKE ?)');
@@ -1524,6 +1539,9 @@ export class InventoryService {
       AppDataSource.query<DailyInventorySnapshotRow[]>(
         `SELECT
            DATE_FORMAT(ids.snapshot_date, '%Y-%m-%d') AS snapshotDate,
+           ids.warehouse_id AS warehouseId,
+           w.code AS warehouseCode,
+           w.name AS warehouseName,
            ids.sku_id AS skuId,
            s.sku_code AS skuCode,
            s.name AS skuName,
@@ -1535,8 +1553,11 @@ export class InventoryService {
          INNER JOIN skus s
            ON s.id = ids.sku_id
           AND s.tenant_id = ids.tenant_id
+         LEFT JOIN warehouses w
+           ON w.id = ids.warehouse_id
+          AND w.tenant_id = ids.tenant_id
          WHERE ${where}
-         ORDER BY ids.sku_id ASC
+         ORDER BY ids.warehouse_id ASC, ids.sku_id ASC
          LIMIT ? OFFSET ?`,
         [...qParams, params.pageSize, offset],
       ),
@@ -1546,13 +1567,24 @@ export class InventoryService {
          INNER JOIN skus s
            ON s.id = ids.sku_id
           AND s.tenant_id = ids.tenant_id
+         LEFT JOIN warehouses w
+           ON w.id = ids.warehouse_id
+          AND w.tenant_id = ids.tenant_id
          WHERE ${where}`,
         qParams,
       ),
     ]);
 
+    const list = rows.map((row) => ({
+      ...row,
+      warehouseId: Number(row.warehouseId ?? 0),
+      skuId: Number(row.skuId),
+      warehouseCode: row.warehouseCode != null ? String(row.warehouseCode) : null,
+      warehouseName: row.warehouseName != null ? String(row.warehouseName) : null,
+    }));
+
     return {
-      list: rows,
+      list,
       total: Number(countRows[0]?.total ?? 0),
       snapshotDate,
     };
@@ -1863,13 +1895,13 @@ export class InventoryService {
     const { hasSkuFilter, whereSql, whereParams } = this.buildInventoryScope(params);
 
     const [countRow] = await manager.query<Array<{ cnt: string }>>(
-      `SELECT COUNT(*) AS cnt
+      `SELECT COUNT(DISTINCT CONCAT(COALESCE(warehouse_id, 0), '#', sku_id)) AS cnt
        FROM inventory
        WHERE ${whereSql}`,
       whereParams,
     );
     const inventoryRows = await manager.query<Array<{ sku_id: number }>>(
-      `SELECT sku_id
+      `SELECT DISTINCT sku_id
        FROM inventory
        WHERE ${whereSql}
        ORDER BY sku_id ASC`,
@@ -1878,24 +1910,11 @@ export class InventoryService {
     const affectedSkuIds = inventoryRows.map((row) => Number(row.sku_id));
 
     if (!params.dryRun) {
-      await manager.query(
-        `INSERT INTO inventory_daily_snapshots
-           (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
-         SELECT
-           tenant_id,
-           ?,
-           sku_id,
-           qty_on_hand,
-           qty_reserved,
-           qty_on_hand - qty_reserved
-         FROM inventory
-         WHERE ${whereSql}
-         ON DUPLICATE KEY UPDATE
-           qty_on_hand = VALUES(qty_on_hand),
-           qty_reserved = VALUES(qty_reserved),
-           qty_available = VALUES(qty_available)`,
-        [snapshotDate, ...whereParams],
-      );
+      await rebuildInventoryDailySnapshotsForScope(manager, {
+        snapshotDate,
+        whereSql,
+        whereParams,
+      });
       this.trackInventorySnapshotCacheInvalidation(manager, affectedSkuIds);
     }
 
@@ -2720,24 +2739,7 @@ export class InventoryService {
     manager: { query: typeof AppDataSource.query },
     skuId: number,
   ): Promise<void> {
-    await manager.query(
-      `INSERT INTO inventory_daily_snapshots
-         (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
-       SELECT
-         tenant_id,
-         CURDATE(),
-         sku_id,
-         qty_on_hand,
-         qty_reserved,
-         qty_on_hand - qty_reserved
-       FROM inventory
-       WHERE tenant_id = ? AND sku_id = ?
-       ON DUPLICATE KEY UPDATE
-         qty_on_hand = VALUES(qty_on_hand),
-         qty_reserved = VALUES(qty_reserved),
-         qty_available = VALUES(qty_available)`,
-      [this.tenantId, skuId],
-    );
+    await syncInventoryDailySnapshotForSku(manager, this.tenantId, skuId);
   }
 
   private generateTxNo(direction: 'IN' | 'OUT'): string {

@@ -123,11 +123,13 @@ CREATE TABLE IF NOT EXISTS `inventory_daily_snapshots` (
   `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `tenant_id`       BIGINT UNSIGNED NOT NULL,
   `snapshot_date`   DATE NOT NULL,
+  `warehouse_id`    BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `sku_id`          BIGINT UNSIGNED NOT NULL,
   `qty_on_hand`     DECIMAL(16,4) NOT NULL DEFAULT 0,
   `qty_reserved`    DECIMAL(16,4) NOT NULL DEFAULT 0,
   `qty_available`   DECIMAL(16,4) NOT NULL DEFAULT 0,
   `created_at`      DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_tenant_date_sku` (`tenant_id`, `snapshot_date`, `sku_id`)
+  UNIQUE KEY `uk_tenant_date_wh_sku` (`tenant_id`, `snapshot_date`, `warehouse_id`, `sku_id`),
+  KEY `idx_tenant_date_wh` (`tenant_id`, `snapshot_date`, `warehouse_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存日结快照';

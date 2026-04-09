@@ -65,6 +65,7 @@ function serializeDailySnapshotQuery(query: DailyInventorySnapshotQuery): Record
   const params: Record<string, unknown> = {};
   if (query.snapshotDate) params.snapshotDate = query.snapshotDate;
   if (query.skuId !== undefined) params.skuId = query.skuId;
+  if (query.warehouseId !== undefined) params.warehouseId = query.warehouseId;
   if (query.keyword !== undefined && query.keyword !== '') params.keyword = query.keyword;
   if (query.page !== undefined) params.page = query.page;
   if (query.pageSize !== undefined) params.pageSize = query.pageSize;

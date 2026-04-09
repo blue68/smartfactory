@@ -8,6 +8,7 @@ import { BomSnapshotService } from './bom-snapshot.service';
 import { generateNo } from '../../shared/generateNo';
 import { MrpService } from '../mrp/mrp.service';
 import { getRedisClient, RedisKeys } from '../../config/redis';
+import { syncInventoryDailySnapshotForSku } from '../inventory/daily-snapshot.util';
 
 // ─── 内部行类型 ──────────────────────────────────────────────────────────────
 
@@ -160,24 +161,7 @@ export class ProductionOrderService {
     manager: Pick<EntityManager, 'query'>,
     skuId: number,
   ): Promise<void> {
-    await manager.query(
-      `INSERT INTO inventory_daily_snapshots
-         (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
-       SELECT
-         tenant_id,
-         CURDATE(),
-         sku_id,
-         qty_on_hand,
-         qty_reserved,
-         qty_on_hand - qty_reserved
-       FROM inventory
-       WHERE tenant_id = ? AND sku_id = ?
-       ON DUPLICATE KEY UPDATE
-         qty_on_hand = VALUES(qty_on_hand),
-         qty_reserved = VALUES(qty_reserved),
-         qty_available = VALUES(qty_available)`,
-      [this.tenantId, skuId],
-    );
+    await syncInventoryDailySnapshotForSku(manager, this.tenantId, skuId);
   }
 
   // ── R-10: 从销售订单创建生产工单 ──────────────────────────────────────────

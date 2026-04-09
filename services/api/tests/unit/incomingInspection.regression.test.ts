@@ -55,6 +55,7 @@ describe('Incoming inspection regressions', () => {
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 701 };
         if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+        if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
         if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
         if (sql.includes('SUM(COALESCE(qty_ordered, 0)) AS total_ordered')) {
           return [{ total_ordered: '20', total_received: '12' }];
@@ -346,6 +347,7 @@ describe('Incoming inspection regressions', () => {
           snapshotSynced = true;
           return { affectedRows: 1 };
         }
+        if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
         if (sql.includes('UPDATE purchase_order_items') && sql.includes('qty_received = qty_received + ?')) {
           return { affectedRows: 1 };
         }
@@ -427,6 +429,7 @@ describe('Incoming inspection regressions', () => {
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1001 };
         if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+        if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
         if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
         if (sql.includes('SELECT id, status FROM purchase_orders')) return [{ id: 100, status: 'confirmed' }];
         if (sql.includes('SUM(COALESCE(qty_ordered, 0)) AS total_ordered')) {
@@ -504,6 +507,7 @@ describe('Incoming inspection regressions', () => {
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1011 };
         if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+        if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
         if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
         if (sql.includes('SELECT id, status FROM purchase_orders')) return [{ id: 100, status: 'confirmed' }];
         if (sql.includes('SUM(COALESCE(qty_ordered, 0)) AS total_ordered')) {
@@ -755,6 +759,7 @@ describe('Incoming inspection regressions', () => {
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1031 };
         if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+        if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
         if (sql.includes('INSERT INTO inventory_dye_lots')) return { affectedRows: 1 };
         if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
         if (sql.includes('SELECT id, status FROM purchase_orders')) return [{ id: 100, status: 'confirmed' }];
@@ -960,6 +965,7 @@ describe('Incoming inspection regressions', () => {
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 1021 };
         if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO inventory_daily_snapshots')) return { affectedRows: 1 };
+        if (sql.includes('DELETE ids') && sql.includes('FROM inventory_daily_snapshots ids')) return { affectedRows: 0 };
         if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
         if (sql.includes('SELECT id, status FROM purchase_orders')) return [{ id: 100, status: 'confirmed' }];
         if (sql.includes('SUM(COALESCE(qty_ordered, 0)) AS total_ordered')) {

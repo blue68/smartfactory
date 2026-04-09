@@ -17,6 +17,7 @@ import {
   ensureDefaultWarehouseLocation as ensureDefaultWarehouseLocationBinding,
   resolveWarehouseLocationBinding,
 } from '../inventory/warehouse-location.resolver';
+import { syncInventoryDailySnapshotForSku } from '../inventory/daily-snapshot.util';
 
 // ─── 校验 Schema ──────────────────────────────────────────────────────────────
 
@@ -947,24 +948,7 @@ export class StocktakingService {
     manager: { query: typeof AppDataSource.query },
     skuId: number,
   ): Promise<void> {
-    await manager.query(
-      `INSERT INTO inventory_daily_snapshots
-         (tenant_id, snapshot_date, sku_id, qty_on_hand, qty_reserved, qty_available)
-       SELECT
-         tenant_id,
-         CURDATE(),
-         sku_id,
-         qty_on_hand,
-         qty_reserved,
-         qty_on_hand - qty_reserved
-       FROM inventory
-       WHERE tenant_id = ? AND sku_id = ?
-       ON DUPLICATE KEY UPDATE
-         qty_on_hand = VALUES(qty_on_hand),
-         qty_reserved = VALUES(qty_reserved),
-         qty_available = VALUES(qty_available)`,
-      [this.tenantId, skuId],
-    );
+    await syncInventoryDailySnapshotForSku(manager, this.tenantId, skuId);
   }
 
   private async invalidateInventorySnapshotCaches(skuIds: number[]): Promise<void> {

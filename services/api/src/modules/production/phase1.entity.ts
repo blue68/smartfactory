@@ -241,7 +241,8 @@ export class TaskMaterialTransactionEntity {
 }
 
 @Entity('inventory_daily_snapshots')
-@Index('uk_tenant_date_sku', ['tenantId', 'snapshotDate', 'skuId'], { unique: true })
+@Index('uk_tenant_date_wh_sku', ['tenantId', 'snapshotDate', 'warehouseId', 'skuId'], { unique: true })
+@Index('idx_tenant_date_wh', ['tenantId', 'snapshotDate', 'warehouseId'])
 export class InventoryDailySnapshotEntity {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
@@ -251,6 +252,9 @@ export class InventoryDailySnapshotEntity {
 
   @Column({ name: 'snapshot_date', type: 'date' })
   snapshotDate: string;
+
+  @Column({ name: 'warehouse_id', type: 'bigint', unsigned: true, default: 0 })
+  warehouseId: number;
 
   @Column({ name: 'sku_id', type: 'bigint', unsigned: true })
   skuId: number;
