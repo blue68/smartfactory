@@ -100,6 +100,10 @@ CALL safe_add_index_m20260409_snapshot(
   '(`tenant_id`, `snapshot_date`, `warehouse_id`)'
 );
 
+DELETE FROM `inventory_daily_snapshots`
+ WHERE `snapshot_date` = CURDATE()
+   AND `warehouse_id` = 0;
+
 INSERT INTO `inventory_daily_snapshots`
   (`tenant_id`, `snapshot_date`, `warehouse_id`, `sku_id`, `qty_on_hand`, `qty_reserved`, `qty_available`)
 SELECT
