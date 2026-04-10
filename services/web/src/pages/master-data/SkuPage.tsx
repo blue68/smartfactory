@@ -856,7 +856,7 @@ export default function SkuPage() {
       <Drawer
         open={drawerMode === 'create' || drawerMode === 'edit'}
         title={drawerMode === 'create' ? '新增SKU' : `编辑SKU — ${editingSku?.skuCode ?? ''}`}
-        width={560}
+        width={760}
         onClose={closeDrawer}
         footer={
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -1279,13 +1279,8 @@ function SkuFormDrawerContent({
           )}
           {form.customerRefs.map((ref, index) => (
             <div
-              key={`${index}-${ref.customerId}-${ref.customerSkuCode}`}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1.4fr 1.1fr 1.2fr 0.8fr auto',
-                gap: 8,
-                alignItems: 'center',
-              }}
+              key={`customer-ref-${index}`}
+              className={styles.customer_ref_row}
             >
               <select
                 className={styles.form_input}
@@ -1300,13 +1295,13 @@ function SkuFormDrawerContent({
                 ))}
               </select>
               <input
-                className={styles.form_input}
+                className={`${styles.form_input} ${styles.customer_sku_code_input}`}
                 value={ref.customerSkuCode}
                 onChange={(e) => updateCustomerRef(index, 'customerSkuCode', e.target.value)}
                 placeholder="客户SKU编码"
               />
               <input
-                className={styles.form_input}
+                className={`${styles.form_input} ${styles.customer_sku_name_input}`}
                 value={ref.customerSkuName}
                 onChange={(e) => updateCustomerRef(index, 'customerSkuName', e.target.value)}
                 placeholder="客户SKU名称"

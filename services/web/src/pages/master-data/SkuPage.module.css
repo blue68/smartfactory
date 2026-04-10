@@ -477,6 +477,21 @@
   margin-top: 2px;
 }
 
+.customer_ref_row {
+  display: grid;
+  grid-template-columns: 1.4fr 1.2fr 1.4fr 0.8fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.customer_sku_code_input {
+  min-width: 200px;
+}
+
+.customer_sku_name_input {
+  min-width: 240px;
+}
+
 /* 备注 textarea */
 .form_textarea {
   padding: 8px 12px;
@@ -557,6 +572,17 @@
   font-size: 14px;
   outline: none;
   transition: border-color 0.15s;
+}
+
+@media (max-width: 960px) {
+  .customer_ref_row {
+    grid-template-columns: 1fr;
+  }
+
+  .customer_sku_code_input,
+  .customer_sku_name_input {
+    min-width: 0;
+  }
 }
 .batch_safety_input:focus { border-color: #2563eb; }
 .batch_safety_unit { font-size: 13px; color: var(--text-secondary, #6b7280); }
