@@ -129,6 +129,17 @@ function toEditableCustomerRefs(refs?: CustomerSkuRef[]): EditableCustomerSkuRef
   }));
 }
 
+function isFinishedCategory(code: Category1Code | '' | undefined): boolean {
+  return code === Category1Code.FINISHED;
+}
+
+function isFinishedSkuRecord(sku: Sku): boolean {
+  if (sku.category1Code) {
+    return sku.category1Code === Category1Code.FINISHED;
+  }
+  return sku.category1Name === Category1Label[Category1Code.FINISHED];
+}
+
 function buildSkuFormData(sku: Sku, catData: SkuCategory[]): SkuFormData {
   const cat1Code = getCat1CodeFromId(catData, sku.category1Id) ?? '';
   return {
@@ -295,12 +306,13 @@ export default function SkuPage() {
   // ── 表单提交 ──
   const handleSave = useCallback(async () => {
     const { name, category1Code, category2Id, stockUnit, purchaseUnit, brandScope, brandCustomerId } = skuForm;
+    const isFinished = isFinishedCategory(category1Code);
     if (!name.trim()) { showToast({ type: 'warning', message: '请填写物料名称' }); return; }
     if (!category1Code) { showToast({ type: 'warning', message: '请选择物料分类（一级）' }); return; }
     if (!category2Id) { showToast({ type: 'warning', message: '请选择二级品类' }); return; }
     if (!stockUnit) { showToast({ type: 'warning', message: '请填写库存单位' }); return; }
     if (!purchaseUnit) { showToast({ type: 'warning', message: '请填写采购单位' }); return; }
-    if (brandScope === 'customer' && !brandCustomerId) {
+    if (isFinished && brandScope === 'customer' && !brandCustomerId) {
       showToast({ type: 'warning', message: '客户专属 SKU 必须选择所属客户' });
       return;
     }
@@ -326,11 +338,17 @@ export default function SkuPage() {
         showToast({ type: 'warning', message: '客户编码映射中的客户 SKU 编码不能为空' });
         return;
       }
-      if (brandScope === 'customer' && Number(brandCustomerId) !== ref.customerId) {
+      if (isFinished && brandScope === 'customer' && Number(brandCustomerId) !== ref.customerId) {
         showToast({ type: 'warning', message: '客户专属 SKU 只能维护所属客户的客户编码' });
         return;
       }
     }
+
+    const effectiveBrandScope: SkuBrandScope = isFinished ? brandScope : 'factory';
+    const effectiveBrandCustomerId = isFinished && brandScope === 'customer'
+      ? Number(brandCustomerId)
+      : null;
+    const effectiveCustomerRefs = isFinished ? normalizedCustomerRefs : [];
 
     const payload = {
       name: name.trim(),
@@ -345,9 +363,9 @@ export default function SkuPage() {
       safetyStock: skuForm.safetyStock || undefined,
       hasDyeLot: Boolean(skuForm.hasDyeLot),
       useFifo: Boolean(skuForm.useFifo),
-      brandScope,
-      brandCustomerId: brandScope === 'customer' ? Number(brandCustomerId) : null,
-      customerRefs: normalizedCustomerRefs,
+      brandScope: effectiveBrandScope,
+      brandCustomerId: effectiveBrandCustomerId,
+      customerRefs: effectiveCustomerRefs,
       description: skuForm.description || undefined,
       status: skuForm.status,
     };
@@ -482,8 +500,20 @@ export default function SkuPage() {
                 <span className={styles.dye_lot_tag}>需缸号管理</span>
               )}
             </div>
-            {sku.spec && (
-              <span className={styles.sku_spec_text}>{sku.spec}</span>
+            {sku.spec && <span className={styles.sku_spec_text}>{sku.spec}</span>}
+            {isFinishedSkuRecord(sku) && (
+              <div className={styles.sku_meta_row}>
+                <span className={styles.sku_meta_tag}>
+                  {sku.brandScope === 'customer' ? '客户专属' : '工厂自主品牌'}
+                </span>
+                {sku.brandScope === 'customer' && (
+                  <span className={`${styles.sku_meta_tag} ${styles['sku_meta_tag--customer']}`}>
+                    {sku.brandCustomerId
+                      ? (customerLabelById.get(Number(sku.brandCustomerId)) ?? `客户 #${sku.brandCustomerId}`)
+                      : '所属客户未设置'}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         );
@@ -517,41 +547,6 @@ export default function SkuPage() {
           return <Tag variant="warning">{sku.category2Name || '未分类'}</Tag>;
         }
         return <Tag category2Code={code}>{sku.category2Name}</Tag>;
-      },
-    },
-    // 品牌归属
-    {
-      key: 'brandScope',
-      title: '品牌归属',
-      width: 120,
-      render: (_, r) => {
-        const sku = r as unknown as Sku;
-        const isCustomer = sku.brandScope === 'customer';
-        return (
-          <Tag variant={isCustomer ? 'warning' : 'info'}>
-            {isCustomer ? '客户专属' : '工厂自主品牌'}
-          </Tag>
-        );
-      },
-    },
-    // 所属客户
-    {
-      key: 'brandCustomerId',
-      title: '所属客户',
-      width: 180,
-      render: (_, r) => {
-        const sku = r as unknown as Sku;
-        if (sku.brandScope !== 'customer') {
-          return <span style={{ color: '#6b7280', fontSize: 13 }}>全部客户</span>;
-        }
-        if (!sku.brandCustomerId) {
-          return <span style={{ color: '#ef4444', fontSize: 13 }}>未设置</span>;
-        }
-        return (
-          <span style={{ fontSize: 13 }}>
-            {customerLabelById.get(Number(sku.brandCustomerId)) ?? `客户 #${sku.brandCustomerId}`}
-          </span>
-        );
       },
     },
     // 库存单位
@@ -1022,6 +1017,7 @@ function SkuFormDrawerContent({
   editingSku,
   customerOptions,
 }: SkuFormDrawerContentProps) {
+  const isFinished = isFinishedCategory(form.category1Code);
   const set = useCallback(
     (field: keyof SkuFormData) =>
       (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -1039,7 +1035,15 @@ function SkuFormDrawerContent({
   // 一级分类改变时清空二级品类
   const handleCat1Change = useCallback(
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-      onChange((f) => ({ ...f, category1Code: e.target.value as Category1Code, category2Id: '' }));
+      const nextCategory1Code = e.target.value as Category1Code | '';
+      onChange((f) => ({
+        ...f,
+        category1Code: nextCategory1Code,
+        category2Id: '',
+        brandScope: nextCategory1Code === Category1Code.FINISHED ? f.brandScope : 'factory',
+        brandCustomerId: nextCategory1Code === Category1Code.FINISHED ? f.brandCustomerId : '',
+        customerRefs: nextCategory1Code === Category1Code.FINISHED ? f.customerRefs : [],
+      }));
     },
     [onChange],
   );
@@ -1289,102 +1293,106 @@ function SkuFormDrawerContent({
         </label>
       </div>
 
-      <div className={styles.form_section_title}>品牌与客户编码</div>
+      {isFinished && (
+        <>
+          <div className={styles.form_section_title}>品牌与客户编码</div>
 
-      <div className={styles.form_field}>
-        <label className={styles.form_label}>品牌归属</label>
-        <select
-          className={styles.form_input}
-          value={form.brandScope}
-          onChange={setBrandScope}
-        >
-          <option value="factory">工厂自主品牌</option>
-          <option value="customer">客户专属</option>
-        </select>
-        <span className={styles.form_hint}>
-          工厂自主品牌 SKU 对全部客户开放；客户专属 SKU 仅允许所属客户下单。
-        </span>
-      </div>
-
-      {form.brandScope === 'customer' && (
-        <div className={styles.form_field}>
-          <label className={styles.form_label}>
-            所属客户 <span className={styles.required}>*</span>
-          </label>
-          <select
-            className={styles.form_input}
-            value={form.brandCustomerId}
-            onChange={(e) => onChange((current) => ({
-              ...current,
-              brandCustomerId: e.target.value ? Number(e.target.value) : '',
-              customerRefs: current.customerRefs.filter((ref) => !ref.customerId || Number(ref.customerId) === Number(e.target.value)),
-            }))}
-          >
-            <option value="">请选择客户</option>
-            {customerOptions.map((customer) => (
-              <option key={customer.id} value={customer.id}>
-                {customer.name}（{customer.code}）
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      <div className={styles.form_field}>
-        <label className={styles.form_label}>客户编码映射</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {form.customerRefs.length === 0 && (
-            <div className={styles.form_hint}>未维护客户侧编码；销售订单将默认显示工厂内部 SKU 编码。</div>
-          )}
-          {form.customerRefs.map((ref, index) => (
-            <div
-              key={`customer-ref-${index}`}
-              className={styles.customer_ref_row}
+          <div className={styles.form_field}>
+            <label className={styles.form_label}>品牌归属</label>
+            <select
+              className={styles.form_input}
+              value={form.brandScope}
+              onChange={setBrandScope}
             >
+              <option value="factory">工厂自主品牌</option>
+              <option value="customer">客户专属</option>
+            </select>
+            <span className={styles.form_hint}>
+              工厂自主品牌 SKU 对全部客户开放；客户专属 SKU 仅允许所属客户下单。
+            </span>
+          </div>
+
+          {form.brandScope === 'customer' && (
+            <div className={styles.form_field}>
+              <label className={styles.form_label}>
+                所属客户 <span className={styles.required}>*</span>
+              </label>
               <select
                 className={styles.form_input}
-                value={ref.customerId}
-                onChange={(e) => updateCustomerRef(index, 'customerId', e.target.value ? Number(e.target.value) : '')}
+                value={form.brandCustomerId}
+                onChange={(e) => onChange((current) => ({
+                  ...current,
+                  brandCustomerId: e.target.value ? Number(e.target.value) : '',
+                  customerRefs: current.customerRefs.filter((ref) => !ref.customerId || Number(ref.customerId) === Number(e.target.value)),
+                }))}
               >
-                <option value="">客户</option>
+                <option value="">请选择客户</option>
                 {customerOptions.map((customer) => (
                   <option key={customer.id} value={customer.id}>
                     {customer.name}（{customer.code}）
                   </option>
                 ))}
               </select>
-              <input
-                className={`${styles.form_input} ${styles.customer_sku_code_input}`}
-                value={ref.customerSkuCode}
-                onChange={(e) => updateCustomerRef(index, 'customerSkuCode', e.target.value)}
-                placeholder="客户SKU编码"
-              />
-              <input
-                className={`${styles.form_input} ${styles.customer_sku_name_input}`}
-                value={ref.customerSkuName}
-                onChange={(e) => updateCustomerRef(index, 'customerSkuName', e.target.value)}
-                placeholder="客户SKU名称"
-              />
-              <select
-                className={styles.form_input}
-                value={ref.status}
-                onChange={(e) => updateCustomerRef(index, 'status', e.target.value as 'active' | 'inactive')}
-              >
-                <option value="active">启用</option>
-                <option value="inactive">停用</option>
-              </select>
-              <Button variant="ghost" size="sm" onClick={() => removeCustomerRef(index)}>
-                删除
-              </Button>
             </div>
-          ))}
-          <div>
-            <Button variant="secondary" size="sm" onClick={addCustomerRefRow}>
-              添加客户编码
-            </Button>
+          )}
+
+          <div className={styles.form_field}>
+            <label className={styles.form_label}>客户编码映射</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {form.customerRefs.length === 0 && (
+                <div className={styles.form_hint}>未维护客户侧编码；销售订单将默认显示工厂内部 SKU 编码。</div>
+              )}
+              {form.customerRefs.map((ref, index) => (
+                <div
+                  key={`customer-ref-${index}`}
+                  className={styles.customer_ref_row}
+                >
+                  <select
+                    className={styles.form_input}
+                    value={ref.customerId}
+                    onChange={(e) => updateCustomerRef(index, 'customerId', e.target.value ? Number(e.target.value) : '')}
+                  >
+                    <option value="">客户</option>
+                    {customerOptions.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.name}（{customer.code}）
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className={`${styles.form_input} ${styles.customer_sku_code_input}`}
+                    value={ref.customerSkuCode}
+                    onChange={(e) => updateCustomerRef(index, 'customerSkuCode', e.target.value)}
+                    placeholder="客户SKU编码"
+                  />
+                  <input
+                    className={`${styles.form_input} ${styles.customer_sku_name_input}`}
+                    value={ref.customerSkuName}
+                    onChange={(e) => updateCustomerRef(index, 'customerSkuName', e.target.value)}
+                    placeholder="客户SKU名称"
+                  />
+                  <select
+                    className={styles.form_input}
+                    value={ref.status}
+                    onChange={(e) => updateCustomerRef(index, 'status', e.target.value as 'active' | 'inactive')}
+                  >
+                    <option value="active">启用</option>
+                    <option value="inactive">停用</option>
+                  </select>
+                  <Button variant="ghost" size="sm" onClick={() => removeCustomerRef(index)}>
+                    删除
+                  </Button>
+                </div>
+              ))}
+              <div>
+                <Button variant="secondary" size="sm" onClick={addCustomerRefRow}>
+                  添加客户编码
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
 
       {/* ─ 状态 ─ */}
       {!isNew && (
@@ -1451,6 +1459,7 @@ function SkuDetailContent({
   const isCategory2None = category2Code === Category2Code.NONE
     || !category2Text
     || category2Text === '未分类';
+  const showBrandingSection = isFinishedSkuRecord(sku);
 
   return (
     <div>
@@ -1554,43 +1563,45 @@ function SkuDetailContent({
         </div>
       </div>
 
-      <div className={styles.detail_section}>
-        <div className={styles.detail_section_title}>品牌与客户编码</div>
-        <div className={styles.detail_grid}>
-          <div className={styles.detail_item}>
-            <div className={styles.detail_item_label}>品牌归属</div>
-            <div className={styles.detail_item_value}>{brandScopeLabel}</div>
-          </div>
-          <div className={styles.detail_item}>
-            <div className={styles.detail_item_label}>所属客户</div>
-            <div className={styles.detail_item_value}>{ownerCustomerLabel}</div>
-          </div>
-        </div>
-        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {(sku.customerRefs ?? []).length === 0 && (
-            <span style={{ color: '#9ca3af', fontSize: 13 }}>未维护客户侧 SKU 编码映射</span>
-          )}
-          {(sku.customerRefs ?? []).map((ref) => (
-            <div
-              key={`${ref.customerId}-${ref.customerSkuCode}`}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1.2fr 1fr 1fr auto',
-                gap: 8,
-                fontSize: 13,
-                color: '#374151',
-              }}
-            >
-              <span>{ref.customerName ?? customerLabelById.get(Number(ref.customerId)) ?? `客户 #${ref.customerId}`}</span>
-              <span>{ref.customerSkuCode}</span>
-              <span>{ref.customerSkuName ?? '—'}</span>
-              <Tag variant={ref.status === 'active' ? 'success' : 'neutral'}>
-                {ref.status === 'active' ? '启用' : '停用'}
-              </Tag>
+      {showBrandingSection && (
+        <div className={styles.detail_section}>
+          <div className={styles.detail_section_title}>品牌与客户编码</div>
+          <div className={styles.detail_grid}>
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>品牌归属</div>
+              <div className={styles.detail_item_value}>{brandScopeLabel}</div>
             </div>
-          ))}
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>所属客户</div>
+              <div className={styles.detail_item_value}>{ownerCustomerLabel}</div>
+            </div>
+          </div>
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {(sku.customerRefs ?? []).length === 0 && (
+              <span style={{ color: '#9ca3af', fontSize: 13 }}>未维护客户侧 SKU 编码映射</span>
+            )}
+            {(sku.customerRefs ?? []).map((ref) => (
+              <div
+                key={`${ref.customerId}-${ref.customerSkuCode}`}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1.2fr 1fr 1fr auto',
+                  gap: 8,
+                  fontSize: 13,
+                  color: '#374151',
+                }}
+              >
+                <span>{ref.customerName ?? customerLabelById.get(Number(ref.customerId)) ?? `客户 #${ref.customerId}`}</span>
+                <span>{ref.customerSkuCode}</span>
+                <span>{ref.customerSkuName ?? '—'}</span>
+                <Tag variant={ref.status === 'active' ? 'success' : 'neutral'}>
+                  {ref.status === 'active' ? '启用' : '停用'}
+                </Tag>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 备注 */}
       {sku.description && (

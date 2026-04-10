@@ -63,6 +63,7 @@ export interface CustomerSkuRefParam {
 }
 
 const SKU_CODE_SEQUENCE_WIDTH = 7;
+const FINISHED_CATEGORY_CODE = 'FINISHED';
 
 export class SkuService {
   private readonly repo: SkuRepository;
@@ -88,7 +89,13 @@ export class SkuService {
 
     // 面料类 category2 强制开启缸号管理（只需执行一次）
     const hasDyeLot = await this.shouldEnableDyeLot(params.category2Id, params.hasDyeLot);
-    await this.validateBranding(params.brandScope ?? 'factory', params.brandCustomerId ?? null, params.customerRefs ?? []);
+    const isFinished = await this.isFinishedCategory(params.category1Id);
+    const normalizedBrandScope = isFinished ? (params.brandScope ?? 'factory') : 'factory';
+    const normalizedBrandCustomerId = isFinished && normalizedBrandScope === 'customer'
+      ? (params.brandCustomerId ?? null)
+      : null;
+    const normalizedCustomerRefs = isFinished ? (params.customerRefs ?? []) : [];
+    await this.validateBranding(normalizedBrandScope, normalizedBrandCustomerId, normalizedCustomerRefs);
 
     // 若外部已传入 skuCode，直接使用；否则带重试生成，防止并发 UNIQUE KEY 冲突
     const MAX_RETRIES = 3;
@@ -109,15 +116,15 @@ export class SkuService {
           stockUnit: params.stockUnit,
           purchaseUnit: params.purchaseUnit,
           productionUnit: params.productionUnit,
-          brandScope: params.brandScope ?? 'factory',
-          brandCustomerId: params.brandScope === 'customer' ? (params.brandCustomerId ?? null) : null,
+          brandScope: normalizedBrandScope,
+          brandCustomerId: normalizedBrandCustomerId,
           hasDyeLot,
           safetyStock: params.safetyStock ?? '0',
           description: params.description ?? null,
         });
 
-        if (params.customerRefs) {
-          await this.repo.replaceCustomerRefs(sku.id, params.customerRefs);
+        if (normalizedCustomerRefs.length > 0) {
+          await this.repo.replaceCustomerRefs(sku.id, normalizedCustomerRefs);
         }
 
         // 失效 SKU 列表缓存
@@ -147,11 +154,16 @@ export class SkuService {
     if (params.category1Id && params.category2Id) {
       await this.validateCategories(params.category1Id, params.category2Id);
     }
-    const nextBrandScope = params.brandScope ?? currentSku.brandScope;
-    const nextBrandCustomerId = params.brandScope === 'factory'
-      ? null
-      : (params.brandCustomerId ?? currentSku.brandCustomerId ?? null);
-    await this.validateBranding(nextBrandScope, nextBrandCustomerId, params.customerRefs ?? []);
+    const nextCategory1Id = params.category1Id ?? currentSku.category1Id;
+    const isFinished = await this.isFinishedCategory(nextCategory1Id);
+    const nextBrandScope = isFinished ? (params.brandScope ?? currentSku.brandScope) : 'factory';
+    const nextBrandCustomerId = isFinished
+      ? (nextBrandScope === 'factory'
+        ? null
+        : (params.brandCustomerId ?? currentSku.brandCustomerId ?? null))
+      : null;
+    const nextCustomerRefs = isFinished ? (params.customerRefs ?? []) : [];
+    await this.validateBranding(nextBrandScope, nextBrandCustomerId, nextCustomerRefs);
     const updateData: Record<string, unknown> = {};
     if (params.name !== undefined) updateData.name = params.name;
     if (params.spec !== undefined) updateData.spec = params.spec;
@@ -166,18 +178,26 @@ export class SkuService {
     if (params.hasDyeLot !== undefined) updateData.hasDyeLot = params.hasDyeLot;
     if (params.useFifo !== undefined) updateData.useFifo = params.useFifo;
     if (params.description !== undefined) updateData.description = params.description;
-    if (params.brandScope !== undefined) updateData.brandScope = params.brandScope;
-    if (params.brandScope === 'factory') {
+    if (isFinished) {
+      if (params.brandScope !== undefined) updateData.brandScope = params.brandScope;
+      if (params.brandScope === 'factory') {
+        updateData.brandCustomerId = null;
+      } else if (params.brandCustomerId !== undefined) {
+        updateData.brandCustomerId = params.brandCustomerId;
+      }
+    } else {
+      updateData.brandScope = 'factory';
       updateData.brandCustomerId = null;
-    } else if (params.brandCustomerId !== undefined) {
-      updateData.brandCustomerId = params.brandCustomerId;
     }
     if (params.status !== undefined) updateData.status = params.status;
 
     const updated = await this.repo.update(id, updateData as any);
     await this.repo.pruneCustomerRefsForScope(id, nextBrandScope, nextBrandCustomerId);
-    if (params.customerRefs) {
+    if (isFinished && params.customerRefs) {
       await this.repo.replaceCustomerRefs(id, params.customerRefs);
+    }
+    if (!isFinished) {
+      await this.repo.replaceCustomerRefs(id, []);
     }
 
     await getRedisClient().del(RedisKeys.skuList(this.repo.tenantId));
@@ -455,5 +475,13 @@ export class SkuService {
         }
       }
     }
+  }
+
+  private async isFinishedCategory(category1Id: number): Promise<boolean> {
+    const [row] = await AppDataSource.query<Array<{ code: string }>>(
+      'SELECT code FROM sku_categories WHERE id = ? LIMIT 1',
+      [category1Id],
+    );
+    return row?.code === FINISHED_CATEGORY_CODE;
   }
 }
