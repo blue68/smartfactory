@@ -225,6 +225,10 @@ export default function SkuPage() {
     ])),
     [customerOptions],
   );
+  const categoryNameById = useMemo(
+    () => new Map(catData.map((category) => [Number(category.id), category.name])),
+    [catData],
+  );
 
   // SKU 列表
   const skuList = useMemo(() => (data?.list ?? []) as SkuRecord[], [data]);
@@ -895,7 +899,13 @@ export default function SkuPage() {
           </div>
         }
       >
-        {editingSku && <SkuDetailContent sku={editingSku} customerLabelById={customerLabelById} />}
+        {editingSku && (
+          <SkuDetailContent
+            sku={editingSku}
+            customerLabelById={customerLabelById}
+            categoryNameById={categoryNameById}
+          />
+        )}
       </Drawer>
 
       {/* ── 批量设置安全库存 Modal ── */}
@@ -1366,9 +1376,11 @@ function SkuFormDrawerContent({
 function SkuDetailContent({
   sku,
   customerLabelById,
+  categoryNameById,
 }: {
   sku: Sku;
   customerLabelById: Map<number, string>;
+  categoryNameById: Map<number, string>;
 }) {
   const statusLabel: Record<SkuStatus, string> = {
     [SkuStatus.ACTIVE]: '启用',
@@ -1378,6 +1390,18 @@ function SkuDetailContent({
   const ownerCustomerLabel = sku.brandCustomerId
     ? (customerLabelById.get(Number(sku.brandCustomerId)) ?? `客户 #${sku.brandCustomerId}`)
     : '全部客户可下单';
+  const category1Text = sku.category1Name
+    || categoryNameById.get(Number(sku.category1Id))
+    || (sku.category1Code ? Category1Label[sku.category1Code as Category1Code] : '')
+    || '—';
+  const category2Text = sku.category2Name
+    || categoryNameById.get(Number(sku.category2Id))
+    || (sku.category2Code ? Category2Label[sku.category2Code as Category2Code] : '')
+    || '';
+  const category2Code = sku.category2Code as Category2Code | undefined;
+  const isCategory2None = category2Code === Category2Code.NONE
+    || !category2Text
+    || category2Text === '未分类';
 
   return (
     <div>
@@ -1407,14 +1431,14 @@ function SkuDetailContent({
           </div>
           <div className={styles.detail_item}>
             <div className={styles.detail_item_label}>一级分类</div>
-            <div className={styles.detail_item_value}>{sku.category1Name}</div>
+            <div className={styles.detail_item_value}>{category1Text}</div>
           </div>
           <div className={styles.detail_item}>
             <div className={styles.detail_item_label}>二级品类</div>
             <div className={styles.detail_item_value}>
-              {sku.category2Code && sku.category2Code !== Category2Code.NONE
-                ? <Tag category2Code={sku.category2Code as Category2Code}>{sku.category2Name}</Tag>
-                : <Tag variant="warning">{sku.category2Name || '未分类'}</Tag>}
+              {!isCategory2None && category2Code
+                ? <Tag category2Code={category2Code}>{category2Text}</Tag>
+                : <Tag variant="warning">{category2Text || '未分类'}</Tag>}
             </div>
           </div>
           {sku.barcode && (
