@@ -8,7 +8,12 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import { useUrgentAnalysis } from '@/api/sales';
-import { useCreateSalesOrder, useConfirmSalesOrder } from '@/api/salesOrder';
+import {
+  checkInventory,
+  checkSalesOrderCapacity,
+  useCreateSalesOrder,
+  useConfirmSalesOrder,
+} from '@/api/salesOrder';
 import { useCustomerOptions } from '@/api/customer';
 import { useSkuList } from '@/api/sku';
 import { ConstraintResult } from '@/types/enums';
@@ -141,6 +146,22 @@ interface FormState {
   notes: string;
 }
 
+interface RealtimeAssessmentState {
+  loading: boolean;
+  error: string;
+  inventory: {
+    available: number;
+    sufficient: boolean;
+    stockUnit: string;
+  } | null;
+  capacity: {
+    available: boolean;
+    currentLoad: number;
+    maxCapacity: number;
+    estimatedCompletionDate: string;
+  } | null;
+}
+
 function getVisibleSkuCode(sku: { skuCode: string; customerSkuCode?: string | null }): string {
   return sku.customerSkuCode ?? sku.skuCode;
 }
@@ -179,14 +200,22 @@ export default function OrderPage() {
   const [showConstraintCard, setShowConstraintCard] = useState(false);
   const [urgentModalOpen, setUrgentModalOpen] = useState(false);
   const [urgentAnalysisReady, setUrgentAnalysisReady] = useState(false);
+  const [constraintLoading, setConstraintLoading] = useState(false);
 
   // 约束检查展示数据：优先使用 API 返回数据，fallback 为空数组
   const [constraintChecks, setConstraintChecks] = useState<ConstraintCheckDisplay[]>([]);
+  const [realtimeAssessment, setRealtimeAssessment] = useState<RealtimeAssessmentState>({
+    loading: false,
+    error: '',
+    inventory: null,
+    capacity: null,
+  });
 
   // Urgent AI countdown
   const [aiSteps, setAiSteps] = useState<AiStep[]>(INITIAL_AI_STEPS);
   const [countdown, setCountdown] = useState(18);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const realtimeReqRef = useRef(0);
 
   // Draft save state
   const [draftLabel, setDraftLabel] = useState('草稿');
@@ -208,6 +237,60 @@ export default function OrderPage() {
       if (countdownRef.current) clearInterval(countdownRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    const skuId = Number(form.product);
+    const qty = Number(form.qty);
+    const canAssess = Number.isInteger(skuId) && skuId > 0
+      && Number.isFinite(qty) && qty > 0
+      && /^\d{4}-\d{2}-\d{2}$/.test(form.deadline);
+
+    if (!canAssess) {
+      setRealtimeAssessment({
+        loading: false,
+        error: '',
+        inventory: null,
+        capacity: null,
+      });
+      return;
+    }
+
+    const reqId = ++realtimeReqRef.current;
+    setRealtimeAssessment((prev) => ({ ...prev, loading: true, error: '' }));
+
+    const timer = window.setTimeout(() => {
+      void Promise.all([
+        checkInventory(skuId, qty),
+        checkSalesOrderCapacity({
+          skuId,
+          quantity: qty,
+          expectedDelivery: form.deadline,
+        }),
+      ])
+        .then(([inventory, capacity]) => {
+          if (realtimeReqRef.current !== reqId) return;
+          setRealtimeAssessment({
+            loading: false,
+            error: '',
+            inventory,
+            capacity,
+          });
+        })
+        .catch((e: unknown) => {
+          if (realtimeReqRef.current !== reqId) return;
+          setRealtimeAssessment({
+            loading: false,
+            error: e instanceof Error ? e.message : '实时评估失败',
+            inventory: null,
+            capacity: null,
+          });
+        });
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [form.product, form.qty, form.deadline]);
 
   const handleFormChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
@@ -268,13 +351,8 @@ export default function OrderPage() {
     }
   };
 
-  /**
-   * 启动倒计时动画。
-   * onComplete 回调在倒计时结束时调用，传入最终的约束检查展示列表。
-   */
-  const startUrgentCountdown = (
-    onComplete?: (checks: ConstraintCheckDisplay[]) => void,
-  ) => {
+  /** 启动紧急插单分析倒计时动画 */
+  const startUrgentCountdown = () => {
     setAiSteps(INITIAL_AI_STEPS);
     setCountdown(18);
 
@@ -296,8 +374,7 @@ export default function OrderPage() {
 
         if (next <= 0) {
           if (countdownRef.current) clearInterval(countdownRef.current);
-          setUrgentModalOpen(false);
-          onComplete?.([]);
+          return 0;
         }
 
         return next;
@@ -359,45 +436,38 @@ export default function OrderPage() {
 
     if (form.orderType === 'urgent' && !urgentAnalysisReady) {
       setUrgentModalOpen(true);
+      setShowConstraintCard(true);
+      setConstraintLoading(true);
+      setConstraintChecks([]);
+      startUrgentCountdown();
 
-      // 并行执行：倒计时动画 + AI 分析 API
-      // API 完成后保留结果，倒计时结束时取最新数据展示
-      let analysisResult: UrgentAnalysisResult | null = null;
-
-      const selectedSkuId = form.product ? Number(form.product) : 0;
-
-      // 发起 API 调用（与倒计时并行，不等待）
-      urgentMutation.mutateAsync({
-        skuId: selectedSkuId || 1,
-        bomId: 1,
-        qty: form.qty,
-        expectedDelivery: form.deadline,
-      }).then((data) => {
-        // API 先于倒计时完成时，暂存结果
-        analysisResult = data;
-      }).catch(() => {
-        // API 失败时 analysisResult 保持 null，倒计时结束后展示 fallback
-      });
-
-      startUrgentCountdown((/* _checks */) => {
-        // 倒计时结束时，使用已获得的 API 结果（若 API 还未完成则用空数组）
-        const checks =
-          analysisResult !== null
-            ? buildConstraintChecksFromAnalysis(analysisResult)
-            : [];
-        setConstraintChecks(checks);
-        setShowConstraintCard(true);
+      try {
+        const selectedSkuId = Number(form.product);
+        const analysisResult: UrgentAnalysisResult = await urgentMutation.mutateAsync({
+          skuId: selectedSkuId,
+          bomId: 1,
+          qty: form.qty,
+          expectedDelivery: form.deadline,
+        });
+        setConstraintChecks(buildConstraintChecksFromAnalysis(analysisResult));
         setUrgentAnalysisReady(true);
-
-        // 若 API 分析结果表明有问题，显示提示
-        if (analysisResult && analysisResult.overallResult === ConstraintResult.BLOCK) {
+        if (analysisResult.overallResult === ConstraintResult.BLOCK) {
           showToast({ type: 'error', message: '插单影响分析：当前约束不满足，请确认后提交' });
-        } else if (analysisResult) {
-          showToast({ type: 'info', message: '插单影响分析完成，请查看约束检查结果' });
         } else {
-          showToast({ type: 'warning', message: '影响分析未返回结果，仍可继续提交插单申请' });
+          showToast({ type: 'info', message: '插单影响分析完成，请查看约束检查结果' });
         }
-      });
+      } catch (e) {
+        setConstraintChecks([{
+          passed: false,
+          label: '紧急插单影响评估',
+          detail: e instanceof Error ? e.message : '评估失败，请稍后重试',
+        }]);
+        showToast({ type: 'error', message: e instanceof Error ? e.message : '影响评估失败' });
+      } finally {
+        if (countdownRef.current) clearInterval(countdownRef.current);
+        setConstraintLoading(false);
+        setUrgentModalOpen(false);
+      }
 
       return;
     }
@@ -625,16 +695,34 @@ export default function OrderPage() {
 
         {/* ── Card 2: 交期与产能预估 ──────────────────────────── */}
         {(() => {
-          // 产能负荷：优先使用 urgentMutation（分析完成后）返回的 capacityLoadCheck.currentValue
-          // 普通订单提交前无实时产能数据，fallback 为静态文本
-          const capacityText = urgentMutation.data?.capacityLoadCheck?.currentValue
-            ? `当前负荷 ${urgentMutation.data.capacityLoadCheck.currentValue}，${
-                urgentMutation.data.capacityLoadCheck.passed ? '可接单' : '产能已接近上限'
-              }`
-            : '待填写订单信息后评估';
+          const hasEnoughFields = Number(form.product) > 0
+            && Number(form.qty) > 0
+            && /^\d{4}-\d{2}-\d{2}$/.test(form.deadline);
+          const capacity = realtimeAssessment.capacity;
+          const inventory = realtimeAssessment.inventory;
+          let capacityText = '待填写订单信息后评估';
 
-          // TODO: 接入实时产能/交期预估接口后，用真实 estimatedDelivery 替换
-          const estimatedDelivery = null;
+          if (hasEnoughFields && realtimeAssessment.loading) {
+            capacityText = '评估中...';
+          } else if (hasEnoughFields && realtimeAssessment.error) {
+            capacityText = `评估失败：${realtimeAssessment.error}`;
+          } else if (capacity) {
+            capacityText = `当前负荷 ${capacity.currentLoad}/${capacity.maxCapacity}，${
+              capacity.available ? '可接单' : '产能已接近上限'
+            }`;
+          }
+
+          const inventoryText = !hasEnoughFields
+            ? '待选择客户和产品后评估'
+            : realtimeAssessment.loading
+              ? '评估中...'
+              : realtimeAssessment.error
+                ? `评估失败：${realtimeAssessment.error}`
+                : inventory
+                  ? `可用 ${inventory.available} ${inventory.stockUnit}，${inventory.sufficient ? '库存充足' : '库存不足'}`
+                  : '暂无评估结果';
+
+          const estimatedDelivery = capacity?.estimatedCompletionDate ?? null;
           const expectedDelivery = form.deadline;
           const delayDays = estimatedDelivery
             ? Math.ceil(
@@ -655,12 +743,12 @@ export default function OrderPage() {
                   <div className={styles.estimate_row}>
                     <span className={`${styles.estimate_dot} ${styles['estimate_dot--green']}`} />
                     <span className={styles.estimate_label}>库存可用性</span>
-                    <span className={styles.estimate_value}>待选择客户和产品后评估</span>
+                    <span className={styles.estimate_value}>{inventoryText}</span>
                   </div>
                   <div className={styles.estimate_row}>
                     <span
                       className={`${styles.estimate_dot} ${
-                        urgentMutation.data?.capacityLoadCheck?.passed === false
+                        capacity?.available === false
                           ? styles['estimate_dot--red']
                           : styles['estimate_dot--green']
                       }`}
@@ -706,17 +794,27 @@ export default function OrderPage() {
               <span className={styles.card_header_icon}>🔍</span>
               <h2 className={styles.card_title}>约束检查结果</h2>
               <span className={styles.card_subtitle}>
-                {constraintChecks.length > 0 ? '检查完成' : '加载中…'}
+                {constraintLoading ? '加载中…' : constraintChecks.length > 0 ? '检查完成' : '待发起评估'}
               </span>
             </div>
             <div className={styles.card_body}>
-              {constraintChecks.length === 0 ? (
+              {constraintLoading ? (
                 // API 尚未返回或调用失败时的占位状态
                 <div className={styles.constraint_list}>
                   <div className={styles.constraint_item}>
                     <div className={styles.constraint_text}>
                       <div className={styles.constraint_detail}>
                         约束检查数据加载中，请稍候…
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : constraintChecks.length === 0 ? (
+                <div className={styles.constraint_list}>
+                  <div className={styles.constraint_item}>
+                    <div className={styles.constraint_text}>
+                      <div className={styles.constraint_detail}>
+                        尚未发起约束评估，请点击“发起影响评估”。
                       </div>
                     </div>
                   </div>
