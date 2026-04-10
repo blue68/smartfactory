@@ -232,6 +232,10 @@ export default function SkuPage() {
 
   // SKU 列表
   const skuList = useMemo(() => (data?.list ?? []) as SkuRecord[], [data]);
+  const showCurrentStockColumn = useMemo(
+    () => skuList.some((sku) => sku.qtyOnHand != null),
+    [skuList],
+  );
 
   // 未分类 SKU 数（二级品类 NONE）
   const noCategory2Count = useMemo(
@@ -589,22 +593,24 @@ export default function SkuPage() {
         );
       },
     },
-    // 当前库存
-    {
-      key: 'qtyOnHand',
-      title: '当前库存',
-      width: 110,
-      render: (_, r) => {
-        const sku = r as unknown as Sku;
-        if (sku.qtyOnHand == null) return <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>;
-        return (
-          <>
-            <span className={styles.stock_value}>{sku.qtyOnHand}</span>
-            <span className={styles.stock_unit}>{sku.stockUnit}</span>
-          </>
-        );
-      },
-    },
+    ...(showCurrentStockColumn
+      ? [{
+        // 当前库存
+        key: 'qtyOnHand',
+        title: '当前库存',
+        width: 110,
+        render: (_: unknown, r: SkuRecord) => {
+          const sku = r as unknown as Sku;
+          if (sku.qtyOnHand == null) return <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>;
+          return (
+            <>
+              <span className={styles.stock_value}>{sku.qtyOnHand}</span>
+              <span className={styles.stock_unit}>{sku.stockUnit}</span>
+            </>
+          );
+        },
+      }] as Column<SkuRecord>[]
+      : []),
     // 状态
     {
       key: 'status',
@@ -658,7 +664,7 @@ export default function SkuPage() {
         );
       },
     },
-  ], [selectedIds, handleSelectRow, openEdit, openDetail, handleEnableSku, customerLabelById]);
+  ], [selectedIds, handleSelectRow, openEdit, openDetail, handleEnableSku, customerLabelById, showCurrentStockColumn]);
 
   // ── 筛选参数更新助手 ──
   const setFilter = useCallback((patch: Partial<SkuListQuery>) => {
