@@ -43,6 +43,9 @@ export interface CreateSkuParams {
   useFifo?: boolean;
   safetyStock?: string;
   description?: string;
+  brandScope?: 'factory' | 'customer';
+  brandCustomerId?: number | null;
+  customerRefs?: CustomerSkuRefParam[];
 }
 
 export interface UnitConversionParam {
@@ -50,6 +53,13 @@ export interface UnitConversionParam {
   toUnit: string;
   conversionRate: string;
   description?: string;
+}
+
+export interface CustomerSkuRefParam {
+  customerId: number;
+  customerSkuCode: string;
+  customerSkuName?: string;
+  status?: 'active' | 'inactive';
 }
 
 const SKU_CODE_SEQUENCE_WIDTH = 7;
@@ -68,7 +78,8 @@ export class SkuService {
   async getSkuById(id: number) {
     const sku = await this.repo.findById(id);
     const conversions = await this.repo.getUnitConversions(id);
-    return { ...sku, unitConversions: conversions };
+    const customerRefs = await this.repo.getCustomerRefs(id);
+    return { ...sku, unitConversions: conversions, customerRefs };
   }
 
   async createSku(params: CreateSkuParams) {
@@ -77,6 +88,7 @@ export class SkuService {
 
     // 面料类 category2 强制开启缸号管理（只需执行一次）
     const hasDyeLot = await this.shouldEnableDyeLot(params.category2Id, params.hasDyeLot);
+    await this.validateBranding(params.brandScope ?? 'factory', params.brandCustomerId ?? null, params.customerRefs ?? []);
 
     // 若外部已传入 skuCode，直接使用；否则带重试生成，防止并发 UNIQUE KEY 冲突
     const MAX_RETRIES = 3;
@@ -97,10 +109,16 @@ export class SkuService {
           stockUnit: params.stockUnit,
           purchaseUnit: params.purchaseUnit,
           productionUnit: params.productionUnit,
+          brandScope: params.brandScope ?? 'factory',
+          brandCustomerId: params.brandScope === 'customer' ? (params.brandCustomerId ?? null) : null,
           hasDyeLot,
           safetyStock: params.safetyStock ?? '0',
           description: params.description ?? null,
         });
+
+        if (params.customerRefs) {
+          await this.repo.replaceCustomerRefs(sku.id, params.customerRefs);
+        }
 
         // 失效 SKU 列表缓存
         await getRedisClient().del(RedisKeys.skuList(this.repo.tenantId));
@@ -125,9 +143,15 @@ export class SkuService {
   }
 
   async updateSku(id: number, params: Partial<CreateSkuParams> & { status?: 'active' | 'inactive' }) {
+    const currentSku = await this.repo.findById(id);
     if (params.category1Id && params.category2Id) {
       await this.validateCategories(params.category1Id, params.category2Id);
     }
+    const nextBrandScope = params.brandScope ?? currentSku.brandScope;
+    const nextBrandCustomerId = params.brandScope === 'factory'
+      ? null
+      : (params.brandCustomerId ?? currentSku.brandCustomerId ?? null);
+    await this.validateBranding(nextBrandScope, nextBrandCustomerId, params.customerRefs ?? []);
     const updateData: Record<string, unknown> = {};
     if (params.name !== undefined) updateData.name = params.name;
     if (params.spec !== undefined) updateData.spec = params.spec;
@@ -142,9 +166,19 @@ export class SkuService {
     if (params.hasDyeLot !== undefined) updateData.hasDyeLot = params.hasDyeLot;
     if (params.useFifo !== undefined) updateData.useFifo = params.useFifo;
     if (params.description !== undefined) updateData.description = params.description;
+    if (params.brandScope !== undefined) updateData.brandScope = params.brandScope;
+    if (params.brandScope === 'factory') {
+      updateData.brandCustomerId = null;
+    } else if (params.brandCustomerId !== undefined) {
+      updateData.brandCustomerId = params.brandCustomerId;
+    }
     if (params.status !== undefined) updateData.status = params.status;
 
     const updated = await this.repo.update(id, updateData as any);
+    await this.repo.pruneCustomerRefsForScope(id, nextBrandScope, nextBrandCustomerId);
+    if (params.customerRefs) {
+      await this.repo.replaceCustomerRefs(id, params.customerRefs);
+    }
 
     await getRedisClient().del(RedisKeys.skuList(this.repo.tenantId));
     return updated;
@@ -377,5 +411,49 @@ export class SkuService {
     // 面料类和皮料类强制开启
     if (cat?.code === 'FABRIC' || cat?.code === 'LEATHER') return true;
     return requested ?? false;
+  }
+
+  private async validateBranding(
+    brandScope: 'factory' | 'customer',
+    brandCustomerId: number | null,
+    customerRefs: CustomerSkuRefParam[],
+  ): Promise<void> {
+    if (brandScope === 'customer' && !brandCustomerId) {
+      throw AppError.badRequest('客户专属 SKU 必须选择所属客户');
+    }
+
+    const customerIds = Array.from(new Set([
+      ...(brandCustomerId ? [brandCustomerId] : []),
+      ...customerRefs.map((item) => item.customerId),
+    ]));
+    if (customerIds.length === 0) {
+      return;
+    }
+
+    const rows = await AppDataSource.query<Array<{ id: number; status: string }>>(
+      `SELECT id, status
+       FROM customers
+       WHERE tenant_id = ? AND id IN (${customerIds.map(() => '?').join(',')})`,
+      [this.repo.tenantId, ...customerIds],
+    );
+    const rowMap = new Map(rows.map((row) => [Number(row.id), row.status]));
+
+    for (const customerId of customerIds) {
+      const status = rowMap.get(customerId);
+      if (!status) {
+        throw AppError.badRequest(`客户 #${customerId} 不存在`);
+      }
+      if (status !== 'active') {
+        throw AppError.badRequest(`客户 #${customerId} 已停用，不能绑定 SKU`);
+      }
+    }
+
+    if (brandScope === 'customer' && brandCustomerId) {
+      for (const ref of customerRefs) {
+        if (ref.customerId !== brandCustomerId) {
+          throw AppError.badRequest('客户专属 SKU 只能维护所属客户的客户编码映射');
+        }
+      }
+    }
   }
 }

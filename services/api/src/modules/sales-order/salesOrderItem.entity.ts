@@ -23,6 +23,12 @@ export class SalesOrderItemEntity {
   @Column({ name: 'sku_id', type: 'bigint', unsigned: true })
   skuId: number;
 
+  @Column({ name: 'customer_sku_code_snapshot', type: 'varchar', length: 100, nullable: true })
+  customerSkuCodeSnapshot: string | null;
+
+  @Column({ name: 'customer_sku_name_snapshot', type: 'varchar', length: 200, nullable: true })
+  customerSkuNameSnapshot: string | null;
+
   /**
    * 数量：使用 DECIMAL(14,3) 支持小数，与 SQL DDL 保持一致
    * 存储为字符串防止浮点精度丢失

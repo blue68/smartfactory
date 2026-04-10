@@ -21,6 +21,7 @@ export interface SkuListFilter {
   keyword?: string;
   hasDyeLot?: boolean;
   status?: 'active' | 'inactive';
+  customerId?: number;
   page: number;
   pageSize: number;
 }
@@ -44,6 +45,7 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
     const db = AppDataSource;
     const conditions: string[] = ['s.tenant_id = ?'];
     const params: unknown[] = [this.tenantId];
+    const customerJoinParams: unknown[] = [];
 
     if (filter.category1Id) {
       conditions.push('s.category1_id = ?');
@@ -78,21 +80,45 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
       const kw = `%${filter.keyword}%`;
       params.push(kw, kw, kw);
     }
+    if (filter.customerId) {
+      conditions.push(`(
+        s.brand_scope = 'factory'
+        OR (s.brand_scope = 'customer' AND s.brand_customer_id = ?)
+      )`);
+      params.push(filter.customerId);
+      customerJoinParams.push(filter.customerId);
+    }
 
     const where = conditions.join(' AND ');
     const offset = (filter.page - 1) * filter.pageSize;
+    const customerRefJoin = filter.customerId
+      ? `LEFT JOIN customer_sku_refs csr
+           ON csr.sku_id = s.id
+          AND csr.tenant_id = s.tenant_id
+          AND csr.customer_id = ?
+          AND csr.status = 'active'`
+      : '';
+    const customerRefSelect = filter.customerId
+      ? `,
+                csr.customer_sku_code AS customerSkuCode,
+                csr.customer_sku_name AS customerSkuName`
+      : `,
+                NULL AS customerSkuCode,
+                NULL AS customerSkuName`;
 
     const [rows, countRows] = await Promise.all([
       db.query<SkuEntity[]>(
         `SELECT s.*, c1.name AS category1Name, c2.name AS category2Name,
                 c1.code AS category1Code, c2.code AS category2Code
+                ${customerRefSelect}
          FROM skus s
          LEFT JOIN sku_categories c1 ON c1.id = s.category1_id
          LEFT JOIN sku_categories c2 ON c2.id = s.category2_id
+         ${customerRefJoin}
          WHERE ${where}
          ORDER BY s.id DESC
          LIMIT ? OFFSET ?`,
-        [...params, filter.pageSize, offset],
+        [...customerJoinParams, ...params, filter.pageSize, offset],
       ),
       db.query<Array<{ total: number }>>(
         `SELECT COUNT(*) AS total FROM skus s WHERE ${where}`,
@@ -190,6 +216,84 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
        FROM sku_unit_conversions
        WHERE tenant_id = ? AND sku_id = ?`,
       [this.tenantId, skuId],
+    );
+  }
+
+  async getCustomerRefs(skuId: number): Promise<Array<{
+    customerId: number;
+    customerCode: string;
+    customerName: string;
+    customerSkuCode: string;
+    customerSkuName: string | null;
+    status: 'active' | 'inactive';
+  }>> {
+    return AppDataSource.query(
+      `SELECT
+         csr.customer_id AS customerId,
+         c.code AS customerCode,
+         c.name AS customerName,
+         csr.customer_sku_code AS customerSkuCode,
+         csr.customer_sku_name AS customerSkuName,
+         csr.status AS status
+       FROM customer_sku_refs csr
+       INNER JOIN customers c
+         ON c.id = csr.customer_id
+        AND c.tenant_id = csr.tenant_id
+       WHERE csr.tenant_id = ? AND csr.sku_id = ?
+       ORDER BY c.name ASC`,
+      [this.tenantId, skuId],
+    );
+  }
+
+  async replaceCustomerRefs(
+    skuId: number,
+    refs: Array<{
+      customerId: number;
+      customerSkuCode: string;
+      customerSkuName?: string;
+      status?: 'active' | 'inactive';
+    }>,
+  ): Promise<void> {
+    await AppDataSource.transaction(async (manager) => {
+      await manager.query(
+        `DELETE FROM customer_sku_refs
+         WHERE tenant_id = ? AND sku_id = ?`,
+        [this.tenantId, skuId],
+      );
+
+      for (const ref of refs) {
+        await manager.query(
+          `INSERT INTO customer_sku_refs
+             (tenant_id, customer_id, sku_id, customer_sku_code, customer_sku_name, status, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            this.tenantId,
+            ref.customerId,
+            skuId,
+            ref.customerSkuCode,
+            ref.customerSkuName ?? null,
+            ref.status ?? 'active',
+            this.currentUserId,
+            this.currentUserId,
+          ],
+        );
+      }
+    });
+  }
+
+  async pruneCustomerRefsForScope(
+    skuId: number,
+    brandScope: 'factory' | 'customer',
+    brandCustomerId: number | null,
+  ): Promise<void> {
+    if (brandScope !== 'customer' || !brandCustomerId) {
+      return;
+    }
+
+    await AppDataSource.query(
+      `DELETE FROM customer_sku_refs
+       WHERE tenant_id = ? AND sku_id = ? AND customer_id <> ?`,
+      [this.tenantId, skuId, brandCustomerId],
     );
   }
 

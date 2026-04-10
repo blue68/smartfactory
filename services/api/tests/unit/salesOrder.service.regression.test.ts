@@ -96,4 +96,37 @@ describe('SalesOrderService regressions', () => {
       approvalNotes: null,
     });
   });
+
+  it('rejects creating an order when a customer-only sku belongs to another customer', async () => {
+    mockAppDataSource.query
+      .mockResolvedValueOnce([{ cnt: '0' }])
+      .mockResolvedValueOnce([{ id: 1001, status: 'active' }])
+      .mockResolvedValueOnce([{
+        id: 501,
+        status: 'active',
+        category1Code: 'FINISHED',
+        brandScope: 'customer',
+        brandCustomerId: 2002,
+        customerSkuCode: null,
+        customerSkuName: null,
+      }]);
+
+    const svc = new SalesOrderService({ tenantId: 9999, userId: 99001 });
+
+    await expect(svc.create({
+      customerId: 1001,
+      orderDate: '2026-04-11',
+      deliveryDate: '2026-04-20',
+      isUrgent: false,
+      items: [
+        {
+          skuId: 501,
+          quantity: '2',
+          unitPrice: '10.00',
+        },
+      ],
+    })).rejects.toThrow('仅允许所属客户下单');
+
+    expect(mockAppDataSource.transaction).not.toHaveBeenCalled();
+  });
 });

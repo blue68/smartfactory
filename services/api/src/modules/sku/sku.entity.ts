@@ -3,6 +3,8 @@ import {
   UpdateDateColumn, Index,
 } from 'typeorm';
 
+export type SkuBrandScope = 'factory' | 'customer';
+
 @Entity('skus')
 @Index(['tenantId', 'skuCode'], { unique: true })
 @Index(['tenantId', 'category1Id'])
@@ -40,6 +42,12 @@ export class SkuEntity {
 
   @Column({ name: 'production_unit', length: 20 })
   productionUnit: string;
+
+  @Column({ name: 'brand_scope', type: 'enum', enum: ['factory', 'customer'], default: 'factory' })
+  brandScope: SkuBrandScope;
+
+  @Column({ name: 'brand_customer_id', type: 'bigint', unsigned: true, nullable: true })
+  brandCustomerId: number | null;
 
   @Column({ name: 'stock_conv_factor', type: 'decimal', precision: 10, scale: 4, default: 1 })
   stockConvFactor: number;

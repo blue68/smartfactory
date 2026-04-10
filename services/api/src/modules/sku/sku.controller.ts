@@ -39,6 +39,14 @@ const CreateSkuSchema = z.object({
   useFifo: z.boolean().optional(),
   safetyStock: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
   description: z.string().optional(),
+  brandScope: z.enum(['factory', 'customer']).optional(),
+  brandCustomerId: z.number().int().positive().nullable().optional(),
+  customerRefs: z.array(z.object({
+    customerId: z.number().int().positive(),
+    customerSkuCode: z.string().min(1).max(100),
+    customerSkuName: z.string().max(200).optional(),
+    status: z.enum(['active', 'inactive']).optional(),
+  })).optional(),
 });
 
 /**
@@ -68,6 +76,7 @@ const ListSkuQuerySchema = PaginationSchema.extend({
   keyword: z.string().max(100).optional(),
   hasDyeLot: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
   status: z.enum(['active', 'inactive']).optional(),
+  customerId: z.coerce.number().int().positive().optional(),
 });
 
 const BatchStatusSchema = z.object({
@@ -129,6 +138,7 @@ export class SkuController {
       keyword: q.keyword,
       hasDyeLot: q.hasDyeLot,
       status: q.status,
+      customerId: q.customerId,
     });
     success(res, buildPaginated(list, total, q.page, q.pageSize));
   }

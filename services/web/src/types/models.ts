@@ -116,6 +116,17 @@ export interface UnitConversion {
   description?: string;
 }
 
+export type SkuBrandScope = 'factory' | 'customer';
+
+export interface CustomerSkuRef {
+  customerId: number;
+  customerCode?: string;
+  customerName?: string;
+  customerSkuCode: string;
+  customerSkuName?: string | null;
+  status: 'active' | 'inactive';
+}
+
 // ─────────────────────────────────────────────
 // SKU 主数据
 // ─────────────────────────────────────────────
@@ -137,6 +148,8 @@ export interface Sku {
   stockUnit: string;
   purchaseUnit: string;
   productionUnit: string;
+  brandScope?: SkuBrandScope;
+  brandCustomerId?: number | null;
   /** 生产单位换算系数（1 采购单位 = stockConvFactor 库存单位） */
   stockConvFactor?: number;
   /** 生产领用换算说明，如 "200×2400 mm²" */
@@ -147,6 +160,9 @@ export interface Sku {
   safetyStock: string | null;
   status: SkuStatus;
   description?: string;
+  customerSkuCode?: string | null;
+  customerSkuName?: string | null;
+  customerRefs?: CustomerSkuRef[];
   unitConversions?: UnitConversion[];
   /** 当前库存（联查，可能不存在） */
   qtyOnHand?: string;
@@ -164,6 +180,7 @@ export interface SkuListQuery {
   status?: SkuStatus;
   /** Comma-separated skuType values, e.g. "semi_finished,finished" */
   skuTypes?: string;
+  customerId?: number;
 }
 
 export interface CreateSkuPayload {
@@ -181,6 +198,9 @@ export interface CreateSkuPayload {
   description?: string;
   stockConvFactor?: number;
   prodConvNote?: string;
+  brandScope?: SkuBrandScope;
+  brandCustomerId?: number | null;
+  customerRefs?: CustomerSkuRef[];
 }
 
 export type UpdateSkuPayload = Partial<CreateSkuPayload>;

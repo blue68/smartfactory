@@ -74,6 +74,16 @@ export interface CreateSalesOrderParams {
   items: OrderItemInput[];
 }
 
+interface OrderSkuAccessRow {
+  id: number;
+  status: string;
+  category1Code: string | null;
+  brandScope: 'factory' | 'customer';
+  brandCustomerId: number | null;
+  customerSkuCode: string | null;
+  customerSkuName: string | null;
+}
+
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 export class SalesOrderService {
@@ -309,16 +319,21 @@ export class SalesOrderService {
 
     const items = await AppDataSource.query<Array<Record<string, unknown>>>(
       `SELECT soi.id, soi.order_id AS orderId, soi.sku_id AS productId,
-              COALESCE(s.sku_code, CONCAT('SKU#', soi.sku_id)) AS productCode,
-              COALESCE(s.name, CONCAT('SKU#', soi.sku_id)) AS productName, s.spec,
+              COALESCE(soi.customer_sku_code_snapshot, csr.customer_sku_code, s.sku_code, CONCAT('SKU#', soi.sku_id)) AS productCode,
+              COALESCE(soi.customer_sku_name_snapshot, csr.customer_sku_name, s.name, CONCAT('SKU#', soi.sku_id)) AS productName, s.spec,
               soi.qty_ordered AS quantity, soi.qty_ordered AS qtyOrdered,
               COALESCE(soi.qty_delivered, 0) AS qtyDelivered, COALESCE(s.stock_unit, '件') AS unit,
               soi.unit_price AS unitPrice, soi.amount, NULL AS notes
        FROM sales_order_items soi
        LEFT JOIN skus s ON s.id = soi.sku_id AND s.tenant_id = soi.tenant_id
+       LEFT JOIN customer_sku_refs csr
+         ON csr.sku_id = soi.sku_id
+        AND csr.tenant_id = soi.tenant_id
+        AND csr.customer_id = ?
+        AND csr.status = 'active'
        WHERE soi.order_id = ? AND soi.tenant_id = ?
       ORDER BY soi.id ASC`,
-      [id, this.tenantId],
+      [Number(orderRow.customerId), id, this.tenantId],
     );
 
     const productionOrders = await AppDataSource.query<Array<Record<string, unknown>>>(
@@ -386,6 +401,7 @@ export class SalesOrderService {
     }
 
     const orderNo = await this._generateOrderNo();
+    const orderItemContext = await this._resolveOrderItemContext(params.customerId, params.items);
     const totalAmount = this._calcTotal(params.items);
 
     // 保存草稿时始终为 draft；正式创建时紧急订单进入 pending_approval
@@ -413,7 +429,7 @@ export class SalesOrderService {
       );
       const orderId = Number(result.insertId);
 
-      await this._insertItems(manager, orderId, params.items);
+      await this._insertItems(manager, orderId, params.items, orderItemContext);
       await this._writeAuditLog(manager, {
         action: 'CREATE',
         targetId: orderId,
@@ -444,6 +460,7 @@ export class SalesOrderService {
     if (!items || items.length === 0) {
       throw AppError.badRequest('至少需要一条明细行');
     }
+    const orderItemContext = await this._resolveOrderItemContext(order.customerId, items);
 
     const totalAmount = this._calcTotal(items);
 
@@ -454,7 +471,7 @@ export class SalesOrderService {
         [id, this.tenantId],
       );
       // 插入新明细
-      await this._insertItems(manager, id, items);
+      await this._insertItems(manager, id, items, orderItemContext);
       // 同步更新总金额
       await manager.query(
         `UPDATE sales_orders SET total_amount = ?, updated_by = ? WHERE id = ? AND tenant_id = ?`,
@@ -635,6 +652,11 @@ export class SalesOrderService {
     await AppDataSource.transaction(async (manager) => {
       const updates: string[] = [];
       const values: unknown[] = [];
+      const nextCustomerId = params.customerId ?? order.customerId;
+      const nextItems = params.items && params.items.length > 0 ? params.items : undefined;
+      const orderItemContext = nextItems
+        ? await this._resolveOrderItemContext(nextCustomerId, nextItems)
+        : null;
 
       if (params.customerId !== undefined) { updates.push('customer_id = ?'); values.push(params.customerId); }
       if (params.deliveryDate !== undefined) { updates.push('expected_delivery = ?'); values.push(params.deliveryDate); }
@@ -646,7 +668,7 @@ export class SalesOrderService {
         updates.push('total_amount = ?');
         values.push(totalAmount);
         await manager.query(`DELETE FROM sales_order_items WHERE order_id = ? AND tenant_id = ?`, [id, this.tenantId]);
-        await this._insertItems(manager, id, params.items);
+        await this._insertItems(manager, id, params.items, orderItemContext ?? new Map());
       }
 
       if (updates.length > 0) {
@@ -1032,21 +1054,100 @@ export class SalesOrderService {
     manager: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
     orderId: number,
     items: OrderItemInput[],
+    itemContextBySkuId: Map<number, { customerSkuCode: string | null; customerSkuName: string | null }>,
   ): Promise<void> {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const amount = new Decimal(item.quantity).mul(item.unitPrice).toFixed(2);
+      const itemContext = itemContextBySkuId.get(item.skuId) ?? {
+        customerSkuCode: null,
+        customerSkuName: null,
+      };
       await manager.query(
         `INSERT INTO sales_order_items
-           (tenant_id, order_id, sku_id, qty_ordered, unit_price, amount, created_by, updated_by)
-         VALUES (?,?,?,?,?,?,?,?)`,
+           (tenant_id, order_id, sku_id, customer_sku_code_snapshot, customer_sku_name_snapshot, qty_ordered, unit_price, amount, created_by, updated_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
         [
           this.tenantId, orderId, item.skuId,
+          itemContext.customerSkuCode, itemContext.customerSkuName,
           item.quantity, item.unitPrice, amount,
           this.userId, this.userId,
         ],
       );
     }
+  }
+
+  private async _resolveOrderItemContext(
+    customerId: number,
+    items: OrderItemInput[],
+  ): Promise<Map<number, { customerSkuCode: string | null; customerSkuName: string | null }>> {
+    const [customerRow] = await AppDataSource.query<Array<{ id: number; status: string }>>(
+      `SELECT id, status
+       FROM customers
+       WHERE tenant_id = ? AND id = ?
+       LIMIT 1`,
+      [this.tenantId, customerId],
+    );
+    if (!customerRow) {
+      throw AppError.badRequest(`客户 #${customerId} 不存在`, ResponseCode.CUSTOMER_NOT_FOUND);
+    }
+    if (customerRow.status !== 'active') {
+      throw AppError.badRequest(`客户 #${customerId} 已停用，不能创建销售订单`);
+    }
+
+    const skuIds = Array.from(new Set(items.map((item) => Number(item.skuId)).filter((id) => Number.isInteger(id) && id > 0)));
+    if (skuIds.length === 0) {
+      return new Map();
+    }
+
+    const rows = await AppDataSource.query<OrderSkuAccessRow[]>(
+      `SELECT
+         s.id,
+         s.status,
+         c1.code AS category1Code,
+         s.brand_scope AS brandScope,
+         s.brand_customer_id AS brandCustomerId,
+         csr.customer_sku_code AS customerSkuCode,
+         csr.customer_sku_name AS customerSkuName
+       FROM skus s
+       LEFT JOIN sku_categories c1
+         ON c1.id = s.category1_id
+       LEFT JOIN customer_sku_refs csr
+         ON csr.sku_id = s.id
+        AND csr.tenant_id = s.tenant_id
+        AND csr.customer_id = ?
+        AND csr.status = 'active'
+       WHERE s.tenant_id = ?
+         AND s.id IN (${skuIds.map(() => '?').join(', ')})`,
+      [customerId, this.tenantId, ...skuIds],
+    );
+    const skuMap = new Map(rows.map((row) => [Number(row.id), row]));
+
+    for (const skuId of skuIds) {
+      const skuRow = skuMap.get(skuId);
+      if (!skuRow) {
+        throw AppError.badRequest(`SKU #${skuId} 不存在`, ResponseCode.SKU_NOT_FOUND);
+      }
+      if (skuRow.status !== 'active') {
+        throw AppError.badRequest(`SKU #${skuId} 已停用，不能下单`);
+      }
+      if (skuRow.category1Code !== 'FINISHED') {
+        throw AppError.badRequest(`SKU #${skuId} 不是成品 SKU，不能用于销售订单`);
+      }
+      if (skuRow.brandScope === 'customer' && Number(skuRow.brandCustomerId) !== customerId) {
+        throw AppError.badRequest(`SKU #${skuId} 仅允许所属客户下单`);
+      }
+    }
+
+    return new Map(
+      rows.map((row) => [
+        Number(row.id),
+        {
+          customerSkuCode: row.customerSkuCode ? String(row.customerSkuCode) : null,
+          customerSkuName: row.customerSkuName ? String(row.customerSkuName) : null,
+        },
+      ]),
+    );
   }
 
   /** 计算订单总金额（Decimal 精确计算） */

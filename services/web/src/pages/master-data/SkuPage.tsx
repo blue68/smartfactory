@@ -9,6 +9,7 @@ import { useAppStore } from '@/stores/appStore';
 import {
   skuApi,
   useSkuList,
+  useSkuDetail,
   useSkuCategories,
   useSkuStats,
   useCreateSku,
@@ -16,6 +17,7 @@ import {
   useBatchUpdateStatus,
   useBatchSetSafetyStock,
 } from '@/api/sku';
+import { useCustomerOptions } from '@/api/customer';
 import {
   SkuStatus,
   Category1Code,
@@ -23,7 +25,7 @@ import {
   Category2Code,
   Category2Label,
 } from '@/types/enums';
-import type { Sku, SkuCategory, SkuListQuery } from '@/types/models';
+import type { CustomerSkuRef, Sku, SkuBrandScope, SkuCategory, SkuListQuery } from '@/types/models';
 import type { Column } from '@/components/common/Table';
 import Table from '@/components/common/Table';
 import Drawer from '@/components/common/Drawer';
@@ -66,7 +68,17 @@ interface SkuFormData {
   safetyStock: string;
   hasDyeLot: boolean;
   useFifo: boolean;
+  brandScope: SkuBrandScope;
+  brandCustomerId: number | '';
+  customerRefs: EditableCustomerSkuRef[];
   description: string;
+  status: 'active' | 'inactive';
+}
+
+interface EditableCustomerSkuRef {
+  customerId: number | '';
+  customerSkuCode: string;
+  customerSkuName: string;
   status: 'active' | 'inactive';
 }
 
@@ -83,6 +95,9 @@ const EMPTY_FORM: SkuFormData = {
   safetyStock: '',
   hasDyeLot: false,
   useFifo: true,
+  brandScope: 'factory',
+  brandCustomerId: '',
+  customerRefs: [],
   description: '',
   status: 'active',
 };
@@ -103,6 +118,38 @@ function getCat2ByParentCode(catData: SkuCategory[], cat1Code: Category1Code): S
 
 function getCat1IdByCode(catData: SkuCategory[], code: Category1Code): number | undefined {
   return catData.find((c) => c.level === 1 && c.code === code)?.id;
+}
+
+function toEditableCustomerRefs(refs?: CustomerSkuRef[]): EditableCustomerSkuRef[] {
+  return (refs ?? []).map((ref) => ({
+    customerId: Number(ref.customerId) || '',
+    customerSkuCode: ref.customerSkuCode ?? '',
+    customerSkuName: ref.customerSkuName ?? '',
+    status: ref.status ?? 'active',
+  }));
+}
+
+function buildSkuFormData(sku: Sku, catData: SkuCategory[]): SkuFormData {
+  const cat1Code = getCat1CodeFromId(catData, sku.category1Id) ?? '';
+  return {
+    name: sku.name,
+    category1Code: cat1Code,
+    category2Id: sku.category2Id,
+    spec: sku.spec ?? '',
+    purchaseUnit: sku.purchaseUnit,
+    stockUnit: sku.stockUnit,
+    stockConvFactor: String(sku.stockConvFactor ?? 1),
+    productionUnit: sku.productionUnit,
+    prodConvNote: sku.prodConvNote ?? '',
+    safetyStock: sku.safetyStock ?? '',
+    hasDyeLot: sku.hasDyeLot,
+    useFifo: sku.useFifo,
+    brandScope: sku.brandScope ?? 'factory',
+    brandCustomerId: sku.brandCustomerId ?? '',
+    customerRefs: toEditableCustomerRefs(sku.customerRefs),
+    description: sku.description ?? '',
+    status: sku.status === SkuStatus.INACTIVE ? 'inactive' : 'active',
+  };
 }
 
 // ──────────────────────────────────────────────
@@ -138,8 +185,15 @@ export default function SkuPage() {
   // 数据
   const { data: rawCatData } = useSkuCategories();
   const catData: SkuCategory[] = useMemo(() => rawCatData ?? [], [rawCatData]);
+  const { data: customerOptions = [] } = useCustomerOptions();
   const { data: statsData } = useSkuStats();
   const { data, isLoading, error } = useSkuList(query);
+  const activeSkuId = drawerMode && editingSku ? Number(editingSku.id) : null;
+  const { data: skuDetail } = useSkuDetail(
+    drawerMode === 'edit' || drawerMode === 'detail'
+      ? activeSkuId
+      : null,
+  );
 
   // Mutations
   const createMutation       = useCreateSku();
@@ -163,6 +217,13 @@ export default function SkuPage() {
       ? getCat2ByParentCode(catData, skuForm.category1Code)
       : cat2Options,
     [catData, skuForm.category1Code, cat2Options],
+  );
+  const customerLabelById = useMemo(
+    () => new Map(customerOptions.map((customer) => [
+      Number(customer.id),
+      `${customer.name}（${customer.code}）`,
+    ])),
+    [customerOptions],
   );
 
   // SKU 列表
@@ -200,23 +261,7 @@ export default function SkuPage() {
   }, []);
 
   const openEdit = useCallback((sku: Sku) => {
-    const cat1Code = getCat1CodeFromId(catData, sku.category1Id) ?? '';
-    setSkuForm({
-      name: sku.name,
-      category1Code: cat1Code,
-      category2Id: sku.category2Id,
-      spec: sku.spec ?? '',
-      purchaseUnit: sku.purchaseUnit,
-      stockUnit: sku.stockUnit,
-      stockConvFactor: String(sku.stockConvFactor ?? 1),
-      productionUnit: sku.productionUnit,
-      prodConvNote: sku.prodConvNote ?? '',
-      safetyStock: sku.safetyStock ?? '',
-      hasDyeLot: sku.hasDyeLot,
-      useFifo: sku.useFifo,
-      description: sku.description ?? '',
-      status: sku.status === SkuStatus.INACTIVE ? 'inactive' : 'active',
-    });
+    setSkuForm(buildSkuFormData(sku, catData));
     setEditingSku(sku);
     setDrawerMode('edit');
   }, [catData]);
@@ -231,17 +276,53 @@ export default function SkuPage() {
     setEditingSku(null);
   }, []);
 
+  useEffect(() => {
+    if (!skuDetail || (drawerMode !== 'edit' && drawerMode !== 'detail')) return;
+    setEditingSku(skuDetail);
+    if (drawerMode === 'edit') {
+      setSkuForm(buildSkuFormData(skuDetail, catData));
+    }
+  }, [skuDetail, drawerMode, catData]);
+
   // ── 表单提交 ──
   const handleSave = useCallback(async () => {
-    const { name, category1Code, category2Id, stockUnit, purchaseUnit } = skuForm;
+    const { name, category1Code, category2Id, stockUnit, purchaseUnit, brandScope, brandCustomerId } = skuForm;
     if (!name.trim()) { showToast({ type: 'warning', message: '请填写物料名称' }); return; }
     if (!category1Code) { showToast({ type: 'warning', message: '请选择物料分类（一级）' }); return; }
     if (!category2Id) { showToast({ type: 'warning', message: '请选择二级品类' }); return; }
     if (!stockUnit) { showToast({ type: 'warning', message: '请填写库存单位' }); return; }
     if (!purchaseUnit) { showToast({ type: 'warning', message: '请填写采购单位' }); return; }
+    if (brandScope === 'customer' && !brandCustomerId) {
+      showToast({ type: 'warning', message: '客户专属 SKU 必须选择所属客户' });
+      return;
+    }
 
     const cat1Id = getCat1IdByCode(catData, category1Code);
     if (!cat1Id) { showToast({ type: 'warning', message: '无法识别一级分类，请重新选择' }); return; }
+
+    const normalizedCustomerRefs = skuForm.customerRefs
+      .filter((ref) => ref.customerId || ref.customerSkuCode.trim() || ref.customerSkuName.trim())
+      .map((ref) => ({
+        customerId: Number(ref.customerId),
+        customerSkuCode: ref.customerSkuCode.trim(),
+        customerSkuName: ref.customerSkuName.trim() || undefined,
+        status: ref.status,
+      }));
+
+    for (const ref of normalizedCustomerRefs) {
+      if (!Number.isInteger(ref.customerId) || ref.customerId <= 0) {
+        showToast({ type: 'warning', message: '客户编码映射需要先选择客户' });
+        return;
+      }
+      if (!ref.customerSkuCode) {
+        showToast({ type: 'warning', message: '客户编码映射中的客户 SKU 编码不能为空' });
+        return;
+      }
+      if (brandScope === 'customer' && Number(brandCustomerId) !== ref.customerId) {
+        showToast({ type: 'warning', message: '客户专属 SKU 只能维护所属客户的客户编码' });
+        return;
+      }
+    }
 
     const payload = {
       name: name.trim(),
@@ -256,6 +337,9 @@ export default function SkuPage() {
       safetyStock: skuForm.safetyStock || undefined,
       hasDyeLot: Boolean(skuForm.hasDyeLot),
       useFifo: Boolean(skuForm.useFifo),
+      brandScope,
+      brandCustomerId: brandScope === 'customer' ? Number(brandCustomerId) : null,
+      customerRefs: normalizedCustomerRefs,
       description: skuForm.description || undefined,
       status: skuForm.status,
     };
@@ -790,6 +874,7 @@ export default function SkuPage() {
           cat1Options={cat1Options}
           cat2Options={formCat2Options}
           editingSku={editingSku}
+          customerOptions={customerOptions}
         />
       </Drawer>
 
@@ -810,7 +895,7 @@ export default function SkuPage() {
           </div>
         }
       >
-        {editingSku && <SkuDetailContent sku={editingSku} />}
+        {editingSku && <SkuDetailContent sku={editingSku} customerLabelById={customerLabelById} />}
       </Drawer>
 
       {/* ── 批量设置安全库存 Modal ── */}
@@ -866,6 +951,7 @@ interface SkuFormDrawerContentProps {
   cat1Options: SkuCategory[];
   cat2Options: SkuCategory[];
   editingSku: Sku | null;
+  customerOptions: Array<{ id: number; code: string; name: string }>;
 }
 
 function SkuFormDrawerContent({
@@ -875,6 +961,7 @@ function SkuFormDrawerContent({
   cat1Options,
   cat2Options,
   editingSku,
+  customerOptions,
 }: SkuFormDrawerContentProps) {
   const set = useCallback(
     (field: keyof SkuFormData) =>
@@ -900,6 +987,46 @@ function SkuFormDrawerContent({
 
   // 自动生成编码（显示用，只读）
   const autoCode = editingSku?.skuCode ?? '（系统自动生成）';
+  const setBrandScope = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const nextScope = e.target.value as SkuBrandScope;
+      onChange((current) => ({
+        ...current,
+        brandScope: nextScope,
+        brandCustomerId: nextScope === 'factory' ? '' : current.brandCustomerId,
+      }));
+    },
+    [onChange],
+  );
+  const addCustomerRefRow = useCallback(() => {
+    onChange((current) => ({
+      ...current,
+      customerRefs: [
+        ...current.customerRefs,
+        { customerId: '', customerSkuCode: '', customerSkuName: '', status: 'active' },
+      ],
+    }));
+  }, [onChange]);
+  const updateCustomerRef = useCallback(
+    <K extends keyof EditableCustomerSkuRef>(index: number, field: K, value: EditableCustomerSkuRef[K]) => {
+      onChange((current) => ({
+        ...current,
+        customerRefs: current.customerRefs.map((ref, refIndex) => (
+          refIndex === index ? { ...ref, [field]: value } : ref
+        )),
+      }));
+    },
+    [onChange],
+  );
+  const removeCustomerRef = useCallback(
+    (index: number) => {
+      onChange((current) => ({
+        ...current,
+        customerRefs: current.customerRefs.filter((_, refIndex) => refIndex !== index),
+      }));
+    },
+    [onChange],
+  );
 
   return (
     <div className={styles.form_wrap}>
@@ -1103,6 +1230,108 @@ function SkuFormDrawerContent({
         </label>
       </div>
 
+      <div className={styles.form_section_title}>品牌与客户编码</div>
+
+      <div className={styles.form_field}>
+        <label className={styles.form_label}>品牌归属</label>
+        <select
+          className={styles.form_input}
+          value={form.brandScope}
+          onChange={setBrandScope}
+        >
+          <option value="factory">工厂自主品牌</option>
+          <option value="customer">客户专属</option>
+        </select>
+        <span className={styles.form_hint}>
+          工厂自主品牌 SKU 对全部客户开放；客户专属 SKU 仅允许所属客户下单。
+        </span>
+      </div>
+
+      {form.brandScope === 'customer' && (
+        <div className={styles.form_field}>
+          <label className={styles.form_label}>
+            所属客户 <span className={styles.required}>*</span>
+          </label>
+          <select
+            className={styles.form_input}
+            value={form.brandCustomerId}
+            onChange={(e) => onChange((current) => ({
+              ...current,
+              brandCustomerId: e.target.value ? Number(e.target.value) : '',
+              customerRefs: current.customerRefs.filter((ref) => !ref.customerId || Number(ref.customerId) === Number(e.target.value)),
+            }))}
+          >
+            <option value="">请选择客户</option>
+            {customerOptions.map((customer) => (
+              <option key={customer.id} value={customer.id}>
+                {customer.name}（{customer.code}）
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div className={styles.form_field}>
+        <label className={styles.form_label}>客户编码映射</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {form.customerRefs.length === 0 && (
+            <div className={styles.form_hint}>未维护客户侧编码；销售订单将默认显示工厂内部 SKU 编码。</div>
+          )}
+          {form.customerRefs.map((ref, index) => (
+            <div
+              key={`${index}-${ref.customerId}-${ref.customerSkuCode}`}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1.4fr 1.1fr 1.2fr 0.8fr auto',
+                gap: 8,
+                alignItems: 'center',
+              }}
+            >
+              <select
+                className={styles.form_input}
+                value={ref.customerId}
+                onChange={(e) => updateCustomerRef(index, 'customerId', e.target.value ? Number(e.target.value) : '')}
+              >
+                <option value="">客户</option>
+                {customerOptions.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name}（{customer.code}）
+                  </option>
+                ))}
+              </select>
+              <input
+                className={styles.form_input}
+                value={ref.customerSkuCode}
+                onChange={(e) => updateCustomerRef(index, 'customerSkuCode', e.target.value)}
+                placeholder="客户SKU编码"
+              />
+              <input
+                className={styles.form_input}
+                value={ref.customerSkuName}
+                onChange={(e) => updateCustomerRef(index, 'customerSkuName', e.target.value)}
+                placeholder="客户SKU名称"
+              />
+              <select
+                className={styles.form_input}
+                value={ref.status}
+                onChange={(e) => updateCustomerRef(index, 'status', e.target.value as 'active' | 'inactive')}
+              >
+                <option value="active">启用</option>
+                <option value="inactive">停用</option>
+              </select>
+              <Button variant="ghost" size="sm" onClick={() => removeCustomerRef(index)}>
+                删除
+              </Button>
+            </div>
+          ))}
+          <div>
+            <Button variant="secondary" size="sm" onClick={addCustomerRefRow}>
+              添加客户编码
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {/* ─ 状态 ─ */}
       {!isNew && (
         <>
@@ -1139,11 +1368,21 @@ function SkuFormDrawerContent({
 // ──────────────────────────────────────────────
 // 子组件：SKU 详情
 // ──────────────────────────────────────────────
-function SkuDetailContent({ sku }: { sku: Sku }) {
+function SkuDetailContent({
+  sku,
+  customerLabelById,
+}: {
+  sku: Sku;
+  customerLabelById: Map<number, string>;
+}) {
   const statusLabel: Record<SkuStatus, string> = {
     [SkuStatus.ACTIVE]: '启用',
     [SkuStatus.INACTIVE]: '停用',
   };
+  const brandScopeLabel = sku.brandScope === 'customer' ? '客户专属' : '工厂自主品牌';
+  const ownerCustomerLabel = sku.brandCustomerId
+    ? (customerLabelById.get(Number(sku.brandCustomerId)) ?? `客户 #${sku.brandCustomerId}`)
+    : '全部客户可下单';
 
   return (
     <div>
@@ -1244,6 +1483,44 @@ function SkuDetailContent({ sku }: { sku: Sku }) {
           {sku.hasDyeLot && <Tag variant="dye-lot">需缸号管理</Tag>}
           {sku.useFifo && <Tag variant="info">FIFO先进先出</Tag>}
           {!sku.hasDyeLot && !sku.useFifo && <span style={{ color: '#9ca3af', fontSize: 13 }}>无特殊属性</span>}
+        </div>
+      </div>
+
+      <div className={styles.detail_section}>
+        <div className={styles.detail_section_title}>品牌与客户编码</div>
+        <div className={styles.detail_grid}>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>品牌归属</div>
+            <div className={styles.detail_item_value}>{brandScopeLabel}</div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>所属客户</div>
+            <div className={styles.detail_item_value}>{ownerCustomerLabel}</div>
+          </div>
+        </div>
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {(sku.customerRefs ?? []).length === 0 && (
+            <span style={{ color: '#9ca3af', fontSize: 13 }}>未维护客户侧 SKU 编码映射</span>
+          )}
+          {(sku.customerRefs ?? []).map((ref) => (
+            <div
+              key={`${ref.customerId}-${ref.customerSkuCode}`}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1.2fr 1fr 1fr auto',
+                gap: 8,
+                fontSize: 13,
+                color: '#374151',
+              }}
+            >
+              <span>{ref.customerName ?? customerLabelById.get(Number(ref.customerId)) ?? `客户 #${ref.customerId}`}</span>
+              <span>{ref.customerSkuCode}</span>
+              <span>{ref.customerSkuName ?? '—'}</span>
+              <Tag variant={ref.status === 'active' ? 'success' : 'neutral'}>
+                {ref.status === 'active' ? '启用' : '停用'}
+              </Tag>
+            </div>
+          ))}
         </div>
       </div>
 

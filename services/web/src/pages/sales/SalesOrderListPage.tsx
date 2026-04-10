@@ -213,6 +213,14 @@ function emptyLineItem(): DraftLineItem {
   return { skuId: '', productCode: '', productName: '', quantity: 1, unit: '件', unitPrice: 0 };
 }
 
+function getVisibleSkuCode(sku: { skuCode: string; customerSkuCode?: string | null }): string {
+  return sku.customerSkuCode ?? sku.skuCode;
+}
+
+function getVisibleSkuName(sku: { name: string; customerSkuName?: string | null }): string {
+  return sku.customerSkuName ?? sku.name;
+}
+
 function buildAssessmentLinesFromDraftItems(items: DraftLineItem[]): AssessmentLineInput[] {
   return items
     .map((item) => ({
@@ -523,7 +531,13 @@ interface CreateOrderModalProps {
 function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: CreateOrderModalProps) {
   const qc = useQueryClient();
   const { data: customerList = [] } = useCustomerOptions();
-  const { data: skuPage } = useSkuList({ pageSize: 200, skuTypes: 'finished' });
+  const [customerId, setCustomerId] = useState<number | ''>('');
+  const { data: skuPage } = useSkuList({
+    pageSize: 200,
+    skuTypes: 'finished',
+    customerId: Number(customerId) > 0 ? Number(customerId) : undefined,
+  });
+  const skuOptionsLoaded = Boolean(skuPage);
   const createOrder = useCreateSalesOrder();
   const isEdit = Boolean(initialOrder);
   const skuOptions = useMemo(
@@ -534,7 +548,6 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
     [skuPage],
   );
 
-  const [customerId, setCustomerId] = useState<number | ''>('');
   const [orderDate, setOrderDate] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
   const [urgent, setUrgent] = useState(false);
@@ -645,6 +658,24 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
   }, [skuOptions]);
 
   useEffect(() => {
+    if (!customerId) return;
+    if (!skuOptionsLoaded) return;
+    setItems((prev) => prev.map((item) => {
+      if (!item.skuId) return item;
+      const selectedSku = skuOptions.find((sku) => Number(sku.id) === Number(item.skuId));
+      if (!selectedSku) {
+        return emptyLineItem();
+      }
+      return {
+        ...item,
+        productCode: getVisibleSkuCode(selectedSku),
+        productName: getVisibleSkuName(selectedSku),
+        unit: selectedSku.stockUnit || item.unit || '件',
+      };
+    }));
+  }, [customerId, skuOptions, skuOptionsLoaded]);
+
+  useEffect(() => {
     if (!open) return;
     handleReset();
   }, [open, handleReset]);
@@ -694,8 +725,8 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
       next[idx] = {
         ...next[idx],
         skuId,
-        productCode: selectedSku?.skuCode ?? '',
-        productName: selectedSku?.name ?? '',
+        productCode: selectedSku ? getVisibleSkuCode(selectedSku) : '',
+        productName: selectedSku ? getVisibleSkuName(selectedSku) : '',
         unit: selectedSku?.stockUnit ?? next[idx].unit,
       };
       return next;
@@ -714,8 +745,8 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
       return {
         ...item,
         skuId,
-        productCode: item.productCode || selectedSku?.skuCode || '',
-        productName: item.productName || selectedSku?.name || `SKU#${skuId}`,
+        productCode: item.productCode || (selectedSku ? getVisibleSkuCode(selectedSku) : '') || '',
+        productName: item.productName || (selectedSku ? getVisibleSkuName(selectedSku) : '') || `SKU#${skuId}`,
         unit: item.unit || selectedSku?.stockUnit || '件',
       };
     });
@@ -777,7 +808,11 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
           <select
             className={styles.select}
             value={customerId}
-            onChange={(e) => setCustomerId(Number(e.target.value) || '')}
+            onChange={(e) => {
+              const nextCustomerId = Number(e.target.value) || '';
+              setCustomerId(nextCustomerId);
+              setItems((prev) => prev.map((item) => (item.skuId ? emptyLineItem() : item)));
+            }}
           >
             <option value="">请选择客户</option>
             {customerList.map((c) => (
@@ -851,11 +886,12 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
                       className={styles.cellInput}
                       value={item.skuId}
                       onChange={(e) => handleSkuChange(idx, e.target.value)}
+                      disabled={!customerId}
                     >
-                      <option value="">请选择 SKU</option>
+                      <option value="">{customerId ? '请选择 SKU' : '请先选择客户'}</option>
                       {skuOptions.map((sku) => (
                         <option key={sku.id} value={sku.id}>
-                          {sku.skuCode} · {sku.name}
+                          {getVisibleSkuCode(sku)} · {getVisibleSkuName(sku)}
                         </option>
                       ))}
                     </select>

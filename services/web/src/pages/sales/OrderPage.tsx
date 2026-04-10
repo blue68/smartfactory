@@ -141,17 +141,20 @@ interface FormState {
   notes: string;
 }
 
+function getVisibleSkuCode(sku: { skuCode: string; customerSkuCode?: string | null }): string {
+  return sku.customerSkuCode ?? sku.skuCode;
+}
+
+function getVisibleSkuName(sku: { name: string; customerSkuName?: string | null }): string {
+  return sku.customerSkuName ?? sku.name;
+}
+
 export default function OrderPage() {
   const { setPageTitle, showToast } = useAppStore();
   const navigate = useNavigate();
 
   // ─── 真实 API 数据：客户列表 & 成品 SKU 列表 ─────────────────────────────
   const { data: customerOptions = [] } = useCustomerOptions();
-  const { data: skuPage } = useSkuList({ pageSize: 200, skuTypes: 'finished' });
-  const finishedSkus = useMemo(
-    () => (skuPage?.list ?? []).filter((sku) => sku.category1Code === 'FINISHED'),
-    [skuPage],
-  );
 
   const [form, setForm] = useState<FormState>({
     customer: '',
@@ -162,6 +165,16 @@ export default function OrderPage() {
     deadline: '',
     notes: '',
   });
+  const selectedCustomerId = Number(form.customer) > 0 ? Number(form.customer) : undefined;
+  const { data: skuPage } = useSkuList({
+    pageSize: 200,
+    skuTypes: 'finished',
+    customerId: selectedCustomerId,
+  });
+  const finishedSkus = useMemo(
+    () => (skuPage?.list ?? []).filter((sku) => sku.category1Code === 'FINISHED'),
+    [skuPage],
+  );
 
   const [showConstraintCard, setShowConstraintCard] = useState(false);
   const [urgentModalOpen, setUrgentModalOpen] = useState(false);
@@ -205,7 +218,12 @@ export default function OrderPage() {
       setShowConstraintCard(false);
       setConstraintChecks([]);
     }
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((prev) => {
+      if (name === 'customer') {
+        return { ...prev, customer: value, product: '' };
+      }
+      return { ...prev, [name]: value };
+    });
   };
 
   const handleOrderTypeChange = (value: 'normal' | 'urgent') => {
@@ -317,7 +335,7 @@ export default function OrderPage() {
       items: [
         {
           skuId,
-          productName: selectedSku.name,
+          productName: getVisibleSkuName(selectedSku),
           quantity: Number(form.qty),
           unitPrice: form.unitPrice || '0',
         },
@@ -521,10 +539,13 @@ export default function OrderPage() {
                   className={styles.form_select}
                   value={form.product}
                   onChange={handleFormChange}
+                  disabled={!form.customer}
                 >
-                  <option value="">请选择产品</option>
+                  <option value="">{form.customer ? '请选择产品' : '请先选择客户'}</option>
                   {finishedSkus.map((s) => (
-                    <option key={s.id} value={String(s.id)}>{s.name} ({s.skuCode})</option>
+                    <option key={s.id} value={String(s.id)}>
+                      {getVisibleSkuName(s)} ({getVisibleSkuCode(s)})
+                    </option>
                   ))}
                 </select>
               </div>
