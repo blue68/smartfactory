@@ -16,7 +16,8 @@ import {
 } from '@/api/salesOrder';
 import { useCustomerOptions } from '@/api/customer';
 import { useSkuList } from '@/api/sku';
-import { ConstraintResult } from '@/types/enums';
+import { bomApi } from '@/api/bom';
+import { BomStatus, ConstraintResult } from '@/types/enums';
 import type {
   UrgentAnalysisResult,
   ConstraintCheck,
@@ -443,9 +444,15 @@ export default function OrderPage() {
 
       try {
         const selectedSkuId = Number(form.product);
+        const skuBomList = await bomApi.getList(selectedSkuId);
+        const preferredBom = skuBomList.find((bom) => bom.status === BomStatus.ACTIVE) ?? skuBomList[0];
+        const bomId = Number(preferredBom?.id);
+        if (!Number.isInteger(bomId) || bomId <= 0) {
+          throw new Error('当前产品未配置BOM，请先在BOM管理中创建并激活BOM');
+        }
         const analysisResult: UrgentAnalysisResult = await urgentMutation.mutateAsync({
           skuId: selectedSkuId,
-          bomId: 1,
+          bomId,
           qty: form.qty,
           expectedDelivery: form.deadline,
         });
