@@ -4,8 +4,8 @@
 
 .ai_float {
   position: fixed;
-  right: 24px;
-  bottom: 24px;
+  left: calc(100vw - 76px);
+  top: calc(100vh - 76px);
   z-index: var(--z-sticky);
   width: 52px;
   height: 52px;
@@ -19,6 +19,8 @@
   justify-content: center;
   box-shadow: var(--shadow-lg);
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  touch-action: none;
+  user-select: none;
 }
 
 .ai_float:hover {
