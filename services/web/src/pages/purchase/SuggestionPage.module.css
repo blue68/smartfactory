@@ -658,32 +658,6 @@
   gap: var(--space-3, 0.75rem);
 }
 
-/* ─── AI Float Button ──────────────────────────── */
-.ai_float_btn {
-  position: fixed;
-  bottom: 32px;
-  right: 32px;
-  width: 56px;
-  height: 56px;
-  border-radius: 9999px;
-  background: linear-gradient(135deg, #F97316, #EA580C);
-  color: #FFFFFF;
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 8px 24px rgba(249, 115, 22, 0.4);
-  font-size: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  transition: transform 150ms ease, box-shadow 150ms ease;
-}
-
-.ai_float_btn:hover {
-  transform: scale(1.08);
-  box-shadow: 0 12px 28px rgba(249, 115, 22, 0.5);
-}
-
 /* ─── Reject Modal Form ────────────────────────── */
 .reject_form {
   display: flex;
@@ -842,11 +816,6 @@
 
   .filter_tab {
     white-space: nowrap;
-  }
-
-  .ai_float_btn {
-    bottom: 20px;
-    right: 20px;
   }
 
   .detail_summary,

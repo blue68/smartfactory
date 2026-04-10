@@ -20,6 +20,7 @@ interface NavItem {
   actionCode?: string;
   badge?: number;
   group: string;
+  platformOnly?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -357,6 +358,7 @@ const NAV_ITEMS: NavItem[] = [
     roles: [UserRole.ADMIN, UserRole.BOSS],
     actionCode: ACTION_CODES.SYSTEM_AUDIT_VIEW,
     group: '系统管理',
+    platformOnly: true,
   },
   {
     path: '/ai-chat',
@@ -394,6 +396,9 @@ export default function Sidebar() {
     : null;
 
   const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.platformOnly && user?.scopeLevel !== 'platform') {
+      return false;
+    }
     if (menuCodeSet && item.menuCode) {
       return menuCodeSet.has(item.menuCode);
     }

@@ -316,6 +316,7 @@ function DateDivider({ label }: { label: string }) {
 export default function AiChatPage() {
   const navigate = useNavigate();
   const showToast = useAppStore((state) => state.showToast);
+  const setAiPanelOpen = useAppStore((state) => state.setAiPanelOpen);
   // ── 会话状态 ──
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     const loaded = loadConversations();
@@ -352,6 +353,11 @@ export default function AiChatPage() {
   // ── 当前活动会话 ──
   const activeConv = conversations.find((c) => c.id === activeConvId) ?? conversations[0];
   const messages = useMemo(() => activeConv?.messages ?? EMPTY_MESSAGES, [activeConv?.messages]);
+
+  // 进入完整 AI 页面时关闭浮层面板，避免与页面叠层冲突。
+  useEffect(() => {
+    setAiPanelOpen(false);
+  }, [setAiPanelOpen]);
 
   // ── 持久化 ──
   useEffect(() => {

@@ -784,13 +784,6 @@ export default function SuggestionPage() {
         </div>
       </Modal>
 
-      {/* ── AI Float Button ───────────────────────────────────────────────── */}
-      <button
-        className={styles.ai_float_btn}
-        aria-label="打开AI助手"
-      >
-        🤖
-      </button>
     </>
   );
 }

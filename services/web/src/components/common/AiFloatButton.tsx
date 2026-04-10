@@ -6,12 +6,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
+import { useAppStore } from '@/stores/appStore';
 import styles from './AiFloatButton.module.css';
 
 const BUTTON_SIZE = 52;
 const EDGE_GAP = 24;
 const DRAG_THRESHOLD = 6;
 const POSITION_STORAGE_KEY = 'sf_ai_float_button_position_v1';
+const HIDDEN_PATHS = new Set(['/ai-chat', '/purchase/suggestions']);
 
 interface FloatPosition {
   x: number;
@@ -38,6 +40,8 @@ export default function AiFloatButton() {
   const navigate = useNavigate();
   const location = useLocation();
   const user = useAuthStore((s) => s.user);
+  const setAiPanelOpen = useAppStore((s) => s.setAiPanelOpen);
+  const shouldHide = HIDDEN_PATHS.has(location.pathname) || user?.scopeLevel === 'platform';
   const [position, setPosition] = useState<FloatPosition | null>(null);
   const dragStateRef = useRef<{
     pointerId: number;
@@ -48,10 +52,8 @@ export default function AiFloatButton() {
     moved: boolean;
   } | null>(null);
 
-  // 在 AI 聊天页面和平台态不显示浮动按钮
-  if (location.pathname === '/ai-chat' || user?.scopeLevel === 'platform') return null;
-
   useEffect(() => {
+    if (shouldHide) return;
     let next = getDefaultPosition();
     const raw = window.localStorage.getItem(POSITION_STORAGE_KEY);
     if (raw) {
@@ -65,7 +67,7 @@ export default function AiFloatButton() {
       }
     }
     setPosition(clampPosition(next));
-  }, []);
+  }, [shouldHide]);
 
   useEffect(() => {
     const onResize = () => {
@@ -115,6 +117,7 @@ export default function AiFloatButton() {
       window.localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(position));
     }
     if (!dragState.moved) {
+      setAiPanelOpen(false);
       navigate('/ai-chat');
     }
   };
@@ -127,6 +130,10 @@ export default function AiFloatButton() {
       (e.currentTarget as HTMLButtonElement).releasePointerCapture(e.pointerId);
     }
   };
+
+  if (shouldHide) {
+    return null;
+  }
 
   return (
     <button
