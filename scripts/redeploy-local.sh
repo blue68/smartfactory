@@ -120,6 +120,8 @@ mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
   < "$ROOT_DIR/services/api/src/migrations/M20260410_customer_brand_sku_scope.sql"
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/M20260411_sales_orders_status_alignment.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
   < "$ROOT_DIR/infra/db/local-dev-accounts.sql"
 unset MYSQL_PWD
 
