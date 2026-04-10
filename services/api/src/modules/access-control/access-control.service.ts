@@ -12,7 +12,7 @@ import {
 const RBAC_CENTER_MENU_CODES = new Set(getSystemMenuSeeds().map((item) => item.code));
 const RBAC_CENTER_ACTION_CODES = new Set(getSystemActionSeeds().map((item) => item.code));
 const PLATFORM_ONLY_MENU_CODES = new Set(['system.tenant.config']);
-const PLATFORM_ONLY_ACTION_CODES = new Set(['system.tenant.manage', 'platform.tenant.switch', 'system.audit.view']);
+const PLATFORM_ONLY_ACTION_CODES = new Set(['system.tenant.manage', 'platform.tenant.switch']);
 const TENANT_HIDDEN_ROLE_CODES = new Set(['purchase']);
 
 interface TenantContext {

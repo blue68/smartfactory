@@ -102,3 +102,25 @@ known_issues:
   - 结果：`4 passed / 12 failed`，`209` 条用例中 `126 passed / 83 failed`
   - 主要失败形态：大量旧用例对角色权限断言仍按历史口径预期 `200/201`，实际返回 `403` 或 `1003`（权限不足）
   - 结论：本轮变更已通过类型检查与核心回归用例，但全量集成测试基线已与当前权限模型存在系统性偏差，需单独整理权限期望与测试夹具
+
+## 权限基线修复进度（2026-04-11）
+- 本轮修复范围：
+  - `services/api/src/middleware/auth.ts`
+    - `NODE_ENV=test` 下仅当角色可静态解析时使用 fallback 快照；动态角色回退 DB 快照，避免误拒绝（403/1003）。
+  - `services/api/src/modules/access-control/access-control.config.ts`
+    - 新增 `supportsFallbackPermissionRoles` 判断。
+    - 租户态 `platform_super_admin` fallback 补齐 `system.audit.view`。
+  - `services/api/src/modules/access-control/access-control.service.ts`
+    - 放开租户态 `system.audit.view`（不再按 platform-only 过滤）。
+  - `services/api/src/modules/purchase/purchase.routes.ts`
+    - `/orders/:id/delivery` 授权补齐 `boss` 角色，修复到货登记 403。
+  - `services/api/src/modules/incoming-inspection/incomingInspection.routes.ts`
+    - 列表/详情/预览接口权限收敛，修复 `sales` 越权可读问题（应为 403/1003）。
+- 定向回归：
+  - `bash scripts/run-api-integration.sh tests/integration/accessControl.api.test.ts`（通过）
+  - `bash scripts/run-api-integration.sh tests/integration/purchase.api.test.ts`（通过）
+  - `bash scripts/run-api-integration.sh tests/integration/incomingInspection.api.test.ts`（通过）
+- 全量回归：
+  - `npm run test:api:integration`
+  - 结果从 `126 passed / 83 failed` 收敛至 `199 passed / 10 failed`。
+  - 余下失败集中在非权限链路：`inventory`（字段类型断言）、`stocktaking`（盘点业务断言）、`settlement`（待结算池数据断言）、`returnOrder`（状态冲突断言）。

@@ -15,7 +15,7 @@ router.use(authMiddleware);
  */
 router.get(
   '/',
-  requirePermissionsOrRoles(['quality:view'], 'warehouse', 'supervisor', 'boss', 'qc'),
+  requirePermissionsOrRoles(['quality:create'], 'warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.list.bind(incomingInspectionController)),
 );
 
@@ -25,7 +25,7 @@ router.get(
  */
 router.get(
   '/:id',
-  requirePermissionsOrRoles(['quality:view'], 'warehouse', 'supervisor', 'boss', 'qc'),
+  requirePermissionsOrRoles(['quality:create'], 'warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.getById.bind(incomingInspectionController)),
 );
 
@@ -69,7 +69,7 @@ router.post(
  */
 router.get(
   '/:id/preview-receipt',
-  requirePermissionsOrRoles(['quality:view'], 'warehouse', 'supervisor', 'boss', 'qc'),
+  requirePermissionsOrRoles(['quality:create'], 'warehouse', 'supervisor', 'boss', 'qc'),
   asyncHandler(incomingInspectionController.previewReceipt.bind(incomingInspectionController)),
 );
 

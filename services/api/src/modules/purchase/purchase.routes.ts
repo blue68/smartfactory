@@ -91,7 +91,7 @@ router.patch('/orders/:id/close',
   asyncHandler(purchaseController.closeOrder.bind(purchaseController)),
 );
 router.post('/orders/:id/delivery',
-  requirePermissionsOrRoles(['purchase:order:delivery'], 'purchaser', 'purchase'),
+  requirePermissionsOrRoles(['purchase:order:delivery'], 'purchaser', 'purchase', 'boss'),
   asyncHandler(purchaseController.createDeliveryNote.bind(purchaseController)),
 );
 

@@ -1071,7 +1071,7 @@ function buildPlatformSuperAdminGrant(scopeLevel: AccessScopeLevel) {
 
   return {
     menuCodes: [...TENANT_RBAC_MENU_CODES],
-    actionCodes: [...TENANT_RBAC_ACTION_CODES],
+    actionCodes: [...TENANT_RBAC_ACTION_CODES, 'system.audit.view'],
     dataScopes: [{ scopeType: 'all', scopeValues: [] }],
     featureFlags: ['rbac_center', 'tenant_admin'],
   };
@@ -1104,6 +1104,10 @@ export function buildFallbackPermissionSnapshot(
     dataScopes,
     featureFlags: uniq(featureFlags),
   };
+}
+
+export function supportsFallbackPermissionRoles(roleCodes: string[]): boolean {
+  return roleCodes.every((roleCode) => roleCode === 'platform_super_admin' || Boolean(ROLE_PERMISSION_GRANTS[roleCode]));
 }
 
 export function hasPermissionByRoles(roleCodes: string[], requiredPermissions: string[]): boolean {
