@@ -52,6 +52,8 @@ export interface UnitConversionParam {
   description?: string;
 }
 
+const SKU_CODE_SEQUENCE_WIDTH = 7;
+
 export class SkuService {
   private readonly repo: SkuRepository;
 
@@ -351,7 +353,7 @@ export class SkuService {
       if (!isNaN(parsed)) seq = parsed + 1;
     }
     void cat1Id;
-    return `${prefix}${String(seq).padStart(5, '0')}`;
+    return `${prefix}${String(seq).padStart(SKU_CODE_SEQUENCE_WIDTH, '0')}`;
   }
 
   private async validateCategories(cat1Id: number, cat2Id: number): Promise<void> {

@@ -1456,7 +1456,7 @@ export class InventoryService {
       AppDataSource.query<any[]>(
         `SELECT s.id AS skuId, s.sku_code AS skuCode, s.name AS skuName,
                 s.stock_unit AS stockUnit, s.purchase_unit AS purchaseUnit,
-                s.stock_conv_factor AS stockConvFactor,
+                COALESCE(uc.conversion_rate, s.stock_conv_factor) AS stockConvFactor,
                 s.safety_stock AS safetyStock, s.has_dye_lot AS hasDyeLot,
                 COALESCE(inv.qty_on_hand, 0) AS qtyOnHand,
                 COALESCE(inv.qty_reserved, 0) AS qtyReserved,
@@ -1468,6 +1468,11 @@ export class InventoryService {
                 l.code AS locationCode,
                 l.name AS locationName
          FROM skus s
+         LEFT JOIN sku_unit_conversions uc
+           ON uc.sku_id = s.id
+          AND uc.tenant_id = s.tenant_id
+          AND uc.from_unit = s.purchase_unit
+          AND uc.to_unit = s.stock_unit
          LEFT JOIN inventory inv ON inv.sku_id = s.id AND inv.tenant_id = s.tenant_id
          LEFT JOIN warehouses w ON w.id = inv.warehouse_id AND w.tenant_id = inv.tenant_id
          LEFT JOIN locations l ON l.id = inv.location_id AND l.tenant_id = inv.tenant_id

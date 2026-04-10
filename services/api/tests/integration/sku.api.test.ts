@@ -120,7 +120,7 @@ describe('SKU 主数据 API 集成测试', () => {
       expect(res.status).toBe(201);
       expect(res.body.code).toBe(0);
       expect(Number(res.body.data.id)).toBeGreaterThan(0);
-      expect(res.body.data.skuCode).toMatch(/^[A-Z]+\d{5}$/);
+      expect(res.body.data.skuCode).toMatch(/^[A-Z]+\d{7}$/);
     });
 
     test('TC-SKU-002: 创建面料SKU时hasDyeLot自动强制为true', async () => {
