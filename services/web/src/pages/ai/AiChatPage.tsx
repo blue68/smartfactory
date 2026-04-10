@@ -135,14 +135,28 @@ function loadConversations(): Conversation[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Array<Record<string, unknown>>;
-    return parsed.map((conv) => ({
-      ...conv,
-      createdAt: new Date(conv.createdAt as string),
-      messages: (conv.messages as Array<Record<string, unknown>>).map((m) => ({
-        ...m,
-        timestamp: new Date(m.timestamp as string),
-      })),
-    })) as Conversation[];
+    const normalized = parsed.map((conv) => {
+      const createdAt = new Date(String(conv.createdAt ?? ''));
+      const convCreatedAt = Number.isNaN(createdAt.getTime()) ? new Date() : createdAt;
+      const rawMessages = Array.isArray(conv.messages) ? conv.messages : [];
+      const messages = rawMessages
+        .map((m) => {
+          const timestamp = new Date(String(m.timestamp ?? ''));
+          return {
+            ...m,
+            timestamp: Number.isNaN(timestamp.getTime()) ? new Date() : timestamp,
+          };
+        })
+        .filter((m) => (m.role === 'user' || m.role === 'ai' || m.role === 'error') && typeof m.content === 'string');
+
+      return {
+        id: String(conv.id ?? newConvId()),
+        title: typeof conv.title === 'string' && conv.title.trim() ? conv.title : '新对话',
+        createdAt: convCreatedAt,
+        messages,
+      } as Conversation;
+    });
+    return normalized;
   } catch {
     return [];
   }
