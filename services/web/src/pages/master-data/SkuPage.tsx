@@ -406,6 +406,8 @@ export default function SkuPage() {
       { key: 'spec',       label: '规格' },
       { key: 'category1Name', label: '一级分类' },
       { key: 'category2Name', label: '二级品类' },
+      { key: 'brandScope', label: '品牌归属' },
+      { key: 'brandCustomerName', label: '所属客户' },
       { key: 'stockUnit',  label: '库存单位' },
       { key: 'purchaseUnit', label: '采购单位' },
       { key: 'safetyStock', label: '安全库存' },
@@ -413,9 +415,15 @@ export default function SkuPage() {
       { key: 'status',     label: '状态' },
     ], (selectedIds.length > 0
       ? skuList.filter((s) => selectedIds.includes(Number(s.id)))
-      : skuList) as Record<string, unknown>[]);
+      : skuList).map((sku) => ({
+      ...sku,
+      brandScope: sku.brandScope === 'customer' ? '客户专属' : '工厂自主品牌',
+      brandCustomerName: sku.brandScope === 'customer'
+        ? (customerLabelById.get(Number(sku.brandCustomerId)) ?? `客户 #${sku.brandCustomerId ?? ''}`)
+        : '全部客户',
+    })) as Record<string, unknown>[]);
     showToast({ type: 'success', message: '导出成功' });
-  }, [skuList, selectedIds, showToast]);
+  }, [skuList, selectedIds, showToast, customerLabelById]);
 
   // ── 表格列定义 ──
   const columns: Column<SkuRecord>[] = useMemo(() => [
@@ -505,6 +513,41 @@ export default function SkuPage() {
           return <Tag variant="warning">{sku.category2Name || '未分类'}</Tag>;
         }
         return <Tag category2Code={code}>{sku.category2Name}</Tag>;
+      },
+    },
+    // 品牌归属
+    {
+      key: 'brandScope',
+      title: '品牌归属',
+      width: 120,
+      render: (_, r) => {
+        const sku = r as unknown as Sku;
+        const isCustomer = sku.brandScope === 'customer';
+        return (
+          <Tag variant={isCustomer ? 'warning' : 'info'}>
+            {isCustomer ? '客户专属' : '工厂自主品牌'}
+          </Tag>
+        );
+      },
+    },
+    // 所属客户
+    {
+      key: 'brandCustomerId',
+      title: '所属客户',
+      width: 180,
+      render: (_, r) => {
+        const sku = r as unknown as Sku;
+        if (sku.brandScope !== 'customer') {
+          return <span style={{ color: '#6b7280', fontSize: 13 }}>全部客户</span>;
+        }
+        if (!sku.brandCustomerId) {
+          return <span style={{ color: '#ef4444', fontSize: 13 }}>未设置</span>;
+        }
+        return (
+          <span style={{ fontSize: 13 }}>
+            {customerLabelById.get(Number(sku.brandCustomerId)) ?? `客户 #${sku.brandCustomerId}`}
+          </span>
+        );
       },
     },
     // 库存单位
@@ -615,7 +658,7 @@ export default function SkuPage() {
         );
       },
     },
-  ], [selectedIds, handleSelectRow, openEdit, openDetail, handleEnableSku]);
+  ], [selectedIds, handleSelectRow, openEdit, openDetail, handleEnableSku, customerLabelById]);
 
   // ── 筛选参数更新助手 ──
   const setFilter = useCallback((patch: Partial<SkuListQuery>) => {
