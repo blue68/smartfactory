@@ -172,16 +172,16 @@ export class PurchaseSuggestionEngine {
 
     // 批量查询供应商频次
     const freqRows = await AppDataSource.query<(SupplierFreqRow & { sku_id: number })[]>(
-      `SELECT poi.sku_id, poi.supplier_id, sup.name AS supplier_name,
+      `SELECT poi.sku_id, po.supplier_id, sup.name AS supplier_name,
               COUNT(poi.id) AS freq,
               AVG(CAST(poi.unit_price AS DECIMAL(20,6))) AS avg_price
        FROM purchase_order_items poi
        INNER JOIN purchase_orders po ON po.id = poi.po_id AND po.tenant_id = poi.tenant_id
-       INNER JOIN suppliers sup ON sup.id = poi.supplier_id AND sup.tenant_id = poi.tenant_id
+       INNER JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = poi.tenant_id
        WHERE poi.sku_id IN (${skuPlaceholders}) AND poi.tenant_id = ?
          AND po.status NOT IN ('draft', 'cancelled')
          AND po.created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
-       GROUP BY poi.sku_id, poi.supplier_id, sup.name
+       GROUP BY poi.sku_id, po.supplier_id, sup.name
        ORDER BY poi.sku_id, freq DESC`,
       [...skuIds, tenantId],
     );
