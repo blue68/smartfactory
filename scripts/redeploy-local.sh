@@ -126,6 +126,8 @@ mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
   < "$ROOT_DIR/services/api/src/migrations/M20260411_production_task_list_schema_guard.sql"
 mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
+  < "$ROOT_DIR/services/api/src/migrations/M20260411_access_control_report_menu_extensions.sql"
+mysql -h 127.0.0.1 -P 3307 -u "${DB_USER:-sf_app}" "${DB_NAME:-smart_factory}" \
   < "$ROOT_DIR/infra/db/local-dev-accounts.sql"
 unset MYSQL_PWD
 

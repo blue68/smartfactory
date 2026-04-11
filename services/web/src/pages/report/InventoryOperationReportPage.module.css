@@ -1,0 +1,478 @@
+.page {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background:
+    radial-gradient(circle at top right, rgba(79, 155, 230, 0.08), transparent 26%),
+    linear-gradient(180deg, #f8fbff 0%, #f6f8fc 100%);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filterLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.select {
+  border: 1px solid #d8e2f0;
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.95);
+  font-size: 13px;
+}
+
+.loading {
+  padding: 36px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.kpiCard {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #dde7f3;
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+
+.kpiLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.kpiValue {
+  margin-top: 6px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #14233c;
+}
+
+.gridMajor {
+  display: grid;
+  grid-template-columns: 1.35fr 0.9fr;
+  gap: 10px;
+}
+
+.gridThree {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gridTwo {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.panel {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #dde7f3;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.panelTall {
+  min-height: 380px;
+}
+
+.panelTitle {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #10213b;
+}
+
+.sectionToolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.sectionToolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.searchInput {
+  min-width: 220px;
+  border: 1px solid #d8e2f0;
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.96);
+  font-size: 13px;
+  color: #1e293b;
+}
+
+.searchInput::placeholder {
+  color: #94a3b8;
+}
+
+.toolbarMeta {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.bubbleChart {
+  position: relative;
+  height: 320px;
+  border-radius: 12px;
+  border: 1px solid #dde7f3;
+  background:
+    linear-gradient(to right, rgba(15, 23, 42, 0.05) 1px, transparent 1px),
+    linear-gradient(to top, rgba(15, 23, 42, 0.05) 1px, transparent 1px),
+    linear-gradient(180deg, #fdfefe 0%, #f7fbff 100%);
+  background-size: 32px 32px, 32px 32px, auto;
+  overflow: hidden;
+}
+
+.quadrantLabelTl,
+.quadrantLabelTr,
+.quadrantLabelBl,
+.quadrantLabelBr {
+  position: absolute;
+  z-index: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.quadrantLabelTl { left: 12px; top: 10px; }
+.quadrantLabelTr { right: 12px; top: 10px; }
+.quadrantLabelBl { left: 12px; bottom: 26px; }
+.quadrantLabelBr { right: 12px; bottom: 26px; }
+
+.thresholdVertical,
+.thresholdHorizontal {
+  position: absolute;
+  z-index: 1;
+  background: rgba(71, 85, 105, 0.5);
+}
+
+.thresholdVertical {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.thresholdHorizontal {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.bubble {
+  position: absolute;
+  z-index: 2;
+  transform: translate(-50%, 50%);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  box-shadow: 0 6px 10px rgba(15, 23, 42, 0.08);
+}
+
+.axisX,
+.axisY {
+  position: absolute;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.axisX {
+  right: 12px;
+  bottom: 6px;
+}
+
+.axisY {
+  left: 12px;
+  top: 8px;
+}
+
+.quadrantCards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quadrantCard {
+  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.quadrantName {
+  font-size: 12px;
+  color: #5b6475;
+}
+
+.quadrantValue {
+  margin-top: 8px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #12243e;
+}
+
+.quadrantMeta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.thresholdHint {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.healthBars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.healthRow {
+  display: grid;
+  grid-template-columns: 84px 1fr 120px;
+  gap: 8px;
+  align-items: center;
+}
+
+.healthLabel {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.healthTrack {
+  height: 12px;
+  border-radius: 999px;
+  background: #eef3f9;
+  overflow: hidden;
+}
+
+.healthFill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.healthValue {
+  font-size: 12px;
+  color: #1e293b;
+}
+
+.donutWrap {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.donut {
+  width: 176px;
+  height: 176px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+
+.donutCenter {
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.donutCenter strong {
+  margin-top: 4px;
+  font-size: 15px;
+  color: #12243e;
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legendItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.barChart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.barRow {
+  display: grid;
+  grid-template-columns: 114px 1fr 70px;
+  gap: 8px;
+  align-items: center;
+}
+
+.barName {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.barTrack {
+  height: 12px;
+  border-radius: 999px;
+  background: #edf3fb;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #99c4ef 0%, #5aa4e8 100%);
+}
+
+.barVal {
+  font-size: 12px;
+  text-align: right;
+  color: #1e293b;
+}
+
+.defList {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #5b6475;
+}
+
+.tableWrap {
+  overflow: auto;
+  max-height: 440px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th,
+.table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid #edf2f7;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fbff;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.emptyCell {
+  padding: 18px 0 !important;
+  text-align: center !important;
+  color: #64748b;
+}
+
+.riskBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+@media (max-width: 1280px) {
+  .gridMajor,
+  .gridThree,
+  .gridTwo {
+    grid-template-columns: 1fr;
+  }
+
+  .kpiGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .kpiGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .searchInput {
+    min-width: 100%;
+  }
+
+  .quadrantCards {
+    grid-template-columns: 1fr;
+  }
+
+  .donutWrap {
+    grid-template-columns: 1fr;
+  }
+
+  .healthRow,
+  .barRow {
+    grid-template-columns: 1fr;
+  }
+}

@@ -39,6 +39,7 @@ const PATH_MAP: Record<string, { label: string; group: string }> = {
   '/master-data/bom':            { label: 'BOM 管理',   group: '主数据' },
   '/master-data/supplier':       { label: '供应商管理',  group: '主数据' },
   '/master-data/process-config': { label: '工序配置',    group: '主数据' },
+  '/report/inventory-operation': { label: '库存经营',    group: '报表' },
   '/ai-chat':                    { label: 'AI 助手',    group: 'AI' },
 };
 

@@ -304,6 +304,14 @@ const NAV_ITEMS: NavItem[] = [
     group: '报表',
   },
   {
+    path: '/report/inventory-operation',
+    label: '库存经营',
+    icon: '📦',
+    roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.REPORT_INVENTORY_OPERATION,
+    group: '报表',
+  },
+  {
     path: '/notifications',
     label: '通知中心',
     icon: '🔔',

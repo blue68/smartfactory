@@ -53,4 +53,9 @@ router.get(
   asyncHandler(analyticsController.getMaterialCategoryRatio.bind(analyticsController)),
 );
 
+router.get(
+  '/inventory-operation',
+  asyncHandler(analyticsController.getInventoryOperationReport.bind(analyticsController)),
+);
+
 export default router;

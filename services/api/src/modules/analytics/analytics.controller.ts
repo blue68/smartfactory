@@ -66,6 +66,14 @@ export class AnalyticsController {
     const data = await this.svc(req).getPurchaseCategoryDistribution(periodDays);
     success(res, data);
   }
+
+  /** GET /api/analytics/inventory-operation — 库存经营报表 */
+  async getInventoryOperationReport(req: Request, res: Response): Promise<void> {
+    const raw = Number(req.query['periodDays']);
+    const periodDays = Number.isFinite(raw) && raw > 0 ? raw : 90;
+    const data = await this.svc(req).getInventoryOperationReport(periodDays);
+    success(res, data);
+  }
 }
 
 export const analyticsController = new AnalyticsController();

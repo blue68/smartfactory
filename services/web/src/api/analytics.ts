@@ -77,6 +77,90 @@ export interface PurchaseCategoryDistribution {
   };
 }
 
+export interface InventoryOperationReport {
+  summary: {
+    totalInventoryValue: string;
+    avgTurnoverDays: string;
+    highRiskSkuCount: number;
+    healthScore: string;
+  };
+  quadrantThresholds: {
+    inventoryValue: string;
+    turnoverDays: string;
+  };
+  structureHealth: {
+    score: string;
+    healthyAmountPct: string;
+    warningAmountPct: string;
+    dangerousAmountPct: string;
+    highValueRiskPct: string;
+  };
+  riskDistribution: Array<{
+    riskLevel: 'high' | 'medium' | 'low' | 'healthy';
+    count: number;
+    pct: string;
+  }>;
+  quadrantAmountSummary: Array<{
+    quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
+    label: string;
+    inventoryValue: string;
+    pct: string;
+    skuCount: number;
+  }>;
+  categoryValueBreakdown: Array<{
+    categoryName: string;
+    inventoryValue: string;
+    pct: string;
+    skuCount: number;
+  }>;
+  categoryTurnover: Array<{
+    categoryName: string;
+    turnoverDays: string;
+    skuCount: number;
+  }>;
+  quadrantBubble: Array<{
+    skuId: number;
+    skuCode: string;
+    skuName: string;
+    inventoryValue: string;
+    turnoverDays: string;
+    qtyOnHand: string;
+    bubbleSize: number;
+    quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
+    abcClass: 'A' | 'B' | 'C';
+    riskIndex: number;
+    riskLevel: 'high' | 'medium' | 'low' | 'healthy';
+  }>;
+  riskLeaderboard: Array<{
+    skuId: number;
+    skuCode: string;
+    skuName: string;
+    categoryName: string;
+    qtyOnHand: string;
+    inventoryValue: string;
+    outboundPeriodQty: string;
+    turnoverDays: string;
+    quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
+    abcClass: 'A' | 'B' | 'C';
+    riskIndex: number;
+    riskLevel: 'high' | 'medium' | 'low' | 'healthy';
+  }>;
+  stagnantSkuTop50: Array<{
+    skuId: number;
+    skuCode: string;
+    skuName: string;
+    categoryName: string;
+    qtyOnHand: string;
+    inventoryValue: string;
+    outboundPeriodQty: string;
+    turnoverDays: string;
+    quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
+    abcClass: 'A' | 'B' | 'C';
+    riskIndex: number;
+    riskLevel: 'high' | 'medium' | 'low' | 'healthy';
+  }>;
+}
+
 // ── Query Keys ───────────────────────────────
 
 export const analyticsKeys = {
@@ -89,6 +173,8 @@ export const analyticsKeys = {
     [...analyticsKeys.all, 'material-category-ratio', periodDays] as const,
   purchaseCategoryDistribution: (periodDays?: number) =>
     [...analyticsKeys.all, 'purchase-category', periodDays] as const,
+  inventoryOperation: (periodDays?: number) =>
+    [...analyticsKeys.all, 'inventory-operation', periodDays] as const,
 };
 
 // ── 原始请求函数 ─────────────────────────────
@@ -117,6 +203,13 @@ export const analyticsApi = {
     const params = periodDays !== undefined ? `?periodDays=${periodDays}` : '';
     return request.get<PurchaseCategoryDistribution>(
       `/api/analytics/purchase-category${params}`,
+    );
+  },
+
+  getInventoryOperationReport: (periodDays?: number) => {
+    const params = periodDays !== undefined ? `?periodDays=${periodDays}` : '';
+    return request.get<InventoryOperationReport>(
+      `/api/analytics/inventory-operation${params}`,
     );
   },
 };
@@ -180,5 +273,13 @@ export function usePurchaseCategoryDistribution(periodDays?: number) {
     queryKey: analyticsKeys.purchaseCategoryDistribution(periodDays),
     queryFn: () => analyticsApi.getPurchaseCategoryDistribution(periodDays),
     staleTime: 60_000, // 1分钟缓存
+  });
+}
+
+export function useInventoryOperationReport(periodDays?: number) {
+  return useQuery({
+    queryKey: analyticsKeys.inventoryOperation(periodDays),
+    queryFn: () => analyticsApi.getInventoryOperationReport(periodDays),
+    staleTime: 60_000,
   });
 }

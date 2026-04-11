@@ -430,4 +430,391 @@ export class AnalyticsService {
       })),
     };
   }
+
+  // ─── 库存经营报表 ──────────────────────────────────────────────
+  async getInventoryOperationReport(periodDays = 90): Promise<{
+    summary: {
+      totalInventoryValue: string;
+      avgTurnoverDays: string;
+      highRiskSkuCount: number;
+      healthScore: string;
+    };
+    quadrantThresholds: {
+      inventoryValue: string;
+      turnoverDays: string;
+    };
+    structureHealth: {
+      score: string;
+      healthyAmountPct: string;
+      warningAmountPct: string;
+      dangerousAmountPct: string;
+      highValueRiskPct: string;
+    };
+    riskDistribution: Array<{ riskLevel: 'high' | 'medium' | 'low' | 'healthy'; count: number; pct: string }>;
+    quadrantAmountSummary: Array<{
+      quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
+      label: string;
+      inventoryValue: string;
+      pct: string;
+      skuCount: number;
+    }>;
+    categoryValueBreakdown: Array<{ categoryName: string; inventoryValue: string; pct: string; skuCount: number }>;
+    categoryTurnover: Array<{ categoryName: string; turnoverDays: string; skuCount: number }>;
+    quadrantBubble: Array<{
+      skuId: number;
+      skuCode: string;
+      skuName: string;
+      inventoryValue: string;
+      turnoverDays: string;
+      qtyOnHand: string;
+      bubbleSize: number;
+      quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
+      abcClass: 'A' | 'B' | 'C';
+      riskIndex: number;
+      riskLevel: 'high' | 'medium' | 'low' | 'healthy';
+    }>;
+    riskLeaderboard: Array<{
+      skuId: number;
+      skuCode: string;
+      skuName: string;
+      categoryName: string;
+      qtyOnHand: string;
+      inventoryValue: string;
+      outboundPeriodQty: string;
+      turnoverDays: string;
+      quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
+      abcClass: 'A' | 'B' | 'C';
+      riskIndex: number;
+      riskLevel: 'high' | 'medium' | 'low' | 'healthy';
+    }>;
+    stagnantSkuTop50: Array<{
+      skuId: number;
+      skuCode: string;
+      skuName: string;
+      categoryName: string;
+      qtyOnHand: string;
+      inventoryValue: string;
+      outboundPeriodQty: string;
+      turnoverDays: string;
+      quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
+      abcClass: 'A' | 'B' | 'C';
+      riskIndex: number;
+      riskLevel: 'high' | 'medium' | 'low' | 'healthy';
+    }>;
+  }> {
+    const safeDays = Math.min(Math.max(Math.floor(periodDays), 7), 365);
+    const skuRows = await AppDataSource.query<Array<{
+      skuId: number;
+      skuCode: string;
+      skuName: string;
+      categoryName: string;
+      qtyOnHand: string;
+      unitPrice: string;
+      outboundPeriodQty: string;
+      outbound90Qty: string;
+    }>>(
+      `SELECT
+         s.id AS skuId,
+         s.sku_code AS skuCode,
+         s.name AS skuName,
+         COALESCE(sc.name, '未分类') AS categoryName,
+         CAST(COALESCE(inv.qtyOnHand, 0) AS CHAR) AS qtyOnHand,
+         CAST(COALESCE(sp.price, 0) AS CHAR) AS unitPrice,
+         CAST(COALESCE(tx.outboundPeriodQty, 0) AS CHAR) AS outboundPeriodQty,
+         CAST(COALESCE(tx.outbound90Qty, 0) AS CHAR) AS outbound90Qty
+       FROM skus s
+       LEFT JOIN sku_categories sc
+         ON sc.id = s.category1_id
+        AND sc.level = 1
+       LEFT JOIN (
+         SELECT sku_id AS skuId, SUM(qty_on_hand) AS qtyOnHand
+         FROM inventory
+         WHERE tenant_id = ?
+         GROUP BY sku_id
+       ) inv ON inv.skuId = s.id
+       LEFT JOIN supplier_prices sp
+         ON sp.sku_id = s.id
+        AND sp.tenant_id = s.tenant_id
+        AND sp.is_current = 1
+       LEFT JOIN (
+         SELECT
+           sku_id AS skuId,
+           SUM(CASE WHEN direction = 'OUT' AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) THEN qty_stock_unit ELSE 0 END) AS outboundPeriodQty,
+           SUM(CASE WHEN direction = 'OUT' AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY) THEN qty_stock_unit ELSE 0 END) AS outbound90Qty
+         FROM inventory_transactions
+         WHERE tenant_id = ?
+         GROUP BY sku_id
+       ) tx ON tx.skuId = s.id
+       WHERE s.tenant_id = ?
+         AND s.status <> 'inactive'
+         AND COALESCE(inv.qtyOnHand, 0) > 0`,
+      [this.tenantId, safeDays, this.tenantId, this.tenantId],
+    );
+
+    type RiskLevel = 'high' | 'medium' | 'low' | 'healthy';
+    type Quadrant = 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
+    type AbcClass = 'A' | 'B' | 'C';
+    const quadrantLabelMap: Record<Quadrant, string> = {
+      core: '核心动销',
+      capital_risk: '资金占压',
+      stagnant_tail: '长尾呆滞',
+      light_fast: '轻量快动',
+    };
+
+    const percentile50 = (values: number[]): number => {
+      if (values.length === 0) return 0;
+      const sorted = [...values].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      if (sorted.length % 2 === 0) {
+        return (sorted[mid - 1] + sorted[mid]) / 2;
+      }
+      return sorted[mid];
+    };
+
+    const baseRows = skuRows.map((row) => {
+      const qtyOnHand = Number(row.qtyOnHand ?? 0);
+      const unitPrice = Number(row.unitPrice ?? 0);
+      const outboundPeriod = Number(row.outboundPeriodQty ?? 0);
+      const outbound90 = Number(row.outbound90Qty ?? 0);
+      const dailyOutbound = outboundPeriod > 0 ? outboundPeriod / safeDays : 0;
+      const turnoverDays = dailyOutbound > 0 ? qtyOnHand / dailyOutbound : 999;
+      const inventoryValue = qtyOnHand * unitPrice;
+      return {
+        ...row,
+        qtyOnHand,
+        outboundPeriod,
+        outbound90,
+        turnoverDays,
+        inventoryValue,
+      };
+    });
+
+    const totalValue = baseRows.reduce((sum, item) => sum + item.inventoryValue, 0);
+    const avgTurnoverDays = baseRows.length > 0
+      ? baseRows.reduce((sum, item) => sum + Math.min(item.turnoverDays, 365), 0) / baseRows.length
+      : 0;
+    const inventoryValueThreshold = percentile50(baseRows.map((item) => item.inventoryValue));
+    const turnoverDaysThreshold = percentile50(baseRows.map((item) => Math.min(item.turnoverDays, 365)));
+    const maxInventoryValue = Math.max(...baseRows.map((item) => item.inventoryValue), 0);
+
+    const valueSorted = [...baseRows].sort((a, b) => b.inventoryValue - a.inventoryValue);
+    let cumulativeValue = 0;
+    const abcBySkuId = new Map<number, AbcClass>();
+    valueSorted.forEach((item) => {
+      cumulativeValue += item.inventoryValue;
+      const cumulativePct = totalValue > 0 ? cumulativeValue / totalValue : 0;
+      let abcClass: AbcClass = 'C';
+      if (cumulativePct <= 0.8) {
+        abcClass = 'A';
+      } else if (cumulativePct <= 0.95) {
+        abcClass = 'B';
+      }
+      abcBySkuId.set(Number(item.skuId), abcClass);
+    });
+
+    const toQuadrant = (inventoryValue: number, turnoverDays: number): Quadrant => {
+      const highValue = inventoryValue >= inventoryValueThreshold;
+      const highTurnoverDays = turnoverDays >= turnoverDaysThreshold;
+      if (highValue && highTurnoverDays) return 'capital_risk';
+      if (highValue) return 'core';
+      if (highTurnoverDays) return 'stagnant_tail';
+      return 'light_fast';
+    };
+
+    const toRiskIndex = (input: {
+      turnoverDays: number;
+      inventoryValue: number;
+      quadrant: Quadrant;
+      abcClass: AbcClass;
+    }): number => {
+      const turnoverScore = Math.min(input.turnoverDays, 180) / 180 * 45;
+      const valueScore = maxInventoryValue > 0 ? (input.inventoryValue / maxInventoryValue) * 20 : 0;
+      const abcScore = input.abcClass === 'A' ? 20 : input.abcClass === 'B' ? 12 : 6;
+      const quadrantScore = input.quadrant === 'capital_risk'
+        ? 15
+        : input.quadrant === 'stagnant_tail'
+          ? 10
+          : input.quadrant === 'core'
+            ? 4
+            : 0;
+      return Math.min(100, Math.round(turnoverScore + valueScore + abcScore + quadrantScore));
+    };
+
+    const toRiskLevel = (riskIndex: number): RiskLevel => {
+      if (riskIndex >= 80) return 'high';
+      if (riskIndex >= 60) return 'medium';
+      if (riskIndex >= 35) return 'low';
+      return 'healthy';
+    };
+
+    const bubbleSize = (qtyOnHand: number): number => {
+      const maxQty = Math.max(...baseRows.map((item) => item.qtyOnHand), 1);
+      return Number((10 + (qtyOnHand / maxQty) * 26).toFixed(1));
+    };
+
+    const enriched = baseRows.map((row) => {
+      const abcClass = abcBySkuId.get(Number(row.skuId)) ?? 'C';
+      const quadrant = toQuadrant(row.inventoryValue, row.turnoverDays);
+      const riskIndex = toRiskIndex({
+        turnoverDays: row.turnoverDays,
+        inventoryValue: row.inventoryValue,
+        quadrant,
+        abcClass,
+      });
+      const riskLevel = toRiskLevel(riskIndex);
+      return {
+        ...row,
+        abcClass,
+        quadrant,
+        riskIndex,
+        riskLevel,
+        bubbleSize: bubbleSize(row.qtyOnHand),
+      };
+    });
+
+    const riskCounts: Record<RiskLevel, number> = {
+      high: 0,
+      medium: 0,
+      low: 0,
+      healthy: 0,
+    };
+    enriched.forEach((item) => { riskCounts[item.riskLevel] += 1; });
+    const totalSku = enriched.length || 1;
+
+    const byCategory = new Map<string, { value: number; turnover: number; skuCount: number }>();
+    enriched.forEach((item) => {
+      const key = item.categoryName || '未分类';
+      const current = byCategory.get(key) ?? { value: 0, turnover: 0, skuCount: 0 };
+      current.value += item.inventoryValue;
+      current.turnover += Math.min(item.turnoverDays, 365);
+      current.skuCount += 1;
+      byCategory.set(key, current);
+    });
+
+    const categoryValueBreakdown = Array.from(byCategory.entries())
+      .map(([categoryName, data]) => ({
+        categoryName,
+        inventoryValue: data.value.toFixed(2),
+        pct: totalValue > 0 ? `${((data.value / totalValue) * 100).toFixed(1)}%` : '0.0%',
+        skuCount: data.skuCount,
+      }))
+      .sort((a, b) => Number(b.inventoryValue) - Number(a.inventoryValue));
+
+    const categoryTurnover = Array.from(byCategory.entries())
+      .map(([categoryName, data]) => ({
+        categoryName,
+        turnoverDays: (data.turnover / Math.max(data.skuCount, 1)).toFixed(1),
+        skuCount: data.skuCount,
+      }))
+      .sort((a, b) => Number(b.turnoverDays) - Number(a.turnoverDays));
+
+    const byQuadrant = new Map<Quadrant, { inventoryValue: number; skuCount: number }>([
+      ['core', { inventoryValue: 0, skuCount: 0 }],
+      ['capital_risk', { inventoryValue: 0, skuCount: 0 }],
+      ['stagnant_tail', { inventoryValue: 0, skuCount: 0 }],
+      ['light_fast', { inventoryValue: 0, skuCount: 0 }],
+    ]);
+    enriched.forEach((item) => {
+      const current = byQuadrant.get(item.quadrant)!;
+      current.inventoryValue += item.inventoryValue;
+      current.skuCount += 1;
+    });
+
+    const quadrantAmountSummary = (Array.from(byQuadrant.entries()) as Array<[Quadrant, { inventoryValue: number; skuCount: number }]>)
+      .map(([quadrant, data]) => ({
+        quadrant,
+        label: quadrantLabelMap[quadrant],
+        inventoryValue: data.inventoryValue.toFixed(2),
+        pct: totalValue > 0 ? `${((data.inventoryValue / totalValue) * 100).toFixed(1)}%` : '0.0%',
+        skuCount: data.skuCount,
+      }));
+
+    const healthyAmount = (byQuadrant.get('core')?.inventoryValue ?? 0) + (byQuadrant.get('light_fast')?.inventoryValue ?? 0);
+    const warningAmount = byQuadrant.get('stagnant_tail')?.inventoryValue ?? 0;
+    const dangerousAmount = byQuadrant.get('capital_risk')?.inventoryValue ?? 0;
+    const highValueRiskAmount = enriched
+      .filter((item) => item.abcClass === 'A' && item.riskLevel !== 'healthy')
+      .reduce((sum, item) => sum + item.inventoryValue, 0);
+    const totalValueSafe = totalValue || 1;
+    const healthScore = Math.max(
+      0,
+      100
+      - (dangerousAmount / totalValueSafe) * 55
+      - (warningAmount / totalValueSafe) * 25
+      - (highValueRiskAmount / totalValueSafe) * 20,
+    );
+
+    const toBoardRow = (item: typeof enriched[number]) => ({
+        skuId: Number(item.skuId),
+        skuCode: item.skuCode,
+        skuName: item.skuName,
+        categoryName: item.categoryName || '未分类',
+        qtyOnHand: item.qtyOnHand.toFixed(2),
+        inventoryValue: item.inventoryValue.toFixed(2),
+        outboundPeriodQty: item.outboundPeriod.toFixed(2),
+        turnoverDays: Math.min(item.turnoverDays, 999).toFixed(1),
+        quadrant: item.quadrant,
+        abcClass: item.abcClass,
+        riskIndex: item.riskIndex,
+        riskLevel: item.riskLevel,
+      });
+
+    const quadrantBubble = [...enriched]
+      .sort((a, b) => b.inventoryValue - a.inventoryValue || b.riskIndex - a.riskIndex)
+      .slice(0, 240)
+      .map((item) => ({
+        skuId: Number(item.skuId),
+        skuCode: item.skuCode,
+        skuName: item.skuName,
+        inventoryValue: item.inventoryValue.toFixed(2),
+        turnoverDays: Math.min(item.turnoverDays, 999).toFixed(1),
+        qtyOnHand: item.qtyOnHand.toFixed(2),
+        bubbleSize: item.bubbleSize,
+        quadrant: item.quadrant,
+        abcClass: item.abcClass,
+        riskIndex: item.riskIndex,
+        riskLevel: item.riskLevel,
+      }));
+
+    const riskLeaderboard = [...enriched]
+      .sort((a, b) => b.riskIndex - a.riskIndex || b.inventoryValue - a.inventoryValue)
+      .slice(0, 50)
+      .map(toBoardRow);
+
+    const stagnantSkuTop50 = [...enriched]
+      .sort((a, b) => b.turnoverDays - a.turnoverDays || b.inventoryValue - a.inventoryValue)
+      .slice(0, 50)
+      .map(toBoardRow);
+
+    return {
+      summary: {
+        totalInventoryValue: totalValue.toFixed(2),
+        avgTurnoverDays: avgTurnoverDays.toFixed(1),
+        highRiskSkuCount: riskCounts.high,
+        healthScore: healthScore.toFixed(1),
+      },
+      quadrantThresholds: {
+        inventoryValue: inventoryValueThreshold.toFixed(2),
+        turnoverDays: turnoverDaysThreshold.toFixed(1),
+      },
+      structureHealth: {
+        score: healthScore.toFixed(1),
+        healthyAmountPct: `${((healthyAmount / totalValueSafe) * 100).toFixed(1)}%`,
+        warningAmountPct: `${((warningAmount / totalValueSafe) * 100).toFixed(1)}%`,
+        dangerousAmountPct: `${((dangerousAmount / totalValueSafe) * 100).toFixed(1)}%`,
+        highValueRiskPct: `${((highValueRiskAmount / totalValueSafe) * 100).toFixed(1)}%`,
+      },
+      riskDistribution: (['high', 'medium', 'low', 'healthy'] as RiskLevel[]).map((riskLevel) => ({
+        riskLevel,
+        count: riskCounts[riskLevel],
+        pct: `${((riskCounts[riskLevel] / totalSku) * 100).toFixed(1)}%`,
+      })),
+      quadrantAmountSummary,
+      categoryValueBreakdown,
+      categoryTurnover,
+      quadrantBubble,
+      riskLeaderboard,
+      stagnantSkuTop50,
+    };
+  }
 }

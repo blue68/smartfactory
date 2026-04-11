@@ -29,6 +29,7 @@ import WarehouseLocationPage from '@/pages/master-data/WarehouseLocationPage';
 import WageReportPage from '@/pages/report/WageReportPage';
 import MyWagePage from '@/pages/report/MyWagePage';
 import SemiFinishedModeReportPage from '@/pages/report/SemiFinishedModeReportPage';
+import InventoryOperationReportPage from '@/pages/report/InventoryOperationReportPage';
 import LoginPage from '@/pages/auth/LoginPage';
 import ProductionOrderPage from '@/pages/production/ProductionOrderPage';
 import ShortageBoard from '@/pages/production/ShortageBoard';
@@ -176,6 +177,7 @@ const MENU_GUARDED_ROUTES: Array<{
   { path: '/report/wages', element: <WageReportPage />, menuCode: MENU_CODES.REPORT_WAGE, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR] },
   { path: '/report/my-wages', element: <MyWagePage />, menuCode: MENU_CODES.REPORT_MY_WAGE, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER] },
   { path: '/report/semi-finished-modes', element: <SemiFinishedModeReportPage />, menuCode: MENU_CODES.REPORT_SEMI_FINISHED_MODE, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR] },
+  { path: '/report/inventory-operation', element: <InventoryOperationReportPage />, menuCode: MENU_CODES.REPORT_INVENTORY_OPERATION, fallbackRoles: [UserRole.BOSS, UserRole.SUPERVISOR] },
   { path: '/notifications', element: <NotificationPage />, menuCode: MENU_CODES.NOTIFICATION, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.SALES, UserRole.WAREHOUSE, UserRole.WORKER, UserRole.QC] },
   { path: '/ai-chat', element: <AiChatRoute />, menuCode: MENU_CODES.AI_CHAT, fallbackRoles: [UserRole.BOSS, UserRole.PURCHASER, UserRole.SUPERVISOR, UserRole.SALES] },
   { path: '/system/tenants', element: <TenantConfigPage />, menuCode: MENU_CODES.SYSTEM_TENANT_CONFIG, fallbackRoles: SYSTEM_ADMIN_ROLES },
