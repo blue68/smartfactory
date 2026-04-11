@@ -1,10 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { useInventoryOperationReport } from '@/api/analytics';
 import styles from './InventoryOperationReportPage.module.css';
 
 type RiskLevel = 'high' | 'medium' | 'low' | 'healthy';
 type Quadrant = 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
+type BubblePoint = {
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  inventoryValue: string;
+  turnoverDays: string;
+  qtyOnHand: string;
+  bubbleSize: number;
+  quadrant: Quadrant;
+  abcClass: 'A' | 'B' | 'C';
+  riskIndex: number;
+  riskLevel: RiskLevel;
+};
 
 const RISK_LABEL: Record<RiskLevel, string> = {
   high: '高风险',
@@ -201,31 +214,17 @@ export default function InventoryOperationReportPage() {
             </section>
           </div>
 
-          <div className={styles.gridTwo}>
-            <section className={styles.panel}>
-              <h3 className={styles.panelTitle}>风险排行榜</h3>
-              <RiskTable
-                rows={data?.riskLeaderboard ?? []}
-                showRank
-                showRiskIndex
-                showAbc
-                showQuadrant
-                outboundLabel={`近${periodDays}天出库`}
-              />
-            </section>
-
-            <section className={styles.panel}>
-              <h3 className={styles.panelTitle}>呆滞库存 TOP 50（按呆滞天数）</h3>
-              <RiskTable
-                rows={data?.stagnantSkuTop50 ?? []}
-                showRank
-                showRiskIndex
-                showAbc
-                showQuadrant
-                outboundLabel={`近${periodDays}天出库`}
-              />
-            </section>
-          </div>
+          <section className={styles.panel}>
+            <h3 className={styles.panelTitle}>风险排行 TOP50榜</h3>
+            <RiskTable
+              rows={data?.riskLeaderboard ?? []}
+              showRank
+              showRiskIndex
+              showAbc
+              showQuadrant
+              outboundLabel={`近${periodDays}天出库`}
+            />
+          </section>
 
           <div className={styles.gridTwo}>
             <section className={styles.panel}>
@@ -314,29 +313,58 @@ function BubbleQuadrantChart({
   thresholdValue,
   thresholdDays,
 }: {
-  points: Array<{
-    skuId: number;
-    skuCode: string;
-    skuName: string;
-    inventoryValue: string;
-    turnoverDays: string;
-    qtyOnHand: string;
-    bubbleSize: number;
-    quadrant: Quadrant;
-    abcClass: 'A' | 'B' | 'C';
-    riskIndex: number;
-    riskLevel: RiskLevel;
-  }>;
+  points: BubblePoint[];
   thresholdValue: number;
   thresholdDays: number;
 }) {
+  const chartRef = useRef<HTMLDivElement | null>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<BubblePoint | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ left: 0, top: 0 });
+
+  useEffect(() => {
+    if (hoveredPoint && !points.some((point) => point.skuId === hoveredPoint.skuId)) {
+      setHoveredPoint(null);
+    }
+  }, [hoveredPoint, points]);
+
   if (points.length === 0) return <div className={styles.loading}>没有匹配的 SKU</div>;
 
   const maxX = Math.max(...points.map((point) => Number(point.turnoverDays)), thresholdDays || 1);
   const maxY = Math.max(...points.map((point) => Number(point.inventoryValue)), thresholdValue || 1);
+  const visiblePoints = points.slice(0, 140);
+
+  const showTooltipAt = (clientX: number, clientY: number, point: BubblePoint) => {
+    const chartRect = chartRef.current?.getBoundingClientRect();
+    if (!chartRect) return;
+
+    const tooltipWidth = 240;
+    const tooltipHeight = 112;
+    const padding = 12;
+    const desiredLeft = clientX - chartRect.left + 16;
+    const desiredTop = clientY - chartRect.top - tooltipHeight - 12;
+
+    setTooltipPosition({
+      left: Math.min(Math.max(padding, desiredLeft), chartRect.width - tooltipWidth - padding),
+      top: Math.min(Math.max(padding, desiredTop), chartRect.height - tooltipHeight - padding),
+    });
+    setHoveredPoint(point);
+  };
+
+  const showTooltip = (event: React.MouseEvent<HTMLButtonElement>, point: BubblePoint) => {
+    showTooltipAt(event.clientX, event.clientY, point);
+  };
+
+  const showTooltipFromBubble = (bubble: HTMLButtonElement, point: BubblePoint) => {
+    const rect = bubble.getBoundingClientRect();
+    showTooltipAt(rect.left + rect.width / 2, rect.top, point);
+  };
 
   return (
-    <div className={styles.bubbleChart}>
+    <div
+      ref={chartRef}
+      className={styles.bubbleChart}
+      onMouseLeave={() => setHoveredPoint(null)}
+    >
       <div className={styles.quadrantLabelTl}>核心动销</div>
       <div className={styles.quadrantLabelTr}>资金占压</div>
       <div className={styles.quadrantLabelBl}>轻量快动</div>
@@ -349,9 +377,10 @@ function BubbleQuadrantChart({
         className={styles.thresholdHorizontal}
         style={{ bottom: `${(thresholdValue / maxY) * 100}%` }}
       />
-      {points.slice(0, 140).map((point) => (
-        <span
-          key={point.skuId}
+      {visiblePoints.map((point) => (
+        <button
+          key={`${point.skuId}-${point.skuCode}`}
+          type="button"
           className={styles.bubble}
           style={{
             left: `${(Number(point.turnoverDays) / maxX) * 100}%`,
@@ -361,9 +390,29 @@ function BubbleQuadrantChart({
             background: `${RISK_COLOR[point.riskLevel]}55`,
             borderColor: RISK_COLOR[point.riskLevel],
           }}
-          title={`${point.skuCode} | ${QUADRANT_LABEL[point.quadrant]} | ABC ${point.abcClass} | 风险 ${point.riskIndex}`}
+          aria-label={`${point.skuCode} ${point.skuName}`}
+          title={`${point.skuCode} | ${point.skuName}`}
+          onMouseEnter={(event) => showTooltip(event, point)}
+          onMouseMove={(event) => showTooltip(event, point)}
+          onFocus={(event) => showTooltipFromBubble(event.currentTarget, point)}
+          onBlur={() => setHoveredPoint(null)}
         />
       ))}
+      {hoveredPoint ? (
+        <div
+          className={styles.bubbleTooltip}
+          style={{ left: tooltipPosition.left, top: tooltipPosition.top }}
+          role="tooltip"
+        >
+          <div className={styles.bubbleTooltipCode}>{hoveredPoint.skuCode}</div>
+          <div className={styles.bubbleTooltipName}>{hoveredPoint.skuName}</div>
+          <div className={styles.bubbleTooltipMeta}>
+            <span>库存价值 ¥{Number(hoveredPoint.inventoryValue).toLocaleString()}</span>
+            <span>周转 {hoveredPoint.turnoverDays} 天</span>
+            <span>库存 {hoveredPoint.qtyOnHand}</span>
+          </div>
+        </div>
+      ) : null}
       <div className={styles.axisX}>周转天数</div>
       <div className={styles.axisY}>库存金额</div>
     </div>
@@ -386,6 +435,8 @@ function RiskTable({
     qtyOnHand: string;
     inventoryValue: string;
     outboundPeriodQty: string;
+    lastOutboundDate: string | null;
+    stagnantDays: string;
     turnoverDays: string;
     quadrant: Quadrant;
     abcClass: 'A' | 'B' | 'C';
@@ -410,6 +461,8 @@ function RiskTable({
             <th>库存数量</th>
             <th>库存价值</th>
             <th>{outboundLabel}</th>
+            <th>最后出库日期</th>
+            <th>呆滞天数</th>
             <th>周转天数</th>
             {showQuadrant ? <th>象限</th> : null}
             {showAbc ? <th>ABC</th> : null}
@@ -422,12 +475,11 @@ function RiskTable({
             <tr>
               <td
                 colSpan={
-                  8
+                  10
                   + (showRank ? 1 : 0)
                   + (showQuadrant ? 1 : 0)
                   + (showAbc ? 1 : 0)
                   + (showRiskIndex ? 1 : 0)
-                  + 1
                 }
                 className={styles.emptyCell}
               >
@@ -443,6 +495,8 @@ function RiskTable({
               <td>{row.qtyOnHand}</td>
               <td>¥{Number(row.inventoryValue).toLocaleString()}</td>
               <td>{row.outboundPeriodQty}</td>
+              <td>{row.lastOutboundDate ?? '--'}</td>
+              <td>{row.stagnantDays}</td>
               <td>{row.turnoverDays}</td>
               {showQuadrant ? <td>{QUADRANT_LABEL[row.quadrant]}</td> : null}
               {showAbc ? <td>{row.abcClass}</td> : null}

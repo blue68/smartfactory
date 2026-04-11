@@ -139,6 +139,8 @@ export interface InventoryOperationReport {
     qtyOnHand: string;
     inventoryValue: string;
     outboundPeriodQty: string;
+    lastOutboundDate: string | null;
+    stagnantDays: string;
     turnoverDays: string;
     quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
     abcClass: 'A' | 'B' | 'C';
@@ -153,6 +155,8 @@ export interface InventoryOperationReport {
     qtyOnHand: string;
     inventoryValue: string;
     outboundPeriodQty: string;
+    lastOutboundDate: string | null;
+    stagnantDays: string;
     turnoverDays: string;
     quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
     abcClass: 'A' | 'B' | 'C';

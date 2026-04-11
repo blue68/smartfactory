@@ -481,6 +481,8 @@ export class AnalyticsService {
       qtyOnHand: string;
       inventoryValue: string;
       outboundPeriodQty: string;
+      lastOutboundDate: string | null;
+      stagnantDays: string;
       turnoverDays: string;
       quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
       abcClass: 'A' | 'B' | 'C';
@@ -495,6 +497,8 @@ export class AnalyticsService {
       qtyOnHand: string;
       inventoryValue: string;
       outboundPeriodQty: string;
+      lastOutboundDate: string | null;
+      stagnantDays: string;
       turnoverDays: string;
       quadrant: 'core' | 'capital_risk' | 'stagnant_tail' | 'light_fast';
       abcClass: 'A' | 'B' | 'C';
@@ -512,6 +516,8 @@ export class AnalyticsService {
       unitPrice: string;
       outboundPeriodQty: string;
       outbound90Qty: string;
+      lastOutboundDate: string | null;
+      lastInboundDate: string | null;
     }>>(
       `SELECT
          s.id AS skuId,
@@ -521,7 +527,9 @@ export class AnalyticsService {
          CAST(COALESCE(inv.qtyOnHand, 0) AS CHAR) AS qtyOnHand,
          CAST(COALESCE(sp.price, 0) AS CHAR) AS unitPrice,
          CAST(COALESCE(tx.outboundPeriodQty, 0) AS CHAR) AS outboundPeriodQty,
-         CAST(COALESCE(tx.outbound90Qty, 0) AS CHAR) AS outbound90Qty
+         CAST(COALESCE(tx.outbound90Qty, 0) AS CHAR) AS outbound90Qty,
+         tx.lastOutboundDate AS lastOutboundDate,
+         tx.lastInboundDate AS lastInboundDate
        FROM skus s
        LEFT JOIN sku_categories sc
          ON sc.id = s.category1_id
@@ -540,7 +548,9 @@ export class AnalyticsService {
          SELECT
            sku_id AS skuId,
            SUM(CASE WHEN direction = 'OUT' AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) THEN qty_stock_unit ELSE 0 END) AS outboundPeriodQty,
-           SUM(CASE WHEN direction = 'OUT' AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY) THEN qty_stock_unit ELSE 0 END) AS outbound90Qty
+           SUM(CASE WHEN direction = 'OUT' AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY) THEN qty_stock_unit ELSE 0 END) AS outbound90Qty,
+           DATE_FORMAT(MAX(CASE WHEN direction = 'OUT' THEN created_at END), '%Y-%m-%d') AS lastOutboundDate,
+           DATE_FORMAT(MAX(CASE WHEN direction = 'IN' THEN created_at END), '%Y-%m-%d') AS lastInboundDate
          FROM inventory_transactions
          WHERE tenant_id = ?
          GROUP BY sku_id
@@ -572,6 +582,15 @@ export class AnalyticsService {
     };
 
     const baseRows = skuRows.map((row) => {
+      const lastOutboundDate = row.lastOutboundDate ? String(row.lastOutboundDate) : null;
+      const fallbackDate = row.lastInboundDate ? String(row.lastInboundDate) : null;
+      const stagnantSourceDate = lastOutboundDate ?? fallbackDate;
+      const stagnantDays = stagnantSourceDate
+        ? Math.max(
+            0,
+            Math.floor((Date.now() - new Date(`${stagnantSourceDate}T00:00:00+08:00`).getTime()) / 86_400_000),
+          )
+        : 0;
       const qtyOnHand = Number(row.qtyOnHand ?? 0);
       const unitPrice = Number(row.unitPrice ?? 0);
       const outboundPeriod = Number(row.outboundPeriodQty ?? 0);
@@ -584,6 +603,8 @@ export class AnalyticsService {
         qtyOnHand,
         outboundPeriod,
         outbound90,
+        lastOutboundDate,
+        stagnantDays,
         turnoverDays,
         inventoryValue,
       };
@@ -752,6 +773,8 @@ export class AnalyticsService {
         qtyOnHand: item.qtyOnHand.toFixed(2),
         inventoryValue: item.inventoryValue.toFixed(2),
         outboundPeriodQty: item.outboundPeriod.toFixed(2),
+        lastOutboundDate: item.lastOutboundDate,
+        stagnantDays: String(item.stagnantDays),
         turnoverDays: Math.min(item.turnoverDays, 999).toFixed(1),
         quadrant: item.quadrant,
         abcClass: item.abcClass,

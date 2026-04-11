@@ -212,8 +212,53 @@
   z-index: 2;
   transform: translate(-50%, 50%);
   border-radius: 999px;
+  padding: 0;
   border: 2px solid transparent;
+  appearance: none;
+  cursor: pointer;
+  outline: none;
   box-shadow: 0 6px 10px rgba(15, 23, 42, 0.08);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.bubble:hover,
+.bubble:focus-visible {
+  transform: translate(-50%, 50%) scale(1.08);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.14);
+}
+
+.bubbleTooltip {
+  position: absolute;
+  z-index: 4;
+  width: 240px;
+  pointer-events: none;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  box-shadow: 0 16px 28px rgba(15, 23, 42, 0.22);
+}
+
+.bubbleTooltipCode {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.bubbleTooltipName {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(248, 250, 252, 0.9);
+}
+
+.bubbleTooltipMeta {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: rgba(226, 232, 240, 0.95);
 }
 
 .axisX,
