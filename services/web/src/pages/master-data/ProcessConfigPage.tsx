@@ -55,6 +55,7 @@ interface ProcessNode {
   workstation: string;
   workstationId: number | null;
   workstationName: string;
+  executionMode: 'internal' | 'outsource';
   hours: number;
   maxHours: number;
   unitPrice: number;
@@ -94,6 +95,7 @@ function mapStepsToNodes(steps: ProcessStep[]): ProcessNode[] {
     workstation: s.workstationType ?? '',
     workstationId: s.workstationId ? Number(s.workstationId) : null,
     workstationName: '',
+    executionMode: s.executionMode ?? 'internal',
     hours: s.standardHours ? parseFloat(s.standardHours) : 0,
     maxHours: s.maxHours ? parseFloat(s.maxHours) : 0,
     unitPrice: 0, // unitPrice 通过 wages API 按需加载，初始为 0
@@ -110,6 +112,7 @@ function mapNodesToPayload(nodes: ProcessNode[]): ProcessStepPayload[] {
       standardHours: n.hours || undefined,
       workstationType: n.workstation || undefined,
       workstationId: n.workstationId || undefined,
+      executionMode: n.executionMode,
     }));
 }
 
@@ -259,6 +262,7 @@ function FlowNodeCard({ node, isSelected, onClick }: FlowNodeCardProps) {
       <div className={styles.flowNode__seq}>STEP {node.seq}</div>
       <div className={styles.flowNode__name}>{node.name}</div>
       <div className={styles.flowNode__meta}>
+        <div>{node.executionMode === 'outsource' ? '外协采购' : '厂内生产'}</div>
         {node.workstationName && <div>{node.workstationName}</div>}
         {!node.workstationName && node.workstation && <div>{node.workstation}</div>}
         {node.hours > 0 && <div>{node.hours}h</div>}
@@ -657,6 +661,23 @@ function NodeDrawer({
             </div>
 
             <div className={styles.formGroup}>
+              <label className={styles.formLabel}>
+                执行方式<span className={styles.formLabel__req}>*</span>
+              </label>
+              <select
+                className={styles.formSelect}
+                value={node.executionMode}
+                onChange={(e) => handleField('executionMode', e.target.value as 'internal' | 'outsource')}
+              >
+                <option value="internal">厂内生产</option>
+                <option value="outsource">外协采购</option>
+              </select>
+              <div className={styles.formHelp}>
+                选择“外协采购”后，该工序将通过采购建议流转，不进入车间排产任务。
+              </div>
+            </div>
+
+            <div className={styles.formGroup}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
                 <label className={styles.formLabel} style={{ margin: 0 }}>工作站类型</label>
                 <button
@@ -1044,6 +1065,7 @@ export default function ProcessConfigPage() {
       workstation: '',
       workstationId: null,
       workstationName: '',
+      executionMode: 'internal',
       hours: 0,
       maxHours: 0,
       unitPrice: 0,

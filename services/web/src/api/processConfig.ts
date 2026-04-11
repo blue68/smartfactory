@@ -49,6 +49,7 @@ export interface ProcessStep {
   maxHours: string | null;
   workstationType: string | null;
   workstationId: number | null;
+  executionMode: 'internal' | 'outsource';
   createdAt: string;
 }
 
@@ -89,6 +90,7 @@ export interface ProcessStepPayload {
   standardHours?: number;
   workstationType?: string;
   workstationId?: number;
+  executionMode?: 'internal' | 'outsource';
 }
 
 export interface CreateProcessConfigPayload {

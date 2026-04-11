@@ -159,6 +159,21 @@ describe('GET /api/production/tasks', () => {
   });
 });
 
+describe('GET /api/production/tasks/categories', () => {
+  it('返回任务类别枚举（兼容旧版前端）', async () => {
+    const res = await request(app)
+      .get('/api/production/tasks/categories')
+      .set('Authorization', authHeader());
+
+    expect(res.status).toBe(200);
+    expect(res.body.code).toBe(0);
+    expect(res.body.data).toEqual([
+      { code: 'finished', name: '成品任务' },
+      { code: 'semi_finished', name: '半成品任务' },
+    ]);
+  });
+});
+
 // ── PUT /api/production/schedule/:date/adjust ─────────────────────────────
 
 describe('PUT /api/production/schedule/:date/adjust', () => {

@@ -32,6 +32,7 @@ export const MENU_CODES = {
   ANALYTICS: 'report.analytics',
   REPORT_WAGE: 'report.wage',
   REPORT_MY_WAGE: 'report.my_wage',
+  REPORT_SEMI_FINISHED_MODE: 'report.semi_finished_mode',
   NOTIFICATION: 'system.notification',
   AI_CHAT: 'ai.chat',
   SYSTEM_TENANT_CONFIG: 'system.tenant.config',

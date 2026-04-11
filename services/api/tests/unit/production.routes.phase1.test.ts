@@ -35,12 +35,15 @@ jest.mock('../../src/modules/production/production.controller', () => ({
     generateSchedule: jest.fn(),
     confirmSchedule: jest.fn(),
     getTaskStats: jest.fn(),
+    listTaskCategories: jest.fn(),
     listTasks: jest.fn(),
     getWorkerTasks: jest.fn(),
     getTask: jest.fn(),
     startTask: jest.fn(),
     completeTask: jest.fn(),
     completeTaskV2: jest.fn(),
+    issueTaskMaterials: jest.fn(),
+    returnTaskMaterials: jest.fn(),
     suspendTask: jest.fn(),
     resumeTask: jest.fn(),
     reportException: jest.fn(),
@@ -118,6 +121,7 @@ describe('production.routes phase1 wiring', () => {
 
     expect(getRouteLayer('/tasks/:taskId', 'get')).toBeTruthy();
     expect(routePaths.indexOf('/tasks/stats')).toBeLessThan(routePaths.indexOf('/tasks/:taskId'));
+    expect(routePaths.indexOf('/tasks/categories')).toBeLessThan(routePaths.indexOf('/tasks/:taskId'));
     expect(routePaths.indexOf('/tasks')).toBeLessThan(routePaths.indexOf('/tasks/:taskId'));
     expect(routePaths.indexOf('/tasks/worker/:workerId')).toBeLessThan(routePaths.indexOf('/tasks/:taskId'));
   });

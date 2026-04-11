@@ -305,6 +305,14 @@ export class ProductionController {
     const data = await this.svc(req).getTaskStats();
     success(res, data);
   }
+
+  // 兼容旧版前端：任务类别枚举
+  async listTaskCategories(_req: Request, res: Response): Promise<void> {
+    success(res, [
+      { code: 'finished', name: '成品任务' },
+      { code: 'semi_finished', name: '半成品任务' },
+    ]);
+  }
 }
 
 export const productionController = new ProductionController();

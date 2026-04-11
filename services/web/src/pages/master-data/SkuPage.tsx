@@ -815,15 +815,8 @@ export default function SkuPage() {
 
       {/* ── 数据表格 ── */}
       <div className={styles.table_card}>
-        {/* 表头全选行 */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '10px 16px',
-          borderBottom: '1px solid var(--border-default, #e5e7eb)',
-          background: '#fafafa',
-        }}>
+        {/* 表头选择与批量操作行 */}
+        <div className={styles.table_header_bar}>
           <input
             type="checkbox"
             className={styles.row_checkbox}
@@ -832,11 +825,47 @@ export default function SkuPage() {
             onChange={(e) => handleSelectAll(e.target.checked)}
             aria-label="全选当前页"
           />
-          <span style={{ fontSize: 12, color: '#6b7280' }}>
-            {selectedIds.length > 0
-              ? `已选 ${selectedIds.length} 条`
-              : `共 ${data?.total ?? 0} 条记录`}
-          </span>
+          {selectedIds.length > 0 ? (
+            <>
+              <span className={styles.batch_bar_count}>
+                已选 <strong>{selectedIds.length}</strong> 条
+              </span>
+              <button
+                className={styles.batch_select_all}
+                onClick={() => handleSelectAll(true)}
+                type="button"
+              >
+                全选本页
+              </button>
+              <div className={styles.batch_divider} />
+              <span className={styles.batch_label}>批量操作:</span>
+              <div className={styles.batch_actions}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { setBatchSafetyVal(''); setShowBatchSafety(true); }}
+                >
+                  设置安全库存
+                </Button>
+                <Button variant="secondary" size="sm" onClick={handleExport}>
+                  导出所选
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  loading={batchStatusMutation.isPending}
+                  onClick={() => void handleBatchDisable()}
+                >
+                  批量停用
+                </Button>
+              </div>
+              <button className={styles.batch_clear} onClick={() => setSelectedIds([])} type="button">
+                清除选择
+              </button>
+            </>
+          ) : (
+            <span className={styles.table_header_summary}>共 {data?.total ?? 0} 条记录</span>
+          )}
         </div>
 
         <Table<SkuRecord>
@@ -858,46 +887,6 @@ export default function SkuPage() {
           }
         />
 
-        {/* ── 批量操作栏 ── */}
-        {selectedIds.length > 0 && (
-          <div className={styles.batch_bar}>
-            <span className={styles.batch_bar_count}>
-              已选 <strong>{selectedIds.length}</strong> 条
-            </span>
-            <button
-              className={styles.batch_select_all}
-              onClick={() => handleSelectAll(true)}
-              type="button"
-            >
-              全选本页
-            </button>
-            <div className={styles.batch_divider} />
-            <span className={styles.batch_label}>批量操作:</span>
-            <div className={styles.batch_actions}>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => { setBatchSafetyVal(''); setShowBatchSafety(true); }}
-              >
-                设置安全库存
-              </Button>
-              <Button variant="secondary" size="sm" onClick={handleExport}>
-                导出所选
-              </Button>
-              <Button
-                variant="danger"
-                size="sm"
-                loading={batchStatusMutation.isPending}
-                onClick={() => void handleBatchDisable()}
-              >
-                批量停用
-              </Button>
-            </div>
-            <button className={styles.batch_clear} onClick={() => setSelectedIds([])} type="button">
-              清除选择
-            </button>
-          </div>
-        )}
       </div>
 
       {/* ── 新增 / 编辑 SKU Drawer ── */}

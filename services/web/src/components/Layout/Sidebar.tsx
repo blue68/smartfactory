@@ -296,6 +296,14 @@ const NAV_ITEMS: NavItem[] = [
     group: '报表',
   },
   {
+    path: '/report/semi-finished-modes',
+    label: '半成品模式报表',
+    icon: '🧮',
+    roles: [UserRole.BOSS, UserRole.SUPERVISOR],
+    menuCode: MENU_CODES.REPORT_SEMI_FINISHED_MODE,
+    group: '报表',
+  },
+  {
     path: '/notifications',
     label: '通知中心',
     icon: '🔔',

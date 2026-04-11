@@ -310,25 +310,34 @@
   accent-color: #2563eb;
 }
 
-/* ── 批量操作浮动栏 ── */
+/* ── 表头选择与批量操作栏 ── */
+.table_header_bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-default, #e5e7eb);
+  background: #fafafa;
+}
+.table_header_summary {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* ── 批量操作栏（顶部） ── */
 .batch_bar {
-  position: sticky;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 10;
   display: flex;
   align-items: center;
   gap: var(--space-3);
   padding: 10px 20px;
   background: #fff;
-  border-top: 2px solid #2563eb;
-  border-radius: 0 0 var(--radius-md, 8px) var(--radius-md, 8px);
-  box-shadow: 0 -4px 12px rgba(0,0,0,0.08);
+  border: 1px solid var(--border-default, #e5e7eb);
+  border-radius: var(--radius-md, 8px);
 }
 .batch_bar_count {
   font-size: 13px;
   color: var(--text-secondary, #6b7280);
+  white-space: nowrap;
 }
 .batch_bar_count strong { color: #2563eb; }
 .batch_select_all {
@@ -355,6 +364,7 @@
   align-items: center;
   gap: var(--space-2);
   flex: 1;
+  flex-wrap: wrap;
 }
 .batch_clear {
   margin-left: auto;

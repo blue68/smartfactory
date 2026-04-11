@@ -585,9 +585,266 @@ export class ProductionService {
     const where = conds.join(' AND ');
     const offset = (params.page - 1) * params.pageSize;
 
+    try {
+      const [list, countRows] = await Promise.all([
+        AppDataSource.query(
+          // R06-G12 + dependency-aware priority sort
+          `SELECT
+              task_rows.*,
+              CASE
+                WHEN task_rows.priorityScore >= 110 THEN 'critical'
+                WHEN task_rows.priorityScore >= 85 THEN 'high'
+                WHEN task_rows.priorityScore >= 60 THEN 'medium'
+                ELSE 'normal'
+              END AS priorityLevel,
+              CASE
+                WHEN task_rows.priorityScore >= 110 THEN '关键优先'
+                WHEN task_rows.priorityScore >= 85 THEN '高优先'
+                WHEN task_rows.priorityScore >= 60 THEN '优先'
+                ELSE '普通'
+              END AS priorityLabel,
+              CASE
+                WHEN task_rows.activeDownstreamTaskCount > 0 AND task_rows.dependencyBlocked = 0
+                  THEN CONCAT('关键链路，影响 ', task_rows.activeDownstreamTaskCount, ' 个后续任务')
+                WHEN task_rows.downstreamTaskCount > 0 AND task_rows.dependencyBlocked = 0
+                  THEN CONCAT('前置任务，关联 ', task_rows.downstreamTaskCount, ' 个后续任务')
+                WHEN task_rows.dependencyBlocked = 1
+                  THEN '存在前置阻塞，当前不可直接开工'
+                WHEN task_rows.priority >= 80
+                  THEN '工单基础优先级较高'
+                ELSE '常规优先级'
+              END AS priorityReason
+           FROM (
+             SELECT
+               pt.id,
+               pt.task_no AS taskNo,
+               pt.task_date AS taskDate,
+               CASE WHEN pt.status = 'started' THEN 'in_progress' ELSE pt.status END AS status,
+               pt.planned_qty AS plannedQty,
+               pt.completed_qty AS completedQty,
+               pt.version,
+               pt.actual_hours AS actualHours,
+               ps.id AS processStepId,
+               pt.operation_id AS operationId,
+               pt.output_sku_id AS outputSkuId,
+               po.work_order_no AS orderNo,
+               po.priority,
+               po.planned_end AS plannedFinishTime,
+               ps.step_name AS processName,
+               ws.name AS workstationName,
+               u.real_name AS workerName,
+               s.name AS skuName,
+               s.sku_code AS skuCode,
+               outs.name AS outputSkuName,
+               CASE
+                 WHEN COALESCE(pt.output_sku_id, ps.output_sku_id) IS NOT NULL
+                   AND COALESCE(pt.output_sku_id, ps.output_sku_id) <> po.sku_id
+                 THEN 'semi_finished'
+                 ELSE 'finished'
+               END AS taskType,
+               COALESCE(pt.execution_mode, ps.execution_mode, 'internal') AS executionMode,
+               COALESCE(dep_out.downstreamTaskCount, 0) AS downstreamTaskCount,
+               COALESCE(dep_out.activeDownstreamTaskCount, 0) AS activeDownstreamTaskCount,
+               CASE WHEN COALESCE(dep_in.blockedDependencyCount, 0) > 0 THEN 1 ELSE 0 END AS dependencyBlocked,
+               (
+                 po.priority
+                 + LEAST(COALESCE(dep_out.activeDownstreamTaskCount, 0), 5) * 15
+                 + LEAST(COALESCE(dep_out.downstreamTaskCount, 0), 5) * 5
+                 + CASE WHEN pt.status = 'started' THEN 10 ELSE 0 END
+                 + CASE
+                     WHEN COALESCE(dep_out.activeDownstreamTaskCount, 0) > 0
+                          AND COALESCE(dep_in.blockedDependencyCount, 0) = 0
+                     THEN 10
+                     ELSE 0
+                   END
+                 - CASE WHEN COALESCE(dep_in.blockedDependencyCount, 0) > 0 THEN 25 ELSE 0 END
+               ) AS priorityScore
+             FROM production_tasks pt
+             INNER JOIN production_orders po ON po.id = pt.production_order_id
+             INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+             LEFT JOIN workstations ws ON ws.id = pt.workstation_id
+             LEFT JOIN users u ON u.id = pt.worker_id
+             LEFT JOIN skus s ON s.id = po.sku_id
+             LEFT JOIN skus outs ON outs.id = COALESCE(pt.output_sku_id, ps.output_sku_id)
+             LEFT JOIN (
+               SELECT
+                 dep.tenant_id,
+                 dep.predecessor_operation_id AS operationId,
+                 COUNT(DISTINCT dep.operation_id) AS downstreamTaskCount,
+                 COUNT(DISTINCT CASE
+                   WHEN succ_task.status IN ('pending', 'started', 'exception', 'suspended')
+                   THEN succ_task.id
+                   ELSE NULL
+                 END) AS activeDownstreamTaskCount
+               FROM production_operation_dependencies dep
+               LEFT JOIN (
+                 SELECT tenant_id, operation_id, MAX(id) AS task_id
+                 FROM production_tasks
+                 GROUP BY tenant_id, operation_id
+               ) succ_task_ref
+                 ON succ_task_ref.tenant_id = dep.tenant_id
+                AND succ_task_ref.operation_id = dep.operation_id
+               LEFT JOIN production_tasks succ_task
+                 ON succ_task.id = succ_task_ref.task_id
+               GROUP BY dep.tenant_id, dep.predecessor_operation_id
+             ) dep_out
+               ON dep_out.tenant_id = pt.tenant_id
+              AND dep_out.operationId = pt.operation_id
+             LEFT JOIN (
+               SELECT
+                 dep.tenant_id,
+                 dep.operation_id AS operationId,
+                 SUM(CASE
+                   WHEN COALESCE(pred.completed_qty, 0) < dep.required_qty THEN 1
+                   ELSE 0
+                 END) AS blockedDependencyCount
+               FROM production_operation_dependencies dep
+               INNER JOIN production_operations pred
+                 ON pred.id = dep.predecessor_operation_id
+                AND pred.tenant_id = dep.tenant_id
+               GROUP BY dep.tenant_id, dep.operation_id
+             ) dep_in
+               ON dep_in.tenant_id = pt.tenant_id
+              AND dep_in.operationId = pt.operation_id
+             WHERE ${where}
+           ) task_rows
+           ORDER BY task_rows.priorityScore DESC, task_rows.priority DESC, task_rows.taskDate DESC, task_rows.id DESC
+           LIMIT ? OFFSET ?`,
+          [...p, params.pageSize, offset],
+        ),
+        AppDataSource.query<Array<{ total: string }>>(
+          `SELECT COUNT(*) AS total
+           FROM production_tasks pt
+           INNER JOIN production_orders po ON po.id = pt.production_order_id
+           INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+           LEFT JOIN users u ON u.id = pt.worker_id
+           WHERE ${where}`,
+          p,
+        ),
+      ]);
+
+      return { list, total: Number(countRows[0]?.total ?? 0) };
+    } catch (error) {
+      if (!this.shouldFallbackTaskListQuery(error)) {
+        throw error;
+      }
+      console.warn(`[ProductionService] listTasks fallback to legacy schema: ${(error as Error).message}`);
+      return this.listTasksWithLegacySchema(params);
+    }
+  }
+
+  private shouldFallbackTaskListQuery(error: unknown): boolean {
+    const message = String((error as { message?: string })?.message ?? '').toLowerCase();
+    return message.includes('unknown column')
+      || message.includes('doesn\'t exist')
+      || message.includes('unknown table');
+  }
+
+  private async getTableColumns(
+    table: 'production_tasks' | 'process_steps',
+    columns: string[],
+  ): Promise<Set<string>> {
+    const rows = await AppDataSource.query<Array<{ columnName: string }>>(
+      `SELECT column_name AS columnName
+       FROM information_schema.columns
+       WHERE table_schema = DATABASE()
+         AND table_name = ?
+         AND column_name IN (${columns.map(() => '?').join(', ')})`,
+      [table, ...columns],
+    );
+    return new Set(rows.map((item) => item.columnName));
+  }
+
+  private async listTasksWithLegacySchema(params: {
+    page: number; pageSize: number; status?: string; keyword?: string;
+    processId?: number;
+    taskType?: 'finished' | 'semi_finished';
+    executionMode?: 'internal' | 'outsource';
+    dateFrom?: string;
+    dateTo?: string;
+    priority?: number;
+  }) {
+    const [taskCols, stepCols] = await Promise.all([
+      this.getTableColumns('production_tasks', ['version', 'actual_hours', 'output_sku_id', 'execution_mode', 'workstation_id']),
+      this.getTableColumns('process_steps', ['output_sku_id', 'execution_mode']),
+    ]);
+
+    const hasTaskVersion = taskCols.has('version');
+    const hasTaskActualHours = taskCols.has('actual_hours');
+    const hasTaskOutputSku = taskCols.has('output_sku_id');
+    const hasTaskExecutionMode = taskCols.has('execution_mode');
+    const hasTaskWorkstation = taskCols.has('workstation_id');
+    const hasStepOutputSku = stepCols.has('output_sku_id');
+    const hasStepExecutionMode = stepCols.has('execution_mode');
+
+    const outputSkuExpr = hasTaskOutputSku && hasStepOutputSku
+      ? 'COALESCE(pt.output_sku_id, ps.output_sku_id)'
+      : hasTaskOutputSku
+        ? 'pt.output_sku_id'
+        : hasStepOutputSku
+          ? 'ps.output_sku_id'
+          : 'NULL';
+
+    const executionModeExpr = hasTaskExecutionMode && hasStepExecutionMode
+      ? "COALESCE(pt.execution_mode, ps.execution_mode, 'internal')"
+      : hasTaskExecutionMode
+        ? "COALESCE(pt.execution_mode, 'internal')"
+        : hasStepExecutionMode
+          ? "COALESCE(ps.execution_mode, 'internal')"
+          : "'internal'";
+
+    const workstationRef = hasTaskWorkstation ? 'pt.workstation_id' : 'sched.workstation_id';
+
+    const conds = ['pt.tenant_id = ?'];
+    const p: unknown[] = [this.tenantId];
+
+    if (params.status) {
+      if (params.status === 'in_progress') {
+        conds.push("pt.status = 'started'");
+      } else {
+        conds.push('pt.status = ?');
+        p.push(params.status);
+      }
+    }
+    if (params.keyword) {
+      conds.push('(po.work_order_no LIKE ? OR ps.step_name LIKE ? OR u.real_name LIKE ?)');
+      p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
+    }
+    if (params.processId) {
+      conds.push('ps.id = ?');
+      p.push(params.processId);
+    }
+    if (params.taskType === 'semi_finished' && outputSkuExpr !== 'NULL') {
+      conds.push(`${outputSkuExpr} IS NOT NULL`);
+      conds.push(`${outputSkuExpr} <> po.sku_id`);
+    }
+    if (params.taskType === 'finished' && outputSkuExpr !== 'NULL') {
+      conds.push(`(${outputSkuExpr} IS NULL OR ${outputSkuExpr} = po.sku_id)`);
+    }
+    if (params.executionMode && executionModeExpr !== "'internal'") {
+      conds.push(`${executionModeExpr} = ?`);
+      p.push(params.executionMode);
+    }
+    if (params.dateFrom) {
+      conds.push('pt.task_date >= ?');
+      p.push(params.dateFrom);
+    }
+    if (params.dateTo) {
+      conds.push('pt.task_date <= ?');
+      p.push(params.dateTo);
+    }
+    if (params.priority) {
+      conds.push('po.priority = ?');
+      p.push(params.priority);
+    }
+
+    const where = conds.join(' AND ');
+    const offset = (params.page - 1) * params.pageSize;
+    const versionExpr = hasTaskVersion ? 'pt.version' : '1';
+    const actualHoursExpr = hasTaskActualHours ? 'pt.actual_hours' : 'NULL';
+
     const [list, countRows] = await Promise.all([
       AppDataSource.query(
-        // R06-G12 + dependency-aware priority sort
         `SELECT
             task_rows.*,
             CASE
@@ -602,17 +859,7 @@ export class ProductionService {
               WHEN task_rows.priorityScore >= 60 THEN '优先'
               ELSE '普通'
             END AS priorityLabel,
-            CASE
-              WHEN task_rows.activeDownstreamTaskCount > 0 AND task_rows.dependencyBlocked = 0
-                THEN CONCAT('关键链路，影响 ', task_rows.activeDownstreamTaskCount, ' 个后续任务')
-              WHEN task_rows.downstreamTaskCount > 0 AND task_rows.dependencyBlocked = 0
-                THEN CONCAT('前置任务，关联 ', task_rows.downstreamTaskCount, ' 个后续任务')
-              WHEN task_rows.dependencyBlocked = 1
-                THEN '存在前置阻塞，当前不可直接开工'
-              WHEN task_rows.priority >= 80
-                THEN '工单基础优先级较高'
-              ELSE '常规优先级'
-            END AS priorityReason
+            '常规优先级' AS priorityReason
          FROM (
            SELECT
              pt.id,
@@ -621,11 +868,11 @@ export class ProductionService {
              CASE WHEN pt.status = 'started' THEN 'in_progress' ELSE pt.status END AS status,
              pt.planned_qty AS plannedQty,
              pt.completed_qty AS completedQty,
-             pt.version,
-             pt.actual_hours AS actualHours,
+             ${versionExpr} AS version,
+             ${actualHoursExpr} AS actualHours,
              ps.id AS processStepId,
-             pt.operation_id AS operationId,
-             pt.output_sku_id AS outputSkuId,
+             NULL AS operationId,
+             ${outputSkuExpr} AS outputSkuId,
              po.work_order_no AS orderNo,
              po.priority,
              po.planned_end AS plannedFinishTime,
@@ -636,75 +883,23 @@ export class ProductionService {
              s.sku_code AS skuCode,
              outs.name AS outputSkuName,
              CASE
-               WHEN COALESCE(pt.output_sku_id, ps.output_sku_id) IS NOT NULL
-                 AND COALESCE(pt.output_sku_id, ps.output_sku_id) <> po.sku_id
+               WHEN ${outputSkuExpr} IS NOT NULL AND ${outputSkuExpr} <> po.sku_id
                THEN 'semi_finished'
                ELSE 'finished'
              END AS taskType,
-             COALESCE(pt.execution_mode, ps.execution_mode, 'internal') AS executionMode,
-             COALESCE(dep_out.downstreamTaskCount, 0) AS downstreamTaskCount,
-             COALESCE(dep_out.activeDownstreamTaskCount, 0) AS activeDownstreamTaskCount,
-             CASE WHEN COALESCE(dep_in.blockedDependencyCount, 0) > 0 THEN 1 ELSE 0 END AS dependencyBlocked,
-             (
-               po.priority
-               + LEAST(COALESCE(dep_out.activeDownstreamTaskCount, 0), 5) * 15
-               + LEAST(COALESCE(dep_out.downstreamTaskCount, 0), 5) * 5
-               + CASE WHEN pt.status = 'started' THEN 10 ELSE 0 END
-               + CASE
-                   WHEN COALESCE(dep_out.activeDownstreamTaskCount, 0) > 0
-                        AND COALESCE(dep_in.blockedDependencyCount, 0) = 0
-                   THEN 10
-                   ELSE 0
-                 END
-               - CASE WHEN COALESCE(dep_in.blockedDependencyCount, 0) > 0 THEN 25 ELSE 0 END
-             ) AS priorityScore
+             ${executionModeExpr} AS executionMode,
+             0 AS downstreamTaskCount,
+             0 AS activeDownstreamTaskCount,
+             0 AS dependencyBlocked,
+             po.priority AS priorityScore
            FROM production_tasks pt
            INNER JOIN production_orders po ON po.id = pt.production_order_id
            INNER JOIN process_steps ps ON ps.id = pt.process_step_id
-           LEFT JOIN workstations ws ON ws.id = pt.workstation_id
+           LEFT JOIN production_schedules sched ON sched.id = pt.schedule_id AND sched.tenant_id = pt.tenant_id
+           LEFT JOIN workstations ws ON ws.id = ${workstationRef}
            LEFT JOIN users u ON u.id = pt.worker_id
            LEFT JOIN skus s ON s.id = po.sku_id
-           LEFT JOIN skus outs ON outs.id = COALESCE(pt.output_sku_id, ps.output_sku_id)
-           LEFT JOIN (
-             SELECT
-               dep.tenant_id,
-               dep.predecessor_operation_id AS operationId,
-               COUNT(DISTINCT dep.operation_id) AS downstreamTaskCount,
-               COUNT(DISTINCT CASE
-                 WHEN succ_task.status IN ('pending', 'started', 'exception', 'suspended')
-                 THEN succ_task.id
-                 ELSE NULL
-               END) AS activeDownstreamTaskCount
-             FROM production_operation_dependencies dep
-             LEFT JOIN (
-               SELECT tenant_id, operation_id, MAX(id) AS task_id
-               FROM production_tasks
-               GROUP BY tenant_id, operation_id
-             ) succ_task_ref
-               ON succ_task_ref.tenant_id = dep.tenant_id
-              AND succ_task_ref.operation_id = dep.operation_id
-             LEFT JOIN production_tasks succ_task
-               ON succ_task.id = succ_task_ref.task_id
-             GROUP BY dep.tenant_id, dep.predecessor_operation_id
-           ) dep_out
-             ON dep_out.tenant_id = pt.tenant_id
-            AND dep_out.operationId = pt.operation_id
-           LEFT JOIN (
-             SELECT
-               dep.tenant_id,
-               dep.operation_id AS operationId,
-               SUM(CASE
-                 WHEN COALESCE(pred.completed_qty, 0) < dep.required_qty THEN 1
-                 ELSE 0
-               END) AS blockedDependencyCount
-             FROM production_operation_dependencies dep
-             INNER JOIN production_operations pred
-               ON pred.id = dep.predecessor_operation_id
-              AND pred.tenant_id = dep.tenant_id
-             GROUP BY dep.tenant_id, dep.operation_id
-           ) dep_in
-             ON dep_in.tenant_id = pt.tenant_id
-            AND dep_in.operationId = pt.operation_id
+           LEFT JOIN skus outs ON outs.id = ${outputSkuExpr}
            WHERE ${where}
          ) task_rows
          ORDER BY task_rows.priorityScore DESC, task_rows.priority DESC, task_rows.taskDate DESC, task_rows.id DESC

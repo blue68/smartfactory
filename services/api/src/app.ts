@@ -24,6 +24,7 @@ import customerRoutes  from './modules/sales-customer/customer.routes';
 import salesOrderRoutes from './modules/sales-order/salesOrder.routes';
 import skuCategoryRoutes from './modules/sku-category/skuCategory.routes';
 import wageRoutes      from './modules/report/wage.routes';
+import productionModeReportRoutes from './modules/report/productionMode.routes';
 import analyticsRoutes from './modules/analytics/analytics.routes';
 import uploadRoutes    from './modules/upload/upload.routes';
 // Sprint 3 新增模块
@@ -194,6 +195,7 @@ app.use('/api/customers',  customerRoutes);
 app.use('/api/sales-orders', salesOrderRoutes);
 app.use('/api/sku-categories', skuCategoryRoutes);
 app.use('/api/reports/wages', wageRoutes);
+app.use('/api/reports/production-modes', productionModeReportRoutes);
 app.use('/api/analytics',  analyticsRoutes);
 app.use('/api/upload',     uploadRoutes);
 // Sprint 3 新增路由

@@ -99,6 +99,8 @@ router.post('/schedule/confirm',
 
 // P0-10: 任务统计（固定路由，必须在 /tasks/:id 之前）
 router.get('/tasks/stats', requirePermissionsOrRoles(['production:task:operate'], 'worker', 'supervisor', 'boss', 'admin'), asyncHandler(productionController.getTaskStats.bind(productionController)));
+// 兼容旧版前端：任务类别
+router.get('/tasks/categories', requirePermissionsOrRoles(['production:task:operate'], 'worker', 'supervisor', 'boss', 'admin'), asyncHandler(productionController.listTaskCategories.bind(productionController)));
 
 // R-06: 任务列表（分页 + 筛选）
 router.get('/tasks', requirePermissionsOrRoles(['production:task:operate'], 'worker', 'supervisor', 'boss', 'admin'), asyncHandler(productionController.listTasks.bind(productionController)));

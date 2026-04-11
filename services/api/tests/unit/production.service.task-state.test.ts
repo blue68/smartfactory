@@ -119,6 +119,7 @@ describe('ProductionService task state transitions', () => {
 
   it('reportException 只允许 started 任务进入 exception', async () => {
     mockQuery
+      .mockResolvedValueOnce([{ id: 12, operationId: null }])
       .mockResolvedValueOnce([{ id: 12, status: 'started' }])
       .mockResolvedValueOnce({ affectedRows: 1 })
       .mockResolvedValueOnce({ insertId: 31 });
@@ -150,7 +151,9 @@ describe('ProductionService task state transitions', () => {
   });
 
   it('reportException 遇到 pending 任务时拒绝上报', async () => {
-    mockQuery.mockResolvedValueOnce([{ id: 12, status: 'pending' }]);
+    mockQuery
+      .mockResolvedValueOnce([{ id: 12, operationId: null }])
+      .mockResolvedValueOnce([{ id: 12, status: 'pending' }]);
 
     const svc = new ProductionService({ tenantId: 1, userId: 99 });
 
@@ -160,11 +163,13 @@ describe('ProductionService task state transitions', () => {
       severity: 'high',
     })).rejects.toThrow('只有 started 状态的任务可以上报异常');
 
-    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
   });
 
   it('reportException 遇到已在 exception 的任务时拒绝重复上报', async () => {
-    mockQuery.mockResolvedValueOnce([{ id: 12, status: 'exception' }]);
+    mockQuery
+      .mockResolvedValueOnce([{ id: 12, operationId: null }])
+      .mockResolvedValueOnce([{ id: 12, status: 'exception' }]);
 
     const svc = new ProductionService({ tenantId: 1, userId: 99 });
 
@@ -232,5 +237,68 @@ describe('ProductionService task state transitions', () => {
     const svc = new ProductionService({ tenantId: 1, userId: 99 });
 
     await expect(svc.resolveException(12, '误报解除')).rejects.toThrow('没有待处理的异常记录');
+  });
+
+  it('listTasks 在新字段缺失时自动降级到兼容查询', async () => {
+    mockQuery
+      .mockRejectedValueOnce(new Error("Unknown column 'pt.execution_mode' in 'field list'"))
+      .mockResolvedValueOnce([{ total: '0' }])
+      .mockResolvedValueOnce([{ columnName: 'version' }, { columnName: 'actual_hours' }])
+      .mockResolvedValueOnce([{ columnName: 'output_sku_id' }, { columnName: 'execution_mode' }])
+      .mockResolvedValueOnce([{
+        id: 101,
+        taskNo: 'TASK-001',
+        taskDate: '2026-04-11',
+        status: 'in_progress',
+        plannedQty: '10.0000',
+        completedQty: '2.0000',
+        version: 1,
+        actualHours: '1.50',
+        processStepId: 12,
+        operationId: null,
+        outputSkuId: null,
+        orderNo: 'WO-001',
+        priority: 60,
+        plannedFinishTime: '2026-04-12',
+        processName: '缝制',
+        workstationName: 'A1',
+        workerName: '张工',
+        skuName: '成衣A',
+        skuCode: 'SKU-001',
+        outputSkuName: null,
+        taskType: 'finished',
+        executionMode: 'internal',
+        downstreamTaskCount: 0,
+        activeDownstreamTaskCount: 0,
+        dependencyBlocked: 0,
+        priorityScore: 60,
+        priorityLevel: 'medium',
+        priorityLabel: '优先',
+        priorityReason: '常规优先级',
+      }])
+      .mockResolvedValueOnce([{ total: '1' }]);
+
+    const svc = new ProductionService({ tenantId: 1, userId: 99 });
+    const result = await svc.listTasks({
+      page: 1,
+      pageSize: 20,
+      executionMode: 'internal',
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.list).toHaveLength(1);
+    expect(result.list[0]).toMatchObject({
+      id: 101,
+      taskNo: 'TASK-001',
+      executionMode: 'internal',
+    });
+
+    const fallbackQueryCall = mockQuery.mock.calls.find(
+      ([sql]) =>
+        typeof sql === 'string'
+        && sql.includes('LEFT JOIN production_schedules sched')
+        && !sql.includes('production_operation_dependencies'),
+    );
+    expect(fallbackQueryCall).toBeDefined();
   });
 });
