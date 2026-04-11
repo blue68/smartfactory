@@ -1643,6 +1643,29 @@ ALTER TABLE `purchase_suggestions`
     COMMENT '关联生产工单ID（缺料触发时）'
     AFTER `source`;
 
+-- S5-A1: process_steps 增加执行模式（内部 / 外协）
+ALTER TABLE `process_steps`
+  ADD COLUMN IF NOT EXISTS `execution_mode` ENUM('internal','outsource') NOT NULL DEFAULT 'internal'
+    COMMENT '执行模式：internal=厂内，outsource=外协采购'
+    AFTER `output_sku_id`;
+
+-- S5-A2: purchase_suggestions 增加外协作业关联字段，并扩展来源枚举
+ALTER TABLE `purchase_suggestions`
+  ADD COLUMN IF NOT EXISTS `production_operation_id` BIGINT UNSIGNED DEFAULT NULL
+    COMMENT '关联生产作业ID（外协半成品）'
+    AFTER `production_order_id`;
+
+ALTER TABLE `purchase_suggestions`
+  MODIFY COLUMN `source` ENUM('ai_schedule','production_shortage','manual','outsource_operation')
+  NOT NULL DEFAULT 'ai_schedule'
+  COMMENT '建议来源';
+
+-- S5-A3: purchase_order_items 增加外协作业关联字段
+ALTER TABLE `purchase_order_items`
+  ADD COLUMN IF NOT EXISTS `production_operation_id` BIGINT UNSIGNED DEFAULT NULL
+    COMMENT '关联生产作业ID（外协半成品）'
+    AFTER `po_id`;
+
 -- ── 7. 验证种子数据 ───────────────────────────────────────────────────────────
 SELECT '=== 种子数据初始化完成 ===' AS info;
 SELECT CONCAT('租户数: ', COUNT(*)) AS info FROM `tenants`;

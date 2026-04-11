@@ -12,7 +12,11 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # 安装全部依赖（含 devDependencies，用于编译）
-RUN npm cache clean --force && npm ci --include=dev --ignore-scripts && npm rebuild bcrypt --build-from-source
+# 显式关闭 production-omit，避免外部 NODE_ENV/NPM 配置导致 tsc 缺失
+RUN npm cache clean --force && \
+    NPM_CONFIG_PRODUCTION=false npm ci --include=dev --ignore-scripts && \
+    npm rebuild bcrypt --build-from-source && \
+    test -f /app/node_modules/.bin/tsc
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2: 编译 TypeScript

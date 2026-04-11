@@ -242,6 +242,7 @@ export class ProductionService {
                 pt.scrap_qty AS scrapQty, pt.worker_id AS workerId,
                 pt.workstation_id AS workstationId, pt.process_step_id AS processStepId,
                 pt.operation_id AS operationId, pt.output_sku_id AS outputSkuId,
+                COALESCE(op.execution_mode, 'internal') AS executionMode,
                 pt.actual_hours AS actualHours,
                 pt.production_order_id AS productionOrderId,
                 pt.started_at AS startedAt, pt.completed_at AS completedAt,
@@ -266,6 +267,9 @@ export class ProductionService {
          FROM production_tasks pt
          INNER JOIN production_orders po ON po.id = pt.production_order_id
          INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+         LEFT JOIN production_operations op
+           ON op.id = pt.operation_id
+          AND op.tenant_id = pt.tenant_id
          LEFT JOIN workstations ws ON ws.id = pt.workstation_id
          LEFT JOIN users u ON u.id = pt.worker_id
          LEFT JOIN skus s ON s.id = po.sku_id
@@ -527,7 +531,12 @@ export class ProductionService {
 
   async listTasks(params: {
     page: number; pageSize: number; status?: string; keyword?: string;
-    processId?: number; taskType?: 'finished' | 'semi_finished'; dateFrom?: string; dateTo?: string; priority?: number;
+    processId?: number;
+    taskType?: 'finished' | 'semi_finished';
+    executionMode?: 'internal' | 'outsource';
+    dateFrom?: string;
+    dateTo?: string;
+    priority?: number;
   }) {
     const conds = ['pt.tenant_id = ?'];
     const p: unknown[] = [this.tenantId];
@@ -555,6 +564,10 @@ export class ProductionService {
     }
     if (params.taskType === 'finished') {
       conds.push('(COALESCE(pt.output_sku_id, ps.output_sku_id) IS NULL OR COALESCE(pt.output_sku_id, ps.output_sku_id) = po.sku_id)');
+    }
+    if (params.executionMode) {
+      conds.push('COALESCE(pt.execution_mode, ps.execution_mode, \'internal\') = ?');
+      p.push(params.executionMode);
     }
     if (params.dateFrom) {
       conds.push('pt.task_date >= ?');
@@ -628,6 +641,7 @@ export class ProductionService {
                THEN 'semi_finished'
                ELSE 'finished'
              END AS taskType,
+             COALESCE(pt.execution_mode, ps.execution_mode, 'internal') AS executionMode,
              COALESCE(dep_out.downstreamTaskCount, 0) AS downstreamTaskCount,
              COALESCE(dep_out.activeDownstreamTaskCount, 0) AS activeDownstreamTaskCount,
              CASE WHEN COALESCE(dep_in.blockedDependencyCount, 0) > 0 THEN 1 ELSE 0 END AS dependencyBlocked,

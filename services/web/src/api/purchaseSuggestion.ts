@@ -10,7 +10,11 @@ import type { PaginatedData } from '@/types/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type PurchaseSuggestionSource = 'production_shortage' | 'manual' | 'ai_schedule';
+export type PurchaseSuggestionSource =
+  | 'production_shortage'
+  | 'manual'
+  | 'ai_schedule'
+  | 'outsource_operation';
 export type PurchaseSuggestionStatus =
   | 'pending'
   | 'approved'

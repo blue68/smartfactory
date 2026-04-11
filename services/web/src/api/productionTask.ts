@@ -25,6 +25,7 @@ export interface TaskListQuery {
   dateTo?: string;
   processId?: number;
   taskType?: 'finished' | 'semi_finished';
+  executionMode?: 'internal' | 'outsource';
 }
 
 export interface TaskException {
@@ -57,6 +58,7 @@ export interface ProductionTask {
   taskDate: string;
   status: 'pending' | 'in_progress' | 'completed' | 'exception' | 'suspended';
   taskType?: 'finished' | 'semi_finished';
+  executionMode?: 'internal' | 'outsource';
   statusLabel?: string;
   plannedQty: number;
   completedQty: number;

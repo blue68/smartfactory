@@ -43,8 +43,14 @@ describe('Incoming inspection regressions', () => {
   it('decrements qty_in_transit on receipt and triggers shortage reevaluation', async () => {
     const manager = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
+          return [{ production_operation_id: 7001 }];
+        }
         if (sql.includes('SELECT id, status FROM purchase_orders')) {
           return [{ id: 100, status: 'confirmed' }];
+        }
+        if (sql.includes('FROM production_operations op') && sql.includes("op.execution_mode = 'outsource'")) {
+          return [{ plannedQty: '20', receivedQty: '12' }];
         }
         if (sql.includes('INSERT INTO purchase_receipts')) return { insertId: 501 };
         if (sql.includes('UPDATE delivery_notes')) return { affectedRows: 1 };
@@ -52,6 +58,7 @@ describe('Incoming inspection regressions', () => {
         if (sql.includes('FROM sku_unit_conversions')) {
           return [{ fromUnit: 'kg', toUnit: 'g', conversionRate: '2' }];
         }
+        if (sql.includes('UPDATE production_operations')) return { affectedRows: 1 };
         if (sql.includes('INSERT INTO purchase_receipt_items')) return { insertId: 601 };
         if (sql.includes('INSERT INTO inventory_transactions')) return { insertId: 701 };
         if (/INSERT INTO inventory\s*\(/.test(sql)) return { affectedRows: 1 };
@@ -133,6 +140,10 @@ describe('Incoming inspection regressions', () => {
       String(sql).includes('UPDATE purchase_orders'),
     ) as unknown[] | undefined;
     expect(poStatusUpdateCall?.[1]).toEqual(['partial_received', 11, 100, 7]);
+    const operationProgressUpdateCall = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('UPDATE production_operations'),
+    ) as unknown[] | undefined;
+    expect(operationProgressUpdateCall?.[1]).toEqual(['12.0000', 'in_progress', 11, 7001, 7]);
     expect(reevaluateSpy).toHaveBeenCalledWith(301, manager);
     expect((manager as any).__inventorySnapshotSkuIds).toEqual(new Set([301]));
     expect(mockRedisDel).not.toHaveBeenCalled();
@@ -142,6 +153,9 @@ describe('Incoming inspection regressions', () => {
   it('rejects receipt creation when the purchase order has already been cancelled', async () => {
     const manager = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
+          return [{ production_operation_id: null }];
+        }
         if (sql.includes('SELECT id, status FROM purchase_orders')) {
           return [{ id: 100, status: 'cancelled' }];
         }
@@ -174,6 +188,9 @@ describe('Incoming inspection regressions', () => {
   it('requires measured meter quantity before submitting roll-to-meter fabric receipts', async () => {
     const manager = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
+          return [{ production_operation_id: null }];
+        }
         if (sql.includes('SELECT id, status FROM purchase_orders')) {
           return [{ id: 100, status: 'confirmed' }];
         }
@@ -229,6 +246,9 @@ describe('Incoming inspection regressions', () => {
   it('uses accepted stock quantity override for roll-to-meter fabric receipts', async () => {
     const manager = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
+          return [{ production_operation_id: null }];
+        }
         if (sql.includes('SELECT id, status FROM purchase_orders')) {
           return [{ id: 100, status: 'confirmed' }];
         }
@@ -314,6 +334,9 @@ describe('Incoming inspection regressions', () => {
   it('submits inspection through receipt creation and reevaluates each received sku once', async () => {
     const manager = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
+          return [{ production_operation_id: null }];
+        }
         if (sql.includes('FROM incoming_inspection_records') && sql.includes('FOR UPDATE')) {
           return [{ id: 10, status: 'in_progress', receipt_triggered: 0, return_triggered: 0, po_id: 100, delivery_note_id: 200 }];
         }
@@ -415,6 +438,9 @@ describe('Incoming inspection regressions', () => {
   it('does not invalidate inventory cache when submit transaction fails', async () => {
     const manager = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
+          return [{ production_operation_id: null }];
+        }
         if (sql.includes('FROM incoming_inspection_records') && sql.includes('FOR UPDATE')) {
           return [{ id: 10, status: 'in_progress', receipt_triggered: 0, return_triggered: 0, po_id: 100, delivery_note_id: 200 }];
         }
@@ -454,6 +480,9 @@ describe('Incoming inspection regressions', () => {
     let snapshotSynced = false;
     const manager = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
+          return [{ production_operation_id: null }];
+        }
         if (sql.includes('FROM incoming_inspection_records') && sql.includes('FOR UPDATE')) {
           return [{ id: 10, status: 'in_progress', receipt_triggered: 0, return_triggered: 0, po_id: 100, delivery_note_id: 200 }];
         }
@@ -563,6 +592,9 @@ describe('Incoming inspection regressions', () => {
   it('uses delivered quantity for receipt when full inspection passes with accept disposition', async () => {
     const manager = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
+          return [{ production_operation_id: null }];
+        }
         if (sql.includes('INSERT INTO purchase_receipts')) return { insertId: 801 };
         if (sql.includes('UPDATE delivery_notes')) return { affectedRows: 1 };
         if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: 'kg' }];
@@ -641,6 +673,9 @@ describe('Incoming inspection regressions', () => {
   it('keeps manual accepted quantity for sampled inspections', async () => {
     const manager = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
+          return [{ production_operation_id: null }];
+        }
         if (sql.includes('INSERT INTO purchase_receipts')) return { insertId: 811 };
         if (sql.includes('UPDATE delivery_notes')) return { affectedRows: 1 };
         if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: 'kg' }];
@@ -893,6 +928,9 @@ describe('Incoming inspection regressions', () => {
 
     const manager = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
+          return [{ production_operation_id: null }];
+        }
         if (sql.includes('INSERT INTO purchase_receipts')) return { insertId: 831 };
         if (sql.includes('UPDATE delivery_notes')) return { affectedRows: 1 };
         if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: 'kg' }];
@@ -1102,6 +1140,9 @@ describe('Incoming inspection regressions', () => {
 
     const manager = {
       query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
+          return [{ production_operation_id: null }];
+        }
         if (sql.includes('INSERT INTO purchase_receipts')) return { insertId: 821 };
         if (sql.includes('UPDATE delivery_notes')) return { affectedRows: 1 };
         if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: 'kg' }];

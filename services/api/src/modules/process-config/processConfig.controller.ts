@@ -44,6 +44,7 @@ const StepSchema = z.object({
   standardHours: z.number().positive().optional(),
   workstationType: z.string().max(50).optional(),
   workstationId: z.number().int().positive().optional(),
+  executionMode: z.enum(['internal', 'outsource']).optional(),
 });
 
 const StepMaterialSchema = z.object({

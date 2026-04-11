@@ -8,12 +8,18 @@ jest.mock('../../src/config/database', () => ({
   },
 }));
 
+const mockGenerateNo = jest.fn();
+jest.mock('../../src/shared/generateNo', () => ({
+  generateNo: (...args: unknown[]) => mockGenerateNo(...args),
+}));
+
 import { ProductionPhase1Service } from '../../src/modules/production/production-phase1.service';
 
 describe('ProductionPhase1Service', () => {
   beforeEach(() => {
     mockQuery.mockReset();
     mockTransaction.mockReset();
+    mockGenerateNo.mockReset();
     mockTransaction.mockImplementation(async (cb: (manager: { query: typeof mockQuery }) => unknown) => cb({ query: mockQuery }));
   });
 
@@ -64,7 +70,8 @@ describe('ProductionPhase1Service', () => {
       .mockResolvedValueOnce({ insertId: 12 })
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce([{ cnt: 2 }])
-      .mockResolvedValueOnce([{ cnt: 2 }]);
+      .mockResolvedValueOnce([{ cnt: 2 }])
+      .mockResolvedValueOnce([]);
 
     const svc = new ProductionPhase1Service({ tenantId: 1, userId: 9 });
     const result = await svc.releaseOrder(66);
@@ -154,7 +161,8 @@ describe('ProductionPhase1Service', () => {
       .mockResolvedValueOnce({ insertId: 13 })
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce([{ cnt: 3 }])
-      .mockResolvedValueOnce([{ cnt: 3 }]);
+      .mockResolvedValueOnce([{ cnt: 3 }])
+      .mockResolvedValueOnce([]);
 
     const svc = new ProductionPhase1Service({ tenantId: 1, userId: 9 });
     const result = await svc.releaseOrder(68);
@@ -210,12 +218,60 @@ describe('ProductionPhase1Service', () => {
       .mockResolvedValueOnce({ insertId: 12 })
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce([{ cnt: 2 }])
-      .mockResolvedValueOnce([{ cnt: 2 }]);
+      .mockResolvedValueOnce([{ cnt: 2 }])
+      .mockResolvedValueOnce([]);
 
     const svc = new ProductionPhase1Service({ tenantId: 1, userId: 9 });
     const result = await svc.releaseOrder(69);
 
     expect(result.reused).toBe(false);
     expect(result.operationCount).toBe(2);
+  });
+
+  it('复用 release 时为外协工序补齐采购建议并关联工序', async () => {
+    mockGenerateNo.mockResolvedValueOnce('PS20260411-0001');
+    mockQuery
+      .mockResolvedValueOnce([{
+        id: 70,
+        work_order_no: 'WO-70',
+        sku_id: 2001,
+        qty_planned: '12',
+        status: 'pending',
+        bom_snapshot_id: 901,
+        process_template_id: 12,
+        process_snapshot: JSON.stringify({ steps: [] }),
+      }])
+      .mockResolvedValueOnce([{ operationCount: 2, componentCount: 2, resolutionCount: 2 }])
+      .mockResolvedValueOnce([{
+        operationId: 7001,
+        productionOrderId: 70,
+        outputSkuId: 3101,
+        plannedQty: '12',
+        stepName: '外协缝制',
+        skuCode: 'WIP-3101',
+        skuName: '半成品A',
+        purchaseUnit: 'pcs',
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ supplierId: 501 }])
+      .mockResolvedValueOnce([{ price: '8.80' }])
+      .mockResolvedValueOnce({ affectedRows: 1 });
+
+    const svc = new ProductionPhase1Service({ tenantId: 1, userId: 9 });
+    const result = await svc.releaseOrder(70);
+
+    expect(result).toEqual({
+      productionOrderId: 70,
+      reused: true,
+      componentCount: 2,
+      operationCount: 2,
+    });
+    expect(mockGenerateNo).toHaveBeenCalledWith('suggestion', 1);
+    const suggestionInsertCall = mockQuery.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO purchase_suggestions'),
+    );
+    expect(suggestionInsertCall).toBeDefined();
+    expect(String(suggestionInsertCall?.[0])).toContain("'outsource_operation'");
+    expect(suggestionInsertCall?.[1]).toEqual(expect.arrayContaining([70, 7001, 3101, 501, '12.0000', '8.80', '105.60']));
   });
 });

@@ -2,9 +2,12 @@ import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
+import Decimal from 'decimal.js';
+import { generateNo } from '../../shared/generateNo';
 
 interface ProductionOrderRow {
   id: number;
+  work_order_no: string;
   sku_id: number;
   qty_planned: string;
   status: string;
@@ -25,6 +28,7 @@ interface ProcessStepRow {
   step_name: string;
   output_type: 'semi_finished' | 'final_product' | 'none' | null;
   output_sku_id: number | null;
+  execution_mode: 'internal' | 'outsource';
 }
 
 interface ProcessSnapshotStep {
@@ -39,6 +43,8 @@ interface ProcessSnapshotStep {
   output_type?: 'semi_finished' | 'final_product' | 'none' | null;
   outputSkuId?: number | string | null;
   output_sku_id?: number | string | null;
+  executionMode?: 'internal' | 'outsource' | null;
+  execution_mode?: 'internal' | 'outsource' | null;
 }
 
 interface ProcessSnapshotPayload {
@@ -79,7 +85,7 @@ export class ProductionPhase1Service {
   }> {
     return AppDataSource.transaction(async (manager) => {
       const [order] = await manager.query<ProductionOrderRow[]>(
-        `SELECT id, sku_id, qty_planned, status, bom_snapshot_id, process_template_id, process_snapshot
+        `SELECT id, work_order_no, sku_id, qty_planned, status, bom_snapshot_id, process_template_id, process_snapshot
          FROM production_orders
          WHERE id = ? AND tenant_id = ?
          LIMIT 1`,
@@ -107,6 +113,7 @@ export class ProductionPhase1Service {
         if (!this.isReusableRelease(existing)) {
           throw AppError.conflict('工单 release 数据不完整，请先修复后重试', ResponseCode.CONFLICT);
         }
+        await this.ensureOutsourcePurchaseSuggestions(manager, order);
         return {
           productionOrderId: orderId,
           reused: true,
@@ -179,8 +186,8 @@ export class ProductionPhase1Service {
         const opInsert = await manager.query(
           `INSERT INTO production_operations
              (tenant_id, production_order_id, component_id, process_step_id, output_sku_id,
-              planned_qty, completed_qty, status, created_by, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?)`,
+              planned_qty, completed_qty, status, execution_mode, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?, ?)`,
           [
             this.tenantId,
             orderId,
@@ -188,6 +195,7 @@ export class ProductionPhase1Service {
             step.id,
             outputSkuId,
             order.qty_planned,
+            step.execution_mode === 'outsource' ? 'outsource' : 'internal',
             this.userId,
             this.userId,
           ],
@@ -218,6 +226,8 @@ export class ProductionPhase1Service {
          WHERE production_order_id = ? AND tenant_id = ?`,
         [orderId, this.tenantId],
       );
+
+      await this.ensureOutsourcePurchaseSuggestions(manager, order);
 
       return {
         productionOrderId: orderId,
@@ -257,6 +267,7 @@ export class ProductionPhase1Service {
               ps.step_no AS stepNo,
               COALESCE(ps.step_name, CONCAT('STEP#', po.process_step_id)) AS stepName,
               po.output_sku_id AS outputSkuId,
+              po.execution_mode AS executionMode,
               COALESCE(s.name, CONCAT('SKU#', po.output_sku_id)) AS outputSkuName,
               po.planned_qty AS plannedQty,
               po.completed_qty AS completedQty,
@@ -416,7 +427,7 @@ export class ProductionPhase1Service {
     if (!processTemplateId) return [];
 
     const liveSteps = await manager.query<ProcessStepRow[]>(
-      `SELECT id, step_no, step_name, output_type, output_sku_id
+      `SELECT id, step_no, step_name, output_type, output_sku_id, execution_mode
        FROM process_steps
        WHERE template_id = ? AND tenant_id = ?
        ORDER BY step_no ASC, id ASC`,
@@ -448,6 +459,9 @@ export class ProductionPhase1Service {
       }
 
       const outputType = step.outputType ?? step.output_type ?? live?.output_type ?? null;
+      const executionModeRaw = step.executionMode ?? step.execution_mode ?? live?.execution_mode ?? 'internal';
+      const executionMode: 'internal' | 'outsource' =
+        executionModeRaw === 'outsource' ? 'outsource' : 'internal';
       const outputSkuIdRaw = step.outputSkuId ?? step.output_sku_id;
       const outputSkuId = outputSkuIdRaw == null ? (live?.output_sku_id ?? null) : Number(outputSkuIdRaw);
       const processStepId = snapshotStepId > 0 ? snapshotStepId : Number(live?.id ?? 0);
@@ -458,6 +472,7 @@ export class ProductionPhase1Service {
         step_name: step.stepName ?? step.step_name ?? step.name ?? live?.step_name ?? `STEP#${stepNo}`,
         output_type: outputType,
         output_sku_id: Number.isFinite(outputSkuId) ? outputSkuId : null,
+        execution_mode: executionMode,
       };
     });
 
@@ -495,6 +510,7 @@ export class ProductionPhase1Service {
         stepName: step.step_name,
         outputType: step.output_type,
         outputSkuId: step.output_sku_id,
+        executionMode: step.execution_mode,
       })),
     };
 
@@ -504,5 +520,140 @@ export class ProductionPhase1Service {
        WHERE id = ? AND tenant_id = ?`,
       [JSON.stringify(payload), this.userId, orderId, this.tenantId],
     );
+  }
+
+  private async ensureOutsourcePurchaseSuggestions(
+    manager: { query: typeof AppDataSource.query },
+    order: Pick<ProductionOrderRow, 'id' | 'work_order_no' | 'qty_planned'>,
+  ): Promise<void> {
+    const outsourceOps = await manager.query<Array<{
+      operationId: number;
+      productionOrderId: number;
+      outputSkuId: number | null;
+      plannedQty: string;
+      stepName: string | null;
+      skuCode: string | null;
+      skuName: string | null;
+      purchaseUnit: string | null;
+    }>>(
+      `SELECT
+          op.id AS operationId,
+          op.production_order_id AS productionOrderId,
+          op.output_sku_id AS outputSkuId,
+          op.planned_qty AS plannedQty,
+          ps.step_name AS stepName,
+          s.sku_code AS skuCode,
+          s.name AS skuName,
+          s.purchase_unit AS purchaseUnit
+       FROM production_operations op
+       LEFT JOIN process_steps ps
+         ON ps.id = op.process_step_id
+        AND ps.tenant_id = op.tenant_id
+       LEFT JOIN skus s
+         ON s.id = op.output_sku_id
+        AND s.tenant_id = op.tenant_id
+       WHERE op.tenant_id = ?
+         AND op.production_order_id = ?
+         AND op.execution_mode = 'outsource'
+         AND op.output_sku_id IS NOT NULL`,
+      [this.tenantId, order.id],
+    );
+
+    for (const op of outsourceOps) {
+      const outputSkuId = Number(op.outputSkuId ?? 0);
+      if (!Number.isInteger(outputSkuId) || outputSkuId <= 0) continue;
+
+      const [existing] = await manager.query<Array<{ id: number }>>(
+        `SELECT id
+         FROM purchase_suggestions
+         WHERE tenant_id = ?
+           AND production_operation_id = ?
+           AND status IN ('pending', 'approved', 'executed')
+         LIMIT 1`,
+        [this.tenantId, op.operationId],
+      );
+      if (existing) continue;
+
+      const suggestedSupplierId = await this.pickSuggestedSupplierId(manager, outputSkuId);
+      const estimatedPrice = await this.pickEstimatedPrice(manager, suggestedSupplierId, outputSkuId);
+      const suggestedQty = new Decimal(op.plannedQty ?? order.qty_planned ?? '0').toFixed(4);
+      const estimatedAmount = estimatedPrice
+        ? new Decimal(suggestedQty).mul(estimatedPrice).toFixed(2)
+        : null;
+      const suggestionNo = await generateNo('suggestion', this.tenantId);
+      const stepLabel = op.stepName?.trim() || `工序#${op.operationId}`;
+      const skuLabel = op.skuCode ? `${op.skuCode}/${op.skuName ?? ''}` : (op.skuName || `SKU#${outputSkuId}`);
+      const reason = `外协半成品采购：工单 ${order.work_order_no}，${stepLabel}，目标物料 ${skuLabel}`;
+
+      await manager.query(
+        `INSERT INTO purchase_suggestions
+           (tenant_id, suggestion_no, source, production_order_id, production_operation_id, sku_id,
+            suggested_supplier_id, suggested_qty, purchase_unit,
+            estimated_price, estimated_amount, shortage_qty, reason,
+            confidence, status, created_by, updated_by)
+         VALUES (?, ?, 'outsource_operation', ?, ?, ?,
+                 ?, ?, ?, ?, ?, ?, ?,
+                 'high', 'pending', ?, ?)`,
+        [
+          this.tenantId,
+          suggestionNo,
+          op.productionOrderId,
+          op.operationId,
+          outputSkuId,
+          suggestedSupplierId,
+          suggestedQty,
+          op.purchaseUnit ?? 'pcs',
+          estimatedPrice,
+          estimatedAmount,
+          suggestedQty,
+          reason,
+          this.userId,
+          this.userId,
+        ],
+      );
+    }
+  }
+
+  private async pickSuggestedSupplierId(
+    manager: { query: typeof AppDataSource.query },
+    skuId: number,
+  ): Promise<number | null> {
+    const rows = await manager.query<Array<{ supplierId: number }>>(
+      `SELECT s.id AS supplierId
+       FROM suppliers s
+       LEFT JOIN supplier_prices sp
+         ON sp.supplier_id = s.id
+        AND sp.sku_id = ?
+        AND sp.is_current = 1
+        AND sp.tenant_id = s.tenant_id
+       WHERE s.tenant_id = ?
+         AND s.status = 'active'
+         AND JSON_CONTAINS(s.main_skus, CAST(? AS JSON))
+       ORDER BY FIELD(s.grade, 'A','B','C'), sp.price ASC
+       LIMIT 1`,
+      [skuId, this.tenantId, skuId],
+    );
+
+    return rows[0]?.supplierId ? Number(rows[0].supplierId) : null;
+  }
+
+  private async pickEstimatedPrice(
+    manager: { query: typeof AppDataSource.query },
+    supplierId: number | null,
+    skuId: number,
+  ): Promise<string | null> {
+    if (!supplierId) return null;
+    const rows = await manager.query<Array<{ price: string | null }>>(
+      `SELECT price
+       FROM supplier_prices
+       WHERE tenant_id = ?
+         AND supplier_id = ?
+         AND sku_id = ?
+         AND is_current = 1
+       ORDER BY id DESC
+       LIMIT 1`,
+      [this.tenantId, supplierId, skuId],
+    );
+    return rows[0]?.price ?? null;
   }
 }

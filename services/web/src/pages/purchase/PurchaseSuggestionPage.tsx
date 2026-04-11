@@ -52,6 +52,7 @@ const SOURCE_META: Record<PurchaseSuggestionSource, { label: string; tone: strin
   production_shortage: { label: '生产缺料', tone: 'shortage' },
   ai_schedule: { label: 'AI 排产', tone: 'ai' },
   manual: { label: '手动', tone: 'manual' },
+  outsource_operation: { label: '外协半成品', tone: 'outsource' },
 };
 
 const STATUS_META: Record<PurchaseSuggestionStatus, { label: string; tone: string; icon: string }> = {
@@ -618,6 +619,7 @@ export default function PurchaseSuggestionPage() {
           <option value="production_shortage">生产缺料</option>
           <option value="manual">手动</option>
           <option value="ai_schedule">AI 排产</option>
+          <option value="outsource_operation">外协半成品</option>
         </select>
 
         <select

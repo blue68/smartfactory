@@ -417,15 +417,35 @@ export class PurchaseService {
         ],
       );
       const poId = Number(result.insertId);
+      const suggestionOperationMap = new Map<number, number>();
+
+      if (params.suggestionId) {
+        const suggestionRows = await manager.query<Array<{
+          sku_id: number;
+          production_operation_id: number | null;
+        }>>(
+          `SELECT sku_id, production_operation_id
+           FROM purchase_suggestions
+           WHERE id = ? AND tenant_id = ? LIMIT 1`,
+          [params.suggestionId, this.tenantId],
+        );
+        const suggestion = suggestionRows[0];
+        const operationId = Number(suggestion?.production_operation_id ?? 0);
+        if (suggestion && Number.isInteger(operationId) && operationId > 0) {
+          suggestionOperationMap.set(Number(suggestion.sku_id), operationId);
+        }
+      }
 
       for (const item of params.items) {
+        const operationId = suggestionOperationMap.get(Number(item.skuId)) ?? null;
         await manager.query(
           `INSERT INTO purchase_order_items
-             (tenant_id, po_id, sku_id, qty_ordered, qty_received, purchase_unit,
+             (tenant_id, po_id, sku_id, qty_ordered, qty_received, production_operation_id, purchase_unit,
               unit_price, amount, created_by, updated_by)
-           VALUES (?,?,?,?,0,?,?,?,?,?)`,
+           VALUES (?,?,?,?,0,?,?,?,?,?,?)`,
           [
             this.tenantId, poId, item.skuId, item.qtyOrdered,
+            operationId,
             item.purchaseUnit, item.unitPrice,
             new Decimal(item.qtyOrdered).mul(item.unitPrice).toFixed(2),
             this.userId, this.userId,

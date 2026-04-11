@@ -71,6 +71,9 @@ when_to_run:
 recommended_commands:
 - 后端 unit 定向：`cd services/api && npx jest tests/unit/<file>.test.ts --runInBand`
 - 后端 integration 定向：`npm run test:api:integration -- tests/integration/<file>.test.ts`
+- 后端 integration（来料质检链路定向）：`npm run test:api:integration:incoming-inspection`
+- 外协链路关键单测（生产+排程+采购+质检）：`npm run test:api:outsource-flow:unit`
+- 外协链路托管集成（含 API 启停）：`npm run test:api:outsource-flow:managed`
 - 后端 integration 全量：`npm run test:api:integration`
 - 后端 e2e 定向：`npm run test:api:e2e -- tests/e2e/<file>.e2e.test.ts`
 - 后端 e2e 全量：`npm run test:api:e2e`

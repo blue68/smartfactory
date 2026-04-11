@@ -423,6 +423,7 @@
 .sourceBadge--shortage { background: #fef3c7; color: #92400e; }
 .sourceBadge--ai { background: #ede9fe; color: #6d28d9; }
 .sourceBadge--manual { background: #f1f5f9; color: #475569; }
+.sourceBadge--outsource { background: #ffedd5; color: #9a3412; }
 
 .skuCode,
 .workOrderLink,

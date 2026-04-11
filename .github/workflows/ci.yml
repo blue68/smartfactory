@@ -96,6 +96,49 @@ jobs:
       job_name: "API — integration test"
       test_command: "npm run test:integration:managed"
 
+  # ---------------------------------------------------------------------------
+  # 后端: 外协链路关键单测（半成品外协采购联动）
+  # ---------------------------------------------------------------------------
+  api-outsource-flow-unit:
+    name: "API — outsource flow unit test"
+    needs: api-unit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+
+    env:
+      NODE_ENV: test
+      JWT_SECRET: ci-test-secret-do-not-use-in-prod-32c
+      JWT_REFRESH_SECRET: ci-test-refresh-secret-32chars
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: services/api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Outsource flow unit tests
+        run: npm run test:unit:outsource-flow -- --ci --coverage --coverageDirectory=coverage/outsource-flow --coverageReporters=text-summary --coverageReporters=json-summary --coverageReporters=lcov --coverageReporters=html --coverageReporters=clover
+
+      - name: Print outsource-flow coverage summary
+        run: |
+          node -e "const fs=require('fs');const p='coverage/outsource-flow/coverage-summary.json';if(!fs.existsSync(p)){console.error('coverage summary not found:',p);process.exit(1);}const s=JSON.parse(fs.readFileSync(p,'utf8'));const keys=Object.keys(s);const bySuffix=(suffix)=>{const k=keys.find(x=>x.endsWith(suffix));return k?s[k]?.lines?.pct:'N/A';};console.log('Coverage (lines):');console.log('- all:',(s.total?.lines?.pct??'N/A')+'%');console.log('- production-phase1.service.ts:',bySuffix('/src/modules/production/production-phase1.service.ts')+'%');console.log('- scheduler.service.ts:',bySuffix('/src/modules/production/scheduler.service.ts')+'%');console.log('- incomingInspection.service.ts:',bySuffix('/src/modules/incoming-inspection/incomingInspection.service.ts')+'%');console.log('- purchase-suggestion.service.ts:',bySuffix('/src/modules/purchase/purchase-suggestion.service.ts')+'%');console.log('- purchase.service.ts:',bySuffix('/src/modules/purchase/purchase.service.ts')+'%');"
+
+      - name: Upload outsource-flow coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-outsource-flow-coverage
+          path: services/api/coverage/outsource-flow/
+          retention-days: 7
+
   api-access-control-unit:
     name: "API — access control unit test"
     runs-on: ubuntu-latest
@@ -513,7 +556,7 @@ jobs:
   # ---------------------------------------------------------------------------
   ci-gate:
     name: CI Gate
-    needs: [api-unit, api-access-control-unit, api-integration, api-access-control-integration, api-e2e, web, web-ui-mock, purchase-ui-smoke, incoming-inspection-ui-smoke, purchase-suggestion-ui-smoke, permission-control-ui-smoke, sales-order-ui-smoke, process-config-ui-smoke, production-schedule-ui-smoke, production-order-ui-smoke, production-task-ui-smoke, production-shortage-ui-smoke, inventory-ui-smoke, stocktaking-ui-smoke, inventory-warehouse-ui-governance, settlement-ui-smoke, purchase-ui-regression, incoming-inspection-ui-regression, purchase-suggestion-ui-regression, permission-control-ui-regression, sales-order-ui-regression, process-config-ui-regression, production-schedule-ui-regression, production-order-ui-regression, production-task-ui-regression, production-shortage-ui-regression, inventory-ui-regression, stocktaking-ui-regression, settlement-ui-regression]
+    needs: [api-unit, api-outsource-flow-unit, api-access-control-unit, api-integration, api-access-control-integration, api-e2e, web, web-ui-mock, purchase-ui-smoke, incoming-inspection-ui-smoke, purchase-suggestion-ui-smoke, permission-control-ui-smoke, sales-order-ui-smoke, process-config-ui-smoke, production-schedule-ui-smoke, production-order-ui-smoke, production-task-ui-smoke, production-shortage-ui-smoke, inventory-ui-smoke, stocktaking-ui-smoke, inventory-warehouse-ui-governance, settlement-ui-smoke, purchase-ui-regression, incoming-inspection-ui-regression, purchase-suggestion-ui-regression, permission-control-ui-regression, sales-order-ui-regression, process-config-ui-regression, production-schedule-ui-regression, production-order-ui-regression, production-task-ui-regression, production-shortage-ui-regression, inventory-ui-regression, stocktaking-ui-regression, settlement-ui-regression]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -522,6 +565,7 @@ jobs:
           failed=0
           required_results=(
             "${{ needs.api-unit.result }}"
+            "${{ needs.api-outsource-flow-unit.result }}"
             "${{ needs.api-access-control-unit.result }}"
             "${{ needs.api-integration.result }}"
             "${{ needs.api-access-control-integration.result }}"

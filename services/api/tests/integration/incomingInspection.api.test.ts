@@ -11,11 +11,15 @@ const PO_ID = 996301;
 const PO_ITEM_ID = 996302;
 const DELIVERY_NOTE_ID = 996401;
 const DELIVERY_NOTE_ITEM_ID = 996402;
+const PRODUCTION_ORDER_ID = 996701;
+const PRODUCTION_COMPONENT_ID = 996702;
+const OUTSOURCE_OPERATION_ID = 996703;
 
 const INSPECTION_DATE = '2026-06-11';
 const UNIT_PRICE = '88.0000';
 
 let dbPool: Pool | null = null;
+let supportsOutsourceOperationProgress = false;
 
 function getDbPool(): Pool {
   if (!dbPool) {
@@ -44,12 +48,27 @@ async function getPurchaseReceiptDeliveryColumn(pool: Pool): Promise<'delivery_n
   return columns.has('delivery_note_id') ? 'delivery_note_id' : 'dn_id';
 }
 
+async function hasColumn(pool: Pool, tableName: string, columnName: string): Promise<boolean> {
+  const [rows] = await pool.query<Array<RowDataPacket & { cnt: number }>>(
+    `SELECT COUNT(*) AS cnt
+       FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = ?
+        AND column_name = ?`,
+    [tableName, columnName],
+  );
+  return Number(rows[0]?.cnt ?? 0) > 0;
+}
+
 describe('来料质检模块 API 集成测试', () => {
   let inspectionId = 0;
   let inspectionItemId = 0;
 
   beforeAll(async () => {
     const pool = getDbPool();
+    const hasPoItemOperationColumn = await hasColumn(pool, 'purchase_order_items', 'production_operation_id');
+    const hasOperationExecutionModeColumn = await hasColumn(pool, 'production_operations', 'execution_mode');
+    supportsOutsourceOperationProgress = hasPoItemOperationColumn && hasOperationExecutionModeColumn;
 
     await pool.execute(
       `INSERT INTO tenants (id, code, name, status, settings)
@@ -164,6 +183,20 @@ describe('来料质检模块 API 集成测试', () => {
       'DELETE FROM purchase_order_items WHERE tenant_id = ? AND po_id = ?',
       [TEST_TENANT_ID, PO_ID],
     );
+    if (supportsOutsourceOperationProgress) {
+      await pool.execute(
+        'DELETE FROM production_operations WHERE tenant_id = ? AND id = ?',
+        [TEST_TENANT_ID, OUTSOURCE_OPERATION_ID],
+      );
+      await pool.execute(
+        'DELETE FROM production_order_components WHERE tenant_id = ? AND id = ?',
+        [TEST_TENANT_ID, PRODUCTION_COMPONENT_ID],
+      );
+      await pool.execute(
+        'DELETE FROM production_orders WHERE tenant_id = ? AND id = ?',
+        [TEST_TENANT_ID, PRODUCTION_ORDER_ID],
+      );
+    }
     await pool.execute(
       'DELETE FROM purchase_orders WHERE tenant_id = ? AND id = ?',
       [TEST_TENANT_ID, PO_ID],
@@ -197,6 +230,56 @@ describe('来料质检模块 API 集成测试', () => {
       [PO_ITEM_ID, TEST_TENANT_ID, PO_ID, SKU_ID],
     );
 
+    if (supportsOutsourceOperationProgress) {
+      await pool.execute(
+        `INSERT INTO production_orders
+          (id, tenant_id, work_order_no, sales_order_id, sku_id, bom_header_id, process_template_id,
+           qty_planned, qty_completed, status, priority, created_by, updated_by)
+         VALUES (?, ?, 'WO-IQC-OUTSOURCE-INT', 1, ?, 1, 1, 20.0000, 0.0000, 'in_progress', 80, 99001, 99001)
+         ON DUPLICATE KEY UPDATE
+           sku_id = VALUES(sku_id),
+           qty_planned = VALUES(qty_planned),
+           qty_completed = VALUES(qty_completed),
+           status = VALUES(status),
+           updated_by = VALUES(updated_by)`,
+        [PRODUCTION_ORDER_ID, TEST_TENANT_ID, SKU_ID],
+      );
+
+      await pool.execute(
+        `INSERT INTO production_order_components
+          (id, tenant_id, production_order_id, parent_component_id, sku_id, resolved_sku_id,
+           component_type, qty_required, bom_level, bom_path, created_by, updated_by)
+         VALUES (?, ?, ?, NULL, ?, ?, 'wip', 20.0000, 1, 'fg/wip', 99001, 99001)
+         ON DUPLICATE KEY UPDATE
+           sku_id = VALUES(sku_id),
+           resolved_sku_id = VALUES(resolved_sku_id),
+           qty_required = VALUES(qty_required),
+           updated_by = VALUES(updated_by)`,
+        [PRODUCTION_COMPONENT_ID, TEST_TENANT_ID, PRODUCTION_ORDER_ID, SKU_ID, SKU_ID],
+      );
+
+      await pool.execute(
+        `INSERT INTO production_operations
+          (id, tenant_id, production_order_id, component_id, process_step_id, output_sku_id,
+           planned_qty, completed_qty, status, execution_mode, created_by, updated_by)
+         VALUES (?, ?, ?, ?, 1, ?, 20.0000, 0.0000, 'pending', 'outsource', 99001, 99001)
+         ON DUPLICATE KEY UPDATE
+           planned_qty = VALUES(planned_qty),
+           completed_qty = VALUES(completed_qty),
+           status = VALUES(status),
+           execution_mode = VALUES(execution_mode),
+           updated_by = VALUES(updated_by)`,
+        [OUTSOURCE_OPERATION_ID, TEST_TENANT_ID, PRODUCTION_ORDER_ID, PRODUCTION_COMPONENT_ID, SKU_ID],
+      );
+
+      await pool.execute(
+        `UPDATE purchase_order_items
+         SET production_operation_id = ?, updated_by = 99001
+         WHERE tenant_id = ? AND id = ?`,
+        [OUTSOURCE_OPERATION_ID, TEST_TENANT_ID, PO_ITEM_ID],
+      );
+    }
+
     await pool.execute(
       `INSERT INTO delivery_notes
         (id, tenant_id, delivery_no, po_id, supplier_id, delivery_date, status, notes, created_by, updated_by, inspection_id, receipt_id)
@@ -225,12 +308,12 @@ describe('来料质检模块 API 集成测试', () => {
          updated_by = VALUES(updated_by)`,
       [DELIVERY_NOTE_ITEM_ID, TEST_TENANT_ID, DELIVERY_NOTE_ID, SKU_ID],
     );
-  });
+  }, 30000);
 
   afterAll(async () => {
     await dbPool?.end();
     dbPool = null;
-  });
+  }, 15000);
 
   test('warehouse 可创建质检单，sales 无权查询，重复创建会冲突', async () => {
     const deniedRes = await request(BASE_URL)
@@ -519,6 +602,24 @@ describe('来料质检模块 API 集成测试', () => {
         qty_rejected: '8.0000',
       }),
     ]);
+
+    if (supportsOutsourceOperationProgress) {
+      const [operationRows] = await pool.query<Array<RowDataPacket & {
+        completed_qty: string;
+        status: string;
+      }>>(
+        `SELECT completed_qty, status
+         FROM production_operations
+         WHERE tenant_id = ? AND id = ?`,
+        [TEST_TENANT_ID, OUTSOURCE_OPERATION_ID],
+      );
+      expect(operationRows).toEqual([
+        expect.objectContaining({
+          completed_qty: '12.0000',
+          status: 'in_progress',
+        }),
+      ]);
+    }
 
     const [recordRows] = await pool.query<Array<RowDataPacket & {
       status: string;

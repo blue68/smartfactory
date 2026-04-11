@@ -76,6 +76,49 @@ describe('Purchase order regressions', () => {
     expect(mockRedisDel).toHaveBeenCalledWith('inventory:7:101');
   });
 
+  it('maps suggestion production operation to po item when create-po uses suggestionId', async () => {
+    const manager = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ insertId: 304 })
+        .mockResolvedValueOnce([{ sku_id: 101, production_operation_id: 8801 }])
+        .mockResolvedValueOnce({ insertId: 404 })
+        .mockResolvedValueOnce({ affectedRows: 1 })
+        .mockResolvedValueOnce({ affectedRows: 1 }),
+    };
+    mockAppDataSource.transaction.mockImplementation(async (cb: any) => cb(manager));
+
+    const svc = new PurchaseService({ tenantId: 7, userId: 11 });
+    jest.spyOn(svc as any, 'generateNo').mockReturnValue('PO-250324-004');
+
+    await svc.createPO({
+      supplierId: 3,
+      suggestionId: 901,
+      expectedDate: '2026-03-30',
+      items: [
+        {
+          skuId: 101,
+          qtyOrdered: '10',
+          purchaseUnit: 'kg',
+          unitPrice: '8.50',
+        },
+      ],
+    });
+
+    const suggestionLookupCall = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('SELECT sku_id, production_operation_id'),
+    );
+    expect(suggestionLookupCall?.[1]).toEqual([901, 7]);
+    const poItemInsertCall = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO purchase_order_items'),
+    );
+    expect(poItemInsertCall?.[1]).toEqual(expect.arrayContaining([304, 101, '10', 8801, 'kg', '8.50', '85.00']));
+    const suggestionUpdateCall = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('UPDATE purchase_suggestions SET status = \'executed\''),
+    );
+    expect(suggestionUpdateCall?.[1]).toEqual([11, 901, 7]);
+  });
+
   it('does not invalidate inventory cache when create-po transaction fails', async () => {
     const manager = {
       query: jest

@@ -77,6 +77,14 @@ export class ProcessStepEntity {
   @Column({ name: 'workstation_id', type: 'bigint', unsigned: true, nullable: true })
   workstationId: number | null;
 
+  @Column({
+    name: 'execution_mode',
+    type: 'enum',
+    enum: ['internal', 'outsource'],
+    default: 'internal',
+  })
+  executionMode: 'internal' | 'outsource';
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime', precision: 3 })
   createdAt: Date;
 }

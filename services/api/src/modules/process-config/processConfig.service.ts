@@ -22,6 +22,7 @@ export interface CreateProcessConfigParams {
     standardHours?: number;
     workstationType?: string;
     workstationId?: number;
+    executionMode?: 'internal' | 'outsource';
   }>;
 }
 
@@ -168,6 +169,7 @@ export class ProcessConfigService {
           standardHours: s.standardHours?.toString() ?? null,
           workstationType: s.workstationType ?? null,
           workstationId: s.workstationId ?? null,
+          executionMode: s.executionMode ?? 'internal',
         }),
       );
       await stepRepo.save(stepEntities);
@@ -200,6 +202,7 @@ export class ProcessConfigService {
           standardHours: s.standardHours?.toString() ?? null,
           workstationType: s.workstationType ?? null,
           workstationId: s.workstationId ?? null,
+          executionMode: s.executionMode ?? 'internal',
         }),
       );
       await stepRepo.save(stepEntities);
@@ -515,6 +518,7 @@ export class ProcessConfigService {
       standardHours?: number;
       workstationType?: string;
       workstationId?: number;
+      executionMode?: 'internal' | 'outsource';
     }>,
   ) {
     const workstationIds = [...new Set(
@@ -549,6 +553,7 @@ export class ProcessConfigService {
         ...step,
         workstationType: linkedWorkstation?.type ?? step.workstationType,
         workstationId: linkedWorkstation?.id ?? step.workstationId,
+        executionMode: step.executionMode ?? 'internal',
       };
     });
   }

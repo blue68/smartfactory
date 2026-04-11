@@ -1592,6 +1592,7 @@ export class IncomingInspectionService {
     );
 
     const receivedSkuIds = new Set<number>();
+    const affectedOperationIds = new Set<number>();
     const supportsInventoryUpdatedBy = await this.hasInventoryUpdatedByColumn(manager);
     const supportsInventoryQtyChange = await this.hasInventoryTransactionQtyChangeColumn(manager);
     const warehouseLocation = await resolveWarehouseLocationBinding({
@@ -1803,6 +1804,13 @@ export class IncomingInspectionService {
 
       // 更新 purchase_order_items.qty_received 和 qty_passed
       if (item.po_item_id) {
+        const [poItem] = await manager.query<Array<{ production_operation_id: number | null }>>(
+          `SELECT production_operation_id
+           FROM purchase_order_items
+           WHERE id = ? AND tenant_id = ?
+           LIMIT 1`,
+          [item.po_item_id, this.tenantId],
+        );
         await manager.query(
           `UPDATE purchase_order_items
            SET qty_received = qty_received + ?,
@@ -1817,7 +1825,15 @@ export class IncomingInspectionService {
             this.tenantId,
           ],
         );
+        const operationId = Number(poItem?.production_operation_id ?? 0);
+        if (Number.isInteger(operationId) && operationId > 0) {
+          affectedOperationIds.add(operationId);
+        }
       }
+    }
+
+    for (const operationId of affectedOperationIds) {
+      await this.refreshOutsourceOperationProgress(manager, operationId);
     }
 
     await recalculatePurchaseOrderStatus({
@@ -1838,6 +1854,60 @@ export class IncomingInspectionService {
        SET receipt_triggered = 1, updated_by = ?
        WHERE id = ? AND tenant_id = ?`,
       [this.userId, inspectionId, this.tenantId],
+    );
+  }
+
+  private async refreshOutsourceOperationProgress(
+    manager: EntityManager,
+    operationId: number,
+  ): Promise<void> {
+    const [aggregate] = await manager.query<Array<{
+      plannedQty: string;
+      receivedQty: string;
+    }>>(
+      `SELECT
+          op.planned_qty AS plannedQty,
+          COALESCE(
+            SUM(
+              poi.qty_received * COALESCE(uc.conversion_rate, 1)
+            ),
+            0
+          ) AS receivedQty
+       FROM production_operations op
+       LEFT JOIN purchase_order_items poi
+         ON poi.production_operation_id = op.id
+        AND poi.tenant_id = op.tenant_id
+       LEFT JOIN sku_unit_conversions uc
+         ON uc.tenant_id = poi.tenant_id
+        AND uc.sku_id = poi.sku_id
+        AND uc.from_unit = poi.purchase_unit
+       WHERE op.id = ? AND op.tenant_id = ? AND op.execution_mode = 'outsource'
+       GROUP BY op.id, op.planned_qty`,
+      [operationId, this.tenantId],
+    );
+
+    if (!aggregate) return;
+
+    const plannedQty = new Decimal(aggregate.plannedQty ?? '0');
+    const receivedQty = new Decimal(aggregate.receivedQty ?? '0');
+    const completedQty = Decimal.min(plannedQty, Decimal.max(receivedQty, 0));
+    const nextStatus = completedQty.gte(plannedQty)
+      ? 'completed'
+      : completedQty.gt(0)
+        ? 'in_progress'
+        : 'pending';
+
+    await manager.query(
+      `UPDATE production_operations
+       SET completed_qty = ?, status = ?, updated_by = ?, updated_at = NOW()
+       WHERE id = ? AND tenant_id = ?`,
+      [
+        completedQty.toFixed(4),
+        nextStatus,
+        this.userId,
+        operationId,
+        this.tenantId,
+      ],
     );
   }
 

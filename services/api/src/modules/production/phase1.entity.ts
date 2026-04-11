@@ -92,6 +92,14 @@ export class ProductionOperationEntity {
   })
   status: 'pending' | 'released' | 'scheduled' | 'in_progress' | 'completed' | 'blocked' | 'cancelled';
 
+  @Column({
+    name: 'execution_mode',
+    type: 'enum',
+    enum: ['internal', 'outsource'],
+    default: 'internal',
+  })
+  executionMode: 'internal' | 'outsource';
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime', precision: 3 })
   createdAt: Date;
 

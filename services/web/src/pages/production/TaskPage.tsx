@@ -56,6 +56,7 @@ import styles from './TaskPage.module.css';
 
 type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'exception' | 'suspended';
 type TaskType = 'finished' | 'semi_finished';
+type ExecutionMode = 'internal' | 'outsource';
 
 type ExceptionType = '设备故障' | '物料缺失' | '质量异常' | '其他';
 
@@ -92,6 +93,7 @@ interface ProductionTask {
   skuName?: string;
   status: TaskStatus;
   taskType?: TaskType;
+  executionMode?: 'internal' | 'outsource';
   priority?: number;
   priorityScore?: number;
   priorityLevel?: 'critical' | 'high' | 'medium' | 'normal';
@@ -496,6 +498,7 @@ export default function TaskPage() {
 
   const [processFilter, setProcessFilter] = useState('');
   const [taskTypeFilter, setTaskTypeFilter] = useState<TaskType | ''>('');
+  const [executionModeFilter, setExecutionModeFilter] = useState<ExecutionMode | ''>('');
 
   // R06-G07: 300ms debounce（设计稿要求）
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
@@ -542,6 +545,11 @@ export default function TaskPage() {
     setPage(1);
   }, []);
 
+  const handleExecutionModeFilterChange = useCallback((v: ExecutionMode | '') => {
+    setExecutionModeFilter(v);
+    setPage(1);
+  }, []);
+
   // ── 数据查询 ──────────────────────────────────────────────
   const filter = {
     page,
@@ -552,6 +560,7 @@ export default function TaskPage() {
     dateTo:   (dateTo && !dateError) ? dateTo : undefined,
     processId: processFilter ? Number(processFilter) : undefined,
     taskType: taskTypeFilter || undefined,
+    executionMode: executionModeFilter || undefined,
   };
 
   const { data: rawData, isLoading, isError } = useTaskList(filter);
@@ -1025,10 +1034,21 @@ export default function TaskPage() {
       width: 180,
       render: (_, record) => {
         const secondaryName = getTaskSecondaryName(record);
+        const modeLabel = record.executionMode === 'outsource' ? '外协采购' : '厂内生产';
         return (
           <div className={styles.processCell}>
             <strong>{getTaskPrimaryName(record)}</strong>
             <span>{secondaryName || '成品任务'}</span>
+            <span
+              className={[
+                styles.executionModeBadge,
+                record.executionMode === 'outsource'
+                  ? styles['executionModeBadge--outsource']
+                  : styles['executionModeBadge--internal'],
+              ].join(' ')}
+            >
+              {modeLabel}
+            </span>
           </div>
         );
       },
@@ -1302,6 +1322,17 @@ export default function TaskPage() {
           <option value="">全部任务类型</option>
           <option value="finished">成品任务</option>
           <option value="semi_finished">半成品任务</option>
+        </select>
+
+        <select
+          className={styles.select}
+          value={executionModeFilter}
+          onChange={(e) => handleExecutionModeFilterChange(e.target.value as ExecutionMode | '')}
+          aria-label="执行方式筛选"
+        >
+          <option value="">全部执行方式</option>
+          <option value="internal">厂内生产</option>
+          <option value="outsource">外协采购</option>
         </select>
 
         <div className={styles.dateRangeWrap}>
@@ -1623,6 +1654,7 @@ function TaskDetailContent({
           <DetailItem label="领料状态" value={renderMaterialIssueBadge(task)} />
           <DetailItem label="当前产出" value={primaryName} />
           <DetailItem label="任务类型" value={semiFinishedTask ? '半成品任务' : '成品任务'} />
+          <DetailItem label="执行方式" value={task.executionMode === 'outsource' ? '外协采购' : '厂内生产'} />
           {secondaryName && <DetailItem label="说明" value={secondaryName} />}
           <DetailItem label="工作站" value={task.workstationName || '—'} />
           <DetailItem label="工人" value={task.workerName || '—'} />

@@ -14,6 +14,7 @@ interface SuggestionRow {
   suggestion_no: string;
   source: string;
   production_order_id: number | null;
+  production_operation_id: number | null;
   sku_id: number;
   suggested_supplier_id: number | null;
   suggested_qty: string;
@@ -350,13 +351,14 @@ export class PurchaseSuggestionService {
           await manager.query(
             `INSERT INTO purchase_order_items
                (tenant_id, po_id, sku_id, qty_ordered, qty_received,
-                purchase_unit, unit_price, amount, created_by, updated_by)
-             VALUES (?,?,?,?,0,?,?,?,?,?)`,
+                production_operation_id, purchase_unit, unit_price, amount, created_by, updated_by)
+             VALUES (?,?,?,?,0,?,?,?,?,?,?)`,
             [
               this.tenantId,
               poId,
               sugg.sku_id,
               qtyOrdered,
+              sugg.production_operation_id,
               sugg.purchase_unit,
               unitPrice,
               amount,

@@ -112,6 +112,7 @@ describe('Purchase suggestion regressions', () => {
             suggestion_no: 'SG-001',
             source: 'production_shortage',
             production_order_id: 9,
+            production_operation_id: 7001,
             sku_id: 101,
             suggested_supplier_id: 3,
             suggested_qty: '10',
@@ -138,6 +139,10 @@ describe('Purchase suggestion regressions', () => {
 
     expect(String(manager.query.mock.calls[0][0])).toContain('FOR UPDATE');
     expect(manager.query.mock.calls[1][1][3]).toBe('confirmed');
+    const poItemInsertCall = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO purchase_order_items'),
+    );
+    expect(poItemInsertCall?.[1]).toEqual(expect.arrayContaining([101, '10', 7001, 'kg', '8.00', '80.00']));
     expect(String(manager.query.mock.calls[4][0])).toContain(
       'qty_in_transit = qty_in_transit + VALUES(qty_in_transit)',
     );

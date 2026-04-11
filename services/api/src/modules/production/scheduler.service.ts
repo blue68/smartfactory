@@ -2052,6 +2052,7 @@ export class SchedulerService {
        WHERE op.tenant_id = ?
          AND po.tenant_id = ?
          AND po.status IN ('pending', 'scheduled', 'in_progress')
+         AND op.execution_mode = 'internal'
          AND op.status IN ('pending', 'released', 'scheduled', 'in_progress')
          AND op.completed_qty < op.planned_qty
        ORDER BY
