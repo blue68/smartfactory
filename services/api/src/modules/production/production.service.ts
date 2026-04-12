@@ -251,8 +251,11 @@ export class ProductionService {
                 po.work_order_no AS orderNo, po.priority,
                 po.planned_end AS plannedFinishTime,
                 po.sales_order_id AS salesOrderId, po.sku_id AS skuId, po.qty_planned AS orderPlannedQty,
-                ps.step_name AS processName, ps.step_no AS stepNo,
+                COALESCE(ps.step_name, CONCAT('STEP#', pt.process_step_id)) AS processName, ps.step_no AS stepNo,
                 ps.standard_hours AS standardHours, ps.max_hours AS maxHours,
+                ps.guide_text AS processGuideText,
+                ps.guide_attachment_url AS processGuideAttachmentUrl,
+                ps.guide_attachment_name AS processGuideAttachmentName,
                 ws.name AS workstationName,
                 u.real_name AS workerName,
                 s.name AS skuName, s.sku_code AS skuCode,
@@ -267,7 +270,7 @@ export class ProductionService {
                 END AS taskType
          FROM production_tasks pt
          INNER JOIN production_orders po ON po.id = pt.production_order_id
-         INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+         LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
          LEFT JOIN production_operations op
            ON op.id = pt.operation_id
           AND op.tenant_id = pt.tenant_id
@@ -552,12 +555,12 @@ export class ProductionService {
       }
     }
     if (params.keyword) {
-      conds.push('(po.work_order_no LIKE ? OR ps.step_name LIKE ? OR u.real_name LIKE ?)');
+      conds.push('(po.work_order_no LIKE ? OR COALESCE(ps.step_name, CONCAT(\'STEP#\', pt.process_step_id)) LIKE ? OR u.real_name LIKE ?)');
       p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
     }
     // BE-06-02: 新增筛选参数
     if (params.processId) {
-      conds.push('ps.id = ?');
+      conds.push('pt.process_step_id = ?');
       p.push(params.processId);
     }
     if (params.workerId) {
@@ -636,7 +639,7 @@ export class ProductionService {
                po.work_order_no AS orderNo,
                po.priority,
                po.planned_end AS plannedFinishTime,
-               ps.step_name AS processName,
+               COALESCE(ps.step_name, CONCAT('STEP#', pt.process_step_id)) AS processName,
                ws.name AS workstationName,
                u.real_name AS workerName,
                s.name AS skuName,
@@ -667,7 +670,7 @@ export class ProductionService {
                ) AS priorityScore
              FROM production_tasks pt
              INNER JOIN production_orders po ON po.id = pt.production_order_id
-             INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+             LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
              LEFT JOIN workstations ws ON ws.id = pt.workstation_id
              LEFT JOIN users u ON u.id = pt.worker_id
              LEFT JOIN skus s ON s.id = po.sku_id
@@ -722,10 +725,10 @@ export class ProductionService {
           `SELECT COUNT(*) AS total
            FROM production_tasks pt
            INNER JOIN production_orders po ON po.id = pt.production_order_id
-           INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+           LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
            LEFT JOIN users u ON u.id = pt.worker_id
            WHERE ${where}`,
-          p,
+        p,
         ),
       ]);
 
@@ -814,11 +817,11 @@ export class ProductionService {
       }
     }
     if (params.keyword) {
-      conds.push('(po.work_order_no LIKE ? OR ps.step_name LIKE ? OR u.real_name LIKE ?)');
+      conds.push('(po.work_order_no LIKE ? OR COALESCE(ps.step_name, CONCAT(\'STEP#\', pt.process_step_id)) LIKE ? OR u.real_name LIKE ?)');
       p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
     }
     if (params.processId) {
-      conds.push('ps.id = ?');
+      conds.push('pt.process_step_id = ?');
       p.push(params.processId);
     }
     if (params.workerId) {
@@ -887,7 +890,7 @@ export class ProductionService {
              po.work_order_no AS orderNo,
              po.priority,
              po.planned_end AS plannedFinishTime,
-             ps.step_name AS processName,
+             COALESCE(ps.step_name, CONCAT('STEP#', pt.process_step_id)) AS processName,
              ws.name AS workstationName,
              u.real_name AS workerName,
              s.name AS skuName,
@@ -905,7 +908,7 @@ export class ProductionService {
              po.priority AS priorityScore
            FROM production_tasks pt
            INNER JOIN production_orders po ON po.id = pt.production_order_id
-           INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+           LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
            LEFT JOIN production_schedules sched ON sched.id = pt.schedule_id AND sched.tenant_id = pt.tenant_id
            LEFT JOIN workstations ws ON ws.id = ${workstationRef}
            LEFT JOIN users u ON u.id = pt.worker_id
@@ -921,7 +924,7 @@ export class ProductionService {
         `SELECT COUNT(*) AS total
          FROM production_tasks pt
          INNER JOIN production_orders po ON po.id = pt.production_order_id
-         INNER JOIN process_steps ps ON ps.id = pt.process_step_id
+         LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
          LEFT JOIN users u ON u.id = pt.worker_id
          WHERE ${where}`,
         p,

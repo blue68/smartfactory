@@ -69,6 +69,9 @@ export interface ProductionTask {
   plannedFinishTime?: string;
   processStepId?: number;
   processName: string;
+  processGuideText?: string | null;
+  processGuideAttachmentUrl?: string | null;
+  processGuideAttachmentName?: string | null;
   operationId?: number | null;
   outputSkuId?: number | null;
   outputSkuName?: string | null;

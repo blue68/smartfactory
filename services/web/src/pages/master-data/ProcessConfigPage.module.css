@@ -805,7 +805,7 @@
   position: fixed;
   top: 0;
   right: 0;
-  width: 25rem;
+  width: min(42rem, 92vw);
   height: 100vh;
   background: var(--pc-white);
   box-shadow: -8px 0 32px rgba(0,0,0,.12);
@@ -977,7 +977,8 @@
 }
 
 .formInput,
-.formSelect {
+.formSelect,
+.formTextarea {
   width: 100%;
   height: 2.375rem;
   border: 1.5px solid var(--pc-neutral-200);
@@ -993,16 +994,26 @@
 }
 
 .formInput:focus,
-.formSelect:focus {
+.formSelect:focus,
+.formTextarea:focus {
   border-color: var(--pc-primary);
   box-shadow: 0 0 0 3px rgba(37,99,235,.10);
 }
 
 .formInput:disabled,
-.formSelect:disabled {
+.formSelect:disabled,
+.formTextarea:disabled {
   background: var(--pc-neutral-50);
   color: var(--pc-neutral-400);
   cursor: not-allowed;
+}
+
+.formTextarea {
+  min-height: 8.5rem;
+  height: auto;
+  padding: 0.75rem;
+  resize: vertical;
+  line-height: 1.6;
 }
 
 .formSelect {
@@ -1025,6 +1036,90 @@
   font-size: 0.6875rem;
   color: var(--pc-neutral-400);
   margin-top: 0.25rem;
+}
+
+.uploadButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px dashed var(--pc-primary);
+  border-radius: var(--pc-radius-md);
+  background: var(--pc-primary-light);
+  color: var(--pc-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--pc-transition), transform var(--pc-transition);
+}
+
+.uploadButton:hover {
+  transform: translateY(-1px);
+}
+
+.uploadButton--disabled {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.uploadInput {
+  display: none;
+}
+
+.uploadFileCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-radius: var(--pc-radius-md);
+  border: 1px solid var(--pc-neutral-200);
+  background: var(--pc-neutral-50);
+}
+
+.uploadFileMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.uploadFileIcon {
+  font-size: 1.125rem;
+}
+
+.uploadFileInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  min-width: 0;
+}
+
+.uploadFileInfo strong,
+.uploadFileInfo span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uploadFileInfo strong {
+  font-size: 0.875rem;
+  color: var(--pc-neutral-800);
+}
+
+.uploadFileInfo span {
+  font-size: 0.75rem;
+  color: var(--pc-neutral-500);
+}
+
+.uploadFileRemove {
+  border: none;
+  background: transparent;
+  color: var(--pc-danger);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 /* =========================================================

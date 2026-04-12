@@ -87,6 +87,9 @@ describe('TaskPage', () => {
       productName: '主柜体',
       plannedFinishTime: '2026-04-02 18:00:00',
       processName: '裁剪',
+      processGuideText: '先校准裁切尺寸，再确认防护罩关闭。\n完成后检查边缘毛刺。',
+      processGuideAttachmentUrl: '/uploads/process-guide.pdf',
+      processGuideAttachmentName: '裁剪工序指导书.pdf',
       workstationName: '裁剪台 1',
       workerName: '张三',
       plannedQty: 12,
@@ -294,6 +297,9 @@ describe('TaskPage', () => {
     expect(screen.getAllByText((_, el) => el?.textContent?.includes('原料仓-RM-01') ?? false).length).toBeGreaterThan(0);
     expect(screen.getAllByText((_, el) => el?.textContent?.includes('半成品仓-WIP-01') ?? false).length).toBeGreaterThan(0);
     expect(screen.getAllByText((_, el) => el?.textContent?.includes('对应工序 裁剪') ?? false).length).toBeGreaterThan(0);
+    expect(screen.getByText('工序操作指南')).toBeInTheDocument();
+    expect(screen.getByText(/先校准裁切尺寸/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '打开附件：裁剪工序指导书.pdf' })).toBeInTheDocument();
     expect(screen.getByText('投入产出与库存流水')).toBeInTheDocument();
     expect(screen.getAllByText('橡木板').length).toBeGreaterThan(0);
     expect(screen.getAllByText('半成品框架').length).toBeGreaterThan(0);

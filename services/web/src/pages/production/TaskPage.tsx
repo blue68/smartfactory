@@ -51,6 +51,7 @@ import {
   openPrintWindow,
   printProductionTaskDocument,
 } from '@/utils/productionTaskDocument';
+import { getAccessToken } from '@/utils/request';
 import styles from './TaskPage.module.css';
 
 // ─── 类型定义 ─────────────────────────────────────────────
@@ -82,6 +83,9 @@ interface ProductionTask {
   plannedFinishTime?: string;
   processStepId?: number;
   processName: string;
+  processGuideText?: string | null;
+  processGuideAttachmentUrl?: string | null;
+  processGuideAttachmentName?: string | null;
   operationId?: number | null;
   outputSkuId?: number | null;
   outputSkuName?: string | null;
@@ -353,6 +357,34 @@ function formatQty(value: string | number | undefined | null): string {
   const numeric = Number(value ?? 0);
   if (!Number.isFinite(numeric)) return '0';
   return Number.isInteger(numeric) ? `${numeric}` : numeric.toFixed(2);
+}
+
+function isGuideImage(url?: string | null, fileName?: string | null): boolean {
+  const source = `${url ?? ''} ${fileName ?? ''}`.toLowerCase();
+  return /\.(jpg|jpeg|png|webp)(\?|$)/i.test(source);
+}
+
+function getGuideAttachmentLabel(url?: string | null, fileName?: string | null): string {
+  if (fileName) return fileName;
+  if (!url) return '操作附件';
+  return url.split('/').pop() ?? '操作附件';
+}
+
+function openAuthFile(url: string) {
+  const token = getAccessToken();
+  fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    .then((r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      return r.blob();
+    })
+    .then((blob) => {
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    })
+    .catch(() => {
+      // noop
+    });
 }
 
 function formatQtyWithUnit(
@@ -1593,6 +1625,74 @@ function StatCard({ label, value, icon, iconClass, variant = 'default', active, 
   );
 }
 
+function useAuthBlobUrl(url: string | null) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!url) {
+      setBlobUrl(null);
+      return;
+    }
+
+    let revokedUrl: string | null = null;
+    let cancelled = false;
+    const token = getAccessToken();
+
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        revokedUrl = URL.createObjectURL(blob);
+        setBlobUrl(revokedUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setBlobUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+      if (revokedUrl) URL.revokeObjectURL(revokedUrl);
+    };
+  }, [url]);
+
+  return blobUrl;
+}
+
+function TaskGuideAttachment({
+  url,
+  fileName,
+}: {
+  url: string;
+  fileName?: string | null;
+}) {
+  const previewable = isGuideImage(url, fileName);
+  const blobUrl = useAuthBlobUrl(previewable ? url : null);
+  const label = getGuideAttachmentLabel(url, fileName);
+
+  return (
+    <div className={styles.guideAttachment}>
+      {previewable && blobUrl ? (
+        <img
+          src={blobUrl}
+          alt={label}
+          className={styles.guideAttachmentPreview}
+          onClick={() => openAuthFile(url)}
+        />
+      ) : null}
+      <button
+        type="button"
+        className={styles.guideAttachmentLink}
+        onClick={() => openAuthFile(url)}
+      >
+        {previewable ? `查看附件：${label}` : `打开附件：${label}`}
+      </button>
+    </div>
+  );
+}
+
 // ─── TaskDetailContent — 抽屉主体内容 ───────────────────
 
 interface TaskDetailContentProps {
@@ -1638,6 +1738,7 @@ function TaskDetailContent({
   const outputItems = task.outputItems ?? [];
   const inputTransactions = task.materialTransactions?.filter((item) => item.ioType === 'input') ?? [];
   const outputTransactions = task.materialTransactions?.filter((item) => item.ioType === 'output') ?? [];
+  const hasProcessGuide = Boolean(task.processGuideText || task.processGuideAttachmentUrl);
 
   return (
     <div className={styles.drawerContent}>
@@ -1697,6 +1798,27 @@ function TaskDetailContent({
           />
         </dl>
       </section>
+
+      {hasProcessGuide && (
+        <section className={styles.drawerSection}>
+          <h3 className={styles.drawerSectionTitle}>工序操作指南</h3>
+          <div className={styles.guideCard}>
+            {task.processGuideText ? (
+              <p className={styles.guideText}>{task.processGuideText}</p>
+            ) : (
+              <p className={styles.drawerEmptyText}>当前工序未配置文字说明</p>
+            )}
+            {task.processGuideAttachmentUrl ? (
+              <TaskGuideAttachment
+                url={task.processGuideAttachmentUrl}
+                fileName={task.processGuideAttachmentName}
+              />
+            ) : (
+              <p className={styles.drawerEmptyText}>当前工序未上传附件</p>
+            )}
+          </div>
+        </section>
+      )}
 
       <section className={styles.drawerSection}>
         <h3 className={styles.drawerSectionTitle}>依赖与阻塞</h3>

@@ -25,6 +25,7 @@ import {
   useCreateWorkstationType,
   useDeleteWorkstationType,
   processConfigApi,
+  uploadProcessGuideFile,
   type ProcessTemplateListItem,
   type ProcessStep,
   type ProcessStepPayload,
@@ -57,7 +58,10 @@ interface ProcessNode {
   workstationName: string;
   executionMode: 'internal' | 'outsource';
   hours: number;
-  maxHours: number;
+  maxHours: number | null;
+  guideText: string;
+  guideAttachmentUrl: string;
+  guideAttachmentName: string;
   unitPrice: number;
   status: NodeStatus;
 }
@@ -97,7 +101,10 @@ function mapStepsToNodes(steps: ProcessStep[]): ProcessNode[] {
     workstationName: '',
     executionMode: s.executionMode ?? 'internal',
     hours: s.standardHours ? parseFloat(s.standardHours) : 0,
-    maxHours: s.maxHours ? parseFloat(s.maxHours) : 0,
+    maxHours: s.maxHours ? parseFloat(s.maxHours) : null,
+    guideText: s.guideText ?? '',
+    guideAttachmentUrl: s.guideAttachmentUrl ?? '',
+    guideAttachmentName: s.guideAttachmentName ?? '',
     unitPrice: 0, // unitPrice 通过 wages API 按需加载，初始为 0
     status: 'inherit' as NodeStatus,
   }));
@@ -113,7 +120,16 @@ function mapNodesToPayload(nodes: ProcessNode[]): ProcessStepPayload[] {
       workstationType: n.workstation || undefined,
       workstationId: n.workstationId || undefined,
       executionMode: n.executionMode,
+      guideText: n.guideText.trim() || undefined,
+      guideAttachmentUrl: n.guideAttachmentUrl || undefined,
+      guideAttachmentName: n.guideAttachmentName || undefined,
     }));
+}
+
+function getDisplayAttachmentName(node: Pick<ProcessNode, 'guideAttachmentName' | 'guideAttachmentUrl'>): string {
+  if (node.guideAttachmentName) return node.guideAttachmentName;
+  if (!node.guideAttachmentUrl) return '';
+  return node.guideAttachmentUrl.split('/').pop() ?? '已上传附件';
 }
 
 // ─────────────────────────────────────────────
@@ -590,10 +606,14 @@ function NodeDrawer({
   onDelete,
 }: NodeDrawerProps) {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [uploadingGuide, setUploadingGuide] = useState(false);
 
   // 关闭时重置确认状态
   useEffect(() => {
-    if (!open) setDeleteConfirm(false);
+    if (!open) {
+      setDeleteConfirm(false);
+      setUploadingGuide(false);
+    }
   }, [open]);
 
   if (!node) return null;
@@ -618,6 +638,8 @@ function NodeDrawer({
     onClose();
   };
   const handleDeleteCancel = () => setDeleteConfirm(false);
+  const hasGuideFile = Boolean(node.guideAttachmentUrl);
+  const displayGuideFileName = getDisplayAttachmentName(node);
 
   return (
     <>
@@ -772,18 +794,90 @@ function NodeDrawer({
                 />
               </div>
               <div className={styles.formGroup}>
-                <label className={styles.formLabel}>最大工时 (h)</label>
+                <label className={styles.formLabel}>极限工时 (h)</label>
                 <input
                   className={styles.formInput}
                   type="number"
                   min="0"
                   step="0.5"
-                  value={node.maxHours || ''}
-                  onChange={(e) => handleField('maxHours', parseFloat(e.target.value) || 0)}
+                  value={node.maxHours ?? ''}
+                  onChange={(e) => handleField('maxHours', e.target.value === '' ? null : parseFloat(e.target.value) || 0)}
                   placeholder="0.0"
                 />
                 <div className={styles.formHelp}>留空表示无上限</div>
               </div>
+            </div>
+          </div>
+
+          <div className={styles.formSection}>
+            <div className={styles.formSection__title}>操作说明</div>
+
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>文字说明</label>
+              <textarea
+                className={styles.formTextarea}
+                value={node.guideText}
+                onChange={(e) => handleField('guideText', e.target.value)}
+                rows={7}
+                placeholder="填写该工序的关键动作、质量要求、安全提醒和注意事项。"
+              />
+              <div className={styles.formHelp}>工人打开任务详情时，可直接查看这段说明。</div>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>操作附件</label>
+              {hasGuideFile ? (
+                <div className={styles.uploadFileCard}>
+                  <div className={styles.uploadFileMeta}>
+                    <span className={styles.uploadFileIcon}>📎</span>
+                    <div className={styles.uploadFileInfo}>
+                      <strong>{displayGuideFileName}</strong>
+                      <span>支持图片、PDF、Word、Excel，任务详情里可查看</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.uploadFileRemove}
+                    onClick={() => onChange({
+                      ...node,
+                      guideAttachmentUrl: '',
+                      guideAttachmentName: '',
+                      status: node.status === 'inherit' ? 'modified' : node.status,
+                    })}
+                  >
+                    移除
+                  </button>
+                </div>
+              ) : (
+                <label
+                  className={`${styles.uploadButton} ${uploadingGuide ? styles['uploadButton--disabled'] : ''}`}
+                >
+                  {uploadingGuide ? '上传中...' : '上传图片 / PDF / Word / Excel'}
+                  <input
+                    type="file"
+                    className={styles.uploadInput}
+                    accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.xls,.xlsx"
+                    disabled={uploadingGuide}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setUploadingGuide(true);
+                      try {
+                        const result = await uploadProcessGuideFile(file);
+                        onChange({
+                          ...node,
+                          guideAttachmentUrl: result.url,
+                          guideAttachmentName: result.originalName,
+                          status: node.status === 'inherit' ? 'modified' : node.status,
+                        });
+                      } finally {
+                        setUploadingGuide(false);
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                </label>
+              )}
             </div>
           </div>
 
@@ -868,7 +962,7 @@ function NodeDrawer({
 // ─────────────────────────────────────────────
 
 export default function ProcessConfigPage() {
-  const { setPageTitle } = useAppStore();
+  const { setPageTitle, showToast } = useAppStore();
 
   useEffect(() => {
     setPageTitle('工序配置');
@@ -1067,7 +1161,10 @@ export default function ProcessConfigPage() {
       workstationName: '',
       executionMode: 'internal',
       hours: 0,
-      maxHours: 0,
+      maxHours: null,
+      guideText: '',
+      guideAttachmentUrl: '',
+      guideAttachmentName: '',
       unitPrice: 0,
       status: 'added',
     };
@@ -1099,9 +1196,10 @@ export default function ProcessConfigPage() {
         if (node.status === 'deleted') continue;
         const stepId = stepIdByNo.get(node.seq);
         if (!stepId) continue;
-        if (node.maxHours >= 0) {
-          patches.push(setMaxHoursMutation.mutateAsync({ stepId, maxHours: node.maxHours }));
-        }
+        patches.push(setMaxHoursMutation.mutateAsync({
+          stepId,
+          maxHours: node.maxHours && node.maxHours > 0 ? node.maxHours : null,
+        }));
         if (node.unitPrice > 0) {
           patches.push(setWagesMutation.mutateAsync({
             stepId,
@@ -1122,6 +1220,12 @@ export default function ProcessConfigPage() {
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2200);
+      showToast({ type: 'success', message: '工序模板已保存' });
+    } catch (error) {
+      showToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : '工序模板保存失败，请稍后重试',
+      });
     } finally {
       setSaving(false);
     }

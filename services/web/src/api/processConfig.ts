@@ -47,6 +47,9 @@ export interface ProcessStep {
   standardHours: string | null;
   /** decimal 字段，R-05 新增，后端返回字符串，如 "8.00" */
   maxHours: string | null;
+  guideText: string | null;
+  guideAttachmentUrl: string | null;
+  guideAttachmentName: string | null;
   workstationType: string | null;
   workstationId: number | null;
   executionMode: 'internal' | 'outsource';
@@ -91,6 +94,9 @@ export interface ProcessStepPayload {
   workstationType?: string;
   workstationId?: number;
   executionMode?: 'internal' | 'outsource';
+  guideText?: string;
+  guideAttachmentUrl?: string;
+  guideAttachmentName?: string;
 }
 
 export interface CreateProcessConfigPayload {
@@ -134,7 +140,7 @@ export interface StepWageItem {
 }
 
 export interface SetMaxHoursPayload {
-  maxHours: number;
+  maxHours: number | null;
 }
 
 export interface SetWagesPayload {
@@ -170,8 +176,8 @@ export const processConfigApi = {
 
   // ── R-05 新增 ──
   // FE-05-07: 使用 PATCH 替代 PUT（语义更准确，仅更新指定字段）
-  setMaxHours: (stepId: number, maxHours: number) =>
-    request.patch<{ stepId: number; maxHours: number }>(
+  setMaxHours: (stepId: number, maxHours: number | null) =>
+    request.patch<{ stepId: number; maxHours: string | null }>(
       `/api/process-configs/steps/${stepId}/max-hours`,
       { maxHours } satisfies SetMaxHoursPayload,
     ),
@@ -185,6 +191,15 @@ export const processConfigApi = {
       payload,
     ),
 };
+
+export async function uploadProcessGuideFile(file: File): Promise<{ url: string; originalName: string; size: number }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await request.instance.post('/api/upload', formData, {
+    headers: { 'Content-Type': undefined as unknown as string },
+  });
+  return res.data.data;
+}
 
 // ─────────────────────────────────────────────
 // React Query Hooks
@@ -319,7 +334,7 @@ export function useDeleteWorkstationType() {
 /** 设置工步极限工时 */
 export function useSetMaxHours() {
   return useMutation({
-    mutationFn: ({ stepId, maxHours }: { stepId: number; maxHours: number }) =>
+    mutationFn: ({ stepId, maxHours }: { stepId: number; maxHours: number | null }) =>
       processConfigApi.setMaxHours(stepId, maxHours),
   });
 }

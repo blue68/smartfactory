@@ -62,6 +62,9 @@ CALL local_safe_add_column('process_templates', 'template_type', 'ENUM(''standar
 CALL local_safe_add_column('process_templates', 'version', 'VARCHAR(20) NOT NULL DEFAULT ''1.0'' AFTER `template_type`');
 CALL local_safe_add_index('process_templates', 'idx_tenant_sku_default', '(`tenant_id`, `sku_id`, `is_default`)');
 CALL local_safe_add_column('process_steps', 'max_hours', 'DECIMAL(6,2) NULL DEFAULT NULL COMMENT ''极限工时（小时/件），超出则触发预警'' AFTER `standard_hours`');
+CALL local_safe_add_column('process_steps', 'guide_text', 'TEXT NULL COMMENT ''工序操作说明文本'' AFTER `max_hours`');
+CALL local_safe_add_column('process_steps', 'guide_attachment_url', 'VARCHAR(500) NULL COMMENT ''工序操作说明附件地址'' AFTER `guide_text`');
+CALL local_safe_add_column('process_steps', 'guide_attachment_name', 'VARCHAR(255) NULL COMMENT ''工序操作说明附件名称'' AFTER `guide_attachment_url`');
 
 CALL local_safe_add_column('production_orders', 'process_snapshot', 'JSON NULL AFTER `process_template_id`');
 CALL local_safe_add_column('production_orders', 'dispatched_at', 'DATETIME(3) NULL AFTER `process_snapshot`');

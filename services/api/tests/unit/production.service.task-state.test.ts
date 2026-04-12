@@ -319,6 +319,57 @@ describe('ProductionService task state transitions', () => {
     expect(mockQuery.mock.calls[1][1]).toEqual([1, 55]);
   });
 
+  it('listTasks 在工序定义已删除时仍返回任务列表', async () => {
+    mockQuery
+      .mockResolvedValueOnce([{
+        id: 101,
+        taskNo: 'TASK-001',
+        taskDate: '2026-04-11',
+        status: 'pending',
+        plannedQty: '10.0000',
+        completedQty: '0.0000',
+        version: 1,
+        actualHours: null,
+        processStepId: 910311,
+        operationId: null,
+        outputSkuId: null,
+        orderNo: 'WO-001',
+        priority: 60,
+        plannedFinishTime: '2026-04-12',
+        processName: 'STEP#910311',
+        workstationName: null,
+        workerName: null,
+        skuName: '成衣A',
+        skuCode: 'SKU-001',
+        outputSkuName: null,
+        taskType: 'finished',
+        executionMode: 'internal',
+        downstreamTaskCount: 0,
+        activeDownstreamTaskCount: 0,
+        dependencyBlocked: 0,
+        priorityScore: 60,
+        priorityLevel: 'medium',
+        priorityLabel: '优先',
+        priorityReason: '常规优先级',
+      }])
+      .mockResolvedValueOnce([{ total: '1' }]);
+
+    const svc = new ProductionService({ tenantId: 1, userId: 99 });
+    const result = await svc.listTasks({
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.list).toHaveLength(1);
+    expect(result.list[0]).toMatchObject({
+      id: 101,
+      processName: 'STEP#910311',
+    });
+    expect(String(mockQuery.mock.calls[0][0])).toContain('LEFT JOIN process_steps ps ON ps.id = pt.process_step_id');
+    expect(String(mockQuery.mock.calls[1][0])).toContain('LEFT JOIN process_steps ps ON ps.id = pt.process_step_id');
+  });
+
   it('getWorkCalendar 返回每天的正常班次与加班时段', async () => {
     mockQuery.mockResolvedValueOnce([
       {

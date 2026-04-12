@@ -23,6 +23,9 @@ export interface CreateProcessConfigParams {
     workstationType?: string;
     workstationId?: number;
     executionMode?: 'internal' | 'outsource';
+    guideText?: string;
+    guideAttachmentUrl?: string;
+    guideAttachmentName?: string;
   }>;
 }
 
@@ -170,6 +173,9 @@ export class ProcessConfigService {
           workstationType: s.workstationType ?? null,
           workstationId: s.workstationId ?? null,
           executionMode: s.executionMode ?? 'internal',
+          guideText: s.guideText ?? null,
+          guideAttachmentUrl: s.guideAttachmentUrl ?? null,
+          guideAttachmentName: s.guideAttachmentName ?? null,
         }),
       );
       await stepRepo.save(stepEntities);
@@ -203,6 +209,9 @@ export class ProcessConfigService {
           workstationType: s.workstationType ?? null,
           workstationId: s.workstationId ?? null,
           executionMode: s.executionMode ?? 'internal',
+          guideText: s.guideText ?? null,
+          guideAttachmentUrl: s.guideAttachmentUrl ?? null,
+          guideAttachmentName: s.guideAttachmentName ?? null,
         }),
       );
       await stepRepo.save(stepEntities);
@@ -519,6 +528,9 @@ export class ProcessConfigService {
       workstationType?: string;
       workstationId?: number;
       executionMode?: 'internal' | 'outsource';
+      guideText?: string;
+      guideAttachmentUrl?: string;
+      guideAttachmentName?: string;
     }>,
   ) {
     const workstationIds = [...new Set(
@@ -554,6 +566,9 @@ export class ProcessConfigService {
         workstationType: linkedWorkstation?.type ?? step.workstationType,
         workstationId: linkedWorkstation?.id ?? step.workstationId,
         executionMode: step.executionMode ?? 'internal',
+        guideText: step.guideText?.trim() || undefined,
+        guideAttachmentUrl: step.guideAttachmentUrl?.trim() || undefined,
+        guideAttachmentName: step.guideAttachmentName?.trim() || undefined,
       };
     });
   }

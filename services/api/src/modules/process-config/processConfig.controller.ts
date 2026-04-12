@@ -45,6 +45,9 @@ const StepSchema = z.object({
   workstationType: z.string().max(50).optional(),
   workstationId: z.number().int().positive().optional(),
   executionMode: z.enum(['internal', 'outsource']).optional(),
+  guideText: z.string().max(5000).optional(),
+  guideAttachmentUrl: z.string().max(500).optional(),
+  guideAttachmentName: z.string().max(255).optional(),
 });
 
 const StepMaterialSchema = z.object({

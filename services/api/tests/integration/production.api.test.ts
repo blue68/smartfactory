@@ -478,6 +478,9 @@ describe('生产管理模块 API 集成测试', () => {
       expect(res.body.data).toHaveProperty('dependencySummary');
       expect(res.body.data).toHaveProperty('materialTransactions');
       expect(res.body.data).toHaveProperty('wageReport');
+      expect(res.body.data).toHaveProperty('processGuideText');
+      expect(res.body.data).toHaveProperty('processGuideAttachmentUrl');
+      expect(res.body.data).toHaveProperty('processGuideAttachmentName');
       expect(Array.isArray(res.body.data.materialTransactions)).toBe(true);
       expect(res.body.data.dependencySummary).toEqual(
         expect.objectContaining({

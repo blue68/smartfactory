@@ -1258,6 +1258,49 @@
   font-style: italic;
 }
 
+.guideCard {
+  display: grid;
+  gap: 0.875rem;
+  padding: 1rem;
+  border: 1px solid var(--border-default, #E2E8F0);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #FFFDF7 0%, #FFFFFF 100%);
+}
+
+.guideText {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  color: var(--text-primary, #1E293B);
+  white-space: pre-wrap;
+}
+
+.guideAttachment {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+}
+
+.guideAttachmentPreview {
+  max-width: min(100%, 22rem);
+  max-height: 16rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  object-fit: contain;
+  background: #fff;
+  cursor: pointer;
+}
+
+.guideAttachmentLink {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--color-primary-600, #2563EB);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .dependencyBanner {
   padding: 0.875rem 1rem;
   border-radius: 12px;

@@ -71,6 +71,15 @@ export class ProcessStepEntity {
   @Column({ name: 'max_hours', type: 'decimal', precision: 6, scale: 2, nullable: true })
   maxHours: string | null;
 
+  @Column({ name: 'guide_text', type: 'text', nullable: true })
+  guideText: string | null;
+
+  @Column({ name: 'guide_attachment_url', type: 'varchar', length: 500, nullable: true })
+  guideAttachmentUrl: string | null;
+
+  @Column({ name: 'guide_attachment_name', type: 'varchar', length: 255, nullable: true })
+  guideAttachmentName: string | null;
+
   @Column({ name: 'workstation_type', type: 'varchar', length: 50, nullable: true })
   workstationType: string | null;
 
