@@ -3,7 +3,7 @@
  *
  * 功能范围：
  *   - 统计卡片行：总任务数 / 进行中 / 已完成 / 异常（独立 stats 接口，countUp 动画）
- *   - 筛选栏：关键词搜索(300ms debounce) + 状态下拉 + 日期范围 + 工序筛选
+ *   - 筛选栏：关键词搜索(300ms debounce) + 状态下拉 + 日期范围 + 工序/工人筛选
  *   - 任务列表表格（含产品名称、计划完成时间列）—— 点击行打开详情抽屉
  *   - 超时预警行级背景高亮（红色左边框 + #FFF1F0 背景）
  *   - 任务详情侧边抽屉：基本信息 / 生产数据 / SKU信息 / 异常记录 / 操作按钮
@@ -39,6 +39,7 @@ import {
   useSuspendTask,
   taskApi,
 } from '@/api/productionTask';
+import { useProductionWorkers } from '@/api/production';
 import { useLocationOptions, useWarehouseOptions } from '@/api/inventory';
 import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
@@ -497,6 +498,7 @@ export default function TaskPage() {
   const [dateError, setDateError] = useState('');
 
   const [processFilter, setProcessFilter] = useState('');
+  const [workerFilter, setWorkerFilter] = useState('');
   const [taskTypeFilter, setTaskTypeFilter] = useState<TaskType | ''>('');
   const [executionModeFilter, setExecutionModeFilter] = useState<ExecutionMode | ''>('');
 
@@ -540,6 +542,11 @@ export default function TaskPage() {
     setPage(1);
   }, []);
 
+  const handleWorkerFilterChange = useCallback((v: string) => {
+    setWorkerFilter(v);
+    setPage(1);
+  }, []);
+
   const handleTaskTypeFilterChange = useCallback((v: TaskType | '') => {
     setTaskTypeFilter(v);
     setPage(1);
@@ -559,11 +566,13 @@ export default function TaskPage() {
     dateFrom: dateFrom || undefined,
     dateTo:   (dateTo && !dateError) ? dateTo : undefined,
     processId: processFilter ? Number(processFilter) : undefined,
+    workerId: workerFilter ? Number(workerFilter) : undefined,
     taskType: taskTypeFilter || undefined,
     executionMode: executionModeFilter || undefined,
   };
 
   const { data: rawData, isLoading, isError } = useTaskList(filter);
+  const { data: workerOptionsData } = useProductionWorkers();
 
   const taskData: TaskListResponse = (() => {
     if (!rawData) return { list: [], total: 0 };
@@ -585,6 +594,14 @@ export default function TaskPage() {
     });
     return opts;
   }, [taskData.list]);
+
+  const workerOptions = useMemo(
+    () => (workerOptionsData ?? []).map((worker) => ({
+      label: worker.name,
+      value: String(worker.id),
+    })),
+    [workerOptionsData],
+  );
 
   // ── R06-G01: 统计卡片使用独立 stats 接口 ──────────────────
   const { data: statsData } = useTaskStats();
@@ -1309,6 +1326,18 @@ export default function TaskPage() {
         >
           <option value="">全部工序</option>
           {processOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+
+        <select
+          className={styles.select}
+          value={workerFilter}
+          onChange={(e) => handleWorkerFilterChange(e.target.value)}
+          aria-label="工人筛选"
+        >
+          <option value="">全部工人</option>
+          {workerOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
         </select>

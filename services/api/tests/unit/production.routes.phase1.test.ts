@@ -21,6 +21,7 @@ jest.mock('../../src/modules/production/production.controller', () => ({
   productionController: {
     getWorkCalendar: jest.fn(),
     setHoliday: jest.fn(),
+    setWorkdayConfig: jest.fn(),
     getDashboard: jest.fn(),
     listWorkers: jest.fn(),
     listWorkstations: jest.fn(),
@@ -88,6 +89,7 @@ describe('production.routes phase1 wiring', () => {
   it('declares expected permission and role guards for phase1 order endpoints', () => {
     expect(getRouteGuard('/work-calendar', 'get')?.requiredPermissions).toEqual(['production:schedule:view']);
     expect(getRouteGuard('/work-calendar/holiday', 'post')?.requiredPermissions).toEqual(['production:calendar:manage']);
+    expect(getRouteGuard('/work-calendar/day', 'put')?.requiredPermissions).toEqual(['production:calendar:manage']);
     expect(getRouteGuard('/workstations', 'get')?.requiredPermissions).toEqual(['production:schedule:view']);
     expect(getRouteGuard('/workstations', 'post')?.requiredPermissions).toEqual(['production:workstation:manage']);
     expect(getRouteGuard('/schedule/:date/adjust', 'put')?.requiredPermissions).toEqual(['production:schedule:adjust']);

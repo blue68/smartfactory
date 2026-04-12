@@ -3,6 +3,7 @@ import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
 import { BomService } from '../bom/bom.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { sumWorkCalendarHours } from '../production/work-calendar.util';
 
 // ─── 阈值配置（可从 tenant.settings 中读取，实现可配置化） ──
 
@@ -307,11 +308,12 @@ export class ConstraintEngine {
     // 简化：假设从今天到交期都是工作日
     const deliveryDate = new Date(expectedDelivery);
     const today = new Date();
-    const workDays = Math.max(
-      1,
-      Math.ceil((deliveryDate.getTime() - today.getTime()) / (1000 * 3600 * 24)),
+    const workHourSpan = await sumWorkCalendarHours(
+      this.tenantId,
+      today.toISOString().slice(0, 10),
+      expectedDelivery,
     );
-    const totalAvailableHours = new Decimal(workstationCount * 8 * workDays);
+    const totalAvailableHours = new Decimal(workstationCount).mul(workHourSpan.gt(0) ? workHourSpan : 8);
 
     const loadRatio = totalAvailableHours.gt(0)
       ? scheduledHours.plus(newOrderHours).div(totalAvailableHours)

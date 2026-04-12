@@ -301,4 +301,92 @@ describe('ProductionService task state transitions', () => {
     );
     expect(fallbackQueryCall).toBeDefined();
   });
+
+  it('listTasks 支持按工人筛选', async () => {
+    mockQuery
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: '0' }]);
+
+    const svc = new ProductionService({ tenantId: 1, userId: 99 });
+    await svc.listTasks({
+      page: 1,
+      pageSize: 20,
+      workerId: 55,
+    });
+
+    expect(String(mockQuery.mock.calls[0][0])).toContain('pt.worker_id = ?');
+    expect(mockQuery.mock.calls[0][1]).toEqual([1, 55, 20, 0]);
+    expect(mockQuery.mock.calls[1][1]).toEqual([1, 55]);
+  });
+
+  it('getWorkCalendar 返回每天的正常班次与加班时段', async () => {
+    mockQuery.mockResolvedValueOnce([
+      {
+        date: '2026-04-13',
+        is_workday: 1,
+        holiday_name: '调休上班',
+        normal_ranges: JSON.stringify([
+          { startTime: '08:00', endTime: '12:00' },
+          { startTime: '13:30', endTime: '17:30' },
+        ]),
+        overtime_ranges: JSON.stringify([
+          { startTime: '18:30', endTime: '20:30' },
+        ]),
+      },
+    ]);
+
+    const svc = new ProductionService({ tenantId: 1, userId: 99 });
+    const result = await svc.getWorkCalendar(2026, 4);
+    const target = result.find((item) => item.date === '2026-04-13');
+
+    expect(target).toMatchObject({
+      isWorkday: true,
+      holidayName: '调休上班',
+      normalHours: '8.0',
+      overtimeHours: '2.0',
+      totalHours: '10.0',
+    });
+    expect(target?.normalRanges).toEqual([
+      { startTime: '08:00', endTime: '12:00' },
+      { startTime: '13:30', endTime: '17:30' },
+    ]);
+    expect(target?.overtimeRanges).toEqual([
+      { startTime: '18:30', endTime: '20:30' },
+    ]);
+  });
+
+  it('setWorkdayConfig 会保存正常班次和加班时段', async () => {
+    mockQuery.mockResolvedValueOnce({ affectedRows: 1 });
+
+    const svc = new ProductionService({ tenantId: 1, userId: 99 });
+    await svc.setWorkdayConfig({
+      date: '2026-04-13',
+      isWorkday: true,
+      name: '加班日',
+      normalRanges: [
+        { startTime: '08:00', endTime: '12:00' },
+        { startTime: '13:30', endTime: '17:30' },
+      ],
+      overtimeRanges: [
+        { startTime: '18:30', endTime: '20:30' },
+      ],
+    });
+
+    expect(String(mockQuery.mock.calls[0][0])).toContain('normal_ranges');
+    expect(mockQuery.mock.calls[0][1]).toEqual([
+      1,
+      '2026-04-13',
+      1,
+      '加班日',
+      JSON.stringify([
+        { startTime: '08:00', endTime: '12:00' },
+        { startTime: '13:30', endTime: '17:30' },
+      ]),
+      JSON.stringify([
+        { startTime: '18:30', endTime: '20:30' },
+      ]),
+      99,
+      99,
+    ]);
+  });
 });

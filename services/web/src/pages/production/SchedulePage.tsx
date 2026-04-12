@@ -1,20 +1,26 @@
 import { startTransition, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
+import { ACTION_CODES } from '@/constants/accessControl';
+import { usePermission } from '@/hooks/usePermission';
 import { useAppStore } from '@/stores/appStore';
 import {
   productionApi,
   productionKeys,
   useAdjustSchedule,
   useConfirmSchedule,
+  useProductionWorkCalendar,
   useProductionWorkers,
   useProductionWorkstations,
   useSchedule,
   useScheduleHistory,
+  useUpdateWorkCalendarDay,
 } from '@/api/production';
 import type {
   ProductionWorkerOption,
+  ProductionWorkCalendarDay,
   ScheduleHistoryEntry,
+  WorkTimeRange,
   WorkstationOption,
 } from '@/api/production';
 import { ApiCode, ApiError } from '@/types/api';
@@ -27,7 +33,6 @@ import styles from './SchedulePage.module.css';
 type ScheduleView = 'station' | 'order' | 'worker';
 type TaskBlockVariant = 'normal' | 'warning' | 'danger';
 type MaterialStatus = 'ok' | 'warn' | 'err';
-type TimeSlotLabel = '08:00 — 10:00' | '10:00 — 12:00' | '13:30 — 15:30' | '15:30 — 17:30';
 type RiskLevel = 'info' | 'warning' | 'danger';
 
 interface GanttTask {
@@ -46,7 +51,7 @@ interface StationRow {
   workerInCharge: string;
   materialStatus: MaterialStatus;
   materialLabel: string;
-  slots: Partial<Record<TimeSlotLabel, GanttTask>>;
+  slots: Partial<Record<string, GanttTask>>;
   totalTasks: number;
 }
 
@@ -95,19 +100,23 @@ interface OrderCard {
 }
 
 const EMPTY_SCHEDULES: ScheduleItem[] = [];
+const DEFAULT_NORMAL_RANGES: WorkTimeRange[] = [
+  { startTime: '08:00', endTime: '12:00' },
+  { startTime: '13:30', endTime: '17:30' },
+];
+
+interface CalendarFormState {
+  isWorkday: boolean;
+  holidayName: string;
+  normalRanges: WorkTimeRange[];
+  overtimeRanges: WorkTimeRange[];
+}
 
 interface ScheduleRisk {
   level: RiskLevel;
   title: string;
   description: string;
 }
-
-const TIME_SLOTS: TimeSlotLabel[] = [
-  '08:00 — 10:00',
-  '10:00 — 12:00',
-  '13:30 — 15:30',
-  '15:30 — 17:30',
-];
 
 const ALERT_STORAGE_KEY = 'schedule-risk-alert-dismissed';
 
@@ -125,6 +134,15 @@ function getNextWorkday(date: Date): string {
     next.setDate(next.getDate() + 1);
   }
   return formatInputDate(next);
+}
+
+function makeDefaultCalendarForm(isWorkday = true): CalendarFormState {
+  return {
+    isWorkday,
+    holidayName: '',
+    normalRanges: isWorkday ? DEFAULT_NORMAL_RANGES.map((range) => ({ ...range })) : [],
+    overtimeRanges: [],
+  };
 }
 
 function formatScheduleDate(date: string): string {
@@ -209,6 +227,72 @@ function formatHours(value: string): string {
   return `${parseNumeric(value).toFixed(1)}h`;
 }
 
+function formatRangeLabel(range: WorkTimeRange): string {
+  return `${range.startTime} — ${range.endTime}`;
+}
+
+function buildTimeSlotsFromCalendar(day?: ProductionWorkCalendarDay): string[] {
+  if (day && !day.isWorkday) {
+    return [];
+  }
+  const source = day?.isWorkday
+    ? [...(day.normalRanges ?? []), ...(day.overtimeRanges ?? [])]
+    : [];
+  const normalized = source.length > 0 ? source : DEFAULT_NORMAL_RANGES;
+  return normalized.map(formatRangeLabel);
+}
+
+function buildFallbackCalendarDay(date: string): ProductionWorkCalendarDay {
+  return {
+    date,
+    isWorkday: true,
+    isHoliday: false,
+    normalRanges: DEFAULT_NORMAL_RANGES.map((range) => ({ ...range })),
+    overtimeRanges: [],
+    normalHours: '8.0',
+    overtimeHours: '0.0',
+    totalHours: '8.0',
+  };
+}
+
+function getMonthKey(date: string): { year: number; month: number } {
+  const [year, month] = date.split('-').map(Number);
+  return { year, month };
+}
+
+function getNextWorkdayFromCalendar(date: string, entries: ProductionWorkCalendarDay[] | undefined): string {
+  if (!entries || entries.length === 0) {
+    return getNextWorkday(new Date(`${date}T00:00:00`));
+  }
+  const sorted = [...entries].sort((left, right) => left.date.localeCompare(right.date));
+  const next = sorted.find((entry) => entry.date > date && entry.isWorkday);
+  return next?.date ?? getNextWorkday(new Date(`${date}T00:00:00`));
+}
+
+function validateCalendarRanges(form: CalendarFormState): string | null {
+  const validateGroup = (ranges: WorkTimeRange[], label: string): string | null => {
+    for (let index = 0; index < ranges.length; index += 1) {
+      const range = ranges[index];
+      if (!/^\d{2}:\d{2}$/.test(range.startTime) || !/^\d{2}:\d{2}$/.test(range.endTime)) {
+        return `${label}时间段格式必须为 HH:mm`;
+      }
+      if (range.endTime <= range.startTime) {
+        return `${label}时间段结束时间必须晚于开始时间`;
+      }
+      if (index > 0 && range.startTime < ranges[index - 1].endTime) {
+        return `${label}时间段不能重叠`;
+      }
+    }
+    return null;
+  };
+
+  if (!form.isWorkday) return null;
+  if (form.normalRanges.length === 0) {
+    return '工作日必须至少配置一个正常班次时间段';
+  }
+  return validateGroup(form.normalRanges, '正常班次') ?? validateGroup(form.overtimeRanges, '加班');
+}
+
 function parseLoadRate(rate?: string | null): number {
   if (!rate) return 0;
   return Number(String(rate).replace('%', '')) || 0;
@@ -235,7 +319,7 @@ function getMaterialStatusForStation(items: ScheduleItem[]): { status: MaterialS
   return { status: 'ok', label: '料已备好' };
 }
 
-function buildStationRows(schedules: ScheduleItem[], loadRate: number): StationRow[] {
+function buildStationRows(schedules: ScheduleItem[], loadRate: number, timeSlots: string[]): StationRow[] {
   const groups = new Map<string, ScheduleItem[]>();
 
   schedules.forEach((item) => {
@@ -246,10 +330,10 @@ function buildStationRows(schedules: ScheduleItem[], loadRate: number): StationR
   });
 
   return [...groups.entries()].map(([stationId, items]) => {
-    const slots: Partial<Record<TimeSlotLabel, GanttTask>> = {};
+    const slots: Partial<Record<string, GanttTask>> = {};
     items.forEach((item, index) => {
-      if (index >= TIME_SLOTS.length) return;
-      const slot = TIME_SLOTS[index];
+      if (index >= timeSlots.length) return;
+      const slot = timeSlots[index];
       slots[slot] = {
         source: item,
         orderLabel: item.workOrderNo,
@@ -278,7 +362,7 @@ function buildStationRows(schedules: ScheduleItem[], loadRate: number): StationR
   });
 }
 
-function buildWorkerCards(schedules: ScheduleItem[]): WorkerCard[] {
+function buildWorkerCards(schedules: ScheduleItem[], timeSlots: string[]): WorkerCard[] {
   const groups = new Map<string, { name: string; tasks: ScheduleItem[] }>();
 
   schedules.forEach((item) => {
@@ -298,7 +382,7 @@ function buildWorkerCards(schedules: ScheduleItem[]): WorkerCard[] {
         name: group.name,
         roleLine: `${group.tasks[0]?.workstationName ?? '待排工位'} · ${group.tasks.length} 项任务`,
         totalHours: totalHours.toFixed(1),
-        tasks: group.tasks.slice(0, TIME_SLOTS.length).map((item, index) => ({
+        tasks: group.tasks.slice(0, timeSlots.length).map((item, index) => ({
           source: item,
           scheduleId: item.scheduleId,
           workOrderNo: item.workOrderNo,
@@ -307,14 +391,14 @@ function buildWorkerCards(schedules: ScheduleItem[]): WorkerCard[] {
           stationName: item.workstationName ?? '待分配工位',
           plannedQty: item.plannedQty,
           estimatedHours: item.estimatedHours,
-          time: TIME_SLOTS[index] ?? TIME_SLOTS[TIME_SLOTS.length - 1],
+          time: timeSlots[index] ?? timeSlots[timeSlots.length - 1] ?? '待排时段',
         })),
       };
     })
     .sort((left, right) => parseNumeric(right.totalHours) - parseNumeric(left.totalHours));
 }
 
-function buildOrderCards(schedules: ScheduleItem[]): OrderCard[] {
+function buildOrderCards(schedules: ScheduleItem[], timeSlots: string[]): OrderCard[] {
   const groups = new Map<number, ScheduleItem[]>();
 
   schedules.forEach((item) => {
@@ -328,7 +412,7 @@ function buildOrderCards(schedules: ScheduleItem[]): OrderCard[] {
       const totalHours = items.reduce((sum, item) => sum + parseNumeric(item.estimatedHours), 0);
       const totalQty = items.reduce((sum, item) => sum + parseNumeric(item.plannedQty), 0);
       const hasGap = items.some((item) => !item.workerId || !item.workstationId);
-      const hasCrowded = items.length >= TIME_SLOTS.length;
+      const hasCrowded = timeSlots.length > 0 && items.length >= timeSlots.length;
       const risk: TaskBlockVariant = hasGap ? 'danger' : hasCrowded ? 'warning' : 'normal';
 
       return {
@@ -357,11 +441,13 @@ function buildOrderCards(schedules: ScheduleItem[]): OrderCard[] {
     .sort((left, right) => right.stepCount - left.stepCount || parseNumeric(right.totalHours) - parseNumeric(left.totalHours));
 }
 
-function deriveRisks(schedules: ScheduleItem[], loadRate: number): ScheduleRisk[] {
+function deriveRisks(schedules: ScheduleItem[], loadRate: number, timeSlots: string[]): ScheduleRisk[] {
   const risks: ScheduleRisk[] = [];
   const unassigned = schedules.filter((item) => !item.workerId || !item.workstationId).length;
   const crowded = new Set(
-    schedules.filter((_, index) => index >= TIME_SLOTS.length * 2).map((item) => item.workstationName ?? '待分配工位'),
+    timeSlots.length > 0
+      ? schedules.filter((_, index) => index >= timeSlots.length * 2).map((item) => item.workstationName ?? '待分配工位')
+      : [],
   );
 
   if (loadRate >= 95) {
@@ -411,6 +497,7 @@ function getOrderRiskLabel(variant: TaskBlockVariant): string {
 
 export default function SchedulePage() {
   const { setPageTitle, showToast } = useAppStore();
+  const { can } = usePermission();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -423,6 +510,7 @@ export default function SchedulePage() {
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<ScheduleItem | null>(null);
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
   const [manualGenerate, setManualGenerate] = useState(false);
   const [riskDismissed, setRiskDismissed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -433,6 +521,10 @@ export default function SchedulePage() {
     workstationId: '',
     plannedQty: '',
   });
+  const [calendarForm, setCalendarForm] = useState<CalendarFormState>(makeDefaultCalendarForm());
+
+  const canManageCalendar = can(ACTION_CODES.PRODUCTION_CALENDAR_MANAGE);
+  const { year: calendarYear, month: calendarMonth } = getMonthKey(selectedDate);
 
   useEffect(() => {
     setPageTitle('排产计划');
@@ -460,11 +552,30 @@ export default function SchedulePage() {
   const scheduleHistoryQuery = useScheduleHistory(14, historyOpen);
   const confirmMutation = useConfirmSchedule();
   const adjustMutation = useAdjustSchedule();
+  const calendarQuery = useProductionWorkCalendar(calendarYear, calendarMonth);
+  const updateCalendarMutation = useUpdateWorkCalendarDay();
   const workersQuery = useProductionWorkers();
   const workstationsQuery = useProductionWorkstations();
 
   const schedules = scheduleQuery.data?.schedules ?? EMPTY_SCHEDULES;
   const loadRate = parseLoadRate(scheduleQuery.data?.summary.capacityLoadRate);
+  const selectedCalendarDay = useMemo(
+    () => calendarQuery.data?.find((entry) => entry.date === selectedDate) ?? buildFallbackCalendarDay(selectedDate),
+    [calendarQuery.data, selectedDate],
+  );
+  const timeSlots = useMemo(
+    () => buildTimeSlotsFromCalendar(selectedCalendarDay),
+    [selectedCalendarDay],
+  );
+
+  useEffect(() => {
+    setCalendarForm({
+      isWorkday: selectedCalendarDay.isWorkday,
+      holidayName: selectedCalendarDay.holidayName ?? '',
+      normalRanges: selectedCalendarDay.normalRanges.map((range) => ({ ...range })),
+      overtimeRanges: selectedCalendarDay.overtimeRanges.map((range) => ({ ...range })),
+    });
+  }, [selectedCalendarDay]);
 
   const filteredSchedules = useMemo(() => {
     if (!focusWorkOrderNo) return schedules;
@@ -472,12 +583,12 @@ export default function SchedulePage() {
   }, [focusWorkOrderNo, schedules]);
 
   const stationRows = useMemo(
-    () => buildStationRows(filteredSchedules, loadRate),
-    [filteredSchedules, loadRate],
+    () => buildStationRows(filteredSchedules, loadRate, timeSlots),
+    [filteredSchedules, loadRate, timeSlots],
   );
-  const workerCards = useMemo(() => buildWorkerCards(filteredSchedules), [filteredSchedules]);
-  const orderCards = useMemo(() => buildOrderCards(filteredSchedules), [filteredSchedules]);
-  const risks = useMemo(() => deriveRisks(filteredSchedules, loadRate), [filteredSchedules, loadRate]);
+  const workerCards = useMemo(() => buildWorkerCards(filteredSchedules, timeSlots), [filteredSchedules, timeSlots]);
+  const orderCards = useMemo(() => buildOrderCards(filteredSchedules, timeSlots), [filteredSchedules, timeSlots]);
+  const risks = useMemo(() => deriveRisks(filteredSchedules, loadRate, timeSlots), [filteredSchedules, loadRate, timeSlots]);
 
   const metrics = useMemo(() => {
     const totalOrders = new Set(filteredSchedules.map((item) => item.productionOrderId)).size;
@@ -527,6 +638,34 @@ export default function SchedulePage() {
 
   const closeAdjustModal = () => {
     setSelectedTask(null);
+  };
+
+  const updateCalendarRange = (
+    key: 'normalRanges' | 'overtimeRanges',
+    index: number,
+    field: keyof WorkTimeRange,
+    value: string,
+  ) => {
+    setCalendarForm((current) => ({
+      ...current,
+      [key]: current[key].map((range, currentIndex) => (
+        currentIndex === index ? { ...range, [field]: value } : range
+      )),
+    }));
+  };
+
+  const addCalendarRange = (key: 'normalRanges' | 'overtimeRanges') => {
+    setCalendarForm((current) => ({
+      ...current,
+      [key]: [...current[key], { startTime: '18:30', endTime: '20:30' }],
+    }));
+  };
+
+  const removeCalendarRange = (key: 'normalRanges' | 'overtimeRanges', index: number) => {
+    setCalendarForm((current) => ({
+      ...current,
+      [key]: current[key].filter((_, currentIndex) => currentIndex !== index),
+    }));
   };
 
   const handleRegenerate = async () => {
@@ -587,6 +726,34 @@ export default function SchedulePage() {
     }
   };
 
+  const handleSaveCalendar = async () => {
+    const validationMessage = validateCalendarRanges(calendarForm);
+    if (validationMessage) {
+      showToast({ type: 'error', message: validationMessage });
+      return;
+    }
+    try {
+      await updateCalendarMutation.mutateAsync({
+        date: selectedDate,
+        isWorkday: calendarForm.isWorkday,
+        name: calendarForm.holidayName || undefined,
+        normalRanges: calendarForm.isWorkday ? calendarForm.normalRanges : [],
+        overtimeRanges: calendarForm.isWorkday ? calendarForm.overtimeRanges : [],
+      });
+      setCalendarModalOpen(false);
+      showToast({ type: 'success', message: '生产日历已更新' });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: productionKeys.workCalendar(calendarYear, calendarMonth) }),
+        queryClient.invalidateQueries({ queryKey: productionKeys.schedule(selectedDate) }),
+      ]);
+    } catch (error) {
+      showToast({
+        type: 'error',
+        message: error instanceof ApiError ? error.message : '生产日历更新失败，请稍后重试',
+      });
+    }
+  };
+
   const handleConfirmSchedule = async () => {
     try {
       await confirmMutation.mutateAsync(selectedDate);
@@ -629,16 +796,18 @@ export default function SchedulePage() {
           selectedDate={selectedDate}
           onDateChange={handleDateChange}
           onJumpToday={() => handleDateChange(today)}
-          onJumpNextWorkday={() => handleDateChange(getNextWorkday(new Date()))}
+          onJumpNextWorkday={() => handleDateChange(getNextWorkdayFromCalendar(selectedDate, calendarQuery.data))}
           onRefresh={() => setManualGenerate(true)}
           onHistory={() => setHistoryOpen(true)}
+          canManageCalendar={canManageCalendar}
+          onOpenCalendar={() => setCalendarModalOpen(true)}
         />
         <div className={styles.pre_generate_state}>
           <div className={styles.empty_emoji}>🗓</div>
           <h2>今日排产计划将于 07:30 自动生成</h2>
           <p>当前还未到自动生成时段。如需提前查看，可手动触发一次今日排产计算。</p>
           <div className={styles.empty_actions}>
-            <Button variant="ghost" onClick={() => handleDateChange(getNextWorkday(new Date()))}>查看下一工作日</Button>
+            <Button variant="ghost" onClick={() => handleDateChange(getNextWorkdayFromCalendar(selectedDate, calendarQuery.data))}>查看下一工作日</Button>
             <Button variant="ai" onClick={() => setManualGenerate(true)}>立即生成今日计划</Button>
           </div>
         </div>
@@ -652,9 +821,11 @@ export default function SchedulePage() {
         selectedDate={selectedDate}
         onDateChange={handleDateChange}
         onJumpToday={() => handleDateChange(today)}
-        onJumpNextWorkday={() => handleDateChange(getNextWorkday(new Date()))}
+        onJumpNextWorkday={() => handleDateChange(getNextWorkdayFromCalendar(selectedDate, calendarQuery.data))}
         onRefresh={() => void handleRegenerate()}
         onHistory={() => setHistoryOpen(true)}
+        canManageCalendar={canManageCalendar}
+        onOpenCalendar={() => setCalendarModalOpen(true)}
       />
 
       {scheduleQuery.isLoading && (
@@ -698,6 +869,7 @@ export default function SchedulePage() {
             assignedWorkers={metrics.assignedWorkers}
             totalHours={metrics.totalHours}
             unassignedCount={metrics.unassignedCount}
+            workdayHours={selectedCalendarDay.totalHours}
           />
 
           {alertVisible && <RiskPanel risks={risks} onDismiss={handleDismissRisk} />}
@@ -712,7 +884,7 @@ export default function SchedulePage() {
               <ViewToggle value={scheduleView} onChange={setScheduleView} />
 
               {scheduleView === 'station' && (
-                <StationView rows={stationRows} onTaskClick={openAdjustModal} />
+                <StationView rows={stationRows} timeSlots={timeSlots} onTaskClick={openAdjustModal} />
               )}
 
               {scheduleView === 'order' && (
@@ -733,7 +905,7 @@ export default function SchedulePage() {
               <h2>今日暂无待排产工单</h2>
               <p>当前所有生产工单可能已全部下发，或还没有达到可排产状态。</p>
               <div className={styles.empty_actions}>
-                <Button variant="ghost" onClick={() => handleDateChange(getNextWorkday(new Date()))}>查看下一工作日</Button>
+                <Button variant="ghost" onClick={() => handleDateChange(getNextWorkdayFromCalendar(selectedDate, calendarQuery.data))}>查看下一工作日</Button>
                 <Button variant="primary" onClick={() => void handleRegenerate()}>重新拉取计划</Button>
               </div>
             </div>
@@ -771,6 +943,20 @@ export default function SchedulePage() {
           setHistoryOpen(false);
           handleDateChange(date);
         }}
+      />
+
+      <WorkCalendarModal
+        open={calendarModalOpen}
+        date={selectedDate}
+        form={calendarForm}
+        loading={updateCalendarMutation.isPending}
+        canEdit={canManageCalendar}
+        onChange={setCalendarForm}
+        onRangeChange={updateCalendarRange}
+        onAddRange={addCalendarRange}
+        onRemoveRange={removeCalendarRange}
+        onClose={() => setCalendarModalOpen(false)}
+        onSave={() => void handleSaveCalendar()}
       />
 
       {selectedTask && (
@@ -863,6 +1049,8 @@ function PageHeader(props: {
   onJumpNextWorkday: () => void;
   onRefresh: () => void;
   onHistory: () => void;
+  canManageCalendar: boolean;
+  onOpenCalendar: () => void;
 }) {
   return (
     <div className={styles.page_header}>
@@ -878,6 +1066,7 @@ function PageHeader(props: {
         </div>
         <Button variant="ghost" onClick={props.onJumpToday}>今天</Button>
         <Button variant="ghost" onClick={props.onJumpNextWorkday}>下一工作日</Button>
+        {props.canManageCalendar && <Button variant="ghost" onClick={props.onOpenCalendar}>生产日历</Button>}
         <Button variant="ghost" onClick={props.onHistory}>查看历史</Button>
         <Button variant="ai" onClick={props.onRefresh}>重新生成</Button>
       </div>
@@ -921,9 +1110,10 @@ function StatsGrid(props: {
   assignedWorkers: number;
   totalHours: string;
   unassignedCount: number;
+  workdayHours: string;
 }) {
   const cards = [
-    { label: '产能负荷率', value: `${props.loadRate.toFixed(1)}%`, hint: '以 8 小时工时为基准', accent: props.loadRate >= 90 ? 'danger' : props.loadRate >= 75 ? 'warning' : 'normal' },
+    { label: '产能负荷率', value: `${props.loadRate.toFixed(1)}%`, hint: `以当日 ${props.workdayHours} 小时工时为基准`, accent: props.loadRate >= 90 ? 'danger' : props.loadRate >= 75 ? 'warning' : 'normal' },
     { label: '排产工序', value: `${props.totalSteps}`, hint: '今日已纳入正式排产的工序数', accent: 'normal' },
     { label: '排产工位', value: `${props.assignedStations}`, hint: '已占用的工作站数量', accent: 'normal' },
     { label: '排产工人', value: `${props.assignedWorkers}`, hint: '已分配任务的工人数量', accent: 'normal' },
@@ -998,7 +1188,7 @@ function ViewToggle({ value, onChange }: { value: ScheduleView; onChange: (view:
   );
 }
 
-function StationView({ rows, onTaskClick }: { rows: StationRow[]; onTaskClick: (task: ScheduleItem) => void }) {
+function StationView(props: { rows: StationRow[]; timeSlots: string[]; onTaskClick: (task: ScheduleItem) => void }) {
   return (
     <div className={styles.gantt_wrap}>
       <div className={styles.gantt_hint}>点击任务块可微调工人、工位或计划数量；确认后统一下发给工人。</div>
@@ -1007,25 +1197,25 @@ function StationView({ rows, onTaskClick }: { rows: StationRow[]; onTaskClick: (
           <thead>
             <tr>
               <th>工作站</th>
-              {TIME_SLOTS.map((slot) => (
+              {props.timeSlots.map((slot) => (
                 <th key={slot}>{slot}</th>
               ))}
               <th>备料状态</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {props.rows.map((row) => (
               <tr key={row.stationId}>
                 <td className={styles.station_cell}>
                   <strong>{row.stationName}</strong>
                   <span>{row.workerInCharge}</span>
                   <small>{row.totalTasks} 项任务</small>
                 </td>
-                {TIME_SLOTS.map((slot) => {
+                {props.timeSlots.map((slot) => {
                   const task = row.slots[slot];
                   return (
                     <td key={slot} className={styles.gantt_slot}>
-                      {task ? <TaskBlock task={task} onClick={() => onTaskClick(task.source)} /> : <div className={styles.empty_slot}>空档</div>}
+                      {task ? <TaskBlock task={task} onClick={() => props.onTaskClick(task.source)} /> : <div className={styles.empty_slot}>空档</div>}
                     </td>
                   );
                 })}
@@ -1215,6 +1405,160 @@ function ConfirmModal(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+function WorkCalendarModal(props: {
+  open: boolean;
+  date: string;
+  form: CalendarFormState;
+  loading: boolean;
+  canEdit: boolean;
+  onChange: Dispatch<SetStateAction<CalendarFormState>>;
+  onRangeChange: (key: 'normalRanges' | 'overtimeRanges', index: number, field: keyof WorkTimeRange, value: string) => void;
+  onAddRange: (key: 'normalRanges' | 'overtimeRanges') => void;
+  onRemoveRange: (key: 'normalRanges' | 'overtimeRanges', index: number) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  if (!props.open) return null;
+
+  return (
+    <div className={styles.modal_overlay} onClick={props.onClose}>
+      <div className={`${styles.modal_panel} ${styles['modal_panel--wide']}`} onClick={(event) => event.stopPropagation()}>
+        <div className={styles.modal_header}>
+          <div>
+            <strong>生产日历配置</strong>
+            <p>{formatScheduleDate(props.date)}</p>
+          </div>
+          <button type="button" className={styles.modal_close} onClick={props.onClose}>×</button>
+        </div>
+
+        <div className={styles.calendar_summary}>
+          <article>
+            <span>工作日状态</span>
+            <strong>{props.form.isWorkday ? '工作日' : '停工/放假'}</strong>
+          </article>
+          <article>
+            <span>正常班次</span>
+            <strong>{props.form.normalRanges.length} 段</strong>
+          </article>
+          <article>
+            <span>加班时段</span>
+            <strong>{props.form.overtimeRanges.length} 段</strong>
+          </article>
+        </div>
+
+        <div className={styles.calendar_form}>
+          <label className={styles.calendar_toggle}>
+            <input
+              type="checkbox"
+              checked={props.form.isWorkday}
+              disabled={!props.canEdit}
+              onChange={(event) => props.onChange((current) => ({
+                ...current,
+                isWorkday: event.target.checked,
+                normalRanges: event.target.checked && current.normalRanges.length === 0
+                  ? DEFAULT_NORMAL_RANGES.map((range) => ({ ...range }))
+                  : current.normalRanges,
+              }))}
+            />
+            <div>
+              <strong>当天为工作日</strong>
+              <span>关闭后当天不参与排产，工作时段将清空。</span>
+            </div>
+          </label>
+
+          <label className={styles.form_field}>
+            <span>备注名称</span>
+            <input
+              value={props.form.holidayName}
+              disabled={!props.canEdit}
+              placeholder={props.form.isWorkday ? '如：调休上班 / 加班日' : '如：清明节 / 厂休'}
+              onChange={(event) => props.onChange((current) => ({ ...current, holidayName: event.target.value }))}
+            />
+          </label>
+
+          <CalendarRangeEditor
+            title="正常班次"
+            description="用于排产基准工时，例如上午和下午两个班段。"
+            ranges={props.form.normalRanges}
+            disabled={!props.canEdit || !props.form.isWorkday}
+            onAdd={() => props.onAddRange('normalRanges')}
+            onChange={(index, field, value) => props.onRangeChange('normalRanges', index, field, value)}
+            onRemove={(index) => props.onRemoveRange('normalRanges', index)}
+          />
+
+          <CalendarRangeEditor
+            title="加班时段"
+            description="当天有额外加班时补充配置，排产容量会同步增加。"
+            ranges={props.form.overtimeRanges}
+            disabled={!props.canEdit || !props.form.isWorkday}
+            onAdd={() => props.onAddRange('overtimeRanges')}
+            onChange={(index, field, value) => props.onRangeChange('overtimeRanges', index, field, value)}
+            onRemove={(index) => props.onRemoveRange('overtimeRanges', index)}
+          />
+        </div>
+
+        <div className={styles.modal_actions}>
+          <Button variant="ghost" onClick={props.onClose}>关闭</Button>
+          {props.canEdit && (
+            <Button variant="primary" loading={props.loading} onClick={props.onSave}>保存配置</Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CalendarRangeEditor(props: {
+  title: string;
+  description: string;
+  ranges: WorkTimeRange[];
+  disabled: boolean;
+  onAdd: () => void;
+  onChange: (index: number, field: keyof WorkTimeRange, value: string) => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <section className={styles.calendar_section}>
+      <div className={styles.calendar_section_head}>
+        <div>
+          <strong>{props.title}</strong>
+          <p>{props.description}</p>
+        </div>
+        <Button variant="ghost" disabled={props.disabled} onClick={props.onAdd}>新增时段</Button>
+      </div>
+      {props.ranges.length === 0 ? (
+        <div className={styles.calendar_empty}>未配置时段</div>
+      ) : (
+        <div className={styles.calendar_ranges}>
+          {props.ranges.map((range, index) => (
+            <div key={`${props.title}-${index}`} className={styles.calendar_range_row}>
+              <label className={styles.form_field}>
+                <span>开始</span>
+                <input
+                  type="time"
+                  value={range.startTime}
+                  disabled={props.disabled}
+                  onChange={(event) => props.onChange(index, 'startTime', event.target.value)}
+                />
+              </label>
+              <label className={styles.form_field}>
+                <span>结束</span>
+                <input
+                  type="time"
+                  value={range.endTime}
+                  disabled={props.disabled}
+                  onChange={(event) => props.onChange(index, 'endTime', event.target.value)}
+                />
+              </label>
+              <Button variant="ghost" disabled={props.disabled} onClick={() => props.onRemove(index)}>删除</Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

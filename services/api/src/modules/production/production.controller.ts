@@ -158,6 +158,7 @@ export class ProductionController {
       status: z.string().optional(),
       keyword: z.string().max(100).optional(),
       processId: z.coerce.number().int().positive().optional(),
+      workerId: z.coerce.number().int().positive().optional(),
       taskType: z.enum(['finished', 'semi_finished']).optional(),
       executionMode: z.enum(['internal', 'outsource']).optional(),
       dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -229,6 +230,34 @@ export class ProductionController {
     const body = schema.parse(req.body);
     await this.svc(req).setHoliday(body);
     res.json({ code: 0, data: null, message: '日历已更新' });
+  }
+
+  async setWorkdayConfig(req: Request, res: Response): Promise<void> {
+    const rangeSchema = z.object({
+      startTime: z.string().regex(/^\d{2}:\d{2}$/),
+      endTime: z.string().regex(/^\d{2}:\d{2}$/),
+    }).refine((value) => value.endTime > value.startTime, {
+      message: '结束时间必须晚于开始时间',
+      path: ['endTime'],
+    });
+    const schema = z.object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式必须为 YYYY-MM-DD'),
+      isWorkday: z.boolean(),
+      name: z.string().max(50).optional(),
+      normalRanges: z.array(rangeSchema).max(6).optional(),
+      overtimeRanges: z.array(rangeSchema).max(6).optional(),
+    }).superRefine((value, ctx) => {
+      if (value.isWorkday && (!value.normalRanges || value.normalRanges.length === 0)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['normalRanges'],
+          message: '工作日必须至少配置一个正常班次时间段',
+        });
+      }
+    });
+    const body = schema.parse(req.body);
+    await this.svc(req).setWorkdayConfig(body);
+    res.json({ code: 0, data: null, message: '生产日历已更新' });
   }
 
   // BE-P1-008: 生产进度看板

@@ -6,13 +6,17 @@ import SchedulePage from '@/pages/production/SchedulePage';
 
 const mocks = vi.hoisted(() => ({
   useSchedule: vi.fn(),
+  useScheduleHistory: vi.fn(),
   useConfirmSchedule: vi.fn(),
   useAdjustSchedule: vi.fn(),
+  useProductionWorkCalendar: vi.fn(),
+  useUpdateWorkCalendarDay: vi.fn(),
   useProductionWorkers: vi.fn(),
   useProductionWorkstations: vi.fn(),
   setPageTitle: vi.fn(),
   showToast: vi.fn(),
   generateSchedule: vi.fn(),
+  permissionCan: vi.fn(),
 }));
 
 vi.mock('@/api/production', () => ({
@@ -23,10 +27,21 @@ vi.mock('@/api/production', () => ({
     schedule: (date: string) => ['production', 'schedule', date],
   },
   useSchedule: mocks.useSchedule,
+  useScheduleHistory: mocks.useScheduleHistory,
   useConfirmSchedule: mocks.useConfirmSchedule,
   useAdjustSchedule: mocks.useAdjustSchedule,
+  useProductionWorkCalendar: mocks.useProductionWorkCalendar,
+  useUpdateWorkCalendarDay: mocks.useUpdateWorkCalendarDay,
   useProductionWorkers: mocks.useProductionWorkers,
   useProductionWorkstations: mocks.useProductionWorkstations,
+}));
+
+vi.mock('@/hooks/usePermission', () => ({
+  usePermission: () => ({
+    can: mocks.permissionCan,
+    canAny: vi.fn(),
+    canAll: vi.fn(),
+  }),
 }));
 
 vi.mock('@/stores/appStore', () => ({
@@ -116,6 +131,32 @@ describe('SchedulePage', () => {
     const mutation = { mutateAsync: vi.fn(), isPending: false };
     mocks.useConfirmSchedule.mockReturnValue(mutation);
     mocks.useAdjustSchedule.mockReturnValue(mutation);
+    mocks.useUpdateWorkCalendarDay.mockReturnValue(mutation);
+    mocks.permissionCan.mockReturnValue(true);
+    mocks.useScheduleHistory.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+    });
+    mocks.useProductionWorkCalendar.mockReturnValue({
+      data: [
+        {
+          date: '2099-01-02',
+          isWorkday: true,
+          isHoliday: false,
+          normalRanges: [
+            { startTime: '08:00', endTime: '12:00' },
+            { startTime: '13:30', endTime: '17:30' },
+          ],
+          overtimeRanges: [
+            { startTime: '18:30', endTime: '20:30' },
+          ],
+          normalHours: '8.0',
+          overtimeHours: '2.0',
+          totalHours: '10.0',
+        },
+      ],
+    });
     mocks.useProductionWorkers.mockReturnValue({ data: [] });
     mocks.useProductionWorkstations.mockReturnValue({ data: [] });
   });
@@ -133,6 +174,7 @@ describe('SchedulePage', () => {
     fireEvent.click(screen.getByRole('button', { name: /人员视图/ }));
     expect(await screen.findByText('工人任务分配')).toBeInTheDocument();
     expect(screen.getByText('开料 · 半成品框架')).toBeInTheDocument();
+    expect(screen.getByText('以当日 10.0 小时工时为基准')).toBeInTheDocument();
   });
 
   it('normalizes runtime string schedule ids before submitting schedule adjustment', async () => {
@@ -193,6 +235,31 @@ describe('SchedulePage', () => {
           plannedQty: '9.50',
           expectedUpdatedAt: '2099-01-02 09:00:00',
         },
+      ],
+    });
+  });
+
+  it('opens work calendar modal and submits daily work ranges', async () => {
+    const calendarMutation = { mutateAsync: vi.fn().mockResolvedValue(null), isPending: false };
+    mocks.useUpdateWorkCalendarDay.mockReturnValue(calendarMutation);
+
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: '生产日历' }));
+    expect(screen.getByText('生产日历配置')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    expect(calendarMutation.mutateAsync).toHaveBeenCalledWith({
+      date: '2099-01-02',
+      isWorkday: true,
+      name: undefined,
+      normalRanges: [
+        { startTime: '08:00', endTime: '12:00' },
+        { startTime: '13:30', endTime: '17:30' },
+      ],
+      overtimeRanges: [
+        { startTime: '18:30', endTime: '20:30' },
       ],
     });
   });

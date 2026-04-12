@@ -25,6 +25,7 @@
 import crypto from 'crypto';
 import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
+import { getResolvedWorkCalendarDay } from '../production/work-calendar.util';
 
 // ─── 建议级别 ─────────────────────────────────────────────────
 
@@ -292,9 +293,10 @@ export class ProactiveService {
       [this.tenantId],
     );
 
+    const workdayConfig = await getResolvedWorkCalendarDay(this.tenantId, today);
     const scheduledHours = parseFloat(scheduledRow?.total_hours ?? '0');
     const workerCount = Number(workerRow?.cnt ?? 0);
-    const availableHours = workerCount * 8;
+    const availableHours = workerCount * Number(workdayConfig.totalHours);
 
     if (availableHours === 0) return [];
 
@@ -308,7 +310,7 @@ export class ProactiveService {
       type: 'capacity_overload' as SuggestionType,
       title: `产能预警：今日排产负荷 ${loadRate.toFixed(0)}%${isCritical ? '（已超载）' : ''}`,
       summary: `${today} 排产工时 ${scheduledHours.toFixed(1)}h，` +
-        `可用工时 ${availableHours}h（${workerCount} 名工人 × 8h），` +
+        `可用工时 ${availableHours.toFixed(1)}h（${workerCount} 名工人 × ${workdayConfig.totalHours}h），` +
         `负荷率 ${loadRate.toFixed(1)}%。` +
         `${isCritical
           ? '当前已超载，部分工单将无法按时完工，建议推迟非紧急工单或安排加班。'

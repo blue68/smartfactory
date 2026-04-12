@@ -6,6 +6,7 @@ import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import { SchedulerService } from './scheduler.service';
 import { WageService } from '../report/wage.service';
+import { loadWorkCalendarOverrides, resolveWorkCalendarDay, type WorkTimeRange } from './work-calendar.util';
 
 export class ProductionService {
   private readonly tenantId: number;
@@ -532,6 +533,7 @@ export class ProductionService {
   async listTasks(params: {
     page: number; pageSize: number; status?: string; keyword?: string;
     processId?: number;
+    workerId?: number;
     taskType?: 'finished' | 'semi_finished';
     executionMode?: 'internal' | 'outsource';
     dateFrom?: string;
@@ -557,6 +559,10 @@ export class ProductionService {
     if (params.processId) {
       conds.push('ps.id = ?');
       p.push(params.processId);
+    }
+    if (params.workerId) {
+      conds.push('pt.worker_id = ?');
+      p.push(params.workerId);
     }
     if (params.taskType === 'semi_finished') {
       conds.push('COALESCE(pt.output_sku_id, ps.output_sku_id) IS NOT NULL');
@@ -758,6 +764,7 @@ export class ProductionService {
   private async listTasksWithLegacySchema(params: {
     page: number; pageSize: number; status?: string; keyword?: string;
     processId?: number;
+    workerId?: number;
     taskType?: 'finished' | 'semi_finished';
     executionMode?: 'internal' | 'outsource';
     dateFrom?: string;
@@ -813,6 +820,10 @@ export class ProductionService {
     if (params.processId) {
       conds.push('ps.id = ?');
       p.push(params.processId);
+    }
+    if (params.workerId) {
+      conds.push('pt.worker_id = ?');
+      p.push(params.workerId);
     }
     if (params.taskType === 'semi_finished' && outputSkuExpr !== 'NULL') {
       conds.push(`${outputSkuExpr} IS NOT NULL`);
@@ -1311,64 +1322,32 @@ export class ProductionService {
     isWorkday: boolean;
     isHoliday: boolean;
     holidayName?: string;
+    normalRanges: WorkTimeRange[];
+    overtimeRanges: WorkTimeRange[];
+    normalHours: string;
+    overtimeHours: string;
+    totalHours: string;
   }>> {
-    // Build all dates in the requested month
-    const firstDay = new Date(Date.UTC(year, month - 1, 1));
-    const lastDay  = new Date(Date.UTC(year, month, 0));       // day 0 of next month = last day of this month
+    const lastDay  = new Date(Date.UTC(year, month, 0));
     const totalDays = lastDay.getUTCDate();
-
-    // Attempt to fetch custom overrides from work_calendar; gracefully degrade if table absent
-    let overrideMap = new Map<string, { isWorkday: boolean; holidayName?: string }>();
-    try {
-      const startStr = `${year}-${String(month).padStart(2, '0')}-01`;
-      const endStr   = `${year}-${String(month).padStart(2, '0')}-${String(totalDays).padStart(2, '0')}`;
-      const rows: Array<{ date: string; is_workday: number; holiday_name: string | null }> =
-        await AppDataSource.query(
-          `SELECT DATE_FORMAT(date, '%Y-%m-%d') AS date, is_workday, holiday_name
-           FROM work_calendar
-           WHERE tenant_id = ? AND date BETWEEN ? AND ?`,
-          [this.tenantId, startStr, endStr],
-        );
-      for (const row of rows) {
-        overrideMap.set(row.date, {
-          isWorkday:   row.is_workday === 1,
-          holidayName: row.holiday_name ?? undefined,
-        });
-      }
-    } catch {
-      // work_calendar table may not yet exist — fall through with empty overrideMap
-    }
-
-    const result: Array<{ date: string; isWorkday: boolean; isHoliday: boolean; holidayName?: string }> = [];
+    const startStr = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endStr   = `${year}-${String(month).padStart(2, '0')}-${String(totalDays).padStart(2, '0')}`;
+    const overrideMap = await loadWorkCalendarOverrides(this.tenantId, startStr, endStr);
+    const result: Array<{
+      date: string;
+      isWorkday: boolean;
+      isHoliday: boolean;
+      holidayName?: string;
+      normalRanges: WorkTimeRange[];
+      overtimeRanges: WorkTimeRange[];
+      normalHours: string;
+      overtimeHours: string;
+      totalHours: string;
+    }> = [];
 
     for (let d = 1; d <= totalDays; d++) {
-      const dateObj  = new Date(Date.UTC(year, month - 1, d));
       const dateStr  = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const dow      = dateObj.getUTCDay();          // 0 = Sunday, 6 = Saturday
-      const override = overrideMap.get(dateStr);
-
-      let isWorkday: boolean;
-      let isHoliday = false;
-      let holidayName: string | undefined;
-
-      if (override !== undefined) {
-        // Custom override takes precedence over weekend default
-        isWorkday   = override.isWorkday;
-        isHoliday   = !override.isWorkday;
-        holidayName = override.holidayName;
-      } else {
-        // Default rule: Mon–Fri are workdays; Sat/Sun are not
-        isWorkday = dow !== 0 && dow !== 6;
-        isHoliday = !isWorkday;
-      }
-
-      const entry: { date: string; isWorkday: boolean; isHoliday: boolean; holidayName?: string } = {
-        date: dateStr,
-        isWorkday,
-        isHoliday,
-      };
-      if (holidayName) entry.holidayName = holidayName;
-      result.push(entry);
+      result.push(resolveWorkCalendarDay(dateStr, overrideMap.get(dateStr)));
     }
 
     return result;
@@ -1377,18 +1356,37 @@ export class ProductionService {
   // BE-P2-009: 工作日历 — 设置节假日 / 调休
   // NOTE: work_calendar 表由迁移脚本创建，见 migrations/create_work_calendar.sql
   async setHoliday(params: { date: string; isWorkday: boolean; name?: string }): Promise<void> {
+    await this.setWorkdayConfig({
+      ...params,
+      normalRanges: undefined,
+      overtimeRanges: undefined,
+    });
+  }
+
+  async setWorkdayConfig(params: {
+    date: string;
+    isWorkday: boolean;
+    name?: string;
+    normalRanges?: WorkTimeRange[];
+    overtimeRanges?: WorkTimeRange[];
+  }): Promise<void> {
     await AppDataSource.query(
-      `INSERT INTO work_calendar (tenant_id, date, is_workday, holiday_name, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO work_calendar
+         (tenant_id, date, is_workday, holiday_name, normal_ranges, overtime_ranges, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          is_workday   = VALUES(is_workday),
          holiday_name = VALUES(holiday_name),
+         normal_ranges = VALUES(normal_ranges),
+         overtime_ranges = VALUES(overtime_ranges),
          updated_by   = VALUES(updated_by)`,
       [
         this.tenantId,
         params.date,
         params.isWorkday ? 1 : 0,
         params.name ?? null,
+        params.isWorkday ? JSON.stringify(params.normalRanges ?? null) : JSON.stringify([]),
+        params.isWorkday ? JSON.stringify(params.overtimeRanges ?? []) : JSON.stringify([]),
         this.userId,
         this.userId,
       ],

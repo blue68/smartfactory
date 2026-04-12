@@ -32,6 +32,21 @@ describe('productionTask api', () => {
     expect(result.status).toBe('in_progress');
   });
 
+  it('list should pass workerId filter to request params', async () => {
+    mockGet.mockResolvedValueOnce({
+      list: [],
+      total: 0,
+    });
+
+    await taskApi.list({ page: 1, pageSize: 20, workerId: 7 });
+
+    expect(mockGet).toHaveBeenCalledWith('/api/production/tasks', {
+      page: 1,
+      pageSize: 20,
+      workerId: 7,
+    });
+  });
+
   it('useTaskDetail should stay idle when taskId is null', async () => {
     const { result } = renderHook(() => useTaskDetail(null), {
       wrapper: createWrapper(),

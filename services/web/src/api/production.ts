@@ -106,6 +106,31 @@ export interface ScheduleHistoryEntry {
   generatedAt: string | null;
 }
 
+export interface WorkTimeRange {
+  startTime: string;
+  endTime: string;
+}
+
+export interface ProductionWorkCalendarDay {
+  date: string;
+  isWorkday: boolean;
+  isHoliday: boolean;
+  holidayName?: string;
+  normalRanges: WorkTimeRange[];
+  overtimeRanges: WorkTimeRange[];
+  normalHours: string;
+  overtimeHours: string;
+  totalHours: string;
+}
+
+export interface UpdateWorkCalendarDayPayload {
+  date: string;
+  isWorkday: boolean;
+  name?: string;
+  normalRanges?: WorkTimeRange[];
+  overtimeRanges?: WorkTimeRange[];
+}
+
 // ── Query Keys ───────────────────────────────
 export const productionKeys = {
   all: ['production'] as const,
@@ -116,6 +141,7 @@ export const productionKeys = {
   orderComponents: (id: number) => [...productionKeys.orders(), id, 'components'] as const,
   orderOperations: (id: number) => [...productionKeys.orders(), id, 'operations'] as const,
   schedule: (date: string) => [...productionKeys.all, 'schedule', date] as const,
+  workCalendar: (year: number, month: number) => [...productionKeys.all, 'workCalendar', year, month] as const,
   workerTasks: (workerId: number, date: string) =>
     [...productionKeys.all, 'workerTasks', workerId, date] as const,
   // Sprint 3 追加
@@ -163,6 +189,12 @@ export const productionApi = {
       '/api/production/schedule/history',
       params as Record<string, unknown> | undefined,
     ),
+
+  getWorkCalendar: (params: { year: number; month: number }) =>
+    request.get<ProductionWorkCalendarDay[]>('/api/production/work-calendar', params),
+
+  updateWorkCalendarDay: (payload: UpdateWorkCalendarDayPayload) =>
+    request.put<null>('/api/production/work-calendar/day', payload),
 
   getWorkerTasks: (workerId: number, date?: string) =>
     request.get<ProductionTask[]>(
@@ -279,6 +311,15 @@ export function useScheduleHistory(limit = 14, enabled = true) {
   });
 }
 
+export function useProductionWorkCalendar(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: productionKeys.workCalendar(year, month),
+    queryFn: () => productionApi.getWorkCalendar({ year, month }),
+    enabled,
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
 /** 确认排产计划（下发任务） */
 export function useConfirmSchedule() {
   const qc = useQueryClient();
@@ -299,6 +340,18 @@ export function useAdjustSchedule() {
       productionApi.adjustSchedule(date, adjustments),
     onSuccess: (_data, { date }) => {
       void qc.invalidateQueries({ queryKey: productionKeys.schedule(date) });
+    },
+  });
+}
+
+export function useUpdateWorkCalendarDay() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: productionApi.updateWorkCalendarDay,
+    onSuccess: (_data, payload) => {
+      const [year, month] = payload.date.split('-');
+      void qc.invalidateQueries({ queryKey: productionKeys.workCalendar(Number(year), Number(month)) });
+      void qc.invalidateQueries({ queryKey: [...productionKeys.all, 'schedule'] });
     },
   });
 }

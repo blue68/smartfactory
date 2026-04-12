@@ -9,6 +9,7 @@ import { ProductionPhase1Service } from './production-phase1.service';
 import { WorkflowEngineService } from './workflow-engine.service';
 import { syncInventoryDailySnapshotForSku } from '../inventory/daily-snapshot.util';
 import { ensureProductionWipWarehouseLocation, resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
+import { findNextWorkday, getResolvedWorkCalendarDay } from './work-calendar.util';
 
 // ─── 类型定义 ──────────────────────────────────────────────────
 
@@ -183,7 +184,7 @@ export interface SchedulePlan {
  *
  * 工人分配：
  *   - 按工作站类型 → 工人技能标签匹配
- *   - 当日已分配工时 < 8h 的工人优先
+ *   - 当日已分配工时 < 当日配置可用工时 的工人优先
  *   - 无法匹配技能时分配空闲工人（any-fit）
  *
  * 产能约束：
@@ -212,7 +213,7 @@ export class SchedulerService {
    * @param targetDate  排产日期（YYYY-MM-DD），默认明天
    */
   async generateSchedule(targetDate?: string, force = false): Promise<SchedulePlan> {
-    const date = targetDate ?? this.getNextWorkday();
+    const date = targetDate ?? await this.getNextWorkday();
     const cacheKey = RedisKeys.schedule(this.tenantId, date);
     const lockKey = `lock:schedule:${this.tenantId}:${date}`;
     let redis: ReturnType<typeof getRedisClient> | null = null;
@@ -252,6 +253,21 @@ export class SchedulerService {
     redis: ReturnType<typeof getRedisClient> | null,
     force: boolean,
   ): Promise<SchedulePlan> {
+    const workdayConfig = await getResolvedWorkCalendarDay(this.tenantId, date);
+    if (!workdayConfig.isWorkday || workdayConfig.totalMinutes <= 0) {
+      return {
+        date,
+        schedules: [],
+        summary: {
+          totalOrders: 0,
+          totalSteps: 0,
+          capacityLoadRate: '0%',
+          confirmed: false,
+          confirmedAt: null,
+        },
+      };
+    }
+
     // 如果该日期已有 confirmed 排产计划，直接返回，拒绝重新生成（P0-04）
     const confirmedRows = await AppDataSource.query<Array<{ id: number }>>(
       `SELECT id FROM production_schedules
@@ -259,7 +275,7 @@ export class SchedulerService {
       [this.tenantId, date],
     );
     if (confirmedRows.length > 0) {
-      const confirmedPlan = await this.buildPlanFromDb(date, '0%');
+      const confirmedPlan = await this.buildPlanFromDb(date);
       await this.safeRedisSetex(redis, cacheKey, JSON.stringify(confirmedPlan), 'confirmed-schedule-cache');
       return confirmedPlan;
     }
@@ -347,6 +363,7 @@ export class SchedulerService {
         workers,
         workerLoad,
         estimatedHours.toFixed(2),
+        new Decimal(workdayConfig.totalHours),
       );
 
       if (worker) {
@@ -375,7 +392,7 @@ export class SchedulerService {
     }
 
     // 4. 计算产能负荷率
-    const totalAvailableHours = new Decimal(workers.length * 8);
+    const totalAvailableHours = new Decimal(workers.length).mul(new Decimal(workdayConfig.totalHours));
     const totalScheduledHours = [...workerLoad.values()].reduce((s, v) => s.plus(v), new Decimal(0));
     const loadRate = totalAvailableHours.gt(0)
       ? totalScheduledHours.div(totalAvailableHours).mul(100).toFixed(1) + '%'
@@ -545,7 +562,7 @@ export class SchedulerService {
     );
   }
 
-  private async buildPlanFromDb(date: string, capacityLoadRate: string): Promise<SchedulePlan> {
+  private async buildPlanFromDb(date: string, capacityLoadRate?: string): Promise<SchedulePlan> {
     const scheduleRows = await AppDataSource.query<Array<{
       schedule_id: number;
       schedule_status: 'planned' | 'confirmed';
@@ -594,6 +611,8 @@ export class SchedulerService {
       [this.tenantId, date],
     );
 
+    const resolvedCapacityLoadRate = capacityLoadRate ?? await this.calculateCapacityLoadRateForDate(date, scheduleRows);
+
     const confirmed = scheduleRows.some((row) => row.schedule_status === 'confirmed');
     const confirmedAt =
       scheduleRows.find((row) => row.schedule_status === 'confirmed')?.schedule_updated_at ?? null;
@@ -622,11 +641,39 @@ export class SchedulerService {
       summary: {
         totalOrders: new Set(scheduleRows.map((row) => row.production_order_id)).size,
         totalSteps: scheduleRows.length,
-        capacityLoadRate,
+        capacityLoadRate: resolvedCapacityLoadRate,
         confirmed,
         confirmedAt,
       },
     };
+  }
+
+  private async calculateCapacityLoadRateForDate(
+    date: string,
+    scheduleRows: Array<{ estimated_hours: string | null }>,
+  ): Promise<string> {
+    const workdayConfig = await getResolvedWorkCalendarDay(this.tenantId, date);
+    if (!workdayConfig.isWorkday || workdayConfig.totalMinutes <= 0) {
+      return '0%';
+    }
+    const [workerRow] = await AppDataSource.query<Array<{ cnt: string }>>(
+      `SELECT COUNT(*) AS cnt
+       FROM users u
+       INNER JOIN user_roles ur ON ur.user_id = u.id
+       INNER JOIN roles r ON r.id = ur.role_id
+       WHERE u.tenant_id = ? AND r.code = 'worker' AND u.status = 'active'`,
+      [this.tenantId],
+    );
+    const workerCount = Number(workerRow?.cnt ?? 0);
+    const totalAvailableHours = new Decimal(workerCount).mul(new Decimal(workdayConfig.totalHours));
+    if (totalAvailableHours.lte(0)) {
+      return '0%';
+    }
+    const totalScheduledHours = scheduleRows.reduce(
+      (sum, row) => sum.plus(new Decimal(row.estimated_hours ?? 0)),
+      new Decimal(0),
+    );
+    return totalScheduledHours.div(totalAvailableHours).mul(100).toFixed(1) + '%';
   }
 
   /**
@@ -2131,17 +2178,18 @@ export class SchedulerService {
   }
 
   /**
-   * 贪心工人匹配：选当日已分配工时最少且未超8小时的工人
+   * 贪心工人匹配：选当日已分配工时最少且未超当日可用工时的工人
    */
   private matchWorker(
     wsType: string | null,
     workers: WorkerRow[],
     load: Map<number, Decimal>,
     requiredHours: string,
+    maxHoursPerWorker: Decimal,
   ): WorkerRow | null {
     void wsType; // Phase 2 按技能标签匹配，Phase 1 仅按负荷
     const available = workers.filter(
-      (w) => (load.get(w.id) ?? new Decimal(0)).plus(new Decimal(requiredHours ?? 0)).lte(8),
+      (w) => (load.get(w.id) ?? new Decimal(0)).plus(new Decimal(requiredHours ?? 0)).lte(maxHoursPerWorker),
     );
     if (available.length === 0) {
       // 所有工人满载时选负荷最低的
@@ -2266,12 +2314,9 @@ export class SchedulerService {
     }
   }
 
-  private getNextWorkday(): string {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    // 跳过周末
-    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
+  private async getNextWorkday(): Promise<string> {
+    const today = new Date().toISOString().slice(0, 10);
+    return findNextWorkday(this.tenantId, today);
   }
 
   // ── BE-P2-011: 插单影响分析（真实延期天数计算）─────────────────

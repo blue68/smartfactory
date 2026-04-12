@@ -5,6 +5,7 @@ import TaskPage from '@/pages/production/TaskPage';
 const mocks = vi.hoisted(() => ({
   useTaskList: vi.fn(),
   useTaskDetail: vi.fn(),
+  useProductionWorkers: vi.fn(),
   taskApiDetail: vi.fn(),
   useTaskStats: vi.fn(),
   useStartTask: vi.fn(),
@@ -40,6 +41,10 @@ vi.mock('@/api/productionTask', () => ({
   taskApi: {
     detail: mocks.taskApiDetail,
   },
+}));
+
+vi.mock('@/api/production', () => ({
+  useProductionWorkers: mocks.useProductionWorkers,
 }));
 
 vi.mock('@/api/inventory', () => ({
@@ -238,6 +243,12 @@ describe('TaskPage', () => {
         },
       },
     });
+    mocks.useProductionWorkers.mockReturnValue({
+      data: [
+        { id: 7, name: '张三' },
+        { id: 8, name: '李四' },
+      ],
+    });
     mocks.useTaskDetail.mockImplementation((id: number | null) => ({
       data: id === 1 ? taskDetail : undefined,
       isLoading: false,
@@ -272,7 +283,7 @@ describe('TaskPage', () => {
   it('opens task drawer and renders dependency, material trace and wage sections', async () => {
     render(<TaskPage />);
 
-    expect(screen.getByText('张三')).toBeInTheDocument();
+    expect(screen.getAllByText('张三').length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: '详情' }));
 
     expect(await screen.findByRole('dialog', { name: '任务详情' })).toBeInTheDocument();
@@ -370,5 +381,19 @@ describe('TaskPage', () => {
       type: 'error',
       message: '任务线边库存不足：橡木板 仅有 6.0000 张，需要 12.0000 张',
     });
+  });
+
+  it('passes workerId when worker filter changes', () => {
+    render(<TaskPage />);
+
+    expect(mocks.useTaskList).toHaveBeenLastCalledWith(expect.objectContaining({
+      workerId: undefined,
+    }));
+
+    fireEvent.change(screen.getByLabelText('工人筛选'), { target: { value: '7' } });
+
+    expect(mocks.useTaskList).toHaveBeenLastCalledWith(expect.objectContaining({
+      workerId: 7,
+    }));
   });
 });

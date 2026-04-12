@@ -24,6 +24,7 @@ export interface TaskListQuery {
   dateFrom?: string;
   dateTo?: string;
   processId?: number;
+  workerId?: number;
   taskType?: 'finished' | 'semi_finished';
   executionMode?: 'internal' | 'outsource';
 }

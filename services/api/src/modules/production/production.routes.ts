@@ -16,6 +16,10 @@ router.post('/work-calendar/holiday',
   requirePermissionsOrRoles(['production:calendar:manage'], 'boss', 'supervisor', 'admin'),
   asyncHandler(productionController.setHoliday.bind(productionController)),
 );
+router.put('/work-calendar/day',
+  requirePermissionsOrRoles(['production:calendar:manage'], 'boss', 'supervisor', 'admin'),
+  asyncHandler(productionController.setWorkdayConfig.bind(productionController)),
+);
 
 // BE-P1-008: 生产进度看板（必须在参数路由之前注册）
 router.get('/dashboard',           requirePermissionsOrRoles(['production:schedule:view'], 'boss', 'supervisor', 'admin'), asyncHandler(productionController.getDashboard.bind(productionController)));
