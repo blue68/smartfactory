@@ -7,10 +7,12 @@ export interface WageReportRow {
   userId: number;
   userName: string;
   workerGrade: string;
+  stepId: number | null;
   stepName: string;
+  completedCount: number;
   qty: number;
-  unitPrice: string;
-  subtotal: string;
+  unitPrice: string | null;
+  subtotal: string | null;
   reportDate: string;
 }
 
@@ -63,6 +65,14 @@ export interface WageTaskReportRow {
   subtotal: string;
 }
 
+export interface WageReportResult {
+  list: WageReportRow[];
+  total: number;
+  totalCount: number;
+  totalWage: string;
+  unconfiguredCount: number;
+}
+
 export class WageService {
   private readonly tenantId: number;
   private readonly currentUserId: number;
@@ -73,14 +83,21 @@ export class WageService {
   }
 
   private mapWageReportRow(row: Record<string, unknown>): WageReportRow {
+    const completedCount = Number(row['completedCount'] ?? row['qty'] ?? 0);
+    const unitPriceValue = Number(row['unitPriceValue'] ?? row['unitPrice'] ?? 0);
+    const subtotalValue = Number(row['subtotalValue'] ?? row['subtotal'] ?? 0);
+    const hasConfiguredUnitPrice = unitPriceValue > 0;
+
     return {
       userId: Number(row['userId']),
       userName: String(row['userName'] ?? ''),
       workerGrade: String(row['workerGrade'] ?? ''),
+      stepId: row['stepId'] != null ? Number(row['stepId']) : null,
       stepName: String(row['stepName'] ?? ''),
-      qty: Number(row['qty'] ?? 0),
-      unitPrice: String(row['unitPrice'] ?? '0'),
-      subtotal: String(row['subtotal'] ?? '0'),
+      completedCount,
+      qty: completedCount,
+      unitPrice: hasConfiguredUnitPrice ? String(row['unitPriceValue'] ?? row['unitPrice'] ?? '0') : null,
+      subtotal: hasConfiguredUnitPrice ? String(row['subtotalValue'] ?? row['subtotal'] ?? '0') : null,
       reportDate: String(row['reportDate'] ?? ''),
     };
   }
@@ -159,7 +176,7 @@ export class WageService {
    * 实际表结构来自迁移 V2_schema_fixes.sql：
    *   worker_id / process_step_id / qty_completed / work_date / unit_wage / wage_amount
    */
-  async getWageReport(filter: WageReportFilter): Promise<[WageReportRow[], number]> {
+  async getWageReport(filter: WageReportFilter): Promise<WageReportResult> {
     const { page, pageSize, dateFrom, dateTo, userId, workerGrade } = filter;
     const schema = await this.resolveSchema();
 
@@ -190,16 +207,40 @@ export class WageService {
     const countSql = `
       SELECT COUNT(*) AS cnt
       FROM work_reports wr
-      INNER JOIN process_steps ps  ON ps.id = wr.${schema.stepColumn}
-      INNER JOIN users u           ON u.id  = wr.${schema.workerColumn}
+      INNER JOIN users u
+        ON u.id = wr.${schema.workerColumn}
+       AND u.tenant_id = wr.tenant_id
       WHERE ${where}
     `;
     const countResult = await AppDataSource.query(countSql, params);
     const total: number = Number(countResult[0]?.cnt ?? 0);
 
     if (total === 0) {
-      return [[], 0];
+      return {
+        list: [],
+        total: 0,
+        totalCount: 0,
+        totalWage: '0.00',
+        unconfiguredCount: 0,
+      };
     }
+
+    const [summaryRow] = await AppDataSource.query<Array<{
+      totalCount: string | null;
+      totalWage: string | null;
+      unconfiguredCount: string | null;
+    }>>(
+      `SELECT
+         COALESCE(SUM(wr.${schema.qtyColumn}), 0) AS totalCount,
+         COALESCE(SUM(CASE WHEN COALESCE(wr.unit_wage, 0) > 0 THEN wr.wage_amount ELSE 0 END), 0) AS totalWage,
+         COALESCE(SUM(CASE WHEN COALESCE(wr.unit_wage, 0) <= 0 THEN 1 ELSE 0 END), 0) AS unconfiguredCount
+       FROM work_reports wr
+       INNER JOIN users u
+         ON u.id = wr.${schema.workerColumn}
+        AND u.tenant_id = wr.tenant_id
+       WHERE ${where}`,
+      params,
+    );
 
     // 分页列表查询
     const listSql = `
@@ -207,14 +248,18 @@ export class WageService {
         u.id                                          AS userId,
         u.username                                    AS userName,
         COALESCE(u.skill_level, '')                   AS workerGrade,
-        ps.step_name                                  AS stepName,
-        wr.${schema.qtyColumn}                        AS qty,
-        COALESCE(wr.unit_wage, 0)                     AS unitPrice,
-        COALESCE(wr.wage_amount, 0)                   AS subtotal,
+        ps.id                                         AS stepId,
+        COALESCE(ps.step_name, '')                    AS stepName,
+        wr.${schema.qtyColumn}                        AS completedCount,
+        COALESCE(wr.unit_wage, 0)                     AS unitPriceValue,
+        COALESCE(wr.wage_amount, 0)                   AS subtotalValue,
         DATE_FORMAT(wr.${schema.dateColumn}, '%Y-%m-%d') AS reportDate
       FROM work_reports wr
-      INNER JOIN process_steps ps  ON ps.id = wr.${schema.stepColumn}
-      INNER JOIN users u           ON u.id  = wr.${schema.workerColumn}
+      INNER JOIN users u
+        ON u.id = wr.${schema.workerColumn}
+       AND u.tenant_id = wr.tenant_id
+      LEFT JOIN process_steps ps
+        ON ps.id = wr.${schema.stepColumn}
       WHERE ${where}
       ORDER BY wr.${schema.dateColumn} DESC, wr.id DESC
       LIMIT ? OFFSET ?
@@ -225,17 +270,24 @@ export class WageService {
       [...params, pageSize, (page - 1) * pageSize],
     );
 
-    return [(rows as Record<string, unknown>[]).map((row) => this.mapWageReportRow(row)), total];
+    return {
+      list: (rows as Record<string, unknown>[]).map((row) => this.mapWageReportRow(row)),
+      total,
+      totalCount: Number(summaryRow?.totalCount ?? 0),
+      totalWage: Number(summaryRow?.totalWage ?? 0).toFixed(2),
+      unconfiguredCount: Number(summaryRow?.unconfiguredCount ?? 0),
+    };
   }
 
   /**
    * 当前用户自查工资（强制锁定 userId 为当前登录人）
    */
   async getMyWages(filter: Omit<WageReportFilter, 'userId' | 'workerGrade'>): Promise<[WageReportRow[], number]> {
-    return this.getWageReport({
+    const result = await this.getWageReport({
       ...filter,
       userId: this.currentUserId,
     });
+    return [result.list, result.total];
   }
 
   async getTaskWageReport(filter: WageTaskReportFilter): Promise<[WageTaskReportRow[], number]> {
@@ -382,14 +434,18 @@ export class WageService {
          u.id                                          AS userId,
          u.username                                    AS userName,
          COALESCE(u.skill_level, '')                   AS workerGrade,
-         ps.step_name                                  AS stepName,
-         wr.${schema.qtyColumn}                        AS qty,
-         COALESCE(wr.unit_wage, 0)                     AS unitPrice,
-         COALESCE(wr.wage_amount, 0)                   AS subtotal,
+         ps.id                                         AS stepId,
+         COALESCE(ps.step_name, '')                    AS stepName,
+         wr.${schema.qtyColumn}                        AS completedCount,
+         COALESCE(wr.unit_wage, 0)                     AS unitPriceValue,
+         COALESCE(wr.wage_amount, 0)                   AS subtotalValue,
          DATE_FORMAT(wr.${schema.dateColumn}, '%Y-%m-%d') AS reportDate
        FROM work_reports wr
-       INNER JOIN process_steps ps  ON ps.id = wr.${schema.stepColumn}
-       INNER JOIN users u           ON u.id  = wr.${schema.workerColumn}
+       INNER JOIN users u
+         ON u.id = wr.${schema.workerColumn}
+        AND u.tenant_id = wr.tenant_id
+       LEFT JOIN process_steps ps
+         ON ps.id = wr.${schema.stepColumn}
        WHERE ${where}
        ORDER BY wr.${schema.dateColumn} DESC, wr.id DESC
        LIMIT 5000`,

@@ -62,7 +62,13 @@ afterEach(() => {
 
 describe('WageController.getWageReport', () => {
   it('parses admin wage query and forwards filters to service', async () => {
-    MockService.prototype.getWageReport = jest.fn().mockResolvedValue([[], 0]);
+    MockService.prototype.getWageReport = jest.fn().mockResolvedValue({
+      list: [],
+      total: 0,
+      totalCount: 0,
+      totalWage: '0.00',
+      unconfiguredCount: 0,
+    });
 
     const req = createReq({
       query: {
@@ -88,6 +94,62 @@ describe('WageController.getWageReport', () => {
       workerGrade: 'apprentice',
     });
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('returns paginated rows with wage summary fields', async () => {
+    MockService.prototype.getWageReport = jest.fn().mockResolvedValue({
+      list: [
+        {
+          userId: 1,
+          userName: '张三',
+          workerGrade: 'skilled',
+          stepId: 5,
+          stepName: '裁剪',
+          completedCount: 12,
+          qty: 12,
+          unitPrice: '3.50',
+          subtotal: '42.00',
+          reportDate: '2026-04-12',
+        },
+      ],
+      total: 1,
+      totalCount: 12,
+      totalWage: '42.00',
+      unconfiguredCount: 0,
+    });
+
+    const req = createReq({
+      query: {
+        page: '1',
+        pageSize: '20',
+        dateFrom: '2026-04-01',
+        dateTo: '2026-04-12',
+      },
+      path: '/api/reports/wages',
+    });
+    const res = createRes();
+
+    await wageController.getWageReport(req, res);
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 0,
+      data: expect.objectContaining({
+        list: [
+          expect.objectContaining({
+            userName: '张三',
+            completedCount: 12,
+            subtotal: '42.00',
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+        totalCount: 12,
+        totalWage: '42.00',
+        unconfiguredCount: 0,
+      }),
+    }));
   });
 
   it('maps invalid admin wage query to 400 response', async () => {
@@ -210,7 +272,9 @@ describe('WageController.exportExcel', () => {
         userId: 9,
         userName: '张三',
         workerGrade: 'skilled',
+        stepId: 11,
         stepName: '封边',
+        completedCount: 12,
         qty: 12,
         unitPrice: '8.00',
         subtotal: '96.00',

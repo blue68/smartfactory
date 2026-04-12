@@ -12,7 +12,7 @@ vi.mock('@/utils/request', () => ({
 }));
 
 import request from '@/utils/request';
-import { wageReportApi, useTaskWageReport } from '@/api/wageReport';
+import { wageReportApi, useMyWages, useTaskWageReport } from '@/api/wageReport';
 import { exportWages } from '@/api/wage';
 
 const mockGet = request.get as ReturnType<typeof vi.fn>;
@@ -51,6 +51,59 @@ describe('wageReportApi.getTaskReport', () => {
       productionOrderId: 1201,
       taskId: 3301,
     });
+  });
+});
+
+describe('wageReportApi.getReport', () => {
+  it('应兼容旧工资接口字段并归一化为页面所需结构', async () => {
+    mockGet.mockResolvedValueOnce({
+      list: [
+        {
+          userId: 9,
+          userName: '张三',
+          workerGrade: 'skilled',
+          stepName: '裁剪',
+          qty: '12.5',
+          unitPrice: '3.50',
+          subtotal: '43.75',
+        },
+        {
+          userId: 10,
+          userName: '李四',
+          workerGrade: 'apprentice',
+          stepName: '缝制',
+          qty: '6',
+          unitPrice: null,
+          subtotal: null,
+        },
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 20,
+      totalPages: 1,
+    });
+
+    const data = await wageReportApi.getReport({ page: 1, pageSize: 20 });
+
+    expect(data.list[0]).toMatchObject({
+      userId: 9,
+      userName: '张三',
+      stepName: '裁剪',
+      completedCount: 12.5,
+      unitPrice: '3.50',
+      subtotal: '43.75',
+    });
+    expect(data.list[1]).toMatchObject({
+      userId: 10,
+      userName: '李四',
+      stepName: '缝制',
+      completedCount: 6,
+      unitPrice: null,
+      subtotal: null,
+    });
+    expect(data.totalCount).toBe(18.5);
+    expect(data.totalWage).toBe('43.75');
+    expect(data.unconfiguredCount).toBe(1);
   });
 });
 
@@ -104,6 +157,43 @@ describe('useTaskWageReport', () => {
       page: 1,
       pageSize: 20,
       productionOrderId: 1201,
+    });
+  });
+});
+
+describe('useMyWages', () => {
+  it('应将旧字段 qty 归一化为 completedCount', async () => {
+    mockGet.mockResolvedValueOnce({
+      list: [
+        {
+          userId: 11,
+          userName: '王五',
+          workerGrade: 'skilled',
+          stepName: '包装',
+          qty: '8',
+          unitPrice: '1.20',
+          subtotal: '9.60',
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      totalPages: 1,
+    });
+
+    const { result } = renderHook(
+      () => useMyWages({ page: 1, pageSize: 20 }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.list[0]).toMatchObject({
+      userId: 11,
+      stepName: '包装',
+      completedCount: 8,
+      unitPrice: '1.20',
+      subtotal: '9.60',
     });
   });
 });

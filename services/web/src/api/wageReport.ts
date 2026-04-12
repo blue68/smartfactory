@@ -64,6 +64,29 @@ export interface WageReportData {
   unconfiguredCount: number;
 }
 
+interface RawWageReportRow {
+  userId: number;
+  userName: string;
+  workerGrade: WorkerGrade | '';
+  stepId?: number | null;
+  stepName: string;
+  completedCount?: number | string | null;
+  qty?: number | string | null;
+  unitPrice: string | number | null;
+  subtotal: string | number | null;
+}
+
+interface RawWageReportData {
+  list: RawWageReportRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  totalCount?: number;
+  totalWage?: string;
+  unconfiguredCount?: number;
+}
+
 export interface WageTaskReportRow {
   reportId: number;
   reportNo: string;
@@ -86,6 +109,51 @@ export interface WageTaskReportRow {
   subtotal: string;
 }
 
+function toNullableString(value: string | number | null | undefined): string | null {
+  if (value == null) return null;
+  return String(value);
+}
+
+function toNumber(value: string | number | null | undefined): number {
+  if (value == null || value === '') return 0;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function normalizeWageReportRow(row: RawWageReportRow): WageReportRow {
+  return {
+    userId: row.userId,
+    userName: row.userName,
+    workerGrade: row.workerGrade || 'apprentice',
+    stepId: row.stepId ?? 0,
+    stepName: row.stepName,
+    completedCount: toNumber(row.completedCount ?? row.qty),
+    unitPrice: toNullableString(row.unitPrice),
+    subtotal: toNullableString(row.subtotal),
+  };
+}
+
+function normalizeWageReportData(data: RawWageReportData): WageReportData {
+  const list = data.list.map(normalizeWageReportRow);
+  const fallbackSummary = list.reduce((summary, row) => ({
+    totalCount: summary.totalCount + row.completedCount,
+    totalWage: summary.totalWage + Number(row.subtotal ?? 0),
+    unconfiguredCount: summary.unconfiguredCount + (row.unitPrice == null ? 1 : 0),
+  }), {
+    totalCount: 0,
+    totalWage: 0,
+    unconfiguredCount: 0,
+  });
+
+  return {
+    ...data,
+    list,
+    totalCount: data.totalCount ?? fallbackSummary.totalCount,
+    totalWage: data.totalWage ?? fallbackSummary.totalWage.toFixed(2),
+    unconfiguredCount: data.unconfiguredCount ?? fallbackSummary.unconfiguredCount,
+  };
+}
+
 // ─────────────────────────────────────────────
 // Query Keys
 // ─────────────────────────────────────────────
@@ -105,7 +173,7 @@ export const wageReportKeys = {
 // ─────────────────────────────────────────────
 
 export const wageReportApi = {
-  getReport: (filter: WageReportFilter) => {
+  getReport: async (filter: WageReportFilter) => {
     // 过滤掉空字符串参数，避免后端报错
     const params: Record<string, unknown> = {};
     if (filter.page)        params.page = filter.page;
@@ -114,7 +182,8 @@ export const wageReportApi = {
     if (filter.dateTo)      params.dateTo = filter.dateTo;
     if (filter.userId)      params.userId = filter.userId;
     if (filter.workerGrade) params.workerGrade = filter.workerGrade;
-    return request.get<WageReportData>('/api/reports/wages', params);
+    const data = await request.get<RawWageReportData>('/api/reports/wages', params);
+    return normalizeWageReportData(data);
   },
 
   getTaskReport: (filter: WageTaskReportFilter) => {
@@ -130,13 +199,17 @@ export const wageReportApi = {
     return request.get<PaginatedData<WageTaskReportRow>>('/api/reports/wages/tasks', params);
   },
 
-  getMyWages: (filter: MyWagesFilter) => {
+  getMyWages: async (filter: MyWagesFilter) => {
     const params: Record<string, unknown> = {};
     if (filter.page)      params.page = filter.page;
     if (filter.pageSize)  params.pageSize = filter.pageSize;
     if (filter.dateFrom)  params.dateFrom = filter.dateFrom;
     if (filter.dateTo)    params.dateTo = filter.dateTo;
-    return request.get<PaginatedData<WageReportRow>>('/api/reports/wages/my', params);
+    const data = await request.get<PaginatedData<RawWageReportRow>>('/api/reports/wages/my', params);
+    return {
+      ...data,
+      list: data.list.map(normalizeWageReportRow),
+    };
   },
 };
 

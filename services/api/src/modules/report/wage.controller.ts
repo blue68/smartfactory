@@ -33,7 +33,7 @@ export class WageController {
   /** GET /api/reports/wages — 管理员查看工资报表 */
   async getWageReport(req: Request, res: Response): Promise<void> {
     const q = WageFilterSchema.parse(req.query);
-    const [list, total] = await this.svc(req).getWageReport({
+    const report = await this.svc(req).getWageReport({
       page: q.page,
       pageSize: q.pageSize,
       dateFrom: q.dateFrom,
@@ -41,7 +41,12 @@ export class WageController {
       userId: q.userId,
       workerGrade: q.workerGrade,
     });
-    success(res, buildPaginated(list, total, q.page, q.pageSize));
+    success(res, {
+      ...buildPaginated(report.list, report.total, q.page, q.pageSize),
+      totalCount: report.totalCount,
+      totalWage: report.totalWage,
+      unconfiguredCount: report.unconfiguredCount,
+    });
   }
 
   /** GET /api/reports/wages/tasks — 管理员查看任务维度报工工资明细 */

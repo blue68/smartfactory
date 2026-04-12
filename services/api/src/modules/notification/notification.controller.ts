@@ -5,8 +5,13 @@ import { success, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
 import { ResponseGenerator } from '../ai/response.generator';
 
+const QueryBooleanSchema = z.union([
+  z.boolean(),
+  z.enum(['true', 'false', '1', '0']).transform((value) => value === 'true' || value === '1'),
+]).optional();
+
 const NotificationListQuerySchema = PaginationSchema.extend({
-  isRead: z.coerce.boolean().optional(),
+  isRead: QueryBooleanSchema,
 });
 
 export class NotificationController {
