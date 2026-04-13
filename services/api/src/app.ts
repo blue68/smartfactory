@@ -41,6 +41,8 @@ import stocktakingRoutes from './modules/stocktaking/stocktaking.routes';
 // F-707 销售财务结算模块
 import settlementRoutes from './modules/settlement/settlement.routes';
 import accessControlRoutes from './modules/access-control/access-control.routes';
+import consumableRoutes from './modules/consumables/consumable.routes';
+import assetRoutes from './modules/assets/asset.routes';
 
 const app = express();
 
@@ -211,6 +213,8 @@ app.use('/api/stocktaking',          stocktakingRoutes);
 // F-707 销售财务结算路由
 app.use('/api/settlements',          settlementRoutes);
 app.use('/api/access-control',       accessControlRoutes);
+app.use('/api/consumables',          consumableRoutes);
+app.use('/api/assets',               assetRoutes);
 
 // ── 404 处理 ────────────────────────────────────────────────
 app.use((_req, res) => {

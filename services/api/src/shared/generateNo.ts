@@ -22,6 +22,10 @@ const PREFIX_MAP: Record<string, string> = {
   bom_snapshot: 'SNAP',
   // Sprint 4 新增
   schedule_batch: 'SCH',
+  // 2026-04-13 扩展
+  consumable_issue: 'CI',
+  asset_card: 'FA',
+  asset_movement: 'AM',
 };
 
 /**

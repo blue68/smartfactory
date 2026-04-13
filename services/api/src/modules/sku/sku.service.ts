@@ -4,6 +4,13 @@ import { AppDataSource } from '../../config/database';
 import { getRedisClient, RedisKeys, RedisTTL } from '../../config/redis';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
+import {
+  AssetProfileInput,
+  ConsumableProfileInput,
+  SkuAssetTrackingMode,
+  SkuBusinessClass,
+  SkuControlMode,
+} from './sku.types';
 
 /** CSV 解析后每行的原始字段（全部为字符串，允许为空） */
 export interface ImportSkuRow {
@@ -46,6 +53,18 @@ export interface CreateSkuParams {
   brandScope?: 'factory' | 'customer';
   brandCustomerId?: number | null;
   customerRefs?: CustomerSkuRefParam[];
+  businessClass?: SkuBusinessClass;
+  controlMode?: SkuControlMode;
+  allowBomComponent?: boolean;
+  allowPurchase?: boolean;
+  allowInventory?: boolean;
+  allowProductionIssue?: boolean;
+  requiresAssetAcceptance?: boolean;
+  defaultWarehouseType?: string | null;
+  approvalPolicyCode?: string | null;
+  assetTrackingMode?: SkuAssetTrackingMode;
+  consumableProfile?: ConsumableProfileInput;
+  assetProfile?: AssetProfileInput;
 }
 
 export interface UnitConversionParam {
@@ -80,7 +99,11 @@ export class SkuService {
     const sku = await this.repo.findById(id);
     const conversions = await this.repo.getUnitConversions(id);
     const customerRefs = await this.repo.getCustomerRefs(id);
-    return { ...sku, unitConversions: conversions, customerRefs };
+    const [consumableProfile, assetProfile] = await Promise.all([
+      this.repo.getConsumableProfile(id),
+      this.repo.getAssetProfile(id),
+    ]);
+    return { ...sku, unitConversions: conversions, customerRefs, consumableProfile, assetProfile };
   }
 
   async createSku(params: CreateSkuParams) {
@@ -90,12 +113,14 @@ export class SkuService {
     // 面料类 category2 强制开启缸号管理（只需执行一次）
     const hasDyeLot = await this.shouldEnableDyeLot(params.category2Id, params.hasDyeLot);
     const isFinished = await this.isFinishedCategory(params.category1Id);
+    const category1Code = await this.getCategory1Code(params.category1Id);
     const normalizedBrandScope = isFinished ? (params.brandScope ?? 'factory') : 'factory';
     const normalizedBrandCustomerId = isFinished && normalizedBrandScope === 'customer'
       ? (params.brandCustomerId ?? null)
       : null;
     const normalizedCustomerRefs = isFinished ? (params.customerRefs ?? []) : [];
     await this.validateBranding(normalizedBrandScope, normalizedBrandCustomerId, normalizedCustomerRefs);
+    const controlConfig = this.normalizeControlConfig(params, category1Code);
 
     // 若外部已传入 skuCode，直接使用；否则带重试生成，防止并发 UNIQUE KEY 冲突
     const MAX_RETRIES = 3;
@@ -121,11 +146,24 @@ export class SkuService {
           hasDyeLot,
           safetyStock: params.safetyStock ?? '0',
           description: params.description ?? null,
+          businessClass: controlConfig.businessClass,
+          controlMode: controlConfig.controlMode,
+          allowBomComponent: controlConfig.allowBomComponent,
+          allowPurchase: controlConfig.allowPurchase,
+          allowInventory: controlConfig.allowInventory,
+          allowProductionIssue: controlConfig.allowProductionIssue,
+          requiresAssetAcceptance: controlConfig.requiresAssetAcceptance,
+          defaultWarehouseType: controlConfig.defaultWarehouseType,
+          approvalPolicyCode: controlConfig.approvalPolicyCode,
+          assetTrackingMode: controlConfig.assetTrackingMode,
         });
 
-        if (normalizedCustomerRefs.length > 0) {
-          await this.repo.replaceCustomerRefs(sku.id, normalizedCustomerRefs);
-        }
+        await Promise.all([
+          normalizedCustomerRefs.length > 0
+            ? this.repo.replaceCustomerRefs(sku.id, normalizedCustomerRefs)
+            : Promise.resolve(),
+          this.syncProfilesByBusinessClass(sku.id, controlConfig.businessClass, params),
+        ]);
 
         // 失效 SKU 列表缓存
         await getRedisClient().del(RedisKeys.skuList(this.repo.tenantId));
@@ -156,6 +194,7 @@ export class SkuService {
     }
     const nextCategory1Id = params.category1Id ?? currentSku.category1Id;
     const isFinished = await this.isFinishedCategory(nextCategory1Id);
+    const category1Code = await this.getCategory1Code(nextCategory1Id);
     const nextBrandScope = isFinished ? (params.brandScope ?? currentSku.brandScope) : 'factory';
     const nextBrandCustomerId = isFinished
       ? (nextBrandScope === 'factory'
@@ -164,6 +203,22 @@ export class SkuService {
       : null;
     const nextCustomerRefs = isFinished ? (params.customerRefs ?? []) : [];
     await this.validateBranding(nextBrandScope, nextBrandCustomerId, nextCustomerRefs);
+    const controlConfig = this.normalizeControlConfig(
+      params,
+      category1Code,
+      {
+        businessClass: currentSku.businessClass,
+        controlMode: currentSku.controlMode,
+        allowBomComponent: currentSku.allowBomComponent,
+        allowPurchase: currentSku.allowPurchase,
+        allowInventory: currentSku.allowInventory,
+        allowProductionIssue: currentSku.allowProductionIssue,
+        requiresAssetAcceptance: currentSku.requiresAssetAcceptance,
+        defaultWarehouseType: currentSku.defaultWarehouseType,
+        approvalPolicyCode: currentSku.approvalPolicyCode,
+        assetTrackingMode: currentSku.assetTrackingMode,
+      },
+    );
     const updateData: Record<string, unknown> = {};
     if (params.name !== undefined) updateData.name = params.name;
     if (params.spec !== undefined) updateData.spec = params.spec;
@@ -178,6 +233,16 @@ export class SkuService {
     if (params.hasDyeLot !== undefined) updateData.hasDyeLot = params.hasDyeLot;
     if (params.useFifo !== undefined) updateData.useFifo = params.useFifo;
     if (params.description !== undefined) updateData.description = params.description;
+    updateData.businessClass = controlConfig.businessClass;
+    updateData.controlMode = controlConfig.controlMode;
+    updateData.allowBomComponent = controlConfig.allowBomComponent;
+    updateData.allowPurchase = controlConfig.allowPurchase;
+    updateData.allowInventory = controlConfig.allowInventory;
+    updateData.allowProductionIssue = controlConfig.allowProductionIssue;
+    updateData.requiresAssetAcceptance = controlConfig.requiresAssetAcceptance;
+    updateData.defaultWarehouseType = controlConfig.defaultWarehouseType;
+    updateData.approvalPolicyCode = controlConfig.approvalPolicyCode;
+    updateData.assetTrackingMode = controlConfig.assetTrackingMode;
     if (isFinished) {
       if (params.brandScope !== undefined) updateData.brandScope = params.brandScope;
       if (params.brandScope === 'factory') {
@@ -199,6 +264,7 @@ export class SkuService {
     if (!isFinished) {
       await this.repo.replaceCustomerRefs(id, []);
     }
+    await this.syncProfilesByBusinessClass(id, controlConfig.businessClass, params);
 
     await getRedisClient().del(RedisKeys.skuList(this.repo.tenantId));
     return updated;
@@ -423,6 +489,14 @@ export class SkuService {
     }
   }
 
+  private async getCategory1Code(category1Id: number): Promise<string | null> {
+    const [row] = await AppDataSource.query<Array<{ code: string }>>(
+      'SELECT code FROM sku_categories WHERE id = ? LIMIT 1',
+      [category1Id],
+    );
+    return row?.code ?? null;
+  }
+
   private async shouldEnableDyeLot(cat2Id: number, requested?: boolean): Promise<boolean> {
     const [cat] = await AppDataSource.query<Array<{ code: string }>>(
       'SELECT code FROM sku_categories WHERE id = ? LIMIT 1',
@@ -483,5 +557,112 @@ export class SkuService {
       [category1Id],
     );
     return row?.code === FINISHED_CATEGORY_CODE;
+  }
+
+  private normalizeControlConfig(
+    params: Partial<CreateSkuParams>,
+    category1Code: string | null,
+    current?: {
+      businessClass?: SkuBusinessClass;
+      controlMode?: SkuControlMode;
+      allowBomComponent?: boolean;
+      allowPurchase?: boolean;
+      allowInventory?: boolean;
+      allowProductionIssue?: boolean;
+      requiresAssetAcceptance?: boolean;
+      defaultWarehouseType?: string | null;
+      approvalPolicyCode?: string | null;
+      assetTrackingMode?: SkuAssetTrackingMode;
+    },
+  ): {
+    businessClass: SkuBusinessClass;
+    controlMode: SkuControlMode;
+    allowBomComponent: boolean;
+    allowPurchase: boolean;
+    allowInventory: boolean;
+    allowProductionIssue: boolean;
+    requiresAssetAcceptance: boolean;
+    defaultWarehouseType: string | null;
+    approvalPolicyCode: string | null;
+    assetTrackingMode: SkuAssetTrackingMode;
+  } {
+    const resolvedBusinessClass = params.businessClass
+      ?? current?.businessClass
+      ?? (category1Code === 'PACKING' ? 'consumable' : 'production_material');
+
+    const finishedDefaults = category1Code === FINISHED_CATEGORY_CODE;
+
+    const defaultsByClass: Record<SkuBusinessClass, {
+      controlMode: SkuControlMode;
+      allowBomComponent: boolean;
+      allowPurchase: boolean;
+      allowInventory: boolean;
+      allowProductionIssue: boolean;
+      requiresAssetAcceptance: boolean;
+      defaultWarehouseType: string | null;
+      assetTrackingMode: SkuAssetTrackingMode;
+    }> = {
+      production_material: {
+        controlMode: 'mrp',
+        allowBomComponent: !finishedDefaults,
+        allowPurchase: !finishedDefaults,
+        allowInventory: true,
+        allowProductionIssue: !finishedDefaults,
+        defaultWarehouseType: finishedDefaults ? 'finished' : 'raw_material',
+        requiresAssetAcceptance: false,
+        assetTrackingMode: 'none',
+      },
+      consumable: {
+        controlMode: 'stock_only',
+        allowBomComponent: false,
+        allowPurchase: true,
+        allowInventory: true,
+        allowProductionIssue: false,
+        defaultWarehouseType: 'consumable',
+        requiresAssetAcceptance: false,
+        assetTrackingMode: 'none',
+      },
+      fixed_asset: {
+        controlMode: 'asset',
+        allowBomComponent: false,
+        allowPurchase: true,
+        allowInventory: false,
+        allowProductionIssue: false,
+        defaultWarehouseType: 'asset_pending',
+        requiresAssetAcceptance: true,
+        assetTrackingMode: 'serial',
+      },
+    };
+
+    const defaults = defaultsByClass[resolvedBusinessClass];
+
+    return {
+      businessClass: resolvedBusinessClass,
+      controlMode: params.controlMode ?? current?.controlMode ?? defaults.controlMode,
+      allowBomComponent: params.allowBomComponent ?? current?.allowBomComponent ?? defaults.allowBomComponent,
+      allowPurchase: params.allowPurchase ?? current?.allowPurchase ?? defaults.allowPurchase,
+      allowInventory: params.allowInventory ?? current?.allowInventory ?? defaults.allowInventory,
+      allowProductionIssue: params.allowProductionIssue ?? current?.allowProductionIssue ?? defaults.allowProductionIssue,
+      requiresAssetAcceptance: params.requiresAssetAcceptance ?? current?.requiresAssetAcceptance ?? defaults.requiresAssetAcceptance,
+      defaultWarehouseType: params.defaultWarehouseType ?? current?.defaultWarehouseType ?? defaults.defaultWarehouseType,
+      approvalPolicyCode: params.approvalPolicyCode ?? current?.approvalPolicyCode ?? null,
+      assetTrackingMode: params.assetTrackingMode ?? current?.assetTrackingMode ?? defaults.assetTrackingMode,
+    };
+  }
+
+  private async syncProfilesByBusinessClass(
+    skuId: number,
+    businessClass: SkuBusinessClass,
+    params: Partial<CreateSkuParams>,
+  ): Promise<void> {
+    await this.repo.deleteProfilesForBusinessClass(skuId, businessClass);
+
+    if (businessClass === 'consumable' && params.consumableProfile) {
+      await this.repo.upsertConsumableProfile(skuId, params.consumableProfile);
+    }
+
+    if (businessClass === 'fixed_asset' && params.assetProfile) {
+      await this.repo.upsertAssetProfile(skuId, params.assetProfile);
+    }
   }
 }

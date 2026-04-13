@@ -161,7 +161,9 @@ export class IncomingInspectionService {
   private static deliveryNoteItemDyeLotSupported: boolean | null = null;
   private static incomingInspectionItemDyeLotSupported: boolean | null = null;
   private static purchaseReceiptItemDyeLotSupported: boolean | null = null;
+  private static purchaseReceiptItemControlColumnsSupported: boolean | null = null;
   private static incomingInspectionItemAcceptedStockQtySupported: boolean | null = null;
+  private static purchaseOrderItemControlColumnsSupported: boolean | null = null;
 
   constructor(ctx: TenantContext & { permissionSnapshot?: PermissionSnapshot }) {
     this.tenantId = ctx.tenantId;
@@ -743,6 +745,28 @@ export class IncomingInspectionService {
 
     IncomingInspectionService.purchaseReceiptTotalAmountColumnSupported = Number(rows[0]?.cnt ?? 0) > 0;
     return IncomingInspectionService.purchaseReceiptTotalAmountColumnSupported;
+  }
+
+  private async hasPurchaseReceiptItemControlColumns(manager?: EntityManager): Promise<boolean> {
+    if (IncomingInspectionService.purchaseReceiptItemControlColumnsSupported !== null) {
+      return IncomingInspectionService.purchaseReceiptItemControlColumnsSupported;
+    }
+
+    try {
+      const runner = manager ?? AppDataSource;
+      const rows = await runner.query<Array<{ cnt: number }>>(
+        `SELECT COUNT(*) AS cnt
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name = 'purchase_receipt_items'
+           AND column_name = 'receipt_mode'`,
+      );
+
+      IncomingInspectionService.purchaseReceiptItemControlColumnsSupported = Number(rows[0]?.cnt ?? 0) > 0;
+    } catch {
+      IncomingInspectionService.purchaseReceiptItemControlColumnsSupported = false;
+    }
+    return IncomingInspectionService.purchaseReceiptItemControlColumnsSupported;
   }
 
   private async hasInventoryTransactionQtyChangeColumn(manager?: EntityManager): Promise<boolean> {
@@ -1539,6 +1563,9 @@ export class IncomingInspectionService {
     const supportsReceiptItemDyeLot = supportsReceiptItemsTable
       ? await this.supportsPurchaseReceiptItemDyeLotColumn(manager)
       : false;
+    const supportsReceiptItemControlColumns = supportsReceiptItemsTable
+      ? await this.hasPurchaseReceiptItemControlColumns(manager)
+      : false;
     const deliveryStatusAfterReceipt = (await this.supportsDeliveryReceivedStatus(manager))
       ? 'received'
       : 'confirmed';
@@ -1595,15 +1622,7 @@ export class IncomingInspectionService {
     const affectedOperationIds = new Set<number>();
     const supportsInventoryUpdatedBy = await this.hasInventoryUpdatedByColumn(manager);
     const supportsInventoryQtyChange = await this.hasInventoryTransactionQtyChangeColumn(manager);
-    const warehouseLocation = await resolveWarehouseLocationBinding({
-      manager,
-      tenantId: this.tenantId,
-      userId: this.userId,
-      warehouseId: submitParams?.warehouseId,
-      locationId: submitParams?.locationId,
-      sourceRef: 'incoming_inspection:submit',
-    });
-    assertWarehouseInScope(await this.getWarehouseDataScope(), warehouseLocation.warehouseId);
+    let warehouseLocation: Awaited<ReturnType<typeof resolveWarehouseLocationBinding>> | null = null;
 
     for (const item of passedItems) {
       const qtyPassed = this.resolveAcceptedReceiptQty(item);
@@ -1612,8 +1631,14 @@ export class IncomingInspectionService {
       const hasDyeLot = Boolean(Number(item.has_dye_lot ?? 0));
       const stockUnit = await this.getSkuStockUnit(manager, Number(item.sku_id));
       const purchaseUnit = item.purchase_unit ?? stockUnit;
+      const controlConfig = await this.resolveReceiptItemControlConfig(manager, item);
       const acceptedStockQtyRaw = String(item.accepted_stock_qty ?? item.acceptedStockQty ?? '').trim();
-      if (this.requiresMeasuredStockQty(purchaseUnit, stockUnit) && qtyPassed.gt(0) && !acceptedStockQtyRaw) {
+      if (
+        controlConfig.receiptMode === 'inventory'
+        && this.requiresMeasuredStockQty(purchaseUnit, stockUnit)
+        && qtyPassed.gt(0)
+        && !acceptedStockQtyRaw
+      ) {
         throw AppError.badRequest(`物料 SKU#${item.sku_id} 需要填写实际米数后才能提交质检结论`);
       }
       const convertedQty = acceptedStockQtyRaw
@@ -1626,10 +1651,21 @@ export class IncomingInspectionService {
               : await this.getUnitConversions(manager, Number(item.sku_id)),
             stockUnit,
           ).qty;
-      receivedSkuIds.add(Number(item.sku_id));
 
-      if (hasDyeLot && !dyeLotNo) {
+      if (controlConfig.receiptMode === 'inventory' && hasDyeLot && !dyeLotNo) {
         throw AppError.badRequest(`物料 SKU#${item.sku_id} 启用了缸号管理，入库前必须确认缸号`);
+      }
+
+      if (controlConfig.receiptMode === 'inventory' && warehouseLocation === null) {
+        warehouseLocation = await resolveWarehouseLocationBinding({
+          manager,
+          tenantId: this.tenantId,
+          userId: this.userId,
+          warehouseId: submitParams?.warehouseId,
+          locationId: submitParams?.locationId,
+          sourceRef: 'incoming_inspection:submit',
+        });
+        assertWarehouseInScope(await this.getWarehouseDataScope(), warehouseLocation.warehouseId);
       }
 
       // 写入 purchase_receipt_items
@@ -1638,6 +1674,7 @@ export class IncomingInspectionService {
           'tenant_id',
           'receipt_id',
           'sku_id',
+          ...(supportsReceiptItemControlColumns ? ['po_item_id', 'business_class', 'receipt_mode', 'requires_acceptance', 'request_department_id', 'budget_code'] : []),
           ...(supportsReceiptItemDyeLot ? ['dye_lot_no'] : []),
           'qty_received',
           'purchase_unit',
@@ -1650,6 +1687,16 @@ export class IncomingInspectionService {
           this.tenantId,
           receiptId,
           item.sku_id,
+          ...(supportsReceiptItemControlColumns
+            ? [
+                item.po_item_id ?? null,
+                controlConfig.businessClass,
+                controlConfig.receiptMode,
+                controlConfig.requiresAcceptance ? 1 : 0,
+                controlConfig.requestDepartmentId ?? null,
+                controlConfig.budgetCode ?? null,
+              ]
+            : []),
           ...(supportsReceiptItemDyeLot ? [dyeLotNo] : []),
           qtyPassed.toString(),
           item.purchase_unit ?? 'pcs',
@@ -1666,139 +1713,148 @@ export class IncomingInspectionService {
         );
       }
 
-      // 写入 inventory_transactions（PURCHASE_IN）
-      let txResult;
-      if (supportsInventoryQtyChange) {
-        txResult = await manager.query(
-          `INSERT INTO inventory_transactions
-             (tenant_id, sku_id, transaction_type, warehouse_id, location_id, qty_change, reference_type,
-              reference_id, reference_no, source_ref, notes, dye_lot_no, created_by, updated_by)
-           VALUES (?,?,'PURCHASE_IN',?,?,?,?,?,?,?,?,?,?,?)`,
-          [
+      if (controlConfig.receiptMode === 'inventory') {
+        receivedSkuIds.add(Number(item.sku_id));
+        let txResult;
+        if (supportsInventoryQtyChange) {
+          txResult = await manager.query(
+            `INSERT INTO inventory_transactions
+               (tenant_id, sku_id, transaction_type, warehouse_id, location_id, qty_change, reference_type,
+                reference_id, reference_no, source_ref, notes, dye_lot_no, created_by, updated_by)
+             VALUES (?,?,'PURCHASE_IN',?,?,?,?,?,?,?,?,?,?,?)`,
+            [
+              this.tenantId,
+              item.sku_id,
+              warehouseLocation!.warehouseId,
+              warehouseLocation!.locationId,
+              convertedQty.toFixed(4),
+              'purchase_receipt',
+              receiptId,
+              receiptNo,
+              'incoming_inspection:submit',
+              `质检入库 IQC#${inspectionId}`,
+              dyeLotNo,
+              this.userId,
+              this.userId,
+            ],
+          );
+        } else {
+          const txNo = await generateNo('transaction', this.tenantId);
+          const txColumns = [
+            'tenant_id',
+            'transaction_no',
+            'sku_id',
+            'transaction_type',
+            'direction',
+            'warehouse_id',
+            'location_id',
+            'source_ref',
+            'qty_input',
+            'input_unit',
+            'qty_stock_unit',
+            'stock_unit',
+            'reference_type',
+            'reference_id',
+            'reference_no',
+            'notes',
+            'dye_lot_no',
+            'created_by',
+            'updated_by',
+          ];
+          const txValues = [
             this.tenantId,
+            txNo,
             item.sku_id,
-            warehouseLocation.warehouseId,
-            warehouseLocation.locationId,
+            'PURCHASE_IN',
+            'IN',
+            warehouseLocation!.warehouseId,
+            warehouseLocation!.locationId,
+            'incoming_inspection:submit',
+            acceptedStockQtyRaw ? convertedQty.toFixed(4) : qtyPassed.toString(),
+            acceptedStockQtyRaw ? stockUnit : purchaseUnit,
             convertedQty.toFixed(4),
+            stockUnit,
             'purchase_receipt',
             receiptId,
             receiptNo,
-            'incoming_inspection:submit',
             `质检入库 IQC#${inspectionId}`,
             dyeLotNo,
             this.userId,
             this.userId,
-          ],
-        );
-      } else {
-        const txNo = await generateNo('transaction', this.tenantId);
-        const txColumns = [
-          'tenant_id',
-          'transaction_no',
-          'sku_id',
-          'transaction_type',
-          'direction',
-          'warehouse_id',
-          'location_id',
-          'source_ref',
-          'qty_input',
-          'input_unit',
-          'qty_stock_unit',
-          'stock_unit',
-          'reference_type',
-          'reference_id',
-          'reference_no',
-          'notes',
-          'dye_lot_no',
-          'created_by',
-          'updated_by',
-        ];
-        const txValues = [
-          this.tenantId,
-          txNo,
-          item.sku_id,
-          'PURCHASE_IN',
-          'IN',
-          warehouseLocation.warehouseId,
-          warehouseLocation.locationId,
-          'incoming_inspection:submit',
-          acceptedStockQtyRaw ? convertedQty.toFixed(4) : qtyPassed.toString(),
-          acceptedStockQtyRaw ? stockUnit : purchaseUnit,
-          convertedQty.toFixed(4),
-          stockUnit,
-          'purchase_receipt',
-          receiptId,
-          receiptNo,
-          `质检入库 IQC#${inspectionId}`,
-          dyeLotNo,
-          this.userId,
-          this.userId,
-        ];
-        txResult = await manager.query(
-          `INSERT INTO inventory_transactions
-             (${txColumns.join(', ')})
-           VALUES (${txColumns.map(() => '?').join(', ')})`,
-          txValues,
-        );
-      }
-      void txResult;
+          ];
+          txResult = await manager.query(
+            `INSERT INTO inventory_transactions
+               (${txColumns.join(', ')})
+             VALUES (${txColumns.map(() => '?').join(', ')})`,
+            txValues,
+          );
+        }
+        void txResult;
 
-      // 更新 inventory.qty_on_hand（upsert）
-      if (supportsInventoryUpdatedBy) {
-        await manager.query(
-          `INSERT INTO inventory
-             (tenant_id, sku_id, warehouse_id, location_id, source_ref, qty_on_hand, qty_reserved, qty_in_transit, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
-           ON DUPLICATE KEY UPDATE
-             qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
-             qty_in_transit = GREATEST(qty_in_transit - VALUES(qty_on_hand), 0),
-             warehouse_id = VALUES(warehouse_id),
-             location_id = VALUES(location_id),
-             source_ref = VALUES(source_ref),
-             updated_by = VALUES(updated_by)`,
-          [
-            this.tenantId,
-            item.sku_id,
-            warehouseLocation.warehouseId,
-            warehouseLocation.locationId,
-            'incoming_inspection:submit',
-            convertedQty.toFixed(4),
-            this.userId,
-          ],
-        );
+        if (supportsInventoryUpdatedBy) {
+          await manager.query(
+            `INSERT INTO inventory
+               (tenant_id, sku_id, warehouse_id, location_id, source_ref, qty_on_hand, qty_reserved, qty_in_transit, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
+             ON DUPLICATE KEY UPDATE
+               qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
+               qty_in_transit = GREATEST(qty_in_transit - VALUES(qty_on_hand), 0),
+               warehouse_id = VALUES(warehouse_id),
+               location_id = VALUES(location_id),
+               source_ref = VALUES(source_ref),
+               updated_by = VALUES(updated_by)`,
+            [
+              this.tenantId,
+              item.sku_id,
+              warehouseLocation!.warehouseId,
+              warehouseLocation!.locationId,
+              'incoming_inspection:submit',
+              convertedQty.toFixed(4),
+              this.userId,
+            ],
+          );
+        } else {
+          await manager.query(
+            `INSERT INTO inventory
+               (tenant_id, sku_id, warehouse_id, location_id, source_ref, qty_on_hand, qty_reserved, qty_in_transit, last_in_at)
+             VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(3))
+             ON DUPLICATE KEY UPDATE
+               qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
+               qty_in_transit = GREATEST(qty_in_transit - VALUES(qty_on_hand), 0),
+               warehouse_id = VALUES(warehouse_id),
+               location_id = VALUES(location_id),
+               source_ref = VALUES(source_ref),
+               last_in_at = NOW(3)`,
+            [
+              this.tenantId,
+              item.sku_id,
+              warehouseLocation!.warehouseId,
+              warehouseLocation!.locationId,
+              'incoming_inspection:submit',
+              convertedQty.toFixed(4),
+            ],
+          );
+        }
+        await this.syncDailySnapshot(manager, item.sku_id);
+
+        if (hasDyeLot && dyeLotNo) {
+          await manager.query(
+            `INSERT INTO inventory_dye_lots
+               (tenant_id, sku_id, dye_lot_no, qty_on_hand, qty_reserved, first_in_at, last_in_at)
+             VALUES (?, ?, ?, ?, 0, NOW(3), NOW(3))
+             ON DUPLICATE KEY UPDATE
+               qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
+               last_in_at = NOW(3)`,
+            [this.tenantId, item.sku_id, dyeLotNo, convertedQty.toFixed(4)],
+          );
+        }
       } else {
         await manager.query(
-          `INSERT INTO inventory
-             (tenant_id, sku_id, warehouse_id, location_id, source_ref, qty_on_hand, qty_reserved, qty_in_transit, last_in_at)
-           VALUES (?, ?, ?, ?, ?, ?, 0, 0, NOW(3))
-           ON DUPLICATE KEY UPDATE
-             qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
-             qty_in_transit = GREATEST(qty_in_transit - VALUES(qty_on_hand), 0),
-             warehouse_id = VALUES(warehouse_id),
-             location_id = VALUES(location_id),
-             source_ref = VALUES(source_ref),
-             last_in_at = NOW(3)`,
-          [
-            this.tenantId,
-            item.sku_id,
-            warehouseLocation.warehouseId,
-            warehouseLocation.locationId,
-            'incoming_inspection:submit',
-            convertedQty.toFixed(4),
-          ],
-        );
-      }
-      await this.syncDailySnapshot(manager, item.sku_id);
-
-      if (hasDyeLot && dyeLotNo) {
-        await manager.query(
-          `INSERT INTO inventory_dye_lots
-             (tenant_id, sku_id, dye_lot_no, qty_on_hand, qty_reserved, first_in_at, last_in_at)
-           VALUES (?, ?, ?, ?, 0, NOW(3), NOW(3))
-           ON DUPLICATE KEY UPDATE
-             qty_on_hand = qty_on_hand + VALUES(qty_on_hand),
-             last_in_at = NOW(3)`,
-          [this.tenantId, item.sku_id, dyeLotNo, convertedQty.toFixed(4)],
+          `UPDATE inventory
+           SET qty_in_transit = GREATEST(qty_in_transit - ?, 0),
+               updated_at = NOW()
+           WHERE tenant_id = ? AND sku_id = ?`,
+          [convertedQty.toFixed(4), this.tenantId, item.sku_id],
         );
       }
 
@@ -1852,9 +1908,113 @@ export class IncomingInspectionService {
     await manager.query(
       `UPDATE incoming_inspection_records
        SET receipt_triggered = 1, updated_by = ?
-       WHERE id = ? AND tenant_id = ?`,
+      WHERE id = ? AND tenant_id = ?`,
       [this.userId, inspectionId, this.tenantId],
     );
+  }
+
+  private async hasPurchaseOrderItemControlColumns(
+    manager: Pick<EntityManager, 'query'>,
+  ): Promise<boolean> {
+    if (IncomingInspectionService.purchaseOrderItemControlColumnsSupported !== null) {
+      return IncomingInspectionService.purchaseOrderItemControlColumnsSupported;
+    }
+
+    try {
+      const rows = await manager.query<Array<{ cnt: number }>>(
+        `SELECT COUNT(*) AS cnt
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name = 'purchase_order_items'
+           AND column_name = 'business_class'`,
+      );
+
+      IncomingInspectionService.purchaseOrderItemControlColumnsSupported = Number(rows[0]?.cnt ?? 0) > 0;
+    } catch {
+      IncomingInspectionService.purchaseOrderItemControlColumnsSupported = false;
+    }
+    return IncomingInspectionService.purchaseOrderItemControlColumnsSupported;
+  }
+
+  private async resolveReceiptItemControlConfig(
+    manager: EntityManager,
+    item: any,
+  ): Promise<{
+    businessClass: 'production_material' | 'consumable' | 'fixed_asset';
+    receiptMode: 'inventory' | 'direct_expense' | 'asset_capitalization';
+    requiresAcceptance: boolean;
+    requestDepartmentId?: number;
+    budgetCode?: string;
+  }> {
+    if (!(await this.hasPurchaseOrderItemControlColumns(manager))) {
+      return {
+        businessClass: 'production_material',
+        receiptMode: 'inventory',
+        requiresAcceptance: false,
+        requestDepartmentId: undefined,
+        budgetCode: undefined,
+      };
+    }
+
+    if (item.po_item_id) {
+      const [poItem] = await manager.query<Array<{
+        business_class: 'production_material' | 'consumable' | 'fixed_asset';
+        receipt_mode: 'inventory' | 'direct_expense' | 'asset_capitalization';
+        requires_acceptance: number;
+        request_department_id: number | null;
+        budget_code: string | null;
+      }>>(
+        `SELECT business_class, receipt_mode, requires_acceptance, request_department_id, budget_code
+         FROM purchase_order_items
+         WHERE id = ? AND tenant_id = ?
+         LIMIT 1`,
+        [item.po_item_id, this.tenantId],
+      );
+
+      if (poItem) {
+        return {
+          businessClass: poItem.business_class,
+          receiptMode: poItem.receipt_mode,
+          requiresAcceptance: Boolean(poItem.requires_acceptance),
+          requestDepartmentId: poItem.request_department_id ?? undefined,
+          budgetCode: poItem.budget_code ?? undefined,
+        };
+      }
+    }
+
+    const [sku] = await manager.query<Array<{
+      business_class: 'production_material' | 'consumable' | 'fixed_asset';
+      control_mode: 'mrp' | 'stock_only' | 'direct_expense' | 'asset';
+      requires_asset_acceptance: number;
+    }>>(
+      `SELECT business_class, control_mode, requires_asset_acceptance
+       FROM skus
+       WHERE id = ? AND tenant_id = ?
+       LIMIT 1`,
+      [item.sku_id, this.tenantId],
+    );
+
+    if (!sku) {
+      return {
+        businessClass: 'production_material',
+        receiptMode: 'inventory',
+        requiresAcceptance: false,
+        requestDepartmentId: undefined,
+        budgetCode: undefined,
+      };
+    }
+
+    return {
+      businessClass: sku.business_class,
+      receiptMode: sku.control_mode === 'direct_expense'
+        ? 'direct_expense'
+        : sku.control_mode === 'asset'
+          ? 'asset_capitalization'
+          : 'inventory',
+      requiresAcceptance: Boolean(sku.requires_asset_acceptance),
+      requestDepartmentId: undefined,
+      budgetCode: undefined,
+    };
   }
 
   private async refreshOutsourceOperationProgress(

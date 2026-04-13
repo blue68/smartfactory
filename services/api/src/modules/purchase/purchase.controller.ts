@@ -17,6 +17,11 @@ const POItemSchema = z.object({
   qtyOrdered: z.string().regex(/^\d+(\.\d{1,4})?$/),
   purchaseUnit: z.string().min(1).max(20),
   unitPrice: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  businessClass: z.enum(['production_material', 'consumable', 'fixed_asset']).optional(),
+  receiptMode: z.enum(['inventory', 'direct_expense', 'asset_capitalization']).optional(),
+  requiresAcceptance: z.boolean().optional(),
+  requestDepartmentId: z.number().int().positive().optional(),
+  budgetCode: z.string().trim().max(50).optional(),
 });
 
 const CreatePOSchema = z.object({

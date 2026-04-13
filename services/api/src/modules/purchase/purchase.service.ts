@@ -18,6 +18,11 @@ export interface CreatePOParams {
     qtyOrdered: string;
     purchaseUnit: string;
     unitPrice: string;
+    businessClass?: 'production_material' | 'consumable' | 'fixed_asset';
+    receiptMode?: 'inventory' | 'direct_expense' | 'asset_capitalization';
+    requiresAcceptance?: boolean;
+    requestDepartmentId?: number;
+    budgetCode?: string;
   }>;
 }
 
@@ -61,6 +66,8 @@ export class PurchaseService {
   private static deliveryNoteItemDyeLotSupported: boolean | null = null;
   private static purchaseReceiptItemDyeLotSupported: boolean | null = null;
   private static incomingInspectionItemDyeLotSupported: boolean | null = null;
+  private static purchaseOrderItemControlColumnsSupported: boolean | null = null;
+  private static purchaseReceiptItemControlColumnsSupported: boolean | null = null;
 
   constructor(ctx: TenantContext & { permissionSnapshot?: PermissionSnapshot }) {
     this.tenantId = ctx.tenantId;
@@ -379,6 +386,23 @@ export class PurchaseService {
     return PurchaseService.purchaseReceiptItemDyeLotSupported;
   }
 
+  private async hasPurchaseReceiptItemControlColumns(): Promise<boolean> {
+    if (PurchaseService.purchaseReceiptItemControlColumnsSupported !== null) {
+      return PurchaseService.purchaseReceiptItemControlColumnsSupported;
+    }
+
+    const rows = await AppDataSource.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(*) AS cnt
+         FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'purchase_receipt_items'
+          AND column_name = 'receipt_mode'`,
+    );
+
+    PurchaseService.purchaseReceiptItemControlColumnsSupported = Number(rows[0]?.cnt ?? 0) > 0;
+    return PurchaseService.purchaseReceiptItemControlColumnsSupported;
+  }
+
   private async hasIncomingInspectionItemDyeLotColumn(): Promise<boolean> {
     if (PurchaseService.incomingInspectionItemDyeLotSupported !== null) {
       return PurchaseService.incomingInspectionItemDyeLotSupported;
@@ -438,19 +462,43 @@ export class PurchaseService {
 
       for (const item of params.items) {
         const operationId = suggestionOperationMap.get(Number(item.skuId)) ?? null;
-        await manager.query(
-          `INSERT INTO purchase_order_items
-             (tenant_id, po_id, sku_id, qty_ordered, qty_received, production_operation_id, purchase_unit,
-              unit_price, amount, created_by, updated_by)
-           VALUES (?,?,?,?,0,?,?,?,?,?,?)`,
-          [
-            this.tenantId, poId, item.skuId, item.qtyOrdered,
-            operationId,
-            item.purchaseUnit, item.unitPrice,
-            new Decimal(item.qtyOrdered).mul(item.unitPrice).toFixed(2),
-            this.userId, this.userId,
-          ],
-        );
+        const controlConfig = await this.resolvePurchaseItemControlConfig(manager, item.skuId, item);
+        if (await this.hasPurchaseOrderItemControlColumns(manager)) {
+          await manager.query(
+            `INSERT INTO purchase_order_items
+               (tenant_id, po_id, sku_id, business_class, receipt_mode, requires_acceptance,
+                request_department_id, budget_code, qty_ordered, qty_received, production_operation_id,
+                purchase_unit, unit_price, amount, created_by, updated_by)
+             VALUES (?,?,?,?,?,?,?, ?,?,0,?, ?,?,?, ?,?)`,
+            [
+              this.tenantId, poId, item.skuId,
+              controlConfig.businessClass,
+              controlConfig.receiptMode,
+              controlConfig.requiresAcceptance ? 1 : 0,
+              controlConfig.requestDepartmentId ?? null,
+              controlConfig.budgetCode ?? null,
+              item.qtyOrdered,
+              operationId,
+              item.purchaseUnit, item.unitPrice,
+              new Decimal(item.qtyOrdered).mul(item.unitPrice).toFixed(2),
+              this.userId, this.userId,
+            ],
+          );
+        } else {
+          await manager.query(
+            `INSERT INTO purchase_order_items
+               (tenant_id, po_id, sku_id, qty_ordered, qty_received, production_operation_id, purchase_unit,
+                unit_price, amount, created_by, updated_by)
+             VALUES (?,?,?,?,0,?,?,?,?,?,?)`,
+            [
+              this.tenantId, poId, item.skuId, item.qtyOrdered,
+              operationId,
+              item.purchaseUnit, item.unitPrice,
+              new Decimal(item.qtyOrdered).mul(item.unitPrice).toFixed(2),
+              this.userId, this.userId,
+            ],
+          );
+        }
       }
 
       // 更新关联建议状态为 executed
@@ -529,9 +577,10 @@ export class PurchaseService {
 
   async getById(id: number) {
     const receiptDeliveryColumn = await this.getPurchaseReceiptDeliveryColumn();
-    const supportsReceiptItemsTable = await this.hasPurchaseReceiptItemsTable();
-    const supportsDeliveryItemDyeLot = await this.hasDeliveryNoteItemDyeLotColumn();
-    const supportsClosureColumns = await this.hasPurchaseOrderClosureColumns();
+    const supportsReceiptItemsTable = PurchaseService.purchaseReceiptItemsTableSupported === true;
+    const supportsDeliveryItemDyeLot = PurchaseService.deliveryNoteItemDyeLotSupported === true;
+    const supportsClosureColumns = PurchaseService.purchaseOrderClosureColumnsSupported === true;
+    const supportsItemControlColumns = PurchaseService.purchaseOrderItemControlColumnsSupported === true;
     const [order] = supportsClosureColumns
       ? await AppDataSource.query<Array<Record<string, unknown>>>(
           `SELECT
@@ -569,6 +618,11 @@ export class PurchaseService {
            s.sku_code AS skuCode,
            s.name AS skuName,
            s.has_dye_lot AS hasDyeLot,
+           ${supportsItemControlColumns ? 'poi.business_class AS businessClass,' : "'production_material' AS businessClass,"}
+           ${supportsItemControlColumns ? 'poi.receipt_mode AS receiptMode,' : "'inventory' AS receiptMode,"}
+           ${supportsItemControlColumns ? 'poi.requires_acceptance AS requiresAcceptance,' : '0 AS requiresAcceptance,'}
+           ${supportsItemControlColumns ? 'poi.request_department_id AS requestDepartmentId,' : 'NULL AS requestDepartmentId,'}
+           ${supportsItemControlColumns ? 'poi.budget_code AS budgetCode,' : 'NULL AS budgetCode,'}
            poi.qty_ordered AS qtyOrdered,
            poi.qty_received AS qtyReceived,
            GREATEST(poi.qty_ordered - poi.qty_received, 0) AS gapQty,
@@ -910,6 +964,9 @@ export class PurchaseService {
     const supportsReceiptItemDyeLot = supportsReceiptItemsTable
       ? await this.hasPurchaseReceiptItemDyeLotColumn()
       : false;
+    const supportsReceiptItemControlColumns = supportsReceiptItemsTable
+      ? PurchaseService.purchaseReceiptItemControlColumnsSupported === true
+      : false;
     const supportsInspectionItemDyeLot = supportsReceiptItemsTable
       ? false
       : await this.hasIncomingInspectionItemDyeLotColumn();
@@ -953,6 +1010,12 @@ export class PurchaseService {
              pri.sku_id AS skuId,
              s.sku_code AS skuCode,
              s.name AS skuName,
+             ${supportsReceiptItemControlColumns ? 'pri.po_item_id AS purchaseItemId,' : 'NULL AS purchaseItemId,'}
+             ${supportsReceiptItemControlColumns ? 'pri.business_class AS businessClass,' : "'production_material' AS businessClass,"}
+             ${supportsReceiptItemControlColumns ? 'pri.receipt_mode AS receiptMode,' : "'inventory' AS receiptMode,"}
+             ${supportsReceiptItemControlColumns ? 'pri.requires_acceptance AS requiresAcceptance,' : '0 AS requiresAcceptance,'}
+             ${supportsReceiptItemControlColumns ? 'pri.request_department_id AS requestDepartmentId,' : 'NULL AS requestDepartmentId,'}
+             ${supportsReceiptItemControlColumns ? 'pri.budget_code AS budgetCode,' : 'NULL AS budgetCode,'}
              ${supportsReceiptItemDyeLot ? 'pri.dye_lot_no AS dyeLotNo,' : 'NULL AS dyeLotNo,'}
              pri.qty_received AS qtyReceived,
              pri.purchase_unit AS purchaseUnit,
@@ -967,6 +1030,12 @@ export class PurchaseService {
              ii.sku_id AS skuId,
              s.sku_code AS skuCode,
              s.name AS skuName,
+             MAX(ii.po_item_id) AS purchaseItemId,
+             MAX(COALESCE(poi.business_class, 'production_material')) AS businessClass,
+             MAX(COALESCE(poi.receipt_mode, 'inventory')) AS receiptMode,
+             MAX(COALESCE(poi.requires_acceptance, 0)) AS requiresAcceptance,
+             MAX(poi.request_department_id) AS requestDepartmentId,
+             MAX(poi.budget_code) AS budgetCode,
              ${supportsInspectionItemDyeLot ? 'ii.dye_lot_no AS dyeLotNo,' : 'NULL AS dyeLotNo,'}
              SUM(ii.qty_passed) AS qtyReceived,
              MAX(COALESCE(poi.purchase_unit, s.purchase_unit)) AS purchaseUnit,
@@ -1367,6 +1436,93 @@ export class PurchaseService {
 
     PurchaseService.purchaseOrderClosureColumnsSupported = Number(rows[0]?.cnt ?? 0) > 0;
     return PurchaseService.purchaseOrderClosureColumnsSupported;
+  }
+
+  private async hasPurchaseOrderItemControlColumns(
+    manager?: Pick<EntityManager, 'query'>,
+  ): Promise<boolean> {
+    if (PurchaseService.purchaseOrderItemControlColumnsSupported !== null) {
+      return PurchaseService.purchaseOrderItemControlColumnsSupported;
+    }
+
+    try {
+      const runner = manager ?? AppDataSource;
+      const rows = await runner.query<Array<{ cnt: number }>>(
+        `SELECT COUNT(*) AS cnt
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name = 'purchase_order_items'
+           AND column_name = 'business_class'`,
+      );
+      PurchaseService.purchaseOrderItemControlColumnsSupported = Number(rows[0]?.cnt ?? 0) > 0;
+    } catch {
+      PurchaseService.purchaseOrderItemControlColumnsSupported = false;
+    }
+    return PurchaseService.purchaseOrderItemControlColumnsSupported;
+  }
+
+  private async resolvePurchaseItemControlConfig(
+    manager: Pick<EntityManager, 'query'>,
+    skuId: number,
+    item: CreatePOParams['items'][number],
+  ): Promise<{
+    businessClass: 'production_material' | 'consumable' | 'fixed_asset';
+    receiptMode: 'inventory' | 'direct_expense' | 'asset_capitalization';
+    requiresAcceptance: boolean;
+    requestDepartmentId?: number;
+    budgetCode?: string;
+  }> {
+    if (!(await this.hasPurchaseOrderItemControlColumns(manager))) {
+      const businessClass = item.businessClass ?? 'production_material';
+      const receiptMode = item.receiptMode ?? 'inventory';
+      if (businessClass === 'fixed_asset' && receiptMode === 'inventory') {
+        throw AppError.badRequest('固定资产采购明细不允许使用 inventory 收货模式');
+      }
+      return {
+        businessClass,
+        receiptMode,
+        requiresAcceptance: item.requiresAcceptance ?? false,
+        requestDepartmentId: item.requestDepartmentId,
+        budgetCode: item.budgetCode?.trim() || undefined,
+      };
+    }
+
+    const [sku] = await manager.query<Array<{
+      business_class: 'production_material' | 'consumable' | 'fixed_asset';
+      control_mode: 'mrp' | 'stock_only' | 'direct_expense' | 'asset';
+      requires_asset_acceptance: number;
+    }>>(
+      `SELECT business_class, control_mode, requires_asset_acceptance
+       FROM skus
+       WHERE id = ? AND tenant_id = ?
+       LIMIT 1`,
+      [skuId, this.tenantId],
+    );
+
+    if (!sku) {
+      throw AppError.notFound(`SKU不存在：${skuId}`, ResponseCode.SKU_NOT_FOUND);
+    }
+
+    const businessClass = item.businessClass ?? sku.business_class;
+    const defaultReceiptMode = sku.control_mode === 'direct_expense'
+      ? 'direct_expense'
+      : sku.control_mode === 'asset'
+        ? 'asset_capitalization'
+        : 'inventory';
+    const receiptMode = item.receiptMode ?? defaultReceiptMode;
+    const requiresAcceptance = item.requiresAcceptance ?? Boolean(sku.requires_asset_acceptance);
+
+    if (businessClass === 'fixed_asset' && receiptMode === 'inventory') {
+      throw AppError.badRequest('固定资产采购明细不允许使用 inventory 收货模式');
+    }
+
+    return {
+      businessClass,
+      receiptMode,
+      requiresAcceptance,
+      requestDepartmentId: item.requestDepartmentId,
+      budgetCode: item.budgetCode?.trim() || undefined,
+    };
   }
 
   private async getPurchaseReceiptDeliveryColumn(): Promise<'delivery_note_id' | 'dn_id'> {

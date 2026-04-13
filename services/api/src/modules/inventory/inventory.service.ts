@@ -26,7 +26,9 @@ import {
 
 export type TransactionType =
   | 'PURCHASE_IN' | 'PRODUCTION_IN' | 'ADJUSTMENT_IN'
-  | 'MATERIAL_OUT' | 'DELIVERY_OUT' | 'ADJUSTMENT_OUT' | 'STOCKTAKE_ADJUST';
+  | 'CONSUMABLE_IN'
+  | 'MATERIAL_OUT' | 'DELIVERY_OUT' | 'ADJUSTMENT_OUT' | 'CONSUMABLE_OUT'
+  | 'STOCKTAKE_ADJUST' | 'CONSUMABLE_ADJUST';
 
 export interface InboundParams {
   skuId?: number;
@@ -50,7 +52,7 @@ export interface OutboundParams {
   locationId?: number;
   qtyInput: string;
   inputUnit: string;
-  transactionType: Extract<TransactionType, 'MATERIAL_OUT' | 'DELIVERY_OUT' | 'ADJUSTMENT_OUT'>;
+  transactionType: Extract<TransactionType, 'MATERIAL_OUT' | 'DELIVERY_OUT' | 'ADJUSTMENT_OUT' | 'CONSUMABLE_OUT'>;
   dyeLotNo?: string;
   productionOrderId?: number;   // 用于缸号一致性校验
   authorizeId?: number;         // 跨色号授权申请ID（RISK-005）

@@ -2,6 +2,11 @@ import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn,
   UpdateDateColumn, Index,
 } from 'typeorm';
+import {
+  SkuAssetTrackingMode,
+  SkuBusinessClass,
+  SkuControlMode,
+} from './sku.types';
 
 export type SkuBrandScope = 'factory' | 'customer';
 
@@ -69,6 +74,51 @@ export class SkuEntity {
 
   @Column({ type: 'text', nullable: true })
   description: string | null;
+
+  @Column({
+    name: 'business_class',
+    type: 'enum',
+    enum: ['production_material', 'consumable', 'fixed_asset'],
+    default: 'production_material',
+  })
+  businessClass: SkuBusinessClass;
+
+  @Column({
+    name: 'control_mode',
+    type: 'enum',
+    enum: ['mrp', 'stock_only', 'direct_expense', 'asset'],
+    default: 'mrp',
+  })
+  controlMode: SkuControlMode;
+
+  @Column({ name: 'allow_bom_component', type: 'tinyint', default: 1 })
+  allowBomComponent: boolean;
+
+  @Column({ name: 'allow_purchase', type: 'tinyint', default: 1 })
+  allowPurchase: boolean;
+
+  @Column({ name: 'allow_inventory', type: 'tinyint', default: 1 })
+  allowInventory: boolean;
+
+  @Column({ name: 'allow_production_issue', type: 'tinyint', default: 1 })
+  allowProductionIssue: boolean;
+
+  @Column({ name: 'requires_asset_acceptance', type: 'tinyint', default: 0 })
+  requiresAssetAcceptance: boolean;
+
+  @Column({ name: 'default_warehouse_type', type: 'varchar', length: 30, nullable: true })
+  defaultWarehouseType: string | null;
+
+  @Column({ name: 'approval_policy_code', type: 'varchar', length: 50, nullable: true })
+  approvalPolicyCode: string | null;
+
+  @Column({
+    name: 'asset_tracking_mode',
+    type: 'enum',
+    enum: ['none', 'batch', 'serial'],
+    default: 'none',
+  })
+  assetTrackingMode: SkuAssetTrackingMode;
 
   @CreateDateColumn({ name: 'created_at', type: 'datetime', precision: 3 })
   createdAt: Date;

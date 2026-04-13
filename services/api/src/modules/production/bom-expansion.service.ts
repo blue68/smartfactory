@@ -15,6 +15,8 @@ export interface ExpandedMaterial {
 interface BomItemRow {
   id: number;
   component_sku_id: number;
+  business_class: string;
+  control_mode: string;
   quantity: string;
   scrap_rate: string;
   unit: string;
@@ -87,10 +89,20 @@ export class BomExpansionService {
       : AppDataSource.query.bind(AppDataSource);
 
     const items: BomItemRow[] = await query(
-      `SELECT id, component_sku_id, quantity, scrap_rate, unit
-       FROM bom_items
-       WHERE bom_header_id = ? AND tenant_id = ?
-       ORDER BY sort_order, id`,
+      `SELECT
+         bi.id,
+         bi.component_sku_id,
+         s.business_class,
+         s.control_mode,
+         bi.quantity,
+         bi.scrap_rate,
+         bi.unit
+       FROM bom_items bi
+       INNER JOIN skus s
+         ON s.id = bi.component_sku_id
+        AND s.tenant_id = bi.tenant_id
+       WHERE bi.bom_header_id = ? AND bi.tenant_id = ?
+       ORDER BY bi.sort_order, bi.id`,
       [bomHeaderId, this.tenantId],
     );
 
@@ -122,6 +134,9 @@ export class BomExpansionService {
         );
         result.push(...subItems);
       } else {
+        if (item.business_class !== 'production_material' || item.control_mode !== 'mrp') {
+          continue;
+        }
         // 原材料，直接加入列表
         result.push({
           skuId: item.component_sku_id,

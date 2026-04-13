@@ -6,6 +6,14 @@ import { SkuService, ImportSkuRow } from './sku.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { AppError } from '../../shared/AppError';
 import { PaginationSchema } from '../../middleware/validator';
+import {
+  SKU_APPROVAL_LEVELS,
+  SKU_ASSET_TRACKING_MODES,
+  SKU_BUSINESS_CLASSES,
+  SKU_CONSUMABLE_ISSUE_MODES,
+  SKU_CONTROL_MODES,
+  SKU_DEPRECIATION_METHODS,
+} from './sku.types';
 
 // ─── CSV 模板默认列顺序 ─────────────────────────────────────────────────────────
 // SKU编码,物料名称,规格型号,一级分类,二级分类,基本单位,采购单位,计价单位,安全库存,状态,备注
@@ -41,6 +49,37 @@ const CreateSkuSchema = z.object({
   description: z.string().optional(),
   brandScope: z.enum(['factory', 'customer']).optional(),
   brandCustomerId: z.number().int().positive().nullable().optional(),
+  businessClass: z.enum(SKU_BUSINESS_CLASSES).optional(),
+  controlMode: z.enum(SKU_CONTROL_MODES).optional(),
+  allowBomComponent: z.boolean().optional(),
+  allowPurchase: z.boolean().optional(),
+  allowInventory: z.boolean().optional(),
+  allowProductionIssue: z.boolean().optional(),
+  requiresAssetAcceptance: z.boolean().optional(),
+  defaultWarehouseType: z.string().max(30).nullable().optional(),
+  approvalPolicyCode: z.string().max(50).nullable().optional(),
+  assetTrackingMode: z.enum(SKU_ASSET_TRACKING_MODES).optional(),
+  consumableProfile: z.object({
+    issueMode: z.enum(SKU_CONSUMABLE_ISSUE_MODES).optional(),
+    approvalLevel: z.enum(SKU_APPROVAL_LEVELS).optional(),
+    expenseSubject: z.string().max(100).optional(),
+    minStock: z.string().regex(/^\d+(\.\d{1,4})?$/).optional(),
+    maxStock: z.string().regex(/^\d+(\.\d{1,4})?$/).nullable().optional(),
+    purchaseLeadDays: z.number().int().nonnegative().nullable().optional(),
+    issueDeptRequired: z.boolean().optional(),
+    notes: z.string().max(500).optional(),
+  }).optional(),
+  assetProfile: z.object({
+    assetCategory: z.string().min(1).max(50),
+    depreciationMethod: z.enum(SKU_DEPRECIATION_METHODS).optional(),
+    usefulLifeMonths: z.number().int().positive().nullable().optional(),
+    residualRate: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+    capexSubject: z.string().max(100).optional(),
+    requiresSerialNo: z.boolean().optional(),
+    maintenanceCycleDays: z.number().int().positive().nullable().optional(),
+    warrantyMonths: z.number().int().positive().nullable().optional(),
+    notes: z.string().max(500).optional(),
+  }).optional(),
   customerRefs: z.array(z.object({
     customerId: z.number().int().positive(),
     customerSkuCode: z.string().min(1).max(100),

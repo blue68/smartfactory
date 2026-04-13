@@ -23,6 +23,8 @@ export interface BomItemNode {
   scrapRate: string;
   /** quantity * (1 + scrapRate) —— 含损耗的实际用量 */
   netQuantity: string;
+  businessClass: string;
+  controlMode: string;
   level: number;
   children: BomItemNode[];
 }
@@ -166,6 +168,8 @@ export class BomService {
       sku_code: string;
       sku_name: string;
       spec: string | null;
+      business_class: string;
+      control_mode: string;
       quantity: string;
       unit: string;
       level: number;
@@ -182,6 +186,8 @@ export class BomService {
            s.sku_code,
            s.name  AS sku_name,
            s.spec,
+           s.business_class,
+           s.control_mode,
            bi.quantity,
            bi.unit,
            bi.level,
@@ -202,6 +208,8 @@ export class BomService {
            s2.sku_code,
            s2.name  AS sku_name,
            s2.spec,
+           s2.business_class,
+           s2.control_mode,
            bi2.quantity,
            bi2.unit,
            bi2.level,
@@ -229,6 +237,7 @@ export class BomService {
     rows: Array<{
       id: number; parent_item_id: number | null; component_sku_id: number;
       sku_code: string; sku_name: string; spec: string | null;
+      business_class: string; control_mode: string;
       quantity: string; unit: string; level: number; scrap_rate: string; sort_order: number;
     }>,
     parentId: number | null,
@@ -250,6 +259,8 @@ export class BomService {
           unit: r.unit,
           scrapRate: scrap.toFixed(4),
           netQuantity: netQty.toFixed(4),
+          businessClass: r.business_class,
+          controlMode: r.control_mode,
           level: r.level,
           children: this.buildTree(rows, r.id),
         };
@@ -315,6 +326,9 @@ export class BomService {
       const nodeQty = parentQty.mul(new Decimal(node.netQuantity));
 
       if (node.children.length === 0) {
+        if (node.businessClass !== 'production_material' || node.controlMode !== 'mrp') {
+          continue;
+        }
         // 叶子节点 = 原材料，直接累积
         const existing = acc.get(node.componentSkuId);
         if (existing) {
@@ -395,6 +409,8 @@ export class BomService {
           ResponseCode.BOM_CIRCULAR_REF,
         );
       }
+
+      await this.assertBomComponentAllowed(manager, item.componentSkuId);
 
       const result = await manager.query(
         `INSERT INTO bom_items
@@ -824,6 +840,8 @@ export class BomService {
         );
       }
 
+      await this.assertBomComponentAllowed(manager, payload.componentSkuId);
+
       // 4. 插入明细行
       const result = await manager.query(
         `INSERT INTO bom_items
@@ -989,5 +1007,33 @@ export class BomService {
     );
     if (!header) throw AppError.notFound('BOM不存在', ResponseCode.BOM_NOT_FOUND);
     return { id: header.id, skuId: header.sku_id, skuName: header.sku_name, skuCode: header.sku_code, version: header.version, status: header.status, description: header.description ?? undefined, items: [] };
+  }
+
+  private async assertBomComponentAllowed(
+    manager: import('typeorm').EntityManager,
+    skuId: number,
+  ): Promise<void> {
+    const [sku] = await manager.query<Array<{
+      id: number;
+      business_class: string;
+      allow_bom_component: number;
+    }>>(
+      `SELECT id, business_class, allow_bom_component
+       FROM skus
+       WHERE id = ? AND tenant_id = ?
+       LIMIT 1`,
+      [skuId, this.tenantId],
+    );
+
+    if (!sku) {
+      throw AppError.notFound(`SKU不存在：${skuId}`, ResponseCode.SKU_NOT_FOUND);
+    }
+
+    if (sku.business_class === 'fixed_asset' || !Boolean(sku.allow_bom_component)) {
+      throw AppError.badRequest(
+        `当前SKU ${skuId} 不允许作为BOM子项，请检查物料管控属性`,
+        ResponseCode.INVALID_PARAMS,
+      );
+    }
   }
 }

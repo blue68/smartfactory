@@ -139,10 +139,13 @@ export class MrpService {
 
       // 读取物料需求记录
       const requirements = await manager.query<MaterialRequirementRow[]>(
-        `SELECT id, production_order_id, bom_snapshot_id, sku_id,
+        `SELECT mr.id, mr.production_order_id, mr.bom_snapshot_id, mr.sku_id,
                 qty_required, qty_reserved, qty_shortage, status, suggestion_id
-         FROM material_requirements
-         WHERE production_order_id = ? AND tenant_id = ?`,
+         FROM material_requirements mr
+         INNER JOIN skus s ON s.id = mr.sku_id AND s.tenant_id = mr.tenant_id
+         WHERE mr.production_order_id = ? AND mr.tenant_id = ?
+           AND s.business_class = 'production_material'
+           AND s.control_mode = 'mrp'`,
         [productionOrderId, this.tenantId],
       );
 
@@ -313,11 +316,13 @@ export class MrpService {
     const pageSize = filter?.pageSize ?? 20;
     const offset = (page - 1) * pageSize;
 
-    const conds: string[] = [
-      'mr.tenant_id = ?',
-      `po.status IN ('pending', 'scheduled', 'in_progress')`,
-      `mr.status IN ('shortage', 'partial')`,
-    ];
+      const conds: string[] = [
+        'mr.tenant_id = ?',
+        `po.status IN ('pending', 'scheduled', 'in_progress')`,
+        `mr.status IN ('shortage', 'partial')`,
+        `s.business_class = 'production_material'`,
+        `s.control_mode = 'mrp'`,
+      ];
     const params: unknown[] = [this.tenantId];
 
     if (filter?.skuId) {
@@ -395,6 +400,7 @@ export class MrpService {
       `SELECT COUNT(DISTINCT mr.sku_id) AS total
        FROM material_requirements mr
        INNER JOIN production_orders po ON po.id = mr.production_order_id AND po.tenant_id = mr.tenant_id
+       INNER JOIN skus s ON s.id = mr.sku_id AND s.tenant_id = mr.tenant_id
        WHERE ${where}`,
       params,
     );
@@ -494,6 +500,8 @@ export class MrpService {
         `mr.status IN ('shortage', 'partial')`,
         `mr.qty_shortage > 0`,
         `po.status IN ('pending', 'scheduled', 'in_progress')`,
+        `s.business_class = 'production_material'`,
+        `s.control_mode = 'mrp'`,
       ];
       const params: unknown[] = [this.tenantId];
 
@@ -721,8 +729,11 @@ export class MrpService {
         `SELECT DISTINCT mr.production_order_id
          FROM material_requirements mr
          INNER JOIN production_orders po ON po.id = mr.production_order_id AND po.tenant_id = mr.tenant_id
+         INNER JOIN skus s ON s.id = mr.sku_id AND s.tenant_id = mr.tenant_id
          WHERE mr.sku_id = ? AND mr.tenant_id = ?
-           AND po.status IN ('pending', 'scheduled', 'in_progress')`,
+           AND po.status IN ('pending', 'scheduled', 'in_progress')
+           AND s.business_class = 'production_material'
+           AND s.control_mode = 'mrp'`,
         [skuId, this.tenantId],
       );
 

@@ -3,6 +3,7 @@ import { BaseRepository, TenantContext } from '../../shared/BaseRepository';
 import { SkuEntity } from './sku.entity';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
+import { AssetProfileInput, ConsumableProfileInput } from './sku.types';
 
 export interface SkuListFilter {
   category1Id?: number;
@@ -241,6 +242,189 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
         AND c.tenant_id = csr.tenant_id
        WHERE csr.tenant_id = ? AND csr.sku_id = ?
        ORDER BY c.name ASC`,
+      [this.tenantId, skuId],
+    );
+  }
+
+  async getConsumableProfile(skuId: number): Promise<{
+    issueMode: 'department_issue' | 'direct_expense';
+    approvalLevel: 'none' | 'normal' | 'strict';
+    expenseSubject: string | null;
+    minStock: string;
+    maxStock: string | null;
+    purchaseLeadDays: number | null;
+    issueDeptRequired: boolean;
+    notes: string | null;
+  } | null> {
+    const [row] = await AppDataSource.query<Array<{
+      issueMode: 'department_issue' | 'direct_expense';
+      approvalLevel: 'none' | 'normal' | 'strict';
+      expenseSubject: string | null;
+      minStock: string;
+      maxStock: string | null;
+      purchaseLeadDays: number | null;
+      issueDeptRequired: number;
+      notes: string | null;
+    }>>(
+      `SELECT
+         issue_mode AS issueMode,
+         approval_level AS approvalLevel,
+         expense_subject AS expenseSubject,
+         min_stock AS minStock,
+         max_stock AS maxStock,
+         purchase_lead_days AS purchaseLeadDays,
+         issue_dept_required AS issueDeptRequired,
+         notes
+       FROM sku_consumable_profiles
+       WHERE tenant_id = ? AND sku_id = ?
+       LIMIT 1`,
+      [this.tenantId, skuId],
+    );
+
+    if (!row) return null;
+    return {
+      ...row,
+      issueDeptRequired: Boolean(row.issueDeptRequired),
+    };
+  }
+
+  async getAssetProfile(skuId: number): Promise<{
+    assetCategory: string;
+    depreciationMethod: 'straight_line' | 'manual' | 'none';
+    usefulLifeMonths: number | null;
+    residualRate: string;
+    capexSubject: string | null;
+    requiresSerialNo: boolean;
+    maintenanceCycleDays: number | null;
+    warrantyMonths: number | null;
+    notes: string | null;
+  } | null> {
+    const [row] = await AppDataSource.query<Array<{
+      assetCategory: string;
+      depreciationMethod: 'straight_line' | 'manual' | 'none';
+      usefulLifeMonths: number | null;
+      residualRate: string;
+      capexSubject: string | null;
+      requiresSerialNo: number;
+      maintenanceCycleDays: number | null;
+      warrantyMonths: number | null;
+      notes: string | null;
+    }>>(
+      `SELECT
+         asset_category AS assetCategory,
+         depreciation_method AS depreciationMethod,
+         useful_life_months AS usefulLifeMonths,
+         residual_rate AS residualRate,
+         capex_subject AS capexSubject,
+         requires_serial_no AS requiresSerialNo,
+         maintenance_cycle_days AS maintenanceCycleDays,
+         warranty_months AS warrantyMonths,
+         notes
+       FROM sku_asset_profiles
+       WHERE tenant_id = ? AND sku_id = ?
+       LIMIT 1`,
+      [this.tenantId, skuId],
+    );
+
+    if (!row) return null;
+    return {
+      ...row,
+      requiresSerialNo: Boolean(row.requiresSerialNo),
+    };
+  }
+
+  async upsertConsumableProfile(skuId: number, profile: ConsumableProfileInput): Promise<void> {
+    await AppDataSource.query(
+      `INSERT INTO sku_consumable_profiles
+         (tenant_id, sku_id, issue_mode, approval_level, expense_subject, min_stock, max_stock,
+          purchase_lead_days, issue_dept_required, notes, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         issue_mode = VALUES(issue_mode),
+         approval_level = VALUES(approval_level),
+         expense_subject = VALUES(expense_subject),
+         min_stock = VALUES(min_stock),
+         max_stock = VALUES(max_stock),
+         purchase_lead_days = VALUES(purchase_lead_days),
+         issue_dept_required = VALUES(issue_dept_required),
+         notes = VALUES(notes),
+         updated_by = VALUES(updated_by),
+         updated_at = CURRENT_TIMESTAMP(3)`,
+      [
+        this.tenantId,
+        skuId,
+        profile.issueMode ?? 'department_issue',
+        profile.approvalLevel ?? 'normal',
+        profile.expenseSubject ?? null,
+        profile.minStock ?? '0',
+        profile.maxStock ?? null,
+        profile.purchaseLeadDays ?? null,
+        profile.issueDeptRequired === undefined ? 1 : (profile.issueDeptRequired ? 1 : 0),
+        profile.notes ?? null,
+        this.currentUserId,
+        this.currentUserId,
+      ],
+    );
+  }
+
+  async upsertAssetProfile(skuId: number, profile: AssetProfileInput): Promise<void> {
+    await AppDataSource.query(
+      `INSERT INTO sku_asset_profiles
+         (tenant_id, sku_id, asset_category, depreciation_method, useful_life_months, residual_rate,
+          capex_subject, requires_serial_no, maintenance_cycle_days, warranty_months, notes,
+          created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         asset_category = VALUES(asset_category),
+         depreciation_method = VALUES(depreciation_method),
+         useful_life_months = VALUES(useful_life_months),
+         residual_rate = VALUES(residual_rate),
+         capex_subject = VALUES(capex_subject),
+         requires_serial_no = VALUES(requires_serial_no),
+         maintenance_cycle_days = VALUES(maintenance_cycle_days),
+         warranty_months = VALUES(warranty_months),
+         notes = VALUES(notes),
+         updated_by = VALUES(updated_by),
+         updated_at = CURRENT_TIMESTAMP(3)`,
+      [
+        this.tenantId,
+        skuId,
+        profile.assetCategory,
+        profile.depreciationMethod ?? 'straight_line',
+        profile.usefulLifeMonths ?? null,
+        profile.residualRate ?? '0',
+        profile.capexSubject ?? null,
+        profile.requiresSerialNo === undefined ? 1 : (profile.requiresSerialNo ? 1 : 0),
+        profile.maintenanceCycleDays ?? null,
+        profile.warrantyMonths ?? null,
+        profile.notes ?? null,
+        this.currentUserId,
+        this.currentUserId,
+      ],
+    );
+  }
+
+  async deleteProfilesForBusinessClass(
+    skuId: number,
+    businessClass: 'production_material' | 'consumable' | 'fixed_asset',
+  ): Promise<void> {
+    if (businessClass === 'production_material') {
+      await Promise.all([
+        AppDataSource.query(
+          'DELETE FROM sku_consumable_profiles WHERE tenant_id = ? AND sku_id = ?',
+          [this.tenantId, skuId],
+        ),
+        AppDataSource.query(
+          'DELETE FROM sku_asset_profiles WHERE tenant_id = ? AND sku_id = ?',
+          [this.tenantId, skuId],
+        ),
+      ]);
+      return;
+    }
+
+    const table = businessClass === 'consumable' ? 'sku_asset_profiles' : 'sku_consumable_profiles';
+    await AppDataSource.query(
+      `DELETE FROM ${table} WHERE tenant_id = ? AND sku_id = ?`,
       [this.tenantId, skuId],
     );
   }
