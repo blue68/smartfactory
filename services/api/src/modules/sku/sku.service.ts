@@ -83,6 +83,13 @@ export interface CustomerSkuRefParam {
 
 const SKU_CODE_SEQUENCE_WIDTH = 7;
 const FINISHED_CATEGORY_CODE = 'FINISHED';
+const ASSET_CATEGORY_CODE = 'ASSET';
+
+function inferBusinessClassFromCategory1Code(category1Code: string | null | undefined): SkuBusinessClass {
+  if (category1Code === 'PACKING') return 'consumable';
+  if (category1Code === ASSET_CATEGORY_CODE) return 'fixed_asset';
+  return 'production_material';
+}
 
 export class SkuService {
   private readonly repo: SkuRepository;
@@ -588,7 +595,7 @@ export class SkuService {
   } {
     const resolvedBusinessClass = params.businessClass
       ?? current?.businessClass
-      ?? (category1Code === 'PACKING' ? 'consumable' : 'production_material');
+      ?? inferBusinessClassFromCategory1Code(category1Code);
 
     const finishedDefaults = category1Code === FINISHED_CATEGORY_CODE;
 

@@ -61,6 +61,7 @@ export enum Category1Code {
   SEMI_PRODUCT = 'SEMIFIN',
   FINISHED = 'FINISHED',
   PACKING = 'PACKING',
+  ASSET = 'ASSET',
 }
 
 export const Category1Label: Record<Category1Code, string> = {
@@ -68,6 +69,7 @@ export const Category1Label: Record<Category1Code, string> = {
   [Category1Code.SEMI_PRODUCT]: '半成品',
   [Category1Code.FINISHED]: '成品',
   [Category1Code.PACKING]: '包材辅料',
+  [Category1Code.ASSET]: '固定资产',
 };
 
 // ─────────────────────────────────────────────

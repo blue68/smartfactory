@@ -64,6 +64,7 @@ const CATEGORY1_TAG_STYLE: Partial<Record<Category1Code, string>> = {
   [Category1Code.SEMI_PRODUCT]: styles['cat1_tag--semi'],
   [Category1Code.FINISHED]:     styles['cat1_tag--done'],
   [Category1Code.PACKING]:      styles['cat1_tag--raw'],
+  [Category1Code.ASSET]:        styles['cat1_tag--asset'],
 };
 
 // ──────────────────────────────────────────────
@@ -292,6 +293,12 @@ function isFinishedCategory(code: Category1Code | '' | undefined): boolean {
   return code === Category1Code.FINISHED;
 }
 
+function getRecommendedBusinessClassByCategory1(code: Category1Code | '' | undefined): BusinessClass {
+  if (code === Category1Code.PACKING) return 'consumable';
+  if (code === Category1Code.ASSET) return 'fixed_asset';
+  return 'production_material';
+}
+
 function isFinishedSkuRecord(sku: Sku): boolean {
   if (sku.category1Code) {
     return sku.category1Code === Category1Code.FINISHED;
@@ -418,9 +425,9 @@ function applyBusinessClassPreset(form: SkuFormData, businessClass: BusinessClas
 }
 
 function buildSkuFormData(sku: Sku, catData: SkuCategory[]): SkuFormData {
-  const businessClass = sku.businessClass ?? 'production_material';
-  const preset = getBusinessClassPreset(businessClass);
   const cat1Code = getCat1CodeFromId(catData, sku.category1Id) ?? '';
+  const businessClass = sku.businessClass ?? getRecommendedBusinessClassByCategory1(cat1Code);
+  const preset = getBusinessClassPreset(businessClass);
   return {
     ...createEmptyForm(businessClass),
     name: sku.name,
@@ -1100,6 +1107,12 @@ export default function SkuPage() {
             {statsData?.finished ?? '—'}
           </span>
         </div>
+        <div className={styles.stats_card}>
+          <span className={styles.stats_card_label}>固定资产</span>
+          <span className={`${styles.stats_card_value} ${styles['stats_card_value--teal']}`}>
+            {statsData?.fixedAsset ?? '—'}
+          </span>
+        </div>
 
         <div className={styles.stats_badges}>
           {statsData && statsData.noSafetyStock > 0 && (
@@ -1446,14 +1459,17 @@ function SkuFormDrawerContent({
   const handleCat1Change = useCallback(
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       const nextCategory1Code = e.target.value as Category1Code | '';
-      onChange((f) => ({
-        ...f,
-        category1Code: nextCategory1Code,
-        category2Id: '',
-        brandScope: nextCategory1Code === Category1Code.FINISHED ? f.brandScope : 'factory',
-        brandCustomerId: nextCategory1Code === Category1Code.FINISHED ? f.brandCustomerId : '',
-        customerRefs: nextCategory1Code === Category1Code.FINISHED ? f.customerRefs : [],
-      }));
+      onChange((f) => {
+        const nextBusinessClass = getRecommendedBusinessClassByCategory1(nextCategory1Code);
+        return applyBusinessClassPreset({
+          ...f,
+          category1Code: nextCategory1Code,
+          category2Id: '',
+          brandScope: nextCategory1Code === Category1Code.FINISHED ? f.brandScope : 'factory',
+          brandCustomerId: nextCategory1Code === Category1Code.FINISHED ? f.brandCustomerId : '',
+          customerRefs: nextCategory1Code === Category1Code.FINISHED ? f.customerRefs : [],
+        }, nextBusinessClass);
+      });
     },
     [onChange],
   );
@@ -1554,12 +1570,9 @@ function SkuFormDrawerContent({
           {cat2Options.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
-          {cat2Options.length === 0 && Object.entries(Category2Label).map(([code, label]) => (
-            <option key={code} value={code}>{label}</option>
-          ))}
         </select>
         <span className={styles.form_hint}>
-          二级品类为必填项，影响成本占比分析和采购建议分组。
+          二级品类为必填项；如当前一级分类下暂无可选项，请先到“类目配置”维护对应二级品类。
         </span>
       </div>
 

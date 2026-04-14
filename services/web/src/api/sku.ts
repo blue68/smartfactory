@@ -22,6 +22,7 @@ export interface SkuStats {
   rawMaterial: number;
   semiProduct: number;
   finished: number;
+  fixedAsset: number;
   noSafetyStock: number;
   incomplete: number;
 }

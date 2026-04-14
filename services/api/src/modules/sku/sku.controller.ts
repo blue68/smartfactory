@@ -97,15 +97,17 @@ const CreateSkuSchema = z.object({
  *   semi_finished → SEMIFIN
  *   finished      → FINISHED
  *   packing       → PACKING
+ *   fixed_asset   → ASSET
  */
 const SKU_TYPE_TO_CATEGORY_CODE: Record<string, string> = {
   raw_material:  'MATERIAL',
   semi_finished: 'SEMIFIN',
   finished:      'FINISHED',
   packing:       'PACKING',
+  fixed_asset:   'ASSET',
 };
 
-const SKU_TYPE_VALUES = ['raw_material', 'semi_finished', 'finished', 'packing'] as const;
+const SKU_TYPE_VALUES = ['raw_material', 'semi_finished', 'finished', 'packing', 'fixed_asset'] as const;
 
 const ListSkuQuerySchema = PaginationSchema.extend({
   category1Id: z.coerce.number().int().positive().optional(),

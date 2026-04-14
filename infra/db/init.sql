@@ -1265,7 +1265,8 @@ INSERT INTO `sku_categories` (`tenant_id`, `level`, `parent_id`, `code`, `name`,
   (0, 1, NULL, 'MATERIAL',  '原材料',   10),
   (0, 1, NULL, 'SEMIFIN',   '半成品',   20),
   (0, 1, NULL, 'FINISHED',  '成品',     30),
-  (0, 1, NULL, 'PACKING',   '包材辅料', 40);
+  (0, 1, NULL, 'PACKING',   '包材辅料', 40),
+  (0, 1, NULL, 'ASSET',     '固定资产', 50);
 
 INSERT INTO `sku_categories` (`tenant_id`, `level`, `parent_id`, `code`, `name`, `sort_order`) VALUES
   (0, 2, 1, 'FABRIC',   '面料',     10),
@@ -1279,7 +1280,7 @@ INSERT INTO `sku_categories` (`tenant_id`, `level`, `parent_id`, `code`, `name`,
   (0, 2, 4, 'CARTON',   '纸箱',     10);
 
 -- ── 6. 测试 SKU 数据 ────────────────────────────────────────────────────────
--- category IDs: 1=MATERIAL, 2=SEMIFIN, 3=FINISHED, 4=PACKING
+-- category IDs: 1=MATERIAL, 2=SEMIFIN, 3=FINISHED, 4=PACKING, 5=ASSET
 -- category2 IDs: 5=FABRIC, 6=LEATHER, 7=SPONGE, 8=WOOD, 9=METAL, 10=SEMIFABRIC, 11=SOFA, 12=CHAIR, 13=CARTON
 INSERT INTO `skus` (`tenant_id`, `sku_code`, `name`, `spec`, `category1_id`, `category2_id`, `stock_unit`, `purchase_unit`, `production_unit`, `has_dye_lot`, `safety_stock`, `status`, `created_by`) VALUES
   (1, 'RM-00012', '红橡木板', '200x2400mm，厚18mm', 1, 8, '张', '张', 'mm²', 0, 10, 'active', 1),

@@ -119,6 +119,7 @@
 .stats_card_value--blue  { color: #2563eb; }
 .stats_card_value--orange{ color: #f97316; }
 .stats_card_value--green { color: #16a34a; }
+.stats_card_value--teal  { color: #0f766e; }
 
 .stats_badges {
   display: flex;
@@ -256,6 +257,7 @@
 .cat1_tag--raw  { background: #eff6ff; color: #1d4ed8; }
 .cat1_tag--semi { background: #fff7ed; color: #c2410c; }
 .cat1_tag--done { background: #f0fdf4; color: #15803d; }
+.cat1_tag--asset { background: #ecfeff; color: #0f766e; }
 
 .safety_warn {
   display: inline-flex;

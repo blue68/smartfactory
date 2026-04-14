@@ -173,40 +173,51 @@ SET
   s.business_class = CASE
     WHEN c.code IN ('MATERIAL', 'SEMIFIN', 'FINISHED') THEN 'production_material'
     WHEN c.code = 'PACKING' THEN 'consumable'
+    WHEN c.code = 'ASSET' THEN 'fixed_asset'
     ELSE s.business_class
   END,
   s.control_mode = CASE
     WHEN c.code IN ('MATERIAL', 'SEMIFIN', 'FINISHED') THEN 'mrp'
     WHEN c.code = 'PACKING' THEN 'stock_only'
+    WHEN c.code = 'ASSET' THEN 'asset'
     ELSE s.control_mode
   END,
   s.allow_bom_component = CASE
     WHEN c.code IN ('MATERIAL', 'SEMIFIN') THEN 1
-    WHEN c.code IN ('FINISHED', 'PACKING') THEN 0
+    WHEN c.code IN ('FINISHED', 'PACKING', 'ASSET') THEN 0
     ELSE s.allow_bom_component
   END,
   s.allow_purchase = CASE
     WHEN c.code = 'FINISHED' THEN 0
+    WHEN c.code = 'ASSET' THEN 1
     ELSE 1
   END,
   s.allow_inventory = CASE
     WHEN c.code = 'FINISHED' THEN 1
+    WHEN c.code = 'ASSET' THEN 0
     ELSE s.allow_inventory
   END,
   s.allow_production_issue = CASE
     WHEN c.code IN ('MATERIAL', 'SEMIFIN') THEN 1
-    WHEN c.code IN ('FINISHED', 'PACKING') THEN 0
+    WHEN c.code IN ('FINISHED', 'PACKING', 'ASSET') THEN 0
     ELSE s.allow_production_issue
   END,
-  s.requires_asset_acceptance = 0,
+  s.requires_asset_acceptance = CASE
+    WHEN c.code = 'ASSET' THEN 1
+    ELSE 0
+  END,
   s.default_warehouse_type = CASE
     WHEN c.code IN ('MATERIAL', 'SEMIFIN') THEN 'raw_material'
     WHEN c.code = 'FINISHED' THEN 'finished'
     WHEN c.code = 'PACKING' THEN 'consumable'
+    WHEN c.code = 'ASSET' THEN 'asset_pending'
     ELSE s.default_warehouse_type
   END,
-  s.asset_tracking_mode = 'none'
-WHERE c.code IN ('MATERIAL', 'SEMIFIN', 'FINISHED', 'PACKING');
+  s.asset_tracking_mode = CASE
+    WHEN c.code = 'ASSET' THEN 'serial'
+    ELSE 'none'
+  END
+WHERE c.code IN ('MATERIAL', 'SEMIFIN', 'FINISHED', 'PACKING', 'ASSET');
 
 DROP PROCEDURE IF EXISTS `safe_add_column_m20260413_phase1`;
 DROP PROCEDURE IF EXISTS `safe_add_index_m20260413_phase1`;

@@ -9,7 +9,7 @@ export interface SkuListFilter {
   category1Id?: number;
   category2Id?: number;
   /**
-   * Filter by level-1 category code (e.g. 'MATERIAL' | 'SEMIFIN' | 'FINISHED' | 'PACKING').
+   * Filter by level-1 category code (e.g. 'MATERIAL' | 'SEMIFIN' | 'FINISHED' | 'PACKING' | 'ASSET').
    * Translated to a category1_id sub-query at query time so no schema change is needed.
    * Ignored when category1Id is also supplied (category1Id takes precedence).
    */
@@ -506,6 +506,7 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
     rawMaterial: number;
     semiProduct: number;
     finished: number;
+    fixedAsset: number;
     noSafetyStock: number;
     incomplete: number;
   }> {
@@ -518,6 +519,7 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
       [rawRow],
       [semiRow],
       [finRow],
+      [assetRow],
       [noStockRow],
       [incompleteRow],
     ] = await Promise.all([
@@ -550,6 +552,13 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
       ),
       db.query<Array<{ cnt: number }>>(
         `SELECT COUNT(*) AS cnt
+         FROM skus s
+         JOIN sku_categories c1 ON c1.id = s.category1_id
+         WHERE s.tenant_id = ? AND s.status != 'inactive' AND c1.code = 'ASSET'`,
+        [tid],
+      ),
+      db.query<Array<{ cnt: number }>>(
+        `SELECT COUNT(*) AS cnt
          FROM skus
          WHERE tenant_id = ? AND status != 'inactive'
            AND (safety_stock IS NULL OR safety_stock = 0)`,
@@ -569,6 +578,7 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
       rawMaterial:  Number(rawRow?.cnt        ?? 0),
       semiProduct:  Number(semiRow?.cnt       ?? 0),
       finished:     Number(finRow?.cnt        ?? 0),
+      fixedAsset:   Number(assetRow?.cnt      ?? 0),
       noSafetyStock: Number(noStockRow?.cnt   ?? 0),
       incomplete:   Number(incompleteRow?.cnt ?? 0),
     };
