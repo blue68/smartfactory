@@ -51,6 +51,7 @@ export interface ReturnOrder {
 export interface CreateReturnOrderPayload {
   returnType: 'purchase_return' | 'production_return';
   sourcePoId?: number;
+  sourceInspectionId?: number;
   supplierId?: number;
   returnReason: string;
   notes?: string;
@@ -67,6 +68,8 @@ export interface ReturnOrderListParams {
   status?: string;
   returnType?: string;
   supplierId?: number;
+  sourcePoId?: number;
+  sourceInspectionId?: number;
   dateFrom?: string;
   dateTo?: string;
   keyword?: string;

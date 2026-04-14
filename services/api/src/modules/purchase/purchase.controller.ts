@@ -179,6 +179,15 @@ export class PurchaseController {
     const q = PaginationSchema.extend({
       status: z.string().optional(),
       poId: z.coerce.number().int().positive().optional(),
+      assetAcceptanceOnly: z.preprocess(
+        (value) => {
+          if (value === undefined) return undefined;
+          if (typeof value === 'boolean') return value;
+          const normalized = String(value).trim().toLowerCase();
+          return ['true', '1', 'yes', 'on'].includes(normalized);
+        },
+        z.boolean().optional(),
+      ),
     }).parse(req.query);
     const { list, total } = await this.svc(req).listReceipts(q);
     success(res, buildPaginated(list, total, q.page, q.pageSize));

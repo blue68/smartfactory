@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   useReturnOrderList,
   useReturnOrderDetail,
@@ -9,6 +9,8 @@ import {
   type ReturnOrder,
   type ReturnOrderItem,
 } from '@/api/returnOrder';
+import { useInspectionDetail } from '@/api/incomingInspection';
+import { usePurchaseOrderDetail } from '@/api/purchase';
 import { useWarehouseOptions, useLocationOptions } from '@/api/inventory';
 import { useAppStore } from '@/stores/appStore';
 import Drawer from '@/components/common/Drawer';
@@ -266,8 +268,12 @@ function ActionButtons({
 
 export default function ReturnOrderPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const setPageTitle = useAppStore((state) => state.setPageTitle);
   const showToast = useAppStore((state) => state.showToast);
+  const returnIdParam = Number(searchParams.get('returnId') ?? '') || null;
+  const sourcePoIdParam = Number(searchParams.get('poId') ?? '') || null;
+  const sourceInspectionIdParam = Number(searchParams.get('inspectionId') ?? '') || null;
 
   const [statusFilter, setStatusFilter] = useState<ReturnStatus>('');
   const [typeFilter, setTypeFilter] = useState<ReturnType>('');
@@ -285,11 +291,15 @@ export default function ReturnOrderPage() {
   const { data, isLoading } = useReturnOrderList({
     status: statusFilter || undefined,
     returnType: typeFilter || undefined,
+    sourcePoId: sourcePoIdParam ?? undefined,
+    sourceInspectionId: sourceInspectionIdParam ?? undefined,
     keyword: keyword.trim() || undefined,
     page,
     pageSize: 20,
   });
   const { data: detail, isLoading: detailLoading } = useReturnOrderDetail(selectedId);
+  const { data: sourcePoDetail } = usePurchaseOrderDetail(sourcePoIdParam);
+  const { data: sourceInspectionDetail } = useInspectionDetail(sourceInspectionIdParam);
   const confirmMutation = useConfirmReturnOrder();
   const shipMutation = useShipReturnOrder();
   const completeMutation = useCompleteReturnOrder();
@@ -302,6 +312,11 @@ export default function ReturnOrderPage() {
   useEffect(() => {
     setPageTitle('退货管理');
   }, [setPageTitle]);
+
+  useEffect(() => {
+    if (!returnIdParam) return;
+    setSelectedId(returnIdParam);
+  }, [returnIdParam]);
 
   const list = (data?.list ?? EMPTY_RETURN_ORDERS) as ReturnOrder[];
   const total = Number(data?.total ?? 0);
@@ -319,6 +334,22 @@ export default function ReturnOrderPage() {
     };
   }, [list, total]);
 
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (selectedId) {
+      next.set('returnId', String(selectedId));
+    } else {
+      next.delete('returnId');
+    }
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, selectedId, setSearchParams]);
+
+  const openDrawer = useCallback((id: number) => {
+    setSelectedId(id);
+  }, []);
+
   const handleConfirm = useCallback(async (record: ReturnOrder) => {
     try {
       await confirmMutation.mutateAsync(record.id);
@@ -327,6 +358,38 @@ export default function ReturnOrderPage() {
       showToast({ type: 'error', message: (error as Error).message || '确认退货失败' });
     }
   }, [confirmMutation, showToast]);
+
+  const activeFilters = useMemo(() => {
+    const filters: Array<{ key: 'poId' | 'inspectionId'; label: string }> = [];
+    if (sourcePoIdParam) {
+      const resolvedPoNo = list.find((record) => Number(record.sourcePoId) === sourcePoIdParam)?.poNo
+        ?? sourcePoDetail?.poNo;
+      filters.push({
+        key: 'poId',
+        label: resolvedPoNo ? `采购单 ${resolvedPoNo}` : `采购单 #${sourcePoIdParam}`,
+      });
+    }
+    if (sourceInspectionIdParam) {
+      const resolvedInspectionNo = list.find((record) => Number(record.sourceInspectionId) === sourceInspectionIdParam)?.inspectionNo
+        ?? sourceInspectionDetail?.inspectionNo;
+      filters.push({
+        key: 'inspectionId',
+        label: resolvedInspectionNo ? `质检单 ${resolvedInspectionNo}` : `质检单 #${sourceInspectionIdParam}`,
+      });
+    }
+    return filters;
+  }, [list, sourceInspectionDetail?.inspectionNo, sourceInspectionIdParam, sourcePoDetail?.poNo, sourcePoIdParam]);
+
+  const clearSearchParamFilter = useCallback((key: 'poId' | 'inspectionId') => {
+    const next = new URLSearchParams(searchParams);
+    next.delete(key);
+    if (key === 'inspectionId') {
+      next.delete('returnId');
+      setSelectedId(null);
+    }
+    setPage(1);
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const openShipModal = useCallback((record: ReturnOrder) => {
     setShipTarget(record);
@@ -407,7 +470,7 @@ export default function ReturnOrderPage() {
       width: 170,
       render: (_, record) => (
         <div className={styles.primaryCell}>
-          <button className={styles.linkButton} onClick={() => setSelectedId(record.id)}>
+          <button className={styles.linkButton} onClick={() => openDrawer(record.id)}>
             {record.returnNo}
           </button>
           <span className={styles.subtleText}>{TYPE_LABEL[record.returnType] ?? record.returnType}</span>
@@ -475,7 +538,7 @@ export default function ReturnOrderPage() {
       width: 170,
       render: (_, record) => (
         <div className={styles.actionRow}>
-          <Button size="sm" variant="text" onClick={() => setSelectedId(record.id)}>
+          <Button size="sm" variant="text" onClick={() => openDrawer(record.id)}>
             详情
           </Button>
           <ActionButtons
@@ -495,6 +558,7 @@ export default function ReturnOrderPage() {
     confirmMutation.isPending,
     handleConfirm,
     openCompleteModal,
+    openDrawer,
     openShipModal,
     shipMutation.isPending,
   ]);
@@ -630,13 +694,29 @@ export default function ReturnOrderPage() {
           ))}
         </div>
 
+        {activeFilters.length ? (
+          <div className={styles.activeFilters} aria-label="当前来源筛选">
+            {activeFilters.map((filter) => (
+              <button
+                key={filter.key}
+                type="button"
+                className={styles.activeFilterChip}
+                onClick={() => clearSearchParamFilter(filter.key)}
+              >
+                <span>{filter.label}</span>
+                <span aria-hidden="true">×</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <Table<ReturnOrder>
           columns={columns}
           dataSource={list}
           rowKey="id"
           loading={isLoading}
           pagination={{ page, pageSize: 20, total, onChange: setPage }}
-          emptyText="暂无退货单"
+          emptyText={activeFilters.length ? '当前来源单据下暂无退货单' : '暂无退货单'}
         />
       </section>
 
@@ -649,11 +729,11 @@ export default function ReturnOrderPage() {
           <div className={styles.drawerFooter}>
             {activeRecord?.sourcePoId ? (
               <Button variant="text" onClick={() => navigate(`/purchase/orders?orderId=${activeRecord.sourcePoId}`)}>
-                查看采购订单
+                查看采购单
               </Button>
             ) : null}
             {activeRecord?.sourceInspectionId ? (
-              <Button variant="text" onClick={() => navigate('/purchase/incoming-inspection')}>
+              <Button variant="text" onClick={() => navigate(`/purchase/incoming-inspection?inspectionId=${activeRecord.sourceInspectionId}`)}>
                 查看来料质检
               </Button>
             ) : null}

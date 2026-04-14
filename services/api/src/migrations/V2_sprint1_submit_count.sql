@@ -4,15 +4,31 @@
 -- ============================================================
 
 -- ── 1. sales_orders 新增提交审批计数字段 ──────────────────────────────────
--- MySQL 8.0 不支持 ADD COLUMN IF NOT EXISTS，执行前请先检查：
---   SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
---   WHERE TABLE_SCHEMA = DATABASE()
---     AND TABLE_NAME   = 'sales_orders'
---     AND COLUMN_NAME  = 'submit_count';
--- 若返回 0 则执行以下 ALTER，否则跳过。
-ALTER TABLE sales_orders
-  ADD COLUMN submit_count TINYINT UNSIGNED NOT NULL DEFAULT 0
-    COMMENT '提交审批次数，达到上限（3）时自动关闭订单，防止反复滥提';
+DROP PROCEDURE IF EXISTS `safe_add_submit_count_v2s1`;
+DELIMITER $$
+CREATE PROCEDURE `safe_add_submit_count_v2s1`()
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'sales_orders'
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'sales_orders'
+      AND COLUMN_NAME = 'submit_count'
+  ) THEN
+    ALTER TABLE sales_orders
+      ADD COLUMN submit_count TINYINT UNSIGNED NOT NULL DEFAULT 0
+        COMMENT '提交审批次数，达到上限（3）时自动关闭订单，防止反复滥提';
+  END IF;
+END$$
+DELIMITER ;
+
+CALL `safe_add_submit_count_v2s1`();
+DROP PROCEDURE IF EXISTS `safe_add_submit_count_v2s1`;
 
 -- ── 2. audit_logs 审计日志表 ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS audit_logs (

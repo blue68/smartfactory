@@ -10,6 +10,7 @@ import {
   useCreateConsumableIssue,
   useExecuteConsumableIssue,
 } from '@/api/consumables';
+import { useDepartmentList } from '@/api/departments';
 import { useLocationOptions, useWarehouseOptions } from '@/api/inventory';
 import type {
   ConsumableIssueItem,
@@ -22,6 +23,7 @@ import Table from '@/components/common/Table';
 import Drawer from '@/components/common/Drawer';
 import Button from '@/components/common/Button';
 import Tag from '@/components/common/Tag';
+import { buildDepartmentMap, formatDepartmentLabel, normalizeDepartmentId } from '@/utils/department';
 import styles from './ConsumableIssuePage.module.css';
 
 interface DraftIssueLine {
@@ -141,11 +143,13 @@ export default function ConsumableIssuePage() {
   const createMutation = useCreateConsumableIssue();
   const approveMutation = useApproveConsumableIssue();
   const executeMutation = useExecuteConsumableIssue();
+  const departmentQuery = useDepartmentList({ page: 1, pageSize: 200 });
   const warehouseQuery = useWarehouseOptions();
   const locationQuery = useLocationOptions(undefined);
 
   const issueList = issueQuery.data?.list ?? [];
   const stockList = stockQuery.data?.list ?? [];
+  const departments = departmentQuery.data?.list ?? [];
   const warehouseOptions = warehouseQuery.data ?? [];
   const locationOptions = locationQuery.data ?? [];
   const detail = detailQuery.data?.id === selectedIssueId ? detailQuery.data : null;
@@ -159,10 +163,29 @@ export default function ConsumableIssuePage() {
       ].filter(Boolean).join('；')
     : null;
   const draftLineRefs = useRef<Record<string, HTMLElement | null>>({});
+  const departmentMap = useMemo(() => buildDepartmentMap(departments), [departments]);
   const stockByKey = useMemo(
     () => new Map(stockList.map((item) => [getStockKey(item), item])),
     [stockList],
   );
+  const departmentOptions = useMemo(() => {
+    const sourceIds = new Set<number>();
+    departments
+      .filter((item) => item.status === 'active')
+      .forEach((item) => sourceIds.add(item.id));
+    issueList.forEach((item) => {
+      const departmentId = normalizeDepartmentId(item.requestDepartmentId);
+      if (departmentId) sourceIds.add(departmentId);
+    });
+    const detailDepartmentId = normalizeDepartmentId(detail?.requestDepartmentId);
+    if (detailDepartmentId) sourceIds.add(detailDepartmentId);
+    const formDepartmentId = normalizeDepartmentId(form.requestDepartmentId);
+    if (formDepartmentId) sourceIds.add(formDepartmentId);
+    return Array.from(sourceIds)
+      .map((departmentId) => departmentMap.get(departmentId))
+      .filter(Boolean)
+      .sort((left, right) => Number(left?.sortOrder ?? 0) - Number(right?.sortOrder ?? 0) || Number(left?.id ?? 0) - Number(right?.id ?? 0));
+  }, [departmentMap, departments, detail?.requestDepartmentId, form.requestDepartmentId, issueList]);
 
   const issueColumns: Column<ConsumableIssueOrder>[] = useMemo(() => [
     {
@@ -190,7 +213,7 @@ export default function ConsumableIssuePage() {
       key: 'requestDepartmentId',
       title: '领用部门',
       width: 120,
-      render: (value) => value ? `#${value as number}` : '未填写',
+      render: (value) => formatDepartmentLabel(value as string | number | null, departmentMap),
     },
     {
       key: 'totalQtyRequested',
@@ -218,7 +241,7 @@ export default function ConsumableIssuePage() {
       width: 180,
       render: (value) => String(value ?? '').slice(0, 19).replace('T', ' ') || '—',
     },
-  ], []);
+  ], [departmentMap]);
 
   const stockColumns: Column<ConsumableStockItem>[] = useMemo(() => [
     {
@@ -454,7 +477,7 @@ export default function ConsumableIssuePage() {
           <div className={styles.panelHeader}>
             <div>
               <h2>领用单列表</h2>
-              <p>按状态推进 `draft → approved → issued`，点击单号查看明细。</p>
+              <p>按状态推进“待审批 → 已审批 → 已发放”，点击单号查看明细。</p>
             </div>
             <div className={styles.filters}>
               <select value={issueStatus} onChange={(e) => { setIssueStatus(e.target.value); setIssuePage(1); }}>
@@ -567,7 +590,7 @@ export default function ConsumableIssuePage() {
                 <p>{detail.notes || '该领用单没有附加备注'}</p>
               </div>
               <div className={styles.metaGrid}>
-                <div><span>部门</span><strong>{detail.requestDepartmentId ? `#${detail.requestDepartmentId}` : '未填写'}</strong></div>
+                <div><span>部门</span><strong>{formatDepartmentLabel(detail.requestDepartmentId, departmentMap)}</strong></div>
                 <div><span>审批时间</span><strong>{detail.approvedAt ? String(detail.approvedAt).slice(0, 19).replace('T', ' ') : '—'}</strong></div>
                 <div><span>出库时间</span><strong>{detail.issuedAt ? String(detail.issuedAt).slice(0, 19).replace('T', ' ') : '—'}</strong></div>
                 <div><span>创建时间</span><strong>{detail.createdAt ? String(detail.createdAt).slice(0, 19).replace('T', ' ') : '—'}</strong></div>
@@ -662,12 +685,31 @@ export default function ConsumableIssuePage() {
           ) : null}
           <div className={styles.formGrid}>
             <label>
-              <span>领用部门 ID</span>
-              <input
-                value={form.requestDepartmentId}
-                onChange={(e) => setForm((prev) => ({ ...prev, requestDepartmentId: e.target.value }))}
-                placeholder="例如 21"
-              />
+              <span>领用部门</span>
+              <div className={`${styles.selectWithInput} ${normalizeDepartmentId(form.requestDepartmentId) ? styles.selectOnly : ''}`}>
+                <select
+                  value={form.requestDepartmentId}
+                  onChange={(e) => setForm((prev) => ({ ...prev, requestDepartmentId: e.target.value }))}
+                >
+                  <option value="">未指定</option>
+                  {form.requestDepartmentId && !departmentOptions.some((department) => String(department?.id) === form.requestDepartmentId) ? (
+                    <option value={form.requestDepartmentId}>{formatDepartmentLabel(form.requestDepartmentId, departmentMap)}</option>
+                  ) : null}
+                  {departmentOptions.map((department) => (
+                    <option key={department!.id} value={department!.id}>
+                      {formatDepartmentLabel(department!.id, departmentMap)}
+                    </option>
+                  ))}
+                </select>
+                {!normalizeDepartmentId(form.requestDepartmentId) ? (
+                  <input
+                    value={form.requestDepartmentId}
+                    onChange={(e) => setForm((prev) => ({ ...prev, requestDepartmentId: e.target.value }))}
+                    placeholder="也可直接填写部门 ID"
+                    inputMode="numeric"
+                  />
+                ) : null}
+              </div>
             </label>
             <label>
               <span>领用用途</span>

@@ -9,6 +9,9 @@ import {
   PurchaseSettlementStatusLabel,
   type PurchaseSettlementStatus,
   type PurchaseSettlementListQuery,
+  useMatchList,
+  usePurchaseOrderDetail,
+  useCreatePurchaseSettlement,
   usePurchaseSettlementList,
   useConfirmPurchaseSettlement,
   usePayPurchaseSettlement,
@@ -99,12 +102,27 @@ export default function PurchaseSettlementPage() {
   };
 
   const { data, isLoading, error } = usePurchaseSettlementList(query);
+  const { data: matchData } = useMatchList(
+    poIdFilter
+      ? { poId: poIdFilter, page: 1, pageSize: 20 }
+      : undefined,
+  );
+  const { data: filterOrderDetail } = usePurchaseOrderDetail(poIdFilter ?? null);
+  const createMutation = useCreatePurchaseSettlement();
   const confirmMutation = useConfirmPurchaseSettlement();
   const payMutation = usePayPurchaseSettlement();
   const cancelMutation = useCancelPurchaseSettlement();
 
   const list = useMemo(() => data?.list ?? [], [data?.list]);
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
+  const activePoNo = useMemo(
+    () => filterOrderDetail?.poNo ?? list.find((item) => item.poId === poIdFilter)?.poNo ?? null,
+    [filterOrderDetail?.poNo, list, poIdFilter],
+  );
+  const matchedRecord = useMemo(
+    () => matchData?.list.find((item) => item.matchStatus === 'matched') ?? null,
+    [matchData?.list],
+  );
   const stats = useMemo(() => {
     const totalAmount = list.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0);
     return {
@@ -132,6 +150,20 @@ export default function PurchaseSettlementPage() {
     try {
       await purchaseApi.exportSettlementsCsv(query);
       showToast({ type: 'success', message: '采购结算 CSV 已导出' });
+    } catch (err) {
+      showToast({ type: 'error', message: (err as Error).message });
+    }
+  };
+
+  const handleCreateSettlement = async () => {
+    if (!matchedRecord) return;
+    try {
+      await createMutation.mutateAsync({ matchId: matchedRecord.matchId });
+      showToast({
+        type: 'success',
+        message: `已从 ${matchedRecord.poNo} 创建采购结算单`,
+      });
+      setPage(1);
     } catch (err) {
       showToast({ type: 'error', message: (err as Error).message });
     }
@@ -216,7 +248,9 @@ export default function PurchaseSettlementPage() {
 
       {poIdFilter && (
         <div className={styles.activeFilterBar}>
-          <span className={styles.activeFilterChip}>采购单 #{poIdFilter}</span>
+          <span className={styles.activeFilterChip}>
+            {activePoNo ? `采购单 ${activePoNo}` : `采购单 #${poIdFilter}`}
+          </span>
           <button
             type="button"
             className={styles.activeFilterClear}
@@ -265,7 +299,24 @@ export default function PurchaseSettlementPage() {
             ) : list.length === 0 ? (
               <tr>
                 <td colSpan={COL_SPAN}>
-                  <div className={styles.emptyState}>暂无采购结算单</div>
+                  <div className={styles.emptyState}>
+                    <div>暂无采购结算单</div>
+                    {poIdFilter && matchedRecord ? (
+                      <div className={styles.emptyAction}>
+                        <span className={styles.emptyHint}>
+                          当前采购单已存在三单匹配记录 {matchedRecord.receiptNo}，可直接创建结算单。
+                        </span>
+                        <button
+                          type="button"
+                          className={`${styles.actionBtn} ${styles['actionBtn--primary']}`}
+                          onClick={() => void handleCreateSettlement()}
+                          disabled={createMutation.isPending}
+                        >
+                          {createMutation.isPending ? '创建中...' : '创建采购结算单'}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             ) : (
@@ -276,11 +327,24 @@ export default function PurchaseSettlementPage() {
                   <td>{item.supplierName}</td>
                   <td className={styles.cellMono}>
                     <div>{item.receiptNo}</div>
+                    {item.deliveryNo ? (
+                      <div className={styles.inlineMeta}>送货单：{item.deliveryNo}</div>
+                    ) : null}
                     {item.dyeLotSummary?.length ? (
                       <div className={styles.inlineMeta}>缸号：{item.dyeLotSummary.join('、')}</div>
                     ) : null}
+                    {item.returnOrderCount > 0 ? (
+                      <div className={styles.inlineMeta}>
+                        采购单退货：{item.returnOrderCount} 单 / 已完成 {item.completedReturnOrderCount} 单 / 数量 {item.returnQty}
+                      </div>
+                    ) : null}
                   </td>
-                  <td className={styles.cellAmount}>{formatAmount(item.totalAmount)}</td>
+                  <td className={styles.cellAmount}>
+                    <div>{formatAmount(item.totalAmount)}</div>
+                    {item.returnOrderCount > 0 ? (
+                      <div className={styles.inlineMeta}>退货金额：{formatAmount(item.returnAmount)}</div>
+                    ) : null}
+                  </td>
                   <td>
                     <span className={`${styles.badge} ${BADGE_CLASS[item.status]}`}>
                       {PurchaseSettlementStatusLabel[item.status]}
@@ -296,6 +360,20 @@ export default function PurchaseSettlementPage() {
                         onClick={() => navigate(`/purchase/match?poId=${item.poId}&matchId=${item.matchId}`)}
                       >
                         查看匹配
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.actionBtn}
+                        onClick={() => navigate(`/purchase/receipts?receiptId=${item.receiptId}&poId=${item.poId}`)}
+                      >
+                        查看入库单
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.actionBtn}
+                        onClick={() => navigate(`/purchase/orders?orderId=${item.poId}`)}
+                      >
+                        查看采购单
                       </button>
                       {item.status === 'draft' && isBoss && (
                         <button

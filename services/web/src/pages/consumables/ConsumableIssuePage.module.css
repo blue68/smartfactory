@@ -291,6 +291,16 @@
   gap: 8px;
 }
 
+.selectWithInput {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.selectOnly {
+  grid-template-columns: 1fr;
+}
+
 .emptyBlock {
   padding: 18px;
   border-radius: 16px;
@@ -318,5 +328,9 @@
   .statusActions {
     width: 100%;
     flex-wrap: wrap;
+  }
+
+  .selectWithInput {
+    grid-template-columns: 1fr;
   }
 }

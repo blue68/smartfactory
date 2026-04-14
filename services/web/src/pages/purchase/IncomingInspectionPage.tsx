@@ -493,6 +493,7 @@ export default function IncomingInspectionPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { setPageTitle, showToast } = useAppStore();
+  const inspectionIdParam = Number(searchParams.get('inspectionId') ?? '') || null;
 
   // Filter state
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
@@ -543,6 +544,23 @@ export default function IncomingInspectionPage() {
       setCreateOpen(true);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!inspectionIdParam) return;
+    setSelectedId(inspectionIdParam);
+    setDrawerOpen(true);
+  }, [inspectionIdParam]);
+
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (drawerOpen && selectedId) next.set('inspectionId', String(selectedId));
+    else next.delete('inspectionId');
+
+    const nextQuery = next.toString();
+    if (nextQuery !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [drawerOpen, searchParams, selectedId, setSearchParams]);
 
   // API hooks
   const listParams = {
@@ -1356,6 +1374,15 @@ export default function IncomingInspectionPage() {
               <Button variant="ghost" size="md" onClick={closeDrawer}>
                 关闭
               </Button>
+              {currentRecord?.poId ? (
+                <Button
+                  variant="text"
+                  size="md"
+                  onClick={() => navigate(`/purchase/orders?orderId=${currentRecord.poId}`)}
+                >
+                  查看采购单
+                </Button>
+              ) : null}
               {currentRecord?.deliveryNoteId ? (
                 <Button
                   variant="text"
@@ -1392,6 +1419,15 @@ export default function IncomingInspectionPage() {
             </div>
           ) : (
             <div className={styles.drawer_footer_actions}>
+              {currentRecord?.poId ? (
+                <Button
+                  variant="text"
+                  size="md"
+                  onClick={() => navigate(`/purchase/orders?orderId=${currentRecord.poId}`)}
+                >
+                  查看采购单
+                </Button>
+              ) : null}
               {currentRecord?.deliveryNoteId ? (
                 <Button
                   variant="text"

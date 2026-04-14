@@ -19,8 +19,8 @@ interface ResolveWarehouseLocationInput {
   manager: SqlExecutor;
   tenantId: number;
   userId: number;
-  warehouseId?: number;
-  locationId?: number;
+  warehouseId?: number | string | null;
+  locationId?: number | string | null;
   sourceRef: string;
 }
 
@@ -206,8 +206,10 @@ export async function resolveWarehouseLocationBinding(
     sourceRef,
   } = input;
 
-  const hasWarehouse = Number.isInteger(warehouseId) && Number(warehouseId) > 0;
-  const hasLocation = Number.isInteger(locationId) && Number(locationId) > 0;
+  const normalizedWarehouseId = normalizePositiveInteger(warehouseId);
+  const normalizedLocationId = normalizePositiveInteger(locationId);
+  const hasWarehouse = normalizedWarehouseId !== null;
+  const hasLocation = normalizedLocationId !== null;
 
   if (hasWarehouse && hasLocation) {
     const [row] = await manager.query<Array<{
@@ -226,12 +228,12 @@ export async function resolveWarehouseLocationBinding(
          ON l.tenant_id = w.tenant_id
         AND l.warehouse_id = w.id
         AND l.id = ?
-       WHERE w.tenant_id = ?
+      WHERE w.tenant_id = ?
          AND w.id = ?
          AND w.status = 'active'
          AND l.status = 'active'
        LIMIT 1`,
-      [locationId, tenantId, warehouseId],
+      [normalizedLocationId, tenantId, normalizedWarehouseId],
     );
 
     if (!row) {
@@ -292,4 +294,10 @@ export async function resolveWarehouseLocationBinding(
     ...fallback,
     warningCode: 'INV_FALLBACK_DEFAULT_LOCATION',
   };
+}
+
+function normalizePositiveInteger(value: number | string | null | undefined): number | null {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }

@@ -18,6 +18,8 @@ export interface ListReturnOrderFilter {
   status?: string;
   returnType?: string;
   supplierId?: number;
+  sourcePoId?: number;
+  sourceInspectionId?: number;
   dateFrom?: string;
   dateTo?: string;
   keyword?: string;
@@ -26,6 +28,7 @@ export interface ListReturnOrderFilter {
 export interface CreateReturnOrderParams {
   returnType: 'purchase_return' | 'production_return';
   sourcePoId?: number;
+  sourceInspectionId?: number;
   supplierId?: number;
   returnReason: string;
   notes?: string;
@@ -171,6 +174,14 @@ export class ReturnOrderService {
     if (filter.supplierId) {
       conds.push('ro.supplier_id = ?');
       params.push(filter.supplierId);
+    }
+    if (filter.sourcePoId) {
+      conds.push('ro.source_po_id = ?');
+      params.push(filter.sourcePoId);
+    }
+    if (filter.sourceInspectionId) {
+      conds.push('ro.source_inspection_id = ?');
+      params.push(filter.sourceInspectionId);
     }
     if (filter.dateFrom) {
       conds.push('DATE(ro.created_at) >= ?');
@@ -326,12 +337,13 @@ export class ReturnOrderService {
         `INSERT INTO return_orders
            (tenant_id, return_no, return_type, source_po_id, source_inspection_id,
             supplier_id, status, return_reason, total_qty, notes, created_by, updated_by)
-         VALUES (?,?,?,?,NULL,?,'draft',?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,'draft',?,?,?,?,?)`,
         [
           this.tenantId,
           returnNo,
           params.returnType,
           params.sourcePoId ?? null,
+          params.sourceInspectionId ?? null,
           params.supplierId ?? null,
           params.returnReason,
           totalQty.toString(),

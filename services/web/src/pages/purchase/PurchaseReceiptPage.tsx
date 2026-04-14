@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  usePurchaseOrderDetail,
   usePurchaseReceiptDetail,
   usePurchaseReceiptList,
   useUpdatePurchaseReceiptNotes,
@@ -8,6 +9,7 @@ import {
 import type { PurchaseReceipt } from '@/types/models';
 import { useAppStore } from '@/stores/appStore';
 import { usePermission } from '@/hooks/usePermission';
+import { formatBusinessClassLabel, formatReceiptModeLabel } from '@/utils/purchaseFlow';
 import Drawer from '@/components/common/Drawer';
 import Table from '@/components/common/Table';
 import type { Column } from '@/components/common/Table';
@@ -51,6 +53,15 @@ function isReceiptNoteEditable(receivedAt?: string | null): boolean {
   return Date.now() <= createdAt.getTime() + 24 * 60 * 60 * 1000;
 }
 
+interface ReceiptBranchCard {
+  key: string;
+  title: string;
+  description: string;
+  actionLabel?: string;
+  action?: () => void;
+  tone: 'info' | 'warning' | 'neutral';
+}
+
 function ReceiptDetailDrawer({
   receiptId,
   canEditNotes,
@@ -58,6 +69,8 @@ function ReceiptDetailDrawer({
   onOpenOrder,
   onOpenMatch,
   onOpenDelivery,
+  onOpenAssetAcceptance,
+  onOpenConsumableIssue,
 }: {
   receiptId: number | null;
   canEditNotes: boolean;
@@ -65,6 +78,8 @@ function ReceiptDetailDrawer({
   onOpenOrder: (poId: number | null | undefined) => void;
   onOpenMatch: (poId: number | null | undefined, receiptId: number | null | undefined) => void;
   onOpenDelivery: (deliveryId: number | null | undefined, poId: number | null | undefined) => void;
+  onOpenAssetAcceptance: () => void;
+  onOpenConsumableIssue: () => void;
 }) {
   const { showToast } = useAppStore();
   const { data, isLoading } = usePurchaseReceiptDetail(receiptId);
@@ -76,6 +91,47 @@ function ReceiptDetailDrawer({
   }, [data?.id, data?.notes]);
 
   const noteEditable = canEditNotes && isReceiptNoteEditable(data?.receivedAt);
+  const branchCards = useMemo<ReceiptBranchCard[]>(() => {
+    if (!data?.items?.length) return [];
+    const assetCount = data.items.filter(
+      (item) => item.businessClass === 'fixed_asset' && item.receiptMode === 'asset_capitalization',
+    ).length;
+    const consumableInventoryCount = data.items.filter(
+      (item) => item.businessClass === 'consumable' && item.receiptMode === 'inventory',
+    ).length;
+    const directExpenseCount = data.items.filter((item) => item.receiptMode === 'direct_expense').length;
+
+    const cards: ReceiptBranchCard[] = [];
+    if (assetCount > 0) {
+      cards.push({
+        key: 'asset',
+        title: '固定资产验收',
+        description: `${assetCount} 条明细已进入资产待验收池，下一步去资产验收页建卡并进入资产台账。`,
+        actionLabel: '去资产验收',
+        action: onOpenAssetAcceptance,
+        tone: 'info',
+      });
+    }
+    if (consumableInventoryCount > 0) {
+      cards.push({
+        key: 'consumable',
+        title: '损耗品库存',
+        description: `${consumableInventoryCount} 条明细已入损耗品库存，后续可按部门在损耗品领用台发起领用。`,
+        actionLabel: '去损耗品领用',
+        action: onOpenConsumableIssue,
+        tone: 'warning',
+      });
+    }
+    if (directExpenseCount > 0) {
+      cards.push({
+        key: 'direct-expense',
+        title: '直耗收货',
+        description: `${directExpenseCount} 条明细按直耗收货完成，不进入库存，也不会进入资产验收。`,
+        tone: 'neutral',
+      });
+    }
+    return cards;
+  }, [data?.items, onOpenAssetAcceptance, onOpenConsumableIssue]);
 
   const handleSaveNotes = async () => {
     if (!data?.id || !noteDraft.trim()) {
@@ -109,7 +165,7 @@ function ReceiptDetailDrawer({
             <Button variant="text" onClick={() => onOpenDelivery(data.deliveryNoteId, data.poId)}>查看送货单</Button>
           ) : null}
           {data?.poId ? (
-            <Button variant="text" onClick={() => onOpenOrder(data.poId)}>查看采购订单</Button>
+            <Button variant="text" onClick={() => onOpenOrder(data.poId)}>查看采购单</Button>
           ) : null}
           <Button variant="ghost" onClick={onClose}>关闭</Button>
         </div>
@@ -184,6 +240,28 @@ function ReceiptDetailDrawer({
             )}
           </section>
 
+          {branchCards.length ? (
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>收货分流</h3>
+              <div className={styles.branchGrid}>
+                {branchCards.map((card) => (
+                  <article
+                    key={card.key}
+                    className={`${styles.branchCard} ${styles[`branchCard--${card.tone}`]}`}
+                  >
+                    <div className={styles.branchCardTitle}>{card.title}</div>
+                    <div className={styles.branchCardDesc}>{card.description}</div>
+                    {card.action && card.actionLabel ? (
+                      <Button size="sm" variant="text" onClick={card.action}>
+                        {card.actionLabel}
+                      </Button>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>入库明细</h3>
             <div className={styles.itemList}>
@@ -193,12 +271,18 @@ function ReceiptDetailDrawer({
                     <strong>{item.skuName ?? `SKU#${item.skuId}`}</strong>
                     <span>{item.skuCode ?? '—'}</span>
                   </div>
+                  <div className={styles.itemTags}>
+                    <span className={styles.itemTag}>{formatBusinessClassLabel(item.businessClass)}</span>
+                    <span className={styles.itemTag}>{formatReceiptModeLabel(item.receiptMode)}</span>
+                    {item.requiresAcceptance ? <span className={styles.itemTag}>需验收</span> : null}
+                  </div>
                   <div className={styles.itemMeta}>
                     <span>入库数量：{item.qtyReceived}</span>
                     <span>单位：{item.purchaseUnit}</span>
                     {item.dyeLotNo ? <span>缸号：{item.dyeLotNo}</span> : null}
                     <span>单价：{item.unitPrice}</span>
                     <span>金额：{item.amount ?? '—'}</span>
+                    {item.requestDepartmentName ? <span>需求部门：{item.requestDepartmentName}</span> : null}
                   </div>
                 </div>
               )) ?? <div className={styles.emptyHint}>暂无入库明细</div>}
@@ -213,6 +297,7 @@ function ReceiptDetailDrawer({
 export default function PurchaseReceiptPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { setPageTitle } = useAppStore();
   const { can } = usePermission();
   const canEditReceiptNotes = can('purchase:receipt:edit');
   const statusParam = searchParams.get('status') ?? '';
@@ -228,6 +313,11 @@ export default function PurchaseReceiptPage() {
     page,
     pageSize: 20,
   });
+  const { data: filterOrderDetail } = usePurchaseOrderDetail(poIdFilter ?? null);
+
+  useEffect(() => {
+    setPageTitle('入库记录');
+  }, [setPageTitle]);
 
   useEffect(() => {
     setStatusFilter(statusParam);
@@ -258,6 +348,10 @@ export default function PurchaseReceiptPage() {
 
   const list = data?.list ?? EMPTY_RECEIPTS;
   const total = data?.total ?? 0;
+  const activePoNo = useMemo(
+    () => filterOrderDetail?.poNo ?? list.find((item) => item.poId === poIdFilter)?.poNo ?? null,
+    [filterOrderDetail?.poNo, list, poIdFilter],
+  );
 
   const summary = useMemo(() => ({
     total: total || list.length,
@@ -331,13 +425,19 @@ export default function PurchaseReceiptPage() {
               <option value="pending">待确认</option>
               <option value="cancelled">已取消</option>
             </select>
-            {poIdFilter ? (
-              <Button size="sm" variant="ghost" onClick={() => setPoIdFilter(undefined)}>
-                清除采购单过滤
-              </Button>
-            ) : null}
           </div>
         </div>
+
+        {poIdFilter ? (
+          <div className={styles.activeFilterBar}>
+            <span className={styles.activeFilterChip}>
+              {activePoNo ? `采购单 ${activePoNo}` : `采购单 #${poIdFilter}`}
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => setPoIdFilter(undefined)}>
+              清除采购单过滤
+            </Button>
+          </div>
+        ) : null}
 
         <Table<PurchaseReceipt>
           columns={columns}
@@ -364,6 +464,12 @@ export default function PurchaseReceiptPage() {
         onOpenDelivery={(deliveryId, poId) => {
           if (!deliveryId) return;
           navigate(`/purchase/deliveries?deliveryId=${deliveryId}${poId ? `&poId=${poId}` : ''}`);
+        }}
+        onOpenAssetAcceptance={() => {
+          navigate('/assets/acceptance');
+        }}
+        onOpenConsumableIssue={() => {
+          navigate('/consumables/issues');
         }}
       />
     </div>

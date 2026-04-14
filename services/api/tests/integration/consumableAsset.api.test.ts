@@ -202,7 +202,7 @@ describe('损耗品 / 固定资产 API 集成测试', () => {
          has_dye_lot, use_fifo, safety_stock, status, business_class, control_mode, allow_bom_component,
          allow_purchase, asset_tracking_mode, requires_asset_acceptance, created_by, updated_by)
        VALUES
-        (?, ?, 'SKU-ASSET-INT', '固定资产集成物料', 1, 1, '台', '台', '台', 0, 0, 0, 'active', 'fixed_asset', 'asset_capitalization', 0, 1, 'serial', 1, 99001, 99001),
+        (?, ?, 'SKU-ASSET-INT', '固定资产集成物料', 1, 1, '台', '台', '台', 0, 0, 0, 'active', 'fixed_asset', 'asset', 0, 1, 'serial', 1, 99001, 99001),
         (?, ?, 'SKU-CONSUMABLE-INT', '损耗品集成物料', 1, 1, 'pcs', 'pcs', 'pcs', 0, 0, 0, 'active', 'consumable', 'stock_only', 0, 1, 'none', 0, 99001, 99001)
        ON DUPLICATE KEY UPDATE
          sku_code = VALUES(sku_code),
@@ -279,28 +279,30 @@ describe('损耗品 / 固定资产 API 集成测试', () => {
 
     await pool.execute(
       `INSERT INTO delivery_notes
-        (id, tenant_id, delivery_no, po_id, supplier_id, status, delivered_at, created_by, updated_by)
-       VALUES (?, ?, 'DN-CFA-INT', ?, ?, 'received', NOW(3), 99001, 99001)
+        (id, tenant_id, delivery_no, po_id, supplier_id, delivery_date, status, notes, created_by, updated_by)
+       VALUES (?, ?, 'DN-CFA-INT', ?, ?, CURDATE(), 'confirmed', '损耗品固定资产集成送货单', 99001, 99001)
        ON DUPLICATE KEY UPDATE
          po_id = VALUES(po_id),
          supplier_id = VALUES(supplier_id),
          status = VALUES(status),
-         delivered_at = VALUES(delivered_at),
+         delivery_date = VALUES(delivery_date),
+         notes = VALUES(notes),
          updated_by = VALUES(updated_by)`,
       [DELIVERY_NOTE_ID, TEST_TENANT_ID, PO_ID, SUPPLIER_ID],
     );
 
     await pool.execute(
       `INSERT INTO delivery_note_items
-        (id, tenant_id, delivery_note_id, sku_id, po_item_id, qty_delivered, purchase_unit, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, 2.0000, '台', 99001, 99001)
+        (id, tenant_id, delivery_note_id, sku_id, qty_delivered, purchase_unit, unit_price, amount, created_by, updated_by)
+       VALUES (?, ?, ?, ?, 2.0000, '台', 4500.0000, 9000.00, 99001, 99001)
        ON DUPLICATE KEY UPDATE
          sku_id = VALUES(sku_id),
-         po_item_id = VALUES(po_item_id),
          qty_delivered = VALUES(qty_delivered),
          purchase_unit = VALUES(purchase_unit),
+         unit_price = VALUES(unit_price),
+         amount = VALUES(amount),
          updated_by = VALUES(updated_by)`,
-      [DELIVERY_NOTE_ITEM_ID, TEST_TENANT_ID, DELIVERY_NOTE_ID, FIXED_ASSET_SKU_ID, PO_ITEM_ID],
+      [DELIVERY_NOTE_ITEM_ID, TEST_TENANT_ID, DELIVERY_NOTE_ID, FIXED_ASSET_SKU_ID],
     );
 
     await pool.execute(
@@ -380,8 +382,8 @@ describe('损耗品 / 固定资产 API 集成测试', () => {
 
     await pool.execute(
       `INSERT INTO inventory
-        (tenant_id, sku_id, warehouse_id, location_id, qty_on_hand, qty_reserved, qty_in_transit, created_by, updated_by)
-       VALUES (?, ?, ?, ?, 20.0000, 0.0000, 0.0000, 99001, 99001)
+        (tenant_id, sku_id, warehouse_id, location_id, qty_on_hand, qty_reserved, qty_in_transit, updated_by)
+       VALUES (?, ?, ?, ?, 20.0000, 0.0000, 0.0000, 99001)
        ON DUPLICATE KEY UPDATE
          qty_on_hand = VALUES(qty_on_hand),
          qty_reserved = VALUES(qty_reserved),

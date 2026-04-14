@@ -552,6 +552,12 @@
 
 .exec_input:focus { border-color: var(--border-focus); }
 
+.exec_hint {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
 /* ================================================================
    Responsive
 ================================================================ */

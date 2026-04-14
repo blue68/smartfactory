@@ -24,28 +24,48 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
   set +a
 fi
 
-# Docker Compose 环境中 DB_HOST 默认为 mysql 服务名
+# Docker Compose 容器内默认走 mysql:3306；宿主机直接执行时回退到 127.0.0.1:3307
 DB_HOST="${DB_HOST:-mysql}"
 DB_PORT="${DB_PORT:-3306}"
+DB_HOST_FALLBACK="${DB_HOST_FALLBACK:-127.0.0.1}"
+DB_PORT_FALLBACK="${DB_PORT_FALLBACK:-3307}"
 DB_NAME="${DB_NAME:-smart_factory}"
 DB_USER="${DB_USER:-sf_app}"
 DB_PASS="${DB_PASS:-}"
 
 # 使用 MYSQL_PWD 环境变量传递密码，避免命令行暴露（ENV-01）
 export MYSQL_PWD="$DB_PASS"
-MYSQL_CMD="mysql -h $DB_HOST -P $DB_PORT -u $DB_USER"
+
+build_mysql_cmd() {
+  MYSQL_CMD="mysql -h $DB_HOST -P $DB_PORT -u $DB_USER"
+}
+
+build_mysql_cmd
 
 echo "=== Database Migration ==="
 echo "Host: $DB_HOST:$DB_PORT  DB: $DB_NAME"
 
 # 等待数据库就绪（最多 30 秒）
+ready=0
 for i in $(seq 1 6); do
   if $MYSQL_CMD -e "SELECT 1" "$DB_NAME" > /dev/null 2>&1; then
+    ready=1
     break
+  fi
+  if [ "$i" = "3" ] && [ "${DB_HOST:-mysql}" = "mysql" ] && [ "${DB_PORT:-3306}" = "3306" ]; then
+    DB_HOST="$DB_HOST_FALLBACK"
+    DB_PORT="$DB_PORT_FALLBACK"
+    build_mysql_cmd
+    echo "Switching to host fallback: $DB_HOST:$DB_PORT"
   fi
   echo "Waiting for MySQL... ($i/6)"
   sleep 5
 done
+
+if [ "$ready" != "1" ]; then
+  echo "Failed to connect to MySQL at $DB_HOST:$DB_PORT"
+  exit 1
+fi
 
 # 创建迁移记录表（幂等）
 $MYSQL_CMD "$DB_NAME" <<'SQL'

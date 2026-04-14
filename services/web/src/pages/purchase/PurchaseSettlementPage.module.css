@@ -269,6 +269,18 @@
   color: var(--color-text-secondary);
 }
 
+.emptyAction {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.emptyHint {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
 .skeletonRow td {
   padding-top: 18px;
   padding-bottom: 18px;

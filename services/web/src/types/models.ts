@@ -719,6 +719,7 @@ export interface PurchaseReceiptItem {
   requestDepartmentId?: number | null;
   requestDepartmentName?: string | null;
   budgetCode?: string | null;
+  acceptedCardCount?: number;
   qtyReceived: string;
   purchaseUnit: string;
   unitPrice: string;
@@ -743,6 +744,7 @@ export interface PurchaseReceipt {
   inspectionNo?: string | null;
   operatorName?: string | null;
   items?: PurchaseReceiptItem[];
+  assetEligibleItemCount?: number;
 }
 
 // ─────────────────────────────────────────────
@@ -833,10 +835,13 @@ export interface AssetMovement {
   movementType: 'acceptance' | 'transfer' | 'return' | 'repair' | 'scrap' | string;
   fromDepartmentId?: number | null;
   toDepartmentId?: number | null;
+  fromDepartmentName?: string | null;
+  toDepartmentName?: string | null;
   fromLocationText?: string | null;
   toLocationText?: string | null;
   referenceType?: string | null;
   referenceId?: number | null;
+  referenceNo?: string | null;
   notes?: string | null;
   occurredAt: string;
 }
@@ -858,7 +863,10 @@ export interface AssetCard {
   purchaseOrderId?: number | null;
   purchaseItemId?: number | null;
   departmentId?: number | null;
+  departmentName?: string | null;
   custodianUserId?: number | null;
+  custodianName?: string | null;
+  custodianUsername?: string | null;
   locationText?: string | null;
   originalValue?: string | null;
   netValue?: string | null;
@@ -866,7 +874,28 @@ export interface AssetCard {
   notes?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  receiptNo?: string | null;
   movements?: AssetMovement[];
+}
+
+export interface DepartmentSummary {
+  id: number;
+  tenantId: number;
+  code: string;
+  name: string;
+  status?: 'active' | 'inactive' | 'locked' | 'archived' | string;
+  sortOrder?: number;
+  notes?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface DepartmentMutationPayload {
+  code: string;
+  name: string;
+  status?: 'active' | 'inactive' | 'locked' | 'archived' | string;
+  sortOrder?: number;
+  notes?: string | null;
 }
 
 export interface CreateAssetAcceptancePayload {

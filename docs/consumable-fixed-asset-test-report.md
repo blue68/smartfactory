@@ -1,5 +1,5 @@
 [artifact:TestReport]
-status: FAIL
+status: PASS
 owner: senior-qa-engineer
 scope:
 - 汇总损耗品与固定资产本轮后端收口的已执行验证结果
@@ -17,31 +17,57 @@ deliverables:
 - 已执行测试结果
 - 阻断发布的测试问题与下一步补测动作
 risks:
-- 高价值 integration spec 尚未给出通过结论，发布后存在跨模块回归漏检风险
+- 正式环境发布时需按已验证步骤重建 Web 镜像，并在目标入口复跑同一组页面冒烟
 exit_criteria:
-- 已明确哪些测试通过、哪些测试阻断、哪些测试待环境恢复后补跑
+- 已明确哪些测试通过、哪些测试可进入发布前重建与验收
 
-verdict: FAIL
+verdict: PASS
 findings:
-- [severity:blocker] `TEST_DEFAULT_TARGET=tests/integration/consumableAsset.api.test.ts bash ../../scripts/run-api-integration.sh` 未通过，阻断原因为本地 Docker/MySQL 环境异常，导致 API 启动阶段连接 `127.0.0.1:3307` 失败，当前无法给出高价值 integration 主链路通过结论
-- [severity:medium] 前端 `F1/F3/F4/F5` 已完成本地 `vite` 冒烟与错态验证，但尚未在真实联调环境跑通正向页面主流程，因此当前测试结论仍不覆盖页面级成功链路
+- [severity:low] 2026-04-14 已在最新前端代码的本地 `vite` 环境，以及重建后的 `sf_web` 真实 80 端口入口，跑通 `F1/F3/F4/F5` 页面级正向联调与深链接访问
+- [severity:low] 2026-04-14 已在真实登录态下完成“固定资产手工采购 -> 送货 -> IQC -> 收货 -> 验收建卡 -> 资产台账”和“损耗品手工采购 -> 送货 -> IQC -> 收货 -> 领用申请 -> 审批 -> 发放”两条正向业务链路回归
+- [severity:low] 2026-04-14 已补跑手工采购新入口的第二组真实闭环，并通过本地 API/数据库回查确认资产卡、领用单、收货池和库存副作用均正确
+- [severity:low] 2026-04-14 已修正“已建卡固定资产收货单仍留在资产验收待办池”的筛选问题，`/assets/acceptance` 当前仅显示仍有剩余可建卡数量的收货单
+- [severity:low] 2026-04-14 已在真实登录态下完成“损耗品采购 -> 三单匹配 -> 退货管理 -> 采购结算”的后链路闭环回归，页面与数据库状态一致
 must_fix:
-- 恢复可用的 MySQL/Redis integration 环境并重跑 `services/api/tests/integration/consumableAsset.api.test.ts`
-- 在前端联调环境恢复后补一轮页面主流程回归，至少覆盖损耗品领用、资产验收、资产退回
+- None
 can_follow_up:
-- 托管集成环境稳定后，把本 spec 纳入固定的 managed integration 回归入口
+- 将 `npm run test:api:integration:consumable-asset` 接入正式发布清单或 CI 定向补跑手册，避免后续回归入口再次分散
 
 已执行结果：
 - PASS：`npx jest tests/unit/incomingInspection.regression.test.ts --runInBand --forceExit`
 - PASS：`npx jest tests/unit/bom.guard.test.ts tests/unit/mrp.guard.test.ts --runInBand --forceExit`
 - PASS：`npx jest tests/unit/consumables.service.test.ts tests/unit/assets.service.test.ts --runInBand --forceExit`
 - PASS：`npx jest tests/unit/assets.routes.test.ts tests/unit/assets.service.test.ts --runInBand --forceExit`
+- PASS：`npx jest tests/unit/warehouse-location.resolver.test.ts --runInBand --forceExit`
 - PASS：`npm run typecheck`
-- PASS：`npm run dev -- --host 127.0.0.1 --port 4173` + 本地页面冒烟（2026-04-14，伪造登录态访问 `/master-data/sku`、`/consumables/issues`、`/assets/acceptance`、`/assets/ledger`，确认页面在后端 `ECONNREFUSED` 时不崩溃且展示错态/重试入口）
-- FAIL：`TEST_DEFAULT_TARGET=tests/integration/consumableAsset.api.test.ts bash ../../scripts/run-api-integration.sh`
+- PASS：`npm run build`（`services/web`）
+- PASS：`npm run dev -- --host 127.0.0.1 --port 4173` + 本地页面负向冒烟（2026-04-14，伪造登录态访问 `/master-data/sku`、`/consumables/issues`、`/assets/acceptance`、`/assets/ledger`，确认页面在后端 `ECONNREFUSED` 时不崩溃且展示错态/重试入口）
+- PASS：`VITE_API_PROXY_TARGET=http://127.0.0.1:80 npm run dev -- --host 127.0.0.1 --port 4173` + 浏览器正向联调（2026-04-14，最新前端代码下验证 `F1/F3/F4/F5`，确认可见真实 SKU、领用单、资产验收收货池和资产台账数据）
+- PASS：`docker compose build web` + `docker compose up -d --force-recreate web` + 80 端口浏览器复烟（2026-04-14，确认真实部署入口菜单、深链接和页面数据均与最新代码一致）
+- PASS：真实登录态 API + 浏览器正向回归（2026-04-14）
+  - 固定资产链路：`PO1776167322613838 -> DN1776167322677137 -> IQC260414-00001 -> RC260414-00001 -> FA260414-00001`
+  - 损耗品链路：`PO1776167371741479 -> DN1776167371783459 -> IQC260414-00002 -> RC260414-00002 -> CI260414-00001`
+  - 页面复验：`/purchase/orders`、`/purchase/receipts`、`/consumables/issues`、`/assets/acceptance`、`/assets/ledger`
+- PASS：手工采购新入口第二组闭环回归（2026-04-14）
+  - 固定资产链路：`PO1776172877547757 -> DN1776172890803592 -> IQC260414-00003 -> RC260414-00003 -> FA260414-00002`
+  - 固定资产核验：`FA260414-00002` 已进入资产台账，`assetName=浏览器验收-固定资产-手工采购-01`、`serialNo=SN-MANUAL-20260414-01`、`assetTagNo=TAG-MANUAL-20260414-01`、`locationText=验收区-01`、`originalValue/netValue=5100.00`
+  - 损耗品链路：`PO1776174123806393 -> DN1776174142538557 -> IQC260414-00004 -> RC260414-00004 -> CI260414-00002`
+  - 损耗品核验：`CI260414-00002` 已完成 `draft -> approved -> issued`，`requestDepartmentId=1`、`budgetCode=MANUAL-CNSM-20260414`，`CNSM-ACC-20260413A` 可用库存已从 `11.0000` 回落到 `10.0000`
+  - 说明：浏览器调试通道在部分按钮点击上不稳定，后半段通过 `sf_api` 容器内本地 API 补跑并逐步回查状态与副作用
+- PASS：真实登录态浏览器后链路回归（2026-04-14）
+  - 退货链路：`RTN260414-00001` 已完成 `draft -> confirmed -> shipped -> completed`
+  - 结算链路：`PST260414-00001` 已完成 `draft -> confirmed -> paid`
+  - 页面复验：`/purchase/returns?poId=91904359&inspectionId=996918&returnId=12`、`/purchase/settlements?poId=91904359`
+  - 数据核验：`RTN260414-00001` 未生成 `PURCHASE_RETURN_OUT` 库存事务；`PST260414-00001` 的 `paid_at` 已正确落库
+- PASS：`npm run test:api:integration:consumable-asset`（2026-04-14，专用 managed 回归入口已固定并通过）
+- PASS：`TEST_DEFAULT_TARGET=tests/integration/consumableAsset.api.test.ts bash ../../scripts/run-api-integration.sh`（2026-04-14，资产验收、资产退回、损耗品领用执行三条主链路通过）
 
-阻断说明：
-- 2026-04-13 已确认 `origin/master` 基线无落后
-- Redis 宿主机端口恢复后可连通，但 MySQL 容器新实例在 Docker Desktop 重启前后均未稳定恢复，导致 `3307` 不可用
-- 2026-04-14 已完成前端本地负向冒烟，当前剩余前端阻断从“页面可用性未知”收敛为“缺少可用后端环境进行正向主流程验证”
-- 在该阻断解除前，本报告维持 `FAIL`
+结论说明：
+- 2026-04-14 已重新 `git fetch --all --prune` 并确认 `origin/master` 与本地 `master` 无 ahead/behind 差异
+- 2026-04-14 已恢复本地 MySQL/Redis integration 环境，并跑通 `consumableAsset` 高价值集成回归
+- 本次补测同时修正了 integration spec 的历史 schema 漂移，以及 `resolveWarehouseLocationBinding` 对 MySQL `bigint` 字符串 ID 的兼容缺陷
+- 2026-04-14 已在最新前端代码的本地 `vite` 环境完成 `F1/F3/F4/F5` 正向页面回归，页面级结论已补齐
+- 2026-04-14 已在重建后的 `sf_web` 真实 80 端口入口复跑同一组页面冒烟，确认本地发布产物与最新代码一致
+- 2026-04-14 已新增 `npm run test:api:integration:consumable-asset` / `npm run test:integration:consumable-asset:managed`，后续可用固定命令补跑本 spec
+- 2026-04-14 已补完本地真实业务正向回归与采购后链路闭环回归，当前剩余动作仅收敛为正式环境按同样步骤发布一次，并把 managed 回归命令纳入发布清单或 CI
+- 2026-04-14 已补完手工采购新入口的第二组真实样例，当前本地可直接复核固定资产 `PO1776172877547757 / FA260414-00002` 与损耗品 `PO1776174123806393 / CI260414-00002`

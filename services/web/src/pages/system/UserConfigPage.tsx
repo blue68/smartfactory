@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Button from '@/components/common/Button';
 import Modal from '@/components/common/Modal';
+import DepartmentConfigSection from './DepartmentConfigSection';
 import {
   useAccessUserList,
   useCreateUser,
@@ -28,6 +29,7 @@ function renderStatus(status?: string) {
 export default function UserConfigPage() {
   const setPageTitle = useAppStore((s) => s.setPageTitle);
   const showToast = useAppStore((s) => s.showToast);
+  const [activeTab, setActiveTab] = useState<'users' | 'departments'>('users');
   const [keyword, setKeyword] = useState('');
   const [status, setStatus] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -46,8 +48,8 @@ export default function UserConfigPage() {
   const resetPasswordMutation = useResetUserPassword();
 
   useEffect(() => {
-    setPageTitle('系统管理 · 人员配置');
-  }, [setPageTitle]);
+    setPageTitle(activeTab === 'users' ? '系统管理 · 人员配置' : '系统管理 · 部门配置');
+  }, [activeTab, setPageTitle]);
 
   const users = data?.list ?? [];
   const activeCount = users.filter((item) => item.status === 'active').length;
@@ -138,6 +140,25 @@ export default function UserConfigPage() {
 
   return (
     <div className={styles.page}>
+      <div className={styles.tabBar}>
+        <button
+          type="button"
+          className={`${styles.tabButton} ${activeTab === 'users' ? styles.tabButtonActive : ''}`}
+          onClick={() => setActiveTab('users')}
+        >
+          人员配置
+        </button>
+        <button
+          type="button"
+          className={`${styles.tabButton} ${activeTab === 'departments' ? styles.tabButtonActive : ''}`}
+          onClick={() => setActiveTab('departments')}
+        >
+          部门配置
+        </button>
+      </div>
+
+      {activeTab === 'departments' ? <DepartmentConfigSection /> : (
+        <>
       <div className={styles.header}>
         <div>
           <h1 className={styles.title}>人员配置</h1>
@@ -274,6 +295,8 @@ export default function UserConfigPage() {
           )}
         </div>
       </Modal>
+        </>
+      )}
     </div>
   );
 }

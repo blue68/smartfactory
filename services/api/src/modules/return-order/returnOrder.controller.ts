@@ -17,6 +17,7 @@ const ReturnOrderItemSchema = z.object({
 const CreateReturnOrderSchema = z.object({
   returnType: z.enum(['purchase_return', 'production_return']),
   sourcePoId: z.number().int().positive().optional(),
+  sourceInspectionId: z.number().int().positive().optional(),
   supplierId: z.number().int().positive().optional(),
   returnReason: z.string().min(1, '退货原因不能为空').max(500),
   notes: z.string().max(500).optional(),
@@ -27,6 +28,8 @@ const ListReturnOrderQuerySchema = PaginationSchema.extend({
   status: z.string().optional(),
   returnType: z.string().optional(),
   supplierId: z.coerce.number().int().positive().optional(),
+  sourcePoId: z.coerce.number().int().positive().optional(),
+  sourceInspectionId: z.coerce.number().int().positive().optional(),
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   keyword: z.string().trim().max(100).optional(),

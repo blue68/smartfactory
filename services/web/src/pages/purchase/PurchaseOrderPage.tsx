@@ -1,20 +1,32 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  useCreatePurchaseOrder,
   useClosePurchaseOrder,
   usePurchaseOrderDetail,
   usePurchaseOrderList,
   usePurchaseOrderTailTracking,
 } from '@/api/purchase';
-import type { PurchaseOrder, PurchaseOrderTailRow } from '@/types/models';
+import { useSupplierOptions } from '@/api/supplier';
+import { useSkuList } from '@/api/sku';
+import { useDepartmentList } from '@/api/departments';
+import type { PurchaseOrder, PurchaseOrderTailRow, Sku } from '@/types/models';
 import {
   PurchaseOrderStatus,
   PurchaseOrderStatusLabel,
+  SkuStatus,
   type PurchaseOrderStatus as PurchaseOrderStatusType,
 } from '@/types/enums';
 import { usePermission } from '@/hooks/usePermission';
 import { useAppStore } from '@/stores/appStore';
 import request from '@/utils/request';
+import { formatDepartmentLabel, normalizeDepartmentId } from '@/utils/department';
+import {
+  formatBusinessClassLabel,
+  formatReceiptModeLabel,
+  formatReceiptNextStepLabel,
+  resolveReceiptModeByControlMode,
+} from '@/utils/purchaseFlow';
 import Drawer from '@/components/common/Drawer';
 import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
@@ -37,6 +49,17 @@ const currencyFormatter = new Intl.NumberFormat('zh-CN', {
 type FocusFilter = 'all' | 'overdue' | 'receiving' | 'received' | 'closed';
 const EMPTY_PURCHASE_ORDERS: PurchaseOrder[] = [];
 const EMPTY_PURCHASE_ORDER_TAILS: PurchaseOrderTailRow[] = [];
+const EMPTY_SKUS: Sku[] = [];
+
+interface ManualPurchaseItemForm {
+  key: string;
+  skuId: string | null;
+  skuSnapshot: Sku | null;
+  qtyOrdered: string;
+  unitPrice: string;
+  requestDepartmentId: string;
+  budgetCode: string;
+}
 
 function formatDate(value?: string | null): string {
   if (!value) return '—';
@@ -70,24 +93,28 @@ function formatQty(value?: string | number | null): string {
   return Number.isInteger(parsed) ? String(parsed) : parsed.toFixed(2);
 }
 
+function todayDateString(offsetDays = 0): string {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function createManualItemForm(): ManualPurchaseItemForm {
+  return {
+    key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    skuId: null,
+    skuSnapshot: null,
+    qtyOrdered: '1',
+    unitPrice: '',
+    requestDepartmentId: '',
+    budgetCode: '',
+  };
+}
+
 function calcProgressPct(received?: string | number | null, ordered?: string | number | null): number {
   const orderedValue = toNumber(ordered);
   if (orderedValue <= 0) return 0;
   return Math.min(100, Math.max(0, Math.round((toNumber(received) / orderedValue) * 100)));
-}
-
-function formatBusinessClassLabel(value?: string | null): string {
-  if (value === 'consumable') return '损耗品';
-  if (value === 'fixed_asset') return '固定资产';
-  if (value === 'production_material') return '生产物料';
-  return '待补配置';
-}
-
-function formatReceiptModeLabel(value?: string | null): string {
-  if (value === 'inventory') return '库存入库';
-  if (value === 'direct_expense') return '直耗';
-  if (value === 'asset_capitalization') return '资产待验收';
-  return '待补配置';
 }
 
 function getBusinessClassTagVariant(value?: string | null): 'warning' | 'info' | 'neutral' {
@@ -141,6 +168,367 @@ function SummaryCard({
       <div className={styles.summaryCardValue}>{value}</div>
       <div className={styles.summaryCardHint}>{hint}</div>
     </article>
+  );
+}
+
+function ManualPurchaseOrderDrawer({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (result: { id: number; poNo: string }) => void;
+}) {
+  const showToast = useAppStore((state) => state.showToast);
+  const supplierQuery = useSupplierOptions();
+  const departmentQuery = useDepartmentList({ page: 1, pageSize: 200, status: 'active' });
+  const [supplierId, setSupplierId] = useState('');
+  const [expectedDate, setExpectedDate] = useState(todayDateString(7));
+  const [notes, setNotes] = useState('');
+  const [items, setItems] = useState<ManualPurchaseItemForm[]>([createManualItemForm()]);
+  const createMutation = useCreatePurchaseOrder();
+
+  const skuQuery = useSkuList({
+    page: 1,
+    pageSize: 200,
+    status: SkuStatus.ACTIVE,
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    setSupplierId('');
+    setExpectedDate(todayDateString(7));
+    setNotes('');
+    setItems([createManualItemForm()]);
+  }, [open]);
+
+  const skuOptions = useMemo(
+    () =>
+      (skuQuery.data?.list ?? EMPTY_SKUS).filter(
+        (sku) => sku.businessClass === 'consumable' || sku.businessClass === 'fixed_asset',
+      ).sort((left, right) => left.skuCode.localeCompare(right.skuCode, 'zh-CN')),
+    [skuQuery.data?.list],
+  );
+
+  const skuSelectPlaceholder = useMemo(() => {
+    if (skuQuery.isLoading) return '正在加载可采购 SKU...';
+    if (skuQuery.isError) return 'SKU 加载失败，请稍后重试';
+    if (skuOptions.length === 0) return '暂无可选的损耗品或固定资产 SKU';
+    return '请选择损耗品或固定资产 SKU';
+  }, [skuOptions.length, skuQuery.isError, skuQuery.isLoading]);
+
+  const departmentMap = useMemo(
+    () => new Map((departmentQuery.data?.list ?? []).map((item) => [item.id, item])),
+    [departmentQuery.data?.list],
+  );
+
+  const updateItem = useCallback((key: string, patch: Partial<ManualPurchaseItemForm>) => {
+    setItems((current) => current.map((item) => (item.key === key ? { ...item, ...patch } : item)));
+  }, []);
+
+  const addItem = useCallback(() => {
+    setItems((current) => [...current, createManualItemForm()]);
+  }, []);
+
+  const removeItem = useCallback((key: string) => {
+    setItems((current) => (current.length <= 1 ? current : current.filter((item) => item.key !== key)));
+  }, []);
+
+  const handleSelectSku = useCallback((key: string, nextSkuId: string) => {
+    const sku = skuOptions.find((item) => String(item.id) === nextSkuId) ?? null;
+    setItems((current) =>
+      current.map((item) => {
+        if (item.key !== key) return item;
+        return {
+          ...item,
+          skuId: sku ? String(sku.id) : null,
+          skuSnapshot: sku,
+          requestDepartmentId: item.requestDepartmentId,
+        };
+      }),
+    );
+  }, [skuOptions]);
+
+  const handleSubmit = useCallback(async () => {
+    const resolvedSupplierId = Number(supplierId);
+    if (!resolvedSupplierId) {
+      showToast({ type: 'warning', message: '请先选择供应商' });
+      return;
+    }
+    if (!expectedDate) {
+      showToast({ type: 'warning', message: '请填写预计到货日期' });
+      return;
+    }
+
+    for (const item of items) {
+      if (!item.skuSnapshot || !item.skuId) {
+        showToast({ type: 'warning', message: '请为每条采购明细选择 SKU' });
+        return;
+      }
+      if (toNumber(item.qtyOrdered) <= 0) {
+        showToast({ type: 'warning', message: `请为 ${item.skuSnapshot.name} 填写大于 0 的采购数量` });
+        return;
+      }
+      if (toNumber(item.unitPrice) < 0) {
+        showToast({ type: 'warning', message: `请为 ${item.skuSnapshot.name} 填写合法单价` });
+        return;
+      }
+      if (item.skuSnapshot.consumableProfile?.issueDeptRequired && !normalizeDepartmentId(item.requestDepartmentId)) {
+        showToast({ type: 'warning', message: `SKU ${item.skuSnapshot.skuCode} 要求选择需求部门` });
+        return;
+      }
+    }
+
+    try {
+      const result = await createMutation.mutateAsync({
+        supplierId: resolvedSupplierId,
+        expectedDate,
+        notes: notes.trim() || undefined,
+        items: items.map((item) => {
+          const sku = item.skuSnapshot!;
+          return {
+            skuId: Number(sku.id),
+            skuCode: sku.skuCode,
+            skuName: sku.name,
+            purchaseUnit: sku.purchaseUnit || sku.stockUnit,
+            qtyOrdered: Number(item.qtyOrdered).toFixed(4).replace(/\.?0+$/, ''),
+            unitPrice: Number(item.unitPrice || 0).toFixed(2),
+            businessClass: sku.businessClass,
+            receiptMode: resolveReceiptModeByControlMode(sku.controlMode),
+            requiresAcceptance: Boolean(sku.requiresAssetAcceptance),
+            requestDepartmentId: normalizeDepartmentId(item.requestDepartmentId) ?? undefined,
+            budgetCode: item.budgetCode.trim() || undefined,
+          };
+        }),
+      });
+      showToast({ type: 'success', message: `采购订单 ${result.poNo} 已创建` });
+      onCreated(result);
+    } catch (error) {
+      showToast({ type: 'error', message: (error as Error).message ?? '创建采购订单失败，请稍后重试' });
+    }
+  }, [createMutation, expectedDate, items, notes, onCreated, showToast, supplierId]);
+
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title="手工建采购单"
+      width={860}
+      footer={(
+        <div className={styles.drawerFooter}>
+          <Button variant="ghost" onClick={onClose}>取消</Button>
+          <Button onClick={() => void handleSubmit()} loading={createMutation.isPending}>
+            创建采购订单
+          </Button>
+        </div>
+      )}
+    >
+      <div className={styles.manualDrawer}>
+        <section className={styles.manualHero}>
+          <div className={styles.manualHeroText}>
+            <div className={styles.manualEyebrow}>Manual Procurement</div>
+            <h3 className={styles.manualTitle}>损耗品 / 固定资产手工建单</h3>
+            <p className={styles.manualSubtitle}>
+              这条入口用于非 MRP 自动建议场景。系统会按 SKU 的管控属性自动带出收货模式，并把后续分流到损耗品库存、直耗或资产验收。
+            </p>
+          </div>
+          <div className={styles.manualHeroChips}>
+            <span className={styles.manualChip}>损耗品 -&gt; 库存入库 / 直耗</span>
+            <span className={styles.manualChip}>固定资产 -&gt; 资产待验收</span>
+          </div>
+        </section>
+
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <h3 className={styles.sectionTitle}>订单基本信息</h3>
+              <p className={styles.sectionHint}>先确定供应商与交期，再按业务类型补采购明细。</p>
+            </div>
+          </div>
+          <div className={styles.manualGrid}>
+            <label className={styles.field}>
+              <span>供应商</span>
+              <select
+                className={styles.fieldInput}
+                value={supplierId}
+                onChange={(event) => setSupplierId(event.target.value)}
+              >
+                <option value="">请选择供应商</option>
+                {(supplierQuery.data ?? []).map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name} ({supplier.code})
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className={styles.field}>
+              <span>预计到货日期</span>
+              <input
+                className={styles.fieldInput}
+                type="date"
+                value={expectedDate}
+                onChange={(event) => setExpectedDate(event.target.value)}
+              />
+            </label>
+
+            <label className={`${styles.field} ${styles.fieldFull}`}>
+              <span>订单备注</span>
+              <textarea
+                className={styles.fieldTextarea}
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                rows={3}
+                maxLength={500}
+                placeholder="例如：固定资产专项采购，先录订单后分批送货"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <h3 className={styles.sectionTitle}>采购明细</h3>
+              <p className={styles.sectionHint}>仅支持损耗品和固定资产 SKU，业务大类与收货模式会自动带出。</p>
+            </div>
+            <Button size="sm" variant="secondary" onClick={addItem}>新增明细</Button>
+          </div>
+
+          <div className={styles.manualItemList}>
+            {items.map((item, index) => {
+              const sku = item.skuSnapshot;
+              const businessClass = sku?.businessClass;
+              const receiptMode = resolveReceiptModeByControlMode(sku?.controlMode);
+              return (
+                <article key={item.key} className={styles.manualItemCard}>
+                  <div className={styles.manualItemTop}>
+                    <div>
+                      <div className={styles.manualItemTitle}>采购明细 {index + 1}</div>
+                      <div className={styles.manualItemMeta}>
+                        {sku ? `${sku.skuCode} · ${sku.name}` : '请选择目标 SKU'}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="text"
+                      onClick={() => removeItem(item.key)}
+                      disabled={items.length === 1}
+                    >
+                      删除
+                    </Button>
+                  </div>
+
+                  <div className={styles.manualGrid}>
+                    <label className={`${styles.field} ${styles.fieldFull}`}>
+                      <span>SKU</span>
+                      <select
+                        className={styles.fieldInput}
+                        value={item.skuId ?? ''}
+                        onChange={(event) => handleSelectSku(item.key, event.target.value)}
+                        disabled={skuQuery.isLoading || skuOptions.length === 0}
+                      >
+                        <option value="">{skuSelectPlaceholder}</option>
+                        {skuOptions.map((option) => (
+                          <option key={option.id} value={String(option.id)}>
+                            [{formatBusinessClassLabel(option.businessClass)}] {option.skuCode} · {option.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className={styles.field}>
+                      <span>采购数量</span>
+                      <input
+                        className={styles.fieldInput}
+                        type="number"
+                        min="0"
+                        step="0.0001"
+                        value={item.qtyOrdered}
+                        onChange={(event) => updateItem(item.key, { qtyOrdered: event.target.value })}
+                        placeholder="例如 10"
+                      />
+                    </label>
+
+                    <label className={styles.field}>
+                      <span>采购单价</span>
+                      <input
+                        className={styles.fieldInput}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={item.unitPrice}
+                        onChange={(event) => updateItem(item.key, { unitPrice: event.target.value })}
+                        placeholder="例如 5000"
+                      />
+                    </label>
+
+                    <label className={styles.field}>
+                      <span>需求部门</span>
+                      <select
+                        className={styles.fieldInput}
+                        value={item.requestDepartmentId}
+                        onChange={(event) => updateItem(item.key, { requestDepartmentId: event.target.value })}
+                      >
+                        <option value="">未指定</option>
+                        {(departmentQuery.data?.list ?? []).map((department) => (
+                          <option key={department.id} value={department.id}>
+                            {department.name} ({department.code})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className={styles.field}>
+                      <span>预算编码</span>
+                      <input
+                        className={styles.fieldInput}
+                        value={item.budgetCode}
+                        onChange={(event) => updateItem(item.key, { budgetCode: event.target.value })}
+                        maxLength={50}
+                        placeholder="可选"
+                      />
+                    </label>
+                  </div>
+
+                  <div className={styles.manualInfoGrid}>
+                    <div className={styles.manualInfoCard}>
+                      <span>业务属性</span>
+                      <strong>{sku ? formatBusinessClassLabel(businessClass) : '待选择 SKU'}</strong>
+                      {sku ? (
+                        <div className={styles.manualInfoTags}>
+                          <Tag variant={getBusinessClassTagVariant(businessClass)}>
+                            {formatBusinessClassLabel(businessClass)}
+                          </Tag>
+                          <Tag variant={getReceiptModeTagVariant(receiptMode)}>
+                            {formatReceiptModeLabel(receiptMode)}
+                          </Tag>
+                          {sku.requiresAssetAcceptance ? <Tag variant="info">需验收</Tag> : null}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className={styles.manualInfoCard}>
+                      <span>收货后分流</span>
+                      <strong>{sku ? formatReceiptNextStepLabel(receiptMode) : '待选择 SKU'}</strong>
+                      {sku ? (
+                        <div className={styles.manualInfoMeta}>
+                          采购单位 {sku.purchaseUnit || sku.stockUnit} ·
+                          {businessClass === 'consumable'
+                            ? ` 需求部门 ${formatDepartmentLabel(item.requestDepartmentId, departmentMap)}`
+                            : ` 资产跟踪 ${sku.assetTrackingMode ?? '未配置'}`}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+    </Drawer>
   );
 }
 
@@ -452,6 +840,7 @@ export default function PurchaseOrderPage() {
   const setPageTitle = useAppStore((state) => state.setPageTitle);
   const showToast = useAppStore((state) => state.showToast);
 
+  const canCreateOrder = can('purchase:order:create');
   const canCloseOrder = can('purchase:order:close');
   const statusParam = (searchParams.get('status') || '') as PurchaseOrderStatusType | '';
   const focusParam = (searchParams.get('focus') || 'all') as FocusFilter;
@@ -467,6 +856,7 @@ export default function PurchaseOrderPage() {
   const [closingOrder, setClosingOrder] = useState<PurchaseOrder | null>(null);
   const [closeReason, setCloseReason] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const deferredKeyword = useDeferredValue(keyword.trim().toLowerCase());
 
@@ -765,6 +1155,11 @@ export default function PurchaseOrderPage() {
           </div>
 
           <div className={styles.heroActions}>
+            {canCreateOrder ? (
+              <Button variant="secondary" onClick={() => setCreateOpen(true)}>
+                手工建采购单
+              </Button>
+            ) : null}
             <Button variant="ghost" onClick={() => navigate('/purchase/match')}>
               查看三单匹配
             </Button>
@@ -955,15 +1350,15 @@ export default function PurchaseOrderPage() {
               <div className={styles.flowStep}>
                 <span className={styles.flowIndex}>1</span>
                 <div className={styles.flowCopy}>
-                  <strong>审批后下单</strong>
-                  <span>采购建议审批通过后生成采购订单，订单状态进入待到货。</span>
+                  <strong>审批转单 / 手工建单</strong>
+                  <span>生产物料通常由采购建议审批后转单；损耗品和固定资产可直接在本页手工创建采购订单。</span>
                 </div>
               </div>
               <div className={styles.flowStep}>
                 <span className={styles.flowIndex}>2</span>
                 <div className={styles.flowCopy}>
                   <strong>分批送货 / 入库</strong>
-                  <span>供应商可多次送货，订单详情页持续累计到货进度与入库记录。</span>
+                  <span>供应商可多次送货，入库后按收货模式自动分流到损耗品库存、直耗或资产验收。</span>
                 </div>
               </div>
               <div className={styles.flowStep}>
@@ -995,6 +1390,15 @@ export default function PurchaseOrderPage() {
         }}
         onOpenDelivery={(deliveryId, poId) => {
           navigate(`/purchase/deliveries?deliveryId=${deliveryId}&poId=${poId}`);
+        }}
+      />
+
+      <ManualPurchaseOrderDrawer
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(result) => {
+          setCreateOpen(false);
+          setSelectedId(result.id);
         }}
       />
 

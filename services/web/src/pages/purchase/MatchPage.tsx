@@ -13,11 +13,10 @@ import {
   useExecuteThreeWayMatch,
   useConfirmMatch,
   useCreatePurchaseSettlement,
+  usePurchaseOrderList,
   usePurchaseOrderDetail,
-  usePurchaseDeliveryDetail,
-  usePurchaseReceiptDetail,
 } from '@/api/purchase';
-import { MatchStatus, DiffReason } from '@/types/enums';
+import { MatchStatus, DiffReason, PurchaseOrderStatusLabel } from '@/types/enums';
 import type { ThreeWayMatch, ThreeWayMatchDiffItem } from '@/types/models';
 import type { Column } from '@/components/common/Table';
 import Table from '@/components/common/Table';
@@ -98,6 +97,16 @@ const STATUS_LABEL: Record<MatchStatus, string> = {
   [MatchStatus.PRICE_WARNING]: '价格预警',
   [MatchStatus.CONFIRMED]: '已确认',
 };
+
+function formatDeliveryStatus(status?: string | null): string {
+  if (!status) return '—';
+  if (status === 'draft') return '草稿';
+  if (status === 'pending') return '待质检';
+  if (status === 'confirmed') return '已确认';
+  if (status === 'received') return '已收货';
+  if (status === 'cancelled') return '已取消';
+  return status;
+}
 
 /* ----------------------------------------------------------------
    Diff reason card options (maps to design's 2×2 radio grid)
@@ -270,16 +279,24 @@ export default function MatchPage() {
     page,
     pageSize: 10,
   });
+  const executeOrderListQuery = usePurchaseOrderList(undefined, 1, 100);
   const { data: activeMatchDetail, isLoading: activeMatchLoading } = useMatchDetail(activeMatchId);
   const executePoId = Number(executeForm.poId) || null;
   const executeDeliveryId = Number(executeForm.deliveryNoteId) || null;
   const executeReceiptId = Number(executeForm.receiptId) || null;
   const { data: executeOrder } = usePurchaseOrderDetail(executeModal ? executePoId : null);
-  const { data: executeDelivery } = usePurchaseDeliveryDetail(executeModal ? executeDeliveryId : null);
-  const { data: executeReceipt } = usePurchaseReceiptDetail(executeModal ? executeReceiptId : null);
   const executeMutation = useExecuteThreeWayMatch();
   const confirmMutation = useConfirmMatch();
   const createSettlementMutation = useCreatePurchaseSettlement();
+  const executeOrderOptions = executeOrderListQuery.data?.list ?? [];
+  const executeDeliveryOptions = executeOrder?.deliveries ?? [];
+  const executeSelectedDelivery = executeDeliveryOptions.find((item) => Number(item.id) === executeDeliveryId) ?? null;
+  const executeReceiptOptions = executeSelectedDelivery?.receiptId
+    ? [{
+        id: Number(executeSelectedDelivery.receiptId),
+        receiptNo: executeSelectedDelivery.receiptNo ?? `RC#${executeSelectedDelivery.receiptId}`,
+      }]
+    : [];
 
   useEffect(() => {
     setStatusFilter(statusParam);
@@ -341,6 +358,43 @@ export default function MatchPage() {
   }, [deliveryNoteIdParam, executeParam, poIdParam, receiptIdParam]);
 
   useEffect(() => {
+    if (!executeModal || !executePoId || !executeOrder?.deliveries?.length) return;
+    setExecuteForm((current) => {
+      let nextDeliveryId = current.deliveryNoteId;
+      let nextReceiptId = current.receiptId;
+
+      if (!nextDeliveryId && nextReceiptId) {
+        const matchedDelivery = executeOrder.deliveries?.find(
+          (item) => Number(item.receiptId) === Number(nextReceiptId),
+        );
+        if (matchedDelivery) {
+          nextDeliveryId = String(matchedDelivery.id);
+        }
+      }
+
+      if (nextDeliveryId && !nextReceiptId) {
+        const matchedDelivery = executeOrder.deliveries?.find(
+          (item) => Number(item.id) === Number(nextDeliveryId),
+        );
+        if (matchedDelivery?.receiptId) {
+          nextReceiptId = String(matchedDelivery.receiptId);
+        }
+      }
+
+      if (!nextDeliveryId && executeOrder.deliveries.length === 1) {
+        const onlyDelivery = executeOrder.deliveries[0];
+        nextDeliveryId = String(onlyDelivery.id);
+        nextReceiptId = onlyDelivery.receiptId ? String(onlyDelivery.receiptId) : '';
+      }
+
+      if (nextDeliveryId === current.deliveryNoteId && nextReceiptId === current.receiptId) {
+        return current;
+      }
+      return { ...current, deliveryNoteId: nextDeliveryId, receiptId: nextReceiptId };
+    });
+  }, [executeModal, executeOrder, executePoId]);
+
+  useEffect(() => {
     const next = new URLSearchParams(searchParams);
     if (statusFilter) next.set('status', statusFilter);
     else next.delete('status');
@@ -365,7 +419,7 @@ export default function MatchPage() {
   const handleExecute = async () => {
     const { poId, deliveryNoteId, receiptId } = executeForm;
     if (!poId || !deliveryNoteId || !receiptId) {
-      showToast({ type: 'warning', message: '请填写完整的单据编号' });
+      showToast({ type: 'warning', message: '请选择完整的采购订单、送货单号和入库单号' });
       return;
     }
     try {
@@ -600,13 +654,33 @@ export default function MatchPage() {
     diffRecord && activeMatchAllowConfirm &&
     [MatchStatus.QTY_DIFF, MatchStatus.PRICE_DIFF, MatchStatus.PRICE_WARNING].includes(diffRecord.matchStatus),
   );
+  const activePoNo = useMemo(
+    () => data?.list?.find((item) => item.poId === poIdFilter)?.poNo ?? null,
+    [data?.list, poIdFilter],
+  );
+  const activeReceiptNo = useMemo(
+    () => data?.list?.find((item) => item.receiptId === receiptIdFilter)?.receiptNo ?? null,
+    [data?.list, receiptIdFilter],
+  );
   const activeFilters = useMemo(
     () =>
       [
-        poIdFilter ? { key: 'poId', label: `采购单 #${poIdFilter}`, onClear: () => setPoIdFilter(undefined) } : null,
-        receiptIdFilter ? { key: 'receiptId', label: `入库单 #${receiptIdFilter}`, onClear: () => setReceiptIdFilter(undefined) } : null,
+        poIdFilter
+          ? {
+              key: 'poId',
+              label: activePoNo ? `采购单 ${activePoNo}` : `采购单 #${poIdFilter}`,
+              onClear: () => setPoIdFilter(undefined),
+            }
+          : null,
+        receiptIdFilter
+          ? {
+              key: 'receiptId',
+              label: activeReceiptNo ? `入库单 ${activeReceiptNo}` : `入库单 #${receiptIdFilter}`,
+              onClear: () => setReceiptIdFilter(undefined),
+            }
+          : null,
       ].filter(Boolean) as Array<{ key: string; label: string; onClear: () => void }>,
-    [poIdFilter, receiptIdFilter],
+    [activePoNo, activeReceiptNo, poIdFilter, receiptIdFilter],
   );
   const hasPrefilledExecuteContext = Boolean(executePoId || executeDeliveryId || executeReceiptId);
 
@@ -618,11 +692,11 @@ export default function MatchPage() {
       <div className="page-header">
         <h1 className="page-header__title">三单匹配</h1>
         <div className="page-header__actions">
-          <Button variant="ghost" size="md" onClick={() => showToast({ type: 'info', message: '已切换为按供应商分组视图' })}>
-            ☰ 按供应商查看
+          <Button variant="ghost" size="md" onClick={() => navigate('/purchase/deliveries')}>
+            查看送货管理
           </Button>
-          <Button variant="ghost" size="md" onClick={() => showToast({ type: 'info', message: '正在生成对账单 PDF，请稍候…' })}>
-            ↓ 导出对账单
+          <Button variant="ghost" size="md" onClick={() => navigate('/purchase/settlements')}>
+            查看采购结算
           </Button>
           <Button variant="primary" size="md" onClick={() => setExecuteModal(true)}>
             执行三单匹配
@@ -773,58 +847,96 @@ export default function MatchPage() {
         size="sm"
       >
         <div className={styles.exec_form}>
-          {(
-            [
-              {
-                field: 'poId' as const,
-                idLabel: '采购订单 ID',
-                noLabel: '采购订单号',
-                displayValue: executeOrder?.poNo ?? '',
-                loadingText: executePoId ? '正在加载采购订单号...' : '',
-              },
-              {
-                field: 'deliveryNoteId' as const,
-                idLabel: '送货单 ID',
-                noLabel: '送货单号',
-                displayValue: executeDelivery?.deliveryNo ?? '',
-                loadingText: executeDeliveryId ? '正在加载送货单号...' : '',
-              },
-              {
-                field: 'receiptId' as const,
-                idLabel: '入库单 ID',
-                noLabel: '入库单号',
-                displayValue: executeReceipt?.receiptNo ?? '',
-                loadingText: executeReceiptId ? '正在加载入库单号...' : '',
-              },
-            ]
-          ).map(({ field, idLabel, noLabel, displayValue, loadingText }) => (
-            <div key={field} className={styles.exec_field}>
-              <label htmlFor={field} className={styles.exec_label}>
-                {hasPrefilledExecuteContext && executeForm[field] ? noLabel : idLabel}
-              </label>
-              {hasPrefilledExecuteContext && executeForm[field] ? (
-                <input
-                  id={field}
-                  className={styles.exec_input}
-                  value={displayValue || loadingText}
-                  placeholder={loadingText}
-                  readOnly
-                />
-              ) : (
-                <input
-                  id={field}
-                  type="number"
-                  className={styles.exec_input}
-                  value={executeForm[field]}
-                  onChange={(e) =>
-                    setExecuteForm((f) => ({ ...f, [field]: e.target.value }))
-                  }
-                  placeholder="请输入 ID"
-                  min="1"
-                />
-              )}
-            </div>
-          ))}
+          <div className={styles.exec_field}>
+            <label htmlFor="poId" className={styles.exec_label}>采购订单</label>
+            <select
+              id="poId"
+              className={styles.exec_input}
+              value={executeForm.poId}
+              onChange={(e) => {
+                setExecuteForm({
+                  poId: e.target.value,
+                  deliveryNoteId: '',
+                  receiptId: '',
+                });
+              }}
+            >
+              <option value="">请选择采购订单</option>
+              {executeOrderOptions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.poNo} · {item.supplierName}
+                </option>
+              ))}
+            </select>
+            {executeOrder ? (
+              <div className={styles.exec_hint}>
+                当前订单：{executeOrder.poNo} · {executeOrder.supplierName} · 状态 {PurchaseOrderStatusLabel[executeOrder.status] ?? executeOrder.status}
+              </div>
+            ) : null}
+          </div>
+
+          <div className={styles.exec_field}>
+            <label htmlFor="deliveryNoteId" className={styles.exec_label}>送货单号</label>
+            <select
+              id="deliveryNoteId"
+              className={styles.exec_input}
+              value={executeForm.deliveryNoteId}
+              onChange={(e) => {
+                const nextDeliveryId = e.target.value;
+                const matchedDelivery = executeDeliveryOptions.find((item) => String(item.id) === nextDeliveryId);
+                setExecuteForm((current) => ({
+                  ...current,
+                  deliveryNoteId: nextDeliveryId,
+                  receiptId: matchedDelivery?.receiptId ? String(matchedDelivery.receiptId) : '',
+                }));
+              }}
+              disabled={!executeForm.poId}
+            >
+              <option value="">{executeForm.poId ? '请选择送货单号' : '请先选择采购订单'}</option>
+              {executeDeliveryOptions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.deliveryNo} · {formatDeliveryStatus(String(item.status ?? item.deliveryStatus ?? ''))}
+                </option>
+              ))}
+            </select>
+            {executeSelectedDelivery ? (
+              <div className={styles.exec_hint}>
+                送货日期 {String(executeSelectedDelivery.deliveryDate || '').slice(0, 10) || '—'}
+                {executeSelectedDelivery.receiptNo ? ` · 已关联入库单 ${executeSelectedDelivery.receiptNo}` : ' · 尚未生成入库单'}
+              </div>
+            ) : null}
+          </div>
+
+          <div className={styles.exec_field}>
+            <label htmlFor="receiptId" className={styles.exec_label}>入库单号</label>
+            <select
+              id="receiptId"
+              className={styles.exec_input}
+              value={executeForm.receiptId}
+              onChange={(e) =>
+                setExecuteForm((current) => ({ ...current, receiptId: e.target.value }))
+              }
+              disabled={!executeForm.deliveryNoteId || executeReceiptOptions.length === 0}
+            >
+              <option value="">
+                {!executeForm.deliveryNoteId
+                  ? '请先选择送货单号'
+                  : executeReceiptOptions.length > 0
+                    ? '请选择入库单号'
+                    : '该送货单尚未生成入库单'}
+              </option>
+              {executeReceiptOptions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.receiptNo}
+                </option>
+              ))}
+            </select>
+            {executeReceiptId && executeReceiptOptions.length > 0 ? (
+              <div className={styles.exec_hint}>
+                本次将按 {executeOrder?.poNo || '所选采购订单'} / {executeSelectedDelivery?.deliveryNo || '所选送货单'} / {executeReceiptOptions[0].receiptNo} 执行匹配
+              </div>
+            ) : null}
+          </div>
         </div>
       </Modal>
 

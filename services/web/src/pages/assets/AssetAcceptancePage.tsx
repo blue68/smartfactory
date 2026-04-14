@@ -4,6 +4,7 @@ import { useAppStore } from '@/stores/appStore';
 import { usePermission } from '@/hooks/usePermission';
 import { ACTION_CODES } from '@/constants/accessControl';
 import { useAccessUserList } from '@/api/accessControl';
+import { useDepartmentList } from '@/api/departments';
 import { usePurchaseReceiptDetail, usePurchaseReceiptList } from '@/api/purchase';
 import { useCreateAssetAcceptance } from '@/api/assets';
 import type { PurchaseReceipt, PurchaseReceiptItem } from '@/types/models';
@@ -12,6 +13,7 @@ import Table from '@/components/common/Table';
 import Drawer from '@/components/common/Drawer';
 import Button from '@/components/common/Button';
 import Tag from '@/components/common/Tag';
+import { buildDepartmentMap, formatDepartmentLabel } from '@/utils/department';
 import styles from './AssetAcceptancePage.module.css';
 
 interface AssetCardDraft {
@@ -34,10 +36,41 @@ interface AcceptanceDraftItem {
   cards: AssetCardDraft[];
 }
 
+function formatBusinessClassLabel(value?: string | null): string {
+  if (value === 'consumable') return '损耗品';
+  if (value === 'fixed_asset') return '固定资产';
+  if (value === 'production_material') return '生产物料';
+  return '待补配置';
+}
+
+function formatReceiptModeLabel(value?: string | null): string {
+  if (value === 'inventory') return '库存入库';
+  if (value === 'direct_expense') return '直接费用化';
+  if (value === 'asset_capitalization') return '资产待验收';
+  return '待补配置';
+}
+
+function getReceiptModeTagVariant(value?: string | null): 'warning' | 'info' | 'error' | 'neutral' {
+  if (value === 'direct_expense') return 'error';
+  if (value === 'asset_capitalization') return 'info';
+  if (value === 'inventory') return 'neutral';
+  return 'warning';
+}
+
+function getReceiptStatusMeta(status?: string | null): { label: string; variant: 'warning' | 'success' | 'error' | 'info' | 'neutral' } {
+  if (status === 'pending') return { label: '待确认', variant: 'warning' };
+  if (status === 'confirmed') return { label: '已入库', variant: 'success' };
+  if (status === 'received') return { label: '已收货', variant: 'success' };
+  if (status === 'cancelled') return { label: '已取消', variant: 'error' };
+  return { label: status || '未知', variant: 'neutral' };
+}
+
 function isEligibleItem(item: PurchaseReceiptItem): boolean {
+  const qtyReceived = Number(item.qtyReceived ?? 0);
+  const acceptedCardCount = Number(item.acceptedCardCount ?? 0);
   return item.businessClass === 'fixed_asset'
-    || item.receiptMode === 'asset_capitalization'
-    || Boolean(item.requiresAcceptance);
+    && item.receiptMode === 'asset_capitalization'
+    && acceptedCardCount < qtyReceived;
 }
 
 function emptyCardDraft(item: PurchaseReceiptItem, index: number): AssetCardDraft {
@@ -68,7 +101,8 @@ function buildDraftItems(receipt?: PurchaseReceipt | null): AcceptanceDraftItem[
   return (receipt?.items ?? [])
     .filter(isEligibleItem)
     .map((item) => {
-      const qtyReceived = Math.max(1, Math.floor(Number(item.qtyReceived ?? 1)));
+      const acceptedCardCount = Math.max(0, Number(item.acceptedCardCount ?? 0));
+      const qtyReceived = Math.max(1, Math.floor(Number(item.qtyReceived ?? 1) - acceptedCardCount));
       return {
         receiptItemId: item.id,
         purchaseItemId: typeof item.purchaseItemId === 'number' ? item.purchaseItemId : null,
@@ -97,10 +131,11 @@ export default function AssetAcceptancePage() {
     setPageTitle('固定资产验收');
   }, [setPageTitle]);
 
-  const receiptQuery = usePurchaseReceiptList({ page, pageSize: 12 });
+  const receiptQuery = usePurchaseReceiptList({ page, pageSize: 12, assetAcceptanceOnly: true });
   const detailQuery = usePurchaseReceiptDetail(selectedReceiptId);
   const acceptanceMutation = useCreateAssetAcceptance();
   const userQuery = useAccessUserList({ page: 1, pageSize: 200, status: 'active' });
+  const departmentQuery = useDepartmentList({ page: 1, pageSize: 200 });
 
   const receiptList = useMemo(() => {
     const list = receiptQuery.data?.list ?? [];
@@ -123,11 +158,16 @@ export default function AssetAcceptancePage() {
     [detail],
   );
   const userOptions = userQuery.data?.list ?? [];
+  const departments = departmentQuery.data?.list ?? [];
+  const departmentMap = useMemo(() => buildDepartmentMap(departments), [departments]);
   const receiptError = receiptQuery.error instanceof Error ? receiptQuery.error.message : null;
   const detailError = detailQuery.error instanceof Error ? detailQuery.error.message : null;
   const userError = userQuery.error instanceof Error ? userQuery.error.message : null;
   const departmentOptions = useMemo(() => {
     const sourceIds = new Set<number>();
+    departments
+      .filter((item) => item.status === 'active')
+      .forEach((item) => sourceIds.add(item.id));
     eligibleItems.forEach((item) => {
       if (typeof item.requestDepartmentId === 'number' && item.requestDepartmentId > 0) {
         sourceIds.add(item.requestDepartmentId);
@@ -141,8 +181,11 @@ export default function AssetAcceptancePage() {
         }
       });
     });
-    return Array.from(sourceIds).sort((left, right) => left - right);
-  }, [draftItems, eligibleItems]);
+    return Array.from(sourceIds)
+      .map((departmentId) => departmentMap.get(departmentId))
+      .filter(Boolean)
+      .sort((left, right) => Number(left?.sortOrder ?? 0) - Number(right?.sortOrder ?? 0) || Number(left?.id ?? 0) - Number(right?.id ?? 0));
+  }, [departmentMap, departments, draftItems, eligibleItems]);
 
   useEffect(() => {
     if (!detail) return;
@@ -176,14 +219,15 @@ export default function AssetAcceptancePage() {
       key: 'status',
       title: '收货状态',
       width: 130,
-      render: (value, record) => (
-        <div className={styles.statusCell}>
-          <Tag variant={String(value) === 'cancelled' ? 'error' : 'info'}>
-            {String(value) === 'cancelled' ? '已取消' : '可检查'}
-          </Tag>
-          <span>{formatQty(record.totalQty)} 件</span>
-        </div>
-      ),
+      render: (value, record) => {
+        const statusMeta = getReceiptStatusMeta(String(value ?? ''));
+        return (
+          <div className={styles.statusCell}>
+            <Tag variant={statusMeta.variant}>{statusMeta.label}</Tag>
+            <span>{formatQty(record.totalQty)} 件</span>
+          </div>
+        );
+      },
     },
     {
       key: 'receivedAt',
@@ -293,7 +337,7 @@ export default function AssetAcceptancePage() {
         <div className={styles.panelHeader}>
           <div>
             <h2>待检查入库单</h2>
-            <p>先选入库单，再在右侧抽屉中只对 `asset_capitalization` 明细建卡。</p>
+            <p>这里只展示可验收建卡的收货单，右侧仅对“固定资产 + 资产待验收”明细建卡。</p>
           </div>
           <input
             className={styles.search}
@@ -309,7 +353,7 @@ export default function AssetAcceptancePage() {
           rowKey="id"
           loading={receiptQuery.isLoading}
           error={receiptError}
-          emptyText="当前没有待建卡收货记录"
+          emptyText="当前没有可验收建卡的收货记录"
           pagination={{
             page,
             pageSize: receiptQuery.data?.pageSize ?? 12,
@@ -388,7 +432,7 @@ export default function AssetAcceptancePage() {
             ) : null}
             <section className={styles.receiptSummary}>
               <div>
-                <Tag variant="info">{detail.status}</Tag>
+                <Tag variant={getReceiptStatusMeta(detail.status).variant}>{getReceiptStatusMeta(detail.status).label}</Tag>
                 <h3>{detail.poNo || `PO#${detail.poId}`}</h3>
                 <p>{detail.supplierName || '未绑定供应商'} · 收货时间 {formatDateTime(detail.receivedAt)}</p>
               </div>
@@ -401,7 +445,9 @@ export default function AssetAcceptancePage() {
             </section>
 
             {eligibleItems.length === 0 ? (
-              <div className={styles.emptyBlock}>当前入库单没有 `fixed_asset / asset_capitalization` 明细，无法建卡。</div>
+              <div className={styles.emptyBlock}>
+                当前入库单没有需要验收建卡的资产明细。仅“固定资产”且入库方式为“资产待验收”的明细可在这里建卡。
+              </div>
             ) : (
               <div className={styles.itemList}>
                 {draftItems.map((draft) => {
@@ -415,14 +461,18 @@ export default function AssetAcceptancePage() {
                           <div className={styles.secondaryCell}>{draft.skuCode}</div>
                         </div>
                         <div className={styles.itemBadges}>
-                          <Tag variant="info">需验收</Tag>
-                          <Tag variant="neutral">{sourceItem.receiptMode || 'asset_capitalization'}</Tag>
+                          <Tag variant="info">{formatBusinessClassLabel(sourceItem.businessClass)}</Tag>
+                          <Tag variant={getReceiptModeTagVariant(sourceItem.receiptMode)}>
+                            {formatReceiptModeLabel(sourceItem.receiptMode)}
+                          </Tag>
+                          {sourceItem.requiresAcceptance ? <Tag variant="success">需验收</Tag> : null}
                         </div>
                       </div>
 
                       <div className={styles.itemMeta}>
                         <div><span>入库明细</span><strong>#{draft.receiptItemId}</strong></div>
                         <div><span>收货数量</span><strong>{formatQty(sourceItem.qtyReceived)}</strong></div>
+                        <div><span>已建卡</span><strong>{formatQty(sourceItem.acceptedCardCount ?? 0)}</strong></div>
                         <div><span>单价</span><strong>{sourceItem.unitPrice}</strong></div>
                         <div><span>预算</span><strong>{sourceItem.budgetCode || '未配置'}</strong></div>
                       </div>
@@ -477,9 +527,12 @@ export default function AssetAcceptancePage() {
                                     onChange={(e) => updateDraftCard(draft.receiptItemId, card.key, 'departmentId', e.target.value)}
                                   >
                                     <option value="">未指定</option>
-                                    {departmentOptions.map((departmentId) => (
-                                      <option key={departmentId} value={departmentId}>
-                                        部门 #{departmentId}
+                                    {card.departmentId && !departmentOptions.some((department) => String(department?.id) === card.departmentId) ? (
+                                      <option value={card.departmentId}>{formatDepartmentLabel(card.departmentId, departmentMap)}</option>
+                                    ) : null}
+                                    {departmentOptions.map((department) => (
+                                      <option key={department!.id} value={department!.id}>
+                                        {formatDepartmentLabel(department!.id, departmentMap)}
                                       </option>
                                     ))}
                                   </select>

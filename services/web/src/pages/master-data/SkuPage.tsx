@@ -45,6 +45,7 @@ import Tag from '@/components/common/Tag';
 import Button from '@/components/common/Button';
 import Modal from '@/components/common/Modal';
 import { exportObjectsToCSV } from '@/utils/exportExcel';
+import { formatAssetCategoryLabel, formatDepreciationMethodLabel } from '@/utils/assetDisplay';
 import styles from './SkuPage.module.css';
 
 // ──────────────────────────────────────────────
@@ -324,6 +325,19 @@ function getDefaultWarehouseTypeLabel(value?: Sku['defaultWarehouseType']): stri
       return '资产仓';
     case 'finished':
       return '成品仓';
+    default:
+      return '未配置';
+  }
+}
+
+function getAssetTrackingModeLabel(value?: Sku['assetTrackingMode'] | ''): string {
+  switch (value) {
+    case 'batch':
+      return '批次';
+    case 'serial':
+      return '序列号';
+    case 'none':
+      return '不跟踪';
     default:
       return '未配置';
   }
@@ -1319,6 +1333,7 @@ function SkuFormDrawerContent({
   const isFinished = isFinishedCategory(form.category1Code);
   const isConsumable = form.businessClass === 'consumable';
   const isFixedAsset = form.businessClass === 'fixed_asset';
+  const isDerivedControlReadonly = true;
   const set = useCallback(
     (field: keyof SkuFormData) =>
       (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -1649,60 +1664,77 @@ function SkuFormDrawerContent({
           <label className={styles.form_label}>
             控制模式 <span className={styles.required}>*</span>
           </label>
-          <select
-            className={styles.form_input}
-            value={form.controlMode}
-            onChange={(e) => onChange((current) => ({ ...current, controlMode: e.target.value as ControlMode }))}
-          >
-            <option value="mrp">MRP</option>
-            <option value="stock_only">仅库存</option>
-            <option value="direct_expense">直耗</option>
-            <option value="asset">资产</option>
-          </select>
+          {isDerivedControlReadonly ? (
+            <div className={styles.form_input_readonly}>{getControlModeLabel(form.controlMode)}</div>
+          ) : (
+            <select
+              className={styles.form_input}
+              value={form.controlMode}
+              onChange={(e) => onChange((current) => ({ ...current, controlMode: e.target.value as ControlMode }))}
+            >
+              <option value="mrp">MRP</option>
+              <option value="stock_only">仅库存</option>
+              <option value="direct_expense">直耗</option>
+              <option value="asset">资产</option>
+            </select>
+          )}
         </div>
 
         <div className={styles.form_field}>
           <label className={styles.form_label}>默认仓库类型</label>
-          <select
-            className={styles.form_input}
-            value={form.defaultWarehouseType}
-            onChange={(e) => onChange((current) => ({ ...current, defaultWarehouseType: e.target.value as DefaultWarehouseType | '' }))}
-          >
-            <option value="">未指定</option>
-            <option value="raw_material">原料仓</option>
-            <option value="consumable">损耗品仓</option>
-            <option value="asset_pending">资产待验收仓</option>
-            <option value="asset">资产仓</option>
-            <option value="finished">成品仓</option>
-          </select>
+          {isDerivedControlReadonly ? (
+            <div className={styles.form_input_readonly}>{getDefaultWarehouseTypeLabel(form.defaultWarehouseType)}</div>
+          ) : (
+            <select
+              className={styles.form_input}
+              value={form.defaultWarehouseType}
+              onChange={(e) => onChange((current) => ({ ...current, defaultWarehouseType: e.target.value as DefaultWarehouseType | '' }))}
+            >
+              <option value="">未指定</option>
+              <option value="raw_material">原料仓</option>
+              <option value="consumable">损耗品仓</option>
+              <option value="asset_pending">资产待验收仓</option>
+              <option value="asset">资产仓</option>
+              <option value="finished">成品仓</option>
+            </select>
+          )}
         </div>
 
         <div className={styles.form_field}>
           <label className={styles.form_label}>审批策略编码</label>
-          <input
-            className={styles.form_input}
-            value={form.approvalPolicyCode}
-            onChange={set('approvalPolicyCode')}
-            placeholder={isConsumable ? '例如 CONS-NORMAL' : isFixedAsset ? '例如 ASSET-STRICT' : '可留空'}
-          />
+          {isDerivedControlReadonly ? (
+            <div className={styles.form_input_readonly}>{form.approvalPolicyCode || '未配置'}</div>
+          ) : (
+            <input
+              className={styles.form_input}
+              value={form.approvalPolicyCode}
+              onChange={set('approvalPolicyCode')}
+              placeholder={isConsumable ? '例如 CONS-NORMAL' : isFixedAsset ? '例如 ASSET-STRICT' : '可留空'}
+            />
+          )}
         </div>
 
         <div className={styles.form_field}>
           <label className={styles.form_label}>跟踪模式</label>
-          <select
-            className={styles.form_input}
-            value={form.assetTrackingMode}
-            onChange={(e) => onChange((current) => ({ ...current, assetTrackingMode: e.target.value as AssetTrackingMode | '' }))}
-          >
-            <option value="none">不跟踪</option>
-            <option value="batch">批次</option>
-            <option value="serial">序列号</option>
-          </select>
+          {isDerivedControlReadonly ? (
+            <div className={styles.form_input_readonly}>{getAssetTrackingModeLabel(form.assetTrackingMode)}</div>
+          ) : (
+            <select
+              className={styles.form_input}
+              value={form.assetTrackingMode}
+              onChange={(e) => onChange((current) => ({ ...current, assetTrackingMode: e.target.value as AssetTrackingMode | '' }))}
+            >
+              <option value="none">不跟踪</option>
+              <option value="batch">批次</option>
+              <option value="serial">序列号</option>
+            </select>
+          )}
         </div>
       </div>
 
       <div className={styles.form_hint_box}>
         <div>{isConsumable ? '损耗品默认走库存/领用规则，可维护审批强度和费用科目。' : isFixedAsset ? '固定资产默认要求验收建卡，建议启用序列号跟踪。' : '生产物料默认保留采购、库存和生产领用能力。'}</div>
+        {isDerivedControlReadonly && <div>除业务大类外，其余管控规则按系统预设自动带出，只读展示。</div>}
       </div>
 
       <div className={styles.toggle_grid}>
@@ -1712,6 +1744,7 @@ function SkuFormDrawerContent({
             id="chk_allow_bom"
             checked={form.allowBomComponent}
             onChange={setCheck('allowBomComponent')}
+            disabled={isDerivedControlReadonly}
           />
           <label htmlFor="chk_allow_bom">
             <div>允许作为 BOM 组件</div>
@@ -1725,6 +1758,7 @@ function SkuFormDrawerContent({
             id="chk_allow_purchase"
             checked={form.allowPurchase}
             onChange={setCheck('allowPurchase')}
+            disabled={isDerivedControlReadonly}
           />
           <label htmlFor="chk_allow_purchase">
             <div>允许采购</div>
@@ -1738,6 +1772,7 @@ function SkuFormDrawerContent({
             id="chk_allow_inventory"
             checked={form.allowInventory}
             onChange={setCheck('allowInventory')}
+            disabled={isDerivedControlReadonly}
           />
           <label htmlFor="chk_allow_inventory">
             <div>允许进入库存</div>
@@ -1751,6 +1786,7 @@ function SkuFormDrawerContent({
             id="chk_allow_issue"
             checked={form.allowProductionIssue}
             onChange={setCheck('allowProductionIssue')}
+            disabled={isDerivedControlReadonly}
           />
           <label htmlFor="chk_allow_issue">
             <div>允许生产领用</div>
@@ -1764,6 +1800,7 @@ function SkuFormDrawerContent({
             id="chk_asset_acceptance"
             checked={form.requiresAssetAcceptance}
             onChange={setCheck('requiresAssetAcceptance')}
+            disabled={isDerivedControlReadonly}
           />
           <label htmlFor="chk_asset_acceptance">
             <div>需要资产验收</div>
@@ -2343,11 +2380,15 @@ function SkuDetailContent({
           <div className={styles.detail_grid}>
             <div className={styles.detail_item}>
               <div className={styles.detail_item_label}>资产类别</div>
-              <div className={styles.detail_item_value}>{sku.assetProfile.assetCategory ?? '—'}</div>
+              <div className={styles.detail_item_value}>
+                {formatAssetCategoryLabel(sku.assetProfile.assetCategory)}
+              </div>
             </div>
             <div className={styles.detail_item}>
               <div className={styles.detail_item_label}>折旧方式</div>
-              <div className={styles.detail_item_value}>{sku.assetProfile.depreciationMethod ?? '—'}</div>
+              <div className={styles.detail_item_value}>
+                {formatDepreciationMethodLabel(sku.assetProfile.depreciationMethod)}
+              </div>
             </div>
             <div className={styles.detail_item}>
               <div className={styles.detail_item_label}>使用寿命(月)</div>

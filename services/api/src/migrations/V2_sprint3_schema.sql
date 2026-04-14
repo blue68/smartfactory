@@ -155,55 +155,178 @@ CREATE TABLE IF NOT EXISTS `material_requirements` (
 -- ═════════════════════════════════════════════════════════════════════════════
 
 -- S3-A1: production_orders 增加 BOM 快照和原料状态字段
-ALTER TABLE `production_orders`
-  ADD COLUMN IF NOT EXISTS `bom_snapshot_id` BIGINT UNSIGNED DEFAULT NULL
-    COMMENT 'BOM版本快照ID（创建工单时锁定，BD-001）'
-    AFTER `bom_header_id`,
-  ADD COLUMN IF NOT EXISTS `material_status` ENUM('unchecked','shortage','partial','ready') NOT NULL DEFAULT 'unchecked'
-    COMMENT '原材料备料状态'
-    AFTER `status`;
+SET @sql = IF(
+  EXISTS(
+    SELECT 1
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'production_orders'
+       AND COLUMN_NAME = 'bom_snapshot_id'
+  ),
+  'SELECT 1',
+  'ALTER TABLE `production_orders` ADD COLUMN `bom_snapshot_id` BIGINT UNSIGNED DEFAULT NULL COMMENT ''BOM版本快照ID（创建工单时锁定，BD-001）'' AFTER `bom_header_id`'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+  EXISTS(
+    SELECT 1
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'production_orders'
+       AND COLUMN_NAME = 'material_status'
+  ),
+  'SELECT 1',
+  'ALTER TABLE `production_orders` ADD COLUMN `material_status` ENUM(''unchecked'',''shortage'',''partial'',''ready'') NOT NULL DEFAULT ''unchecked'' COMMENT ''原材料备料状态'' AFTER `status`'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- S3-A2: production_tasks 增加 version 字段（乐观锁）和 exception/suspended 状态
 ALTER TABLE `production_tasks`
-  MODIFY COLUMN `status` ENUM('pending','started','completed','cancelled','exception','suspended') NOT NULL DEFAULT 'pending',
-  ADD COLUMN IF NOT EXISTS `version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT '乐观锁版本号'
-    AFTER `completed_at`;
+  MODIFY COLUMN `status` ENUM('pending','started','completed','cancelled','exception','suspended') NOT NULL DEFAULT 'pending';
+
+SET @sql = IF(
+  EXISTS(
+    SELECT 1
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'production_tasks'
+       AND COLUMN_NAME = 'version'
+  ),
+  'SELECT 1',
+  'ALTER TABLE `production_tasks` ADD COLUMN `version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT ''乐观锁版本号'' AFTER `completed_at`'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- S3-A3: delivery_notes 增加质检关联字段
-ALTER TABLE `delivery_notes`
-  ADD COLUMN IF NOT EXISTS `inspection_id` BIGINT UNSIGNED DEFAULT NULL
-    COMMENT '关联来料质检单ID'
-    AFTER `status`,
-  ADD COLUMN IF NOT EXISTS `receipt_id` BIGINT UNSIGNED DEFAULT NULL
-    COMMENT '关联入库单ID'
-    AFTER `inspection_id`;
+SET @sql = IF(
+  EXISTS(
+    SELECT 1
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'delivery_notes'
+       AND COLUMN_NAME = 'inspection_id'
+  ),
+  'SELECT 1',
+  'ALTER TABLE `delivery_notes` ADD COLUMN `inspection_id` BIGINT UNSIGNED DEFAULT NULL COMMENT ''关联来料质检单ID'' AFTER `status`'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+  EXISTS(
+    SELECT 1
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'delivery_notes'
+       AND COLUMN_NAME = 'receipt_id'
+  ),
+  'SELECT 1',
+  'ALTER TABLE `delivery_notes` ADD COLUMN `receipt_id` BIGINT UNSIGNED DEFAULT NULL COMMENT ''关联入库单ID'' AFTER `inspection_id`'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- S3-A4: purchase_order_items 增加质检汇总字段
-ALTER TABLE `purchase_order_items`
-  ADD COLUMN IF NOT EXISTS `qty_passed` DECIMAL(16,4) NOT NULL DEFAULT 0
-    COMMENT '累计质检合格入库数量'
-    AFTER `qty_received`,
-  ADD COLUMN IF NOT EXISTS `qty_rejected` DECIMAL(16,4) NOT NULL DEFAULT 0
-    COMMENT '累计质检不合格退货数量'
-    AFTER `qty_passed`;
+SET @sql = IF(
+  EXISTS(
+    SELECT 1
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'purchase_order_items'
+       AND COLUMN_NAME = 'qty_passed'
+  ),
+  'SELECT 1',
+  'ALTER TABLE `purchase_order_items` ADD COLUMN `qty_passed` DECIMAL(16,4) NOT NULL DEFAULT 0 COMMENT ''累计质检合格入库数量'' AFTER `qty_received`'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+  EXISTS(
+    SELECT 1
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'purchase_order_items'
+       AND COLUMN_NAME = 'qty_rejected'
+  ),
+  'SELECT 1',
+  'ALTER TABLE `purchase_order_items` ADD COLUMN `qty_rejected` DECIMAL(16,4) NOT NULL DEFAULT 0 COMMENT ''累计质检不合格退货数量'' AFTER `qty_passed`'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- S3-A5: process_steps 增加工序输出类型字段
-ALTER TABLE `process_steps`
-  ADD COLUMN IF NOT EXISTS `output_type` ENUM('semi_finished','final_product','none') NOT NULL DEFAULT 'none'
-    COMMENT '工序产出类型'
-    AFTER `workstation_type`,
-  ADD COLUMN IF NOT EXISTS `output_sku_id` BIGINT UNSIGNED DEFAULT NULL
-    COMMENT '工序产出半成品 SKU ID'
-    AFTER `output_type`;
+SET @sql = IF(
+  EXISTS(
+    SELECT 1
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'process_steps'
+       AND COLUMN_NAME = 'output_type'
+  ),
+  'SELECT 1',
+  'ALTER TABLE `process_steps` ADD COLUMN `output_type` ENUM(''semi_finished'',''final_product'',''none'') NOT NULL DEFAULT ''none'' COMMENT ''工序产出类型'' AFTER `workstation_type`'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+  EXISTS(
+    SELECT 1
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'process_steps'
+       AND COLUMN_NAME = 'output_sku_id'
+  ),
+  'SELECT 1',
+  'ALTER TABLE `process_steps` ADD COLUMN `output_sku_id` BIGINT UNSIGNED DEFAULT NULL COMMENT ''工序产出半成品 SKU ID'' AFTER `output_type`'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- S3-A6: purchase_suggestions 增加来源字段
-ALTER TABLE `purchase_suggestions`
-  ADD COLUMN IF NOT EXISTS `source` ENUM('ai_schedule','production_shortage','manual') NOT NULL DEFAULT 'ai_schedule'
-    COMMENT '建议来源'
-    AFTER `suggestion_no`,
-  ADD COLUMN IF NOT EXISTS `production_order_id` BIGINT UNSIGNED DEFAULT NULL
-    COMMENT '关联生产工单ID（缺料触发时）'
-    AFTER `source`;
+SET @sql = IF(
+  EXISTS(
+    SELECT 1
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'purchase_suggestions'
+       AND COLUMN_NAME = 'source'
+  ),
+  'SELECT 1',
+  'ALTER TABLE `purchase_suggestions` ADD COLUMN `source` ENUM(''ai_schedule'',''production_shortage'',''manual'') NOT NULL DEFAULT ''ai_schedule'' COMMENT ''建议来源'' AFTER `suggestion_no`'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+  EXISTS(
+    SELECT 1
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'purchase_suggestions'
+       AND COLUMN_NAME = 'production_order_id'
+  ),
+  'SELECT 1',
+  'ALTER TABLE `purchase_suggestions` ADD COLUMN `production_order_id` BIGINT UNSIGNED DEFAULT NULL COMMENT ''关联生产工单ID（缺料触发时）'' AFTER `source`'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 迁移完成验证

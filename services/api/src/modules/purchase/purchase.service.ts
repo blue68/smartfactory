@@ -89,14 +89,36 @@ export class PurchaseService {
       return { clause: '1 = 0', params: [] };
     }
 
+    const supportsReceiptItemsTable = await this.hasPurchaseReceiptItemsTable();
+    const supportsReceiptItemControlColumns = supportsReceiptItemsTable
+      ? await this.hasPurchaseReceiptItemControlColumns()
+      : false;
+    const inventoryReceiptClause = `EXISTS (
+      SELECT 1
+        FROM inventory_transactions it_scope
+       WHERE it_scope.tenant_id = ${alias}.tenant_id
+         AND it_scope.reference_type = 'purchase_receipt'
+         AND it_scope.reference_id = ${alias}.id
+         AND it_scope.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})
+    )`;
+
+    if (!supportsReceiptItemsTable || !supportsReceiptItemControlColumns) {
+      return {
+        clause: inventoryReceiptClause,
+        params: warehouseScope.warehouseIds,
+      };
+    }
+
     return {
-      clause: `EXISTS (
-        SELECT 1
-          FROM inventory_transactions it_scope
-         WHERE it_scope.tenant_id = ${alias}.tenant_id
-           AND it_scope.reference_type = 'purchase_receipt'
-           AND it_scope.reference_id = ${alias}.id
-           AND it_scope.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})
+      clause: `(
+        ${inventoryReceiptClause}
+        OR EXISTS (
+          SELECT 1
+            FROM purchase_receipt_items pri_scope
+           WHERE pri_scope.tenant_id = ${alias}.tenant_id
+             AND pri_scope.receipt_id = ${alias}.id
+             AND COALESCE(pri_scope.receipt_mode, '') IN ('direct_expense', 'asset_capitalization')
+        )
       )`,
       params: warehouseScope.warehouseIds,
     };
@@ -111,16 +133,39 @@ export class PurchaseService {
       return { clause: `${alias}.receipt_id IS NULL AND 1 = 0`, params: [] };
     }
 
+    const supportsReceiptItemsTable = await this.hasPurchaseReceiptItemsTable();
+    const supportsReceiptItemControlColumns = supportsReceiptItemsTable
+      ? await this.hasPurchaseReceiptItemControlColumns()
+      : false;
+    const inventoryReceiptClause = `EXISTS (
+      SELECT 1
+        FROM inventory_transactions it_scope
+       WHERE it_scope.tenant_id = ${alias}.tenant_id
+         AND it_scope.reference_type = 'purchase_receipt'
+         AND it_scope.reference_id = ${alias}.receipt_id
+         AND it_scope.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})
+    )`;
+
+    if (!supportsReceiptItemsTable || !supportsReceiptItemControlColumns) {
+      return {
+        clause: `(
+          ${alias}.receipt_id IS NULL
+          OR ${inventoryReceiptClause}
+        )`,
+        params: warehouseScope.warehouseIds,
+      };
+    }
+
     return {
       clause: `(
         ${alias}.receipt_id IS NULL
+        OR ${inventoryReceiptClause}
         OR EXISTS (
           SELECT 1
-            FROM inventory_transactions it_scope
-           WHERE it_scope.tenant_id = ${alias}.tenant_id
-             AND it_scope.reference_type = 'purchase_receipt'
-             AND it_scope.reference_id = ${alias}.receipt_id
-             AND it_scope.warehouse_id IN (${warehouseScope.warehouseIds.map(() => '?').join(',')})
+            FROM purchase_receipt_items pri_scope
+           WHERE pri_scope.tenant_id = ${alias}.tenant_id
+             AND pri_scope.receipt_id = ${alias}.receipt_id
+             AND COALESCE(pri_scope.receipt_mode, '') IN ('direct_expense', 'asset_capitalization')
         )
       )`,
       params: warehouseScope.warehouseIds,
@@ -534,14 +579,17 @@ export class PurchaseService {
 
     const [list, countRows] = await Promise.all([
       AppDataSource.query(
-        `SELECT po.*, sup.name AS supplierName
+        `SELECT po.*, COALESCE(sup.name, CONCAT('供应商#', CAST(po.supplier_id AS CHAR))) AS supplierName
          FROM purchase_orders po
-         INNER JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
+         LEFT JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
          WHERE ${where} ORDER BY po.id DESC LIMIT ? OFFSET ?`,
         [...p, params.pageSize, offset],
       ),
       AppDataSource.query<Array<{ total: number }>>(
-        `SELECT COUNT(*) AS total FROM purchase_orders po WHERE ${where}`, p,
+        `SELECT COUNT(*) AS total
+         FROM purchase_orders po
+         LEFT JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
+         WHERE ${where}`, p,
       ),
     ]);
 
@@ -585,10 +633,10 @@ export class PurchaseService {
       ? await AppDataSource.query<Array<Record<string, unknown>>>(
           `SELECT
              po.*,
-             sup.name AS supplierName,
+             COALESCE(sup.name, CONCAT('供应商#', CAST(po.supplier_id AS CHAR))) AS supplierName,
              closer.username AS closedByName
            FROM purchase_orders po
-           INNER JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
+           LEFT JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
            LEFT JOIN users closer ON closer.id = po.closed_by
            WHERE po.id = ? AND po.tenant_id = ?
            LIMIT 1`,
@@ -597,10 +645,10 @@ export class PurchaseService {
       : await AppDataSource.query<Array<Record<string, unknown>>>(
           `SELECT
              po.*,
-             sup.name AS supplierName,
+             COALESCE(sup.name, CONCAT('供应商#', CAST(po.supplier_id AS CHAR))) AS supplierName,
              NULL AS closedByName
            FROM purchase_orders po
-           INNER JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
+           LEFT JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
            WHERE po.id = ? AND po.tenant_id = ?
            LIMIT 1`,
           [id, this.tenantId],
@@ -824,7 +872,7 @@ export class PurchaseService {
 
     const baseSql = `
       FROM purchase_orders po
-      INNER JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
+      LEFT JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
       INNER JOIN purchase_order_items poi ON poi.po_id = po.id AND poi.tenant_id = po.tenant_id
       WHERE po.tenant_id = ?
         AND po.status = 'partial_received'
@@ -838,7 +886,7 @@ export class PurchaseService {
            po.id,
            po.po_no AS poNo,
            po.expected_date AS expectedDate,
-           sup.name AS supplierName,
+           COALESCE(sup.name, CONCAT('供应商#', CAST(po.supplier_id AS CHAR))) AS supplierName,
            po.status,
            po.total_amount AS totalAmount,
            SUM(COALESCE(poi.qty_ordered, 0)) AS totalOrdered,
@@ -846,7 +894,7 @@ export class PurchaseService {
            SUM(GREATEST(COALESCE(poi.qty_ordered, 0) - COALESCE(poi.qty_received, 0), 0)) AS totalGap,
            DATEDIFF(CURDATE(), po.expected_date) AS overdueDays
          ${baseSql}
-         GROUP BY po.id, po.po_no, po.expected_date, sup.name, po.status, po.total_amount
+         GROUP BY po.id, po.po_no, po.expected_date, po.supplier_id, sup.name, po.status, po.total_amount
          ORDER BY overdueDays DESC, po.expected_date ASC, po.id DESC
          LIMIT ? OFFSET ?`,
         [this.tenantId, params.pageSize, offset],
@@ -865,9 +913,12 @@ export class PurchaseService {
     return { list, total: Number(countRows[0]?.total ?? 0) };
   }
 
-  async listReceipts(params: { status?: string; poId?: number; page: number; pageSize: number }) {
+  async listReceipts(params: { status?: string; poId?: number; page: number; pageSize: number; assetAcceptanceOnly?: boolean }) {
     const receiptDeliveryColumn = await this.getPurchaseReceiptDeliveryColumn();
     const supportsReceiptItemsTable = await this.hasPurchaseReceiptItemsTable();
+    const supportsReceiptItemControlColumns = supportsReceiptItemsTable
+      ? await this.hasPurchaseReceiptItemControlColumns()
+      : false;
     const conds = ['pr.tenant_id = ?'];
     const p: unknown[] = [this.tenantId];
     const warehouseScopeFilter = await this.buildReceiptWarehouseScopeFilter('pr');
@@ -878,6 +929,30 @@ export class PurchaseService {
 
     const where = conds.join(' AND ');
     const offset = (params.page - 1) * params.pageSize;
+    const acceptedCardCountExpr = '(SELECT COUNT(*) FROM asset_cards ac WHERE ac.receipt_item_id = pri.id AND ac.tenant_id = pr.tenant_id)';
+    const assetEligibleExpr = supportsReceiptItemsTable
+      ? (
+        supportsReceiptItemControlColumns
+          ? `SUM(
+               CASE
+                 WHEN COALESCE(pri.business_class, '') = 'fixed_asset'
+                  AND COALESCE(pri.receipt_mode, '') = 'asset_capitalization'
+                  AND ${acceptedCardCountExpr} < CAST(COALESCE(pri.qty_received, 0) AS DECIMAL(16,4))
+                 THEN 1
+                 ELSE 0
+               END
+             )`
+          : '0'
+      )
+      : `SUM(
+           CASE
+             WHEN COALESCE(poi.business_class, 'production_material') = 'fixed_asset'
+              AND COALESCE(poi.receipt_mode, 'inventory') = 'asset_capitalization'
+             THEN 1
+             ELSE 0
+           END
+         )`;
+    const assetAcceptanceHaving = params.assetAcceptanceOnly ? `HAVING ${assetEligibleExpr} > 0` : '';
 
     const [list, countRows] = await Promise.all([
       AppDataSource.query<Array<Record<string, unknown>>>(
@@ -894,13 +969,14 @@ export class PurchaseService {
                COALESCE(SUM(pri.amount), 0) AS totalAmount,
                pr.notes,
                COALESCE(pr.received_at, pr.created_at) AS receivedAt,
-               sup.name AS supplierName,
+               COALESCE(sup.name, CONCAT('供应商#', CAST(po.supplier_id AS CHAR))) AS supplierName,
                ir.inspection_no AS inspectionNo,
                creator.username AS operatorName,
-               COALESCE(SUM(pri.qty_received), 0) AS totalQty
+               COALESCE(SUM(pri.qty_received), 0) AS totalQty,
+               ${assetEligibleExpr} AS assetEligibleItemCount
              FROM purchase_receipts pr
              INNER JOIN purchase_orders po ON po.id = pr.po_id AND po.tenant_id = pr.tenant_id
-             INNER JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
+             LEFT JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
              LEFT JOIN delivery_notes dn ON dn.id = pr.${receiptDeliveryColumn} AND dn.tenant_id = pr.tenant_id
              LEFT JOIN incoming_inspection_records ir
                ON ir.delivery_note_id = pr.${receiptDeliveryColumn} AND ir.tenant_id = pr.tenant_id
@@ -910,7 +986,8 @@ export class PurchaseService {
              GROUP BY
                pr.id, pr.receipt_no, pr.po_id, po.po_no, po.status,
                pr.${receiptDeliveryColumn}, dn.delivery_no, pr.status,
-               pr.notes, pr.received_at, pr.created_at, sup.name, ir.inspection_no, creator.username
+               pr.notes, pr.received_at, pr.created_at, po.supplier_id, sup.name, ir.inspection_no, creator.username
+             ${assetAcceptanceHaving}
              ORDER BY pr.id DESC
              LIMIT ? OFFSET ?`
           : `SELECT
@@ -925,13 +1002,14 @@ export class PurchaseService {
                COALESCE(SUM(CAST(ii.qty_passed AS DECIMAL(16,4)) * CAST(COALESCE(poi.unit_price, 0) AS DECIMAL(14,4))), 0) AS totalAmount,
                pr.notes,
                COALESCE(pr.received_at, pr.created_at) AS receivedAt,
-               sup.name AS supplierName,
+               COALESCE(sup.name, CONCAT('供应商#', CAST(po.supplier_id AS CHAR))) AS supplierName,
                ir.inspection_no AS inspectionNo,
                creator.username AS operatorName,
-               COALESCE(SUM(ii.qty_passed), 0) AS totalQty
+               COALESCE(SUM(ii.qty_passed), 0) AS totalQty,
+               ${assetEligibleExpr} AS assetEligibleItemCount
              FROM purchase_receipts pr
              INNER JOIN purchase_orders po ON po.id = pr.po_id AND po.tenant_id = pr.tenant_id
-             INNER JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
+             LEFT JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
              LEFT JOIN delivery_notes dn ON dn.id = pr.${receiptDeliveryColumn} AND dn.tenant_id = pr.tenant_id
              LEFT JOIN incoming_inspection_records ir
                ON ir.delivery_note_id = pr.${receiptDeliveryColumn} AND ir.tenant_id = pr.tenant_id
@@ -944,13 +1022,47 @@ export class PurchaseService {
              GROUP BY
                pr.id, pr.receipt_no, pr.po_id, po.po_no, po.status,
                pr.${receiptDeliveryColumn}, dn.delivery_no, pr.status,
-               pr.notes, pr.received_at, pr.created_at, sup.name, ir.inspection_no, creator.username
+               pr.notes, pr.received_at, pr.created_at, po.supplier_id, sup.name, ir.inspection_no, creator.username
+             ${assetAcceptanceHaving}
              ORDER BY pr.id DESC
              LIMIT ? OFFSET ?`,
         [...p, params.pageSize, offset],
       ),
       AppDataSource.query<Array<{ total: number }>>(
-        `SELECT COUNT(*) AS total FROM purchase_receipts pr WHERE ${where}`,
+        supportsReceiptItemsTable
+          ? `SELECT COUNT(*) AS total
+               FROM (
+                 SELECT pr.id
+                   FROM purchase_receipts pr
+                   INNER JOIN purchase_orders po ON po.id = pr.po_id AND po.tenant_id = pr.tenant_id
+                   LEFT JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = pr.tenant_id
+                   LEFT JOIN delivery_notes dn ON dn.id = pr.${receiptDeliveryColumn} AND dn.tenant_id = pr.tenant_id
+                   LEFT JOIN incoming_inspection_records ir
+                     ON ir.delivery_note_id = pr.${receiptDeliveryColumn} AND ir.tenant_id = pr.tenant_id
+                   LEFT JOIN users creator ON creator.id = pr.created_by AND creator.tenant_id = pr.tenant_id
+                   LEFT JOIN purchase_receipt_items pri ON pri.receipt_id = pr.id AND pri.tenant_id = pr.tenant_id
+                  WHERE ${where}
+                  GROUP BY pr.id
+                  ${assetAcceptanceHaving}
+               ) receipt_scope`
+          : `SELECT COUNT(*) AS total
+               FROM (
+                 SELECT pr.id
+                   FROM purchase_receipts pr
+                   INNER JOIN purchase_orders po ON po.id = pr.po_id AND po.tenant_id = pr.tenant_id
+                   LEFT JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = pr.tenant_id
+                   LEFT JOIN delivery_notes dn ON dn.id = pr.${receiptDeliveryColumn} AND dn.tenant_id = pr.tenant_id
+                   LEFT JOIN incoming_inspection_records ir
+                     ON ir.delivery_note_id = pr.${receiptDeliveryColumn} AND ir.tenant_id = pr.tenant_id
+                   LEFT JOIN incoming_inspection_items ii
+                     ON ii.inspection_id = ir.id AND ii.tenant_id = pr.tenant_id
+                   LEFT JOIN purchase_order_items poi
+                     ON poi.id = ii.po_item_id AND poi.tenant_id = pr.tenant_id
+                   LEFT JOIN users creator ON creator.id = pr.created_by AND creator.tenant_id = pr.tenant_id
+                  WHERE ${where}
+                  GROUP BY pr.id
+                  ${assetAcceptanceHaving}
+               ) receipt_scope`,
         p,
       ),
     ]);
@@ -961,6 +1073,7 @@ export class PurchaseService {
   async getReceiptById(id: number) {
     const receiptDeliveryColumn = await this.getPurchaseReceiptDeliveryColumn();
     const supportsReceiptItemsTable = await this.hasPurchaseReceiptItemsTable();
+    const acceptedCardCountExpr = '(SELECT COUNT(*) FROM asset_cards ac WHERE ac.receipt_item_id = pri.id AND ac.tenant_id = pri.tenant_id)';
     const supportsReceiptItemDyeLot = supportsReceiptItemsTable
       ? await this.hasPurchaseReceiptItemDyeLotColumn()
       : false;
@@ -983,12 +1096,12 @@ export class PurchaseService {
          po.po_no AS poNo,
          po.status AS poStatus,
          dn.delivery_no AS deliveryNo,
-         sup.name AS supplierName,
+         COALESCE(sup.name, CONCAT('供应商#', CAST(po.supplier_id AS CHAR))) AS supplierName,
          ir.inspection_no AS inspectionNo,
          creator.username AS operatorName
        FROM purchase_receipts pr
        INNER JOIN purchase_orders po ON po.id = pr.po_id AND po.tenant_id = pr.tenant_id
-       INNER JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
+       LEFT JOIN suppliers sup ON sup.id = po.supplier_id AND sup.tenant_id = po.tenant_id
        LEFT JOIN delivery_notes dn ON dn.id = pr.${receiptDeliveryColumn} AND dn.tenant_id = pr.tenant_id
        LEFT JOIN incoming_inspection_records ir
          ON ir.delivery_note_id = pr.${receiptDeliveryColumn} AND ir.tenant_id = pr.tenant_id
@@ -1017,6 +1130,7 @@ export class PurchaseService {
              ${supportsReceiptItemControlColumns ? 'pri.request_department_id AS requestDepartmentId,' : 'NULL AS requestDepartmentId,'}
              ${supportsReceiptItemControlColumns ? 'pri.budget_code AS budgetCode,' : 'NULL AS budgetCode,'}
              ${supportsReceiptItemDyeLot ? 'pri.dye_lot_no AS dyeLotNo,' : 'NULL AS dyeLotNo,'}
+             ${supportsReceiptItemsTable ? `${acceptedCardCountExpr} AS acceptedCardCount,` : '0 AS acceptedCardCount,'}
              pri.qty_received AS qtyReceived,
              pri.purchase_unit AS purchaseUnit,
              pri.unit_price AS unitPrice,
@@ -1088,7 +1202,7 @@ export class PurchaseService {
            dn.po_id AS poId,
            po.po_no AS poNo,
            dn.supplier_id AS supplierId,
-           sup.name AS supplierName,
+           COALESCE(sup.name, CONCAT('供应商#', CAST(dn.supplier_id AS CHAR))) AS supplierName,
            dn.delivery_date AS deliveryDate,
            CASE
              WHEN dn.receipt_id IS NOT NULL THEN 'received'
@@ -1110,7 +1224,7 @@ export class PurchaseService {
            COALESCE(SUM(dni.qty_delivered), 0) AS totalDelivered
          FROM delivery_notes dn
          INNER JOIN purchase_orders po ON po.id = dn.po_id AND po.tenant_id = dn.tenant_id
-         INNER JOIN suppliers sup ON sup.id = dn.supplier_id AND sup.tenant_id = dn.tenant_id
+         LEFT JOIN suppliers sup ON sup.id = dn.supplier_id AND sup.tenant_id = dn.tenant_id
          LEFT JOIN delivery_note_items dni ON dni.delivery_note_id = dn.id AND dni.tenant_id = dn.tenant_id
          LEFT JOIN incoming_inspection_records ir ON ir.id = dn.inspection_id AND ir.tenant_id = dn.tenant_id
          LEFT JOIN purchase_receipts pr ON pr.id = dn.receipt_id AND pr.tenant_id = dn.tenant_id
@@ -1154,7 +1268,7 @@ export class PurchaseService {
          dn.po_id AS poId,
          po.po_no AS poNo,
          dn.supplier_id AS supplierId,
-         sup.name AS supplierName,
+         COALESCE(sup.name, CONCAT('供应商#', CAST(dn.supplier_id AS CHAR))) AS supplierName,
          dn.delivery_date AS deliveryDate,
          CASE
            WHEN dn.receipt_id IS NOT NULL THEN 'received'
@@ -1176,7 +1290,7 @@ export class PurchaseService {
          dn.created_at AS createdAt
        FROM delivery_notes dn
        INNER JOIN purchase_orders po ON po.id = dn.po_id AND po.tenant_id = dn.tenant_id
-       INNER JOIN suppliers sup ON sup.id = dn.supplier_id AND sup.tenant_id = dn.tenant_id
+       LEFT JOIN suppliers sup ON sup.id = dn.supplier_id AND sup.tenant_id = dn.tenant_id
        LEFT JOIN incoming_inspection_records ir ON ir.id = dn.inspection_id AND ir.tenant_id = dn.tenant_id
        LEFT JOIN purchase_receipts pr ON pr.id = dn.receipt_id AND pr.tenant_id = dn.tenant_id
        LEFT JOIN three_way_match_records tm

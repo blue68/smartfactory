@@ -10,6 +10,11 @@ import Drawer from '@/components/common/Drawer';
 import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
 import Tag from '@/components/common/Tag';
+import {
+  formatAssetCategoryLabel,
+  formatAssetMovementPosition,
+  formatAssetMovementSource,
+} from '@/utils/assetDisplay';
 import styles from './AssetLedgerPage.module.css';
 
 function formatDateTime(value?: string | null): string {
@@ -27,6 +32,22 @@ function formatCurrency(value?: string | null): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(parsed);
+}
+
+function formatCustodianLabel(params: {
+  name?: string | null;
+  username?: string | null;
+  userId?: number | null;
+}): string {
+  const name = String(params.name ?? '').trim();
+  const username = String(params.username ?? '').trim();
+  if (name && username && name !== username) {
+    return `${name} (${username})`;
+  }
+  if (name || username) {
+    return name || username;
+  }
+  return params.userId ? `用户 #${params.userId}` : '未指定';
 }
 
 function getStatusMeta(status: AssetCard['status']): { label: string; variant: 'success' | 'warning' | 'info' | 'error' | 'neutral' } {
@@ -133,7 +154,7 @@ export default function AssetLedgerPage() {
       render: (value, record) => (
         <div>
           <div className={styles.primaryCell}>{String(value ?? '未填写')}</div>
-          <div className={styles.secondaryCell}>{record.departmentId ? `部门 #${record.departmentId}` : '未挂部门'}</div>
+          <div className={styles.secondaryCell}>{record.departmentName || (record.departmentId ? `部门 #${record.departmentId}` : '未挂部门')}</div>
         </div>
       ),
     },
@@ -266,14 +287,18 @@ export default function AssetLedgerPage() {
               </div>
               <div className={styles.metaGrid}>
                 <div><span>资产编号</span><strong>{detail.assetNo}</strong></div>
-                <div><span>资产分类</span><strong>{detail.assetCategory || '未配置'}</strong></div>
-                <div><span>当前部门</span><strong>{detail.departmentId ? `#${detail.departmentId}` : '未分配'}</strong></div>
-                <div><span>当前责任人</span><strong>{detail.custodianUserId ? `#${detail.custodianUserId}` : '未指定'}</strong></div>
+                <div><span>资产分类</span><strong>{formatAssetCategoryLabel(detail.assetCategory)}</strong></div>
+                <div><span>当前部门</span><strong>{detail.departmentName || (detail.departmentId ? `部门 #${detail.departmentId}` : '未分配')}</strong></div>
+                <div><span>当前责任人</span><strong>{formatCustodianLabel({
+                  name: detail.custodianName,
+                  username: detail.custodianUsername,
+                  userId: detail.custodianUserId,
+                })}</strong></div>
                 <div><span>当前位置</span><strong>{detail.locationText || '未填写'}</strong></div>
                 <div><span>原值</span><strong>{formatCurrency(detail.originalValue)}</strong></div>
                 <div><span>净值</span><strong>{formatCurrency(detail.netValue)}</strong></div>
                 <div><span>建卡时间</span><strong>{formatDateTime(detail.capitalizedAt)}</strong></div>
-                <div><span>采购入库单</span><strong>{detail.receiptId ? `#${detail.receiptId}` : '—'}</strong></div>
+                <div><span>采购入库单</span><strong>{detail.receiptNo || (detail.receiptId ? `#${detail.receiptId}` : '—')}</strong></div>
               </div>
             </section>
 
@@ -293,11 +318,19 @@ export default function AssetLedgerPage() {
                         </div>
                         <div className={styles.timelineMeta}>
                           <span>流水号 {movement.movementNo}</span>
-                          <span>来源 {movement.referenceType || '—'} #{movement.referenceId || '—'}</span>
+                          <span>来源 {formatAssetMovementSource(movement)}</span>
                         </div>
                         <div className={styles.timelineMeta}>
-                          <span>From: {movement.fromLocationText || movement.fromDepartmentId ? `${movement.fromLocationText || '未填位置'} / #${movement.fromDepartmentId || '—'}` : '—'}</span>
-                          <span>To: {movement.toLocationText || movement.toDepartmentId ? `${movement.toLocationText || '未填位置'} / #${movement.toDepartmentId || '—'}` : '—'}</span>
+                          <span>来源位置：{formatAssetMovementPosition({
+                            departmentName: movement.fromDepartmentName,
+                            departmentId: movement.fromDepartmentId,
+                            locationText: movement.fromLocationText,
+                          })}</span>
+                          <span>去向位置：{formatAssetMovementPosition({
+                            departmentName: movement.toDepartmentName,
+                            departmentId: movement.toDepartmentId,
+                            locationText: movement.toLocationText,
+                          })}</span>
                         </div>
                         {movement.notes ? <p className={styles.timelineNotes}>{movement.notes}</p> : null}
                       </div>
@@ -329,8 +362,12 @@ export default function AssetLedgerPage() {
         <div className={styles.modalBody}>
           <p>
             将退回资产 <strong>{detail?.assetNo || '—'}</strong>
-            {detail?.departmentId ? `，当前责任部门 #${detail.departmentId}` : ''}
-            {detail?.custodianUserId ? `，当前责任人 #${detail.custodianUserId}` : ''}。
+            {detail?.departmentName || detail?.departmentId ? `，当前责任部门 ${detail?.departmentName || `部门 #${detail?.departmentId}`}` : ''}
+            {detail?.custodianName || detail?.custodianUsername || detail?.custodianUserId ? `，当前责任人 ${formatCustodianLabel({
+              name: detail?.custodianName,
+              username: detail?.custodianUsername,
+              userId: detail?.custodianUserId,
+            })}` : ''}。
           </p>
           {detail?.locationText ? (
             <p className={styles.modalHint}>当前放置位置：{detail.locationText}</p>

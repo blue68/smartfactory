@@ -77,6 +77,24 @@
   align-items: center;
 }
 
+.activeFilterBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.activeFilterChip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .panelTitle {
   font-size: 18px;
   font-weight: 700;
@@ -226,6 +244,65 @@
   margin-top: 8px;
   color: #475569;
   font-size: 13px;
+}
+
+.itemTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.itemTag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.branchGrid {
+  display: grid;
+  gap: 12px;
+}
+
+.branchCard {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.branchCard--info {
+  border-color: rgba(59, 130, 246, 0.24);
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+}
+
+.branchCard--warning {
+  border-color: rgba(249, 115, 22, 0.24);
+  background: linear-gradient(180deg, #ffffff 0%, #fff7ed 100%);
+}
+
+.branchCard--neutral {
+  border-color: rgba(148, 163, 184, 0.24);
+}
+
+.branchCardTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.branchCardDesc {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #475569;
 }
 
 .emptyHint {

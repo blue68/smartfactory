@@ -35,10 +35,18 @@ exit_criteria:
 - Day 0 已完成：固定资产退回接口与单测
 - Day 1 已完成：`incomingInspection` 的 `direct_expense` / `asset_capitalization` 分流回归、发布前核查 SQL、BOM/MRP 守卫单测、损耗品 `create / approve / execute` 服务回归、资产 `acceptance / transfer / scrap / return` 服务单测
 - Day 1 新进展：已新增 `services/api/tests/integration/consumableAsset.api.test.ts`，覆盖资产验收、资产退回、损耗品领用执行三条高价值链路
-- Day 1 未完成：integration/e2e 实跑仍受本地 MySQL/Redis 测试环境限制；前端联调未开始
+- Day 3 新进展：已恢复本地 MySQL/Redis integration 环境，并在 2026-04-14 跑通 `services/api/tests/integration/consumableAsset.api.test.ts`
+- Day 3 新进展：已修正 integration spec 的历史 schema 漂移，并补 `warehouse-location.resolver` 对 MySQL `bigint` 字符串 ID 的兼容与单测
 - Day 2 已推进：已先补 `ReviewReport`、`SecurityReport`、`TestCase`、`TestReport`、`DeploymentPlan` 草案，明确当前不是代码 blocker，而是环境 blocker
 - Day 2 新进展：已补齐前端 `WP4` 的 `PRD / Prototype / DesignSpec / UICode / InteractionSpec / Approval / ImplementationPlan`
 - Day 2 新进展：已完成前端第一段联调落地，`SkuPage` / `PurchaseOrderPage` 已能透出损耗品与固定资产关键字段
+- Day 4 新进展：已在最新前端代码的本地 `vite` 环境完成 `F1/F3/F4/F5` 正向页面回归，并补 `VITE_API_PROXY_TARGET` 代理目标可配置能力
+- Day 4 新进展：已重建本地 `sf_web` Web 容器，并在真实 80 端口入口复跑 `/master-data/sku`、`/consumables/issues`、`/assets/acceptance`、`/assets/ledger`
+- Day 4 新进展：已新增 `npm run test:api:integration:consumable-asset` 专用 managed 回归命令，后续补跑不再依赖手敲 spec 路径
+- Day 4 新进展：已在真实登录态下跑通固定资产与损耗品手工采购正向链路，并完成 `PO -> DN -> IQC -> RC -> 资产台账/损耗品领用` 页面与接口双重验证
+- Day 4 新进展：已补跑手工采购新入口的第二组真实闭环，固定资产 `PO1776172877547757 -> FA260414-00002`、损耗品 `PO1776174123806393 -> CI260414-00002` 均已回查通过
+- Day 4 新进展：已修正“已建卡收货单继续显示在资产验收待办池”的筛选问题，本地 `localhost/assets/acceptance` 复验通过
+- Day 4 新进展：已跑通损耗品采购后链路闭环，`RTN260414-00001` 已完成退货、`PST260414-00001` 已完成采购结算付款
 
 ## 二、角色分工与人天
 
@@ -96,6 +104,7 @@ exit_criteria:
 
 - senior-backend-engineer：完成 `WP2-B`，补资产验收/调拨/报废回归
 - senior-backend-engineer：落地高价值 integration spec 并在可用测试环境执行
+  已完成：2026-04-14 跑通 `services/api/tests/integration/consumableAsset.api.test.ts`
 - senior-backend-engineer：推进 `WP3-B`，在可用环境验证主数据脚本落库结果并回填验证结论
 - senior-frontend-engineer：已完成 `WP4-B`，打通损耗品领用页的列表、创建、审批、执行出库主路径
 
@@ -110,7 +119,7 @@ exit_criteria:
 ### Day 4
 
 - senior-qa-engineer：执行 `WP2-D`，跑新增测试包和核心主流程回归
-  当前状态：已沉淀 `TestCase` / `TestReport` 首版，待 integration 环境恢复后补 PASS 结论
+  当前状态：已沉淀 `TestCase` / `TestReport` 正式版；后端高价值 integration 与前端 `F1/F3/F4/F5` 页面回归均已补齐
 - code-reviewer：执行 `WP5-A`
   当前状态：已输出首版 `ReviewReport`
 - security-engineer：执行 `WP5-B`
@@ -119,9 +128,9 @@ exit_criteria:
 ### Day 5
 
 - senior-qa-engineer：完成 `WP5-C`，沉淀测试用例和测试报告
-  当前状态：已输出首版，待环境恢复后转为正式发布结论
+  当前状态：已输出 `PASS` 结论；本地真实手工采购主链路也已补测，剩余工作只剩正式环境同口径复烟
 - devops-engineer：完成 `WP5-D`，输出部署计划
-  当前状态：已输出 `BLOCKED` 版部署计划，等待 TestReport 转 `PASS`
+  当前状态：已输出 `READY` 版部署计划；本地环境已完成 Web 重建与复烟，正式环境按同步骤执行
 - engineering-manager：复核发布清单，决定是否放行
 
 ## 四、关键路径
@@ -137,12 +146,13 @@ exit_criteria:
 - 数据核查 SQL
 - 主数据 bootstrap / rollback 说明
 - 前端可操作页面
-- 若 integration 环境不可用，需由 devops / backend 先修复本地测试依赖再继续 QA
+- 后端高价值 integration spec 已完成实跑；剩余阻断应聚焦前端正向回归与数据验证
 
 2. Day 4 结束前必须具备：
 - QA 主流程结论
 - Review 报告
 - Security 报告
+- 前端 `F1/F3/F4/F5` 最新代码正向页面回归结论
 
 3. Day 5 结束前必须具备：
 - TestCase
@@ -151,6 +161,9 @@ exit_criteria:
 
 ## 六、建议下一步
 
-1. 先按 Day 1 清单补损耗品与资产剩余自动化测试。
-2. 同步让前端开始 F1-F5 联调，不再等待后端全部收尾后再启动。
-3. 把数据核查 SQL 和仓库主数据脚本尽早交给 QA 与运维，避免临发布才暴露环境问题。
+1. 在正式环境按本地已验证步骤重建 `sf_web` 前端发布产物，并复跑 `采购订单`、`到货管理`、`来料质检`、`入库记录`、`三单匹配`、`退货管理`、`采购结算`、`资产验收`、`资产台账`、`损耗品领用` 页面。
+2. 把 `npm run test:api:integration:consumable-asset` 纳入正式发布 checklist 或 CI 定向补跑手册，防止 schema 漂移回归。
+3. 正式环境额外抽样核对手工采购新入口样例：
+- 固定资产：`PO1776172877547757 -> DN1776172890803592 -> IQC260414-00003 -> RC260414-00003 -> FA260414-00002`
+- 损耗品：`PO1776174123806393 -> DN1776174142538557 -> IQC260414-00004 -> RC260414-00004 -> CI260414-00002`
+4. 发布后抽样确认资产验收待办池不会再次包含已建卡收货单，且损耗品库存/资产台账副作用与本地验证结果一致。

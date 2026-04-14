@@ -36,9 +36,11 @@ function formatDateTime(value?: string | null): string {
 
 function formatDeliveryStatus(status?: string | null): string {
   if (!status) return '—';
+  if (status === 'draft') return '草稿';
   if (status === 'pending') return '待质检';
   if (status === 'confirmed') return '已确认';
   if (status === 'received') return '已收货';
+  if (status === 'cancelled') return '已取消';
   return status;
 }
 
@@ -475,7 +477,7 @@ function DeliveryDetailDrawer({
         <div className={styles.drawerFooter}>
           {data?.poId ? (
             <Button variant="text" onClick={() => navigate(`/purchase/orders?orderId=${data.poId}`)}>
-              查看采购订单
+              查看采购单
             </Button>
           ) : null}
           {data?.receiptId ? (

@@ -114,6 +114,9 @@ export class AssetService {
            ac.status,
            ac.department_id AS departmentId,
            ac.custodian_user_id AS custodianUserId,
+           d.name AS departmentName,
+           COALESCE(cu.real_name, cu.username) AS custodianName,
+           cu.username AS custodianUsername,
            ac.location_text AS locationText,
            ac.original_value AS originalValue,
            ac.net_value AS netValue,
@@ -123,6 +126,8 @@ export class AssetService {
            s.name AS skuName
          FROM asset_cards ac
          INNER JOIN skus s ON s.id = ac.sku_id AND s.tenant_id = ac.tenant_id
+         LEFT JOIN departments d ON d.id = ac.department_id AND d.tenant_id = ac.tenant_id
+         LEFT JOIN users cu ON cu.id = ac.custodian_user_id AND cu.tenant_id = ac.tenant_id
          WHERE ${where}
          ORDER BY ac.id DESC
          LIMIT ? OFFSET ?`,
@@ -157,6 +162,9 @@ export class AssetService {
          ac.purchase_item_id AS purchaseItemId,
          ac.department_id AS departmentId,
          ac.custodian_user_id AS custodianUserId,
+         d.name AS departmentName,
+         COALESCE(cu.real_name, cu.username) AS custodianName,
+         cu.username AS custodianUsername,
          ac.location_text AS locationText,
          ac.original_value AS originalValue,
          ac.net_value AS netValue,
@@ -164,10 +172,14 @@ export class AssetService {
          ac.notes,
          ac.created_at AS createdAt,
          ac.updated_at AS updatedAt,
+         pr.receipt_no AS receiptNo,
          s.sku_code AS skuCode,
          s.name AS skuName
        FROM asset_cards ac
        INNER JOIN skus s ON s.id = ac.sku_id AND s.tenant_id = ac.tenant_id
+       LEFT JOIN departments d ON d.id = ac.department_id AND d.tenant_id = ac.tenant_id
+       LEFT JOIN users cu ON cu.id = ac.custodian_user_id AND cu.tenant_id = ac.tenant_id
+       LEFT JOIN purchase_receipts pr ON pr.id = ac.receipt_id AND pr.tenant_id = ac.tenant_id
        WHERE ac.id = ? AND ac.tenant_id = ?
        LIMIT 1`,
       [id, this.tenantId],
@@ -184,13 +196,30 @@ export class AssetService {
          am.movement_type AS movementType,
          am.from_department_id AS fromDepartmentId,
          am.to_department_id AS toDepartmentId,
+         fd.name AS fromDepartmentName,
+         td.name AS toDepartmentName,
          am.from_location_text AS fromLocationText,
          am.to_location_text AS toLocationText,
          am.reference_type AS referenceType,
          am.reference_id AS referenceId,
+         CASE
+           WHEN am.reference_type = 'purchase_receipt' THEN pr.receipt_no
+           WHEN am.reference_type = 'asset_card' THEN refCard.asset_no
+           ELSE NULL
+         END AS referenceNo,
          am.notes,
          am.occurred_at AS occurredAt
        FROM asset_movements am
+       LEFT JOIN departments fd ON fd.id = am.from_department_id AND fd.tenant_id = am.tenant_id
+       LEFT JOIN departments td ON td.id = am.to_department_id AND td.tenant_id = am.tenant_id
+       LEFT JOIN purchase_receipts pr
+         ON am.reference_type = 'purchase_receipt'
+        AND pr.id = am.reference_id
+        AND pr.tenant_id = am.tenant_id
+       LEFT JOIN asset_cards refCard
+         ON am.reference_type = 'asset_card'
+        AND refCard.id = am.reference_id
+        AND refCard.tenant_id = am.tenant_id
        WHERE am.asset_card_id = ? AND am.tenant_id = ?
        ORDER BY am.id DESC`,
       [id, this.tenantId],

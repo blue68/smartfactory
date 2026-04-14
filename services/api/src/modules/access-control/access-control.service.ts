@@ -11,6 +11,8 @@ import {
 
 const RBAC_CENTER_MENU_CODES = new Set(getSystemMenuSeeds().map((item) => item.code));
 const RBAC_CENTER_ACTION_CODES = new Set(getSystemActionSeeds().map((item) => item.code));
+const SYSTEM_MENU_SEED_BY_CODE = new Map(getSystemMenuSeeds().map((item) => [item.code, item]));
+const SYSTEM_ACTION_SEED_BY_CODE = new Map(getSystemActionSeeds().map((item) => [item.code, item]));
 const PLATFORM_ONLY_MENU_CODES = new Set(['system.tenant.config']);
 const PLATFORM_ONLY_ACTION_CODES = new Set(['system.tenant.manage', 'platform.tenant.switch']);
 const TENANT_HIDDEN_ROLE_CODES = new Set(['purchase']);
@@ -129,6 +131,50 @@ function toTree<T extends { id: number; parentId: number | null; children?: T[] 
   });
 
   return roots;
+}
+
+function normalizeSystemMenuRecord<T extends Record<string, unknown>>(item: T): T {
+  const code = String(item.code ?? '');
+  const seed = SYSTEM_MENU_SEED_BY_CODE.get(code);
+  const tenantId = Number(item.tenantId ?? item.tenant_id ?? 0);
+  const isSystem = Boolean(item.isSystem ?? item.is_system);
+  if (!seed || (!isSystem && tenantId !== 0)) {
+    return item;
+  }
+
+  return {
+    ...item,
+    menuType: item.menuType ?? seed.menuType,
+    menu_type: item.menu_type ?? seed.menuType,
+    name: seed.name,
+    routePath: item.routePath ?? seed.routePath,
+    route_path: item.route_path ?? seed.routePath,
+    icon: item.icon ?? seed.icon,
+    groupName: seed.groupName,
+    group_name: seed.groupName,
+    sortOrder: item.sortOrder ?? seed.sortOrder,
+    sort_order: item.sort_order ?? seed.sortOrder,
+    status: item.status ?? seed.status,
+  };
+}
+
+function normalizeSystemActionRecord<T extends Record<string, unknown>>(item: T): T {
+  const code = String(item.code ?? '');
+  const seed = SYSTEM_ACTION_SEED_BY_CODE.get(code);
+  const tenantId = Number(item.tenantId ?? item.tenant_id ?? 0);
+  if (!seed || tenantId !== 0) {
+    return item;
+  }
+
+  return {
+    ...item,
+    name: seed.name,
+    actionType: item.actionType ?? seed.actionType,
+    action_type: item.action_type ?? seed.actionType,
+    status: item.status ?? seed.status,
+    defaultEnabled: item.defaultEnabled ?? seed.defaultEnabled,
+    default_enabled: item.default_enabled ?? seed.defaultEnabled,
+  };
 }
 
 export class AccessControlService {
@@ -929,7 +975,8 @@ export class AccessControlService {
     sql += ' ORDER BY parent_id ASC, sort_order ASC, id ASC';
 
     const rows = await AppDataSource.query<Array<Record<string, unknown>>>(sql, params);
-    const filteredRows = this.filterPlatformOnlyMenus(ctx, rows);
+    const normalizedRows = rows.map((item) => normalizeSystemMenuRecord(item));
+    const filteredRows = this.filterPlatformOnlyMenus(ctx, normalizedRows);
     return toTree(filteredRows.map((item) => ({ ...(item as Record<string, unknown>), children: [] })) as Array<any>);
   }
 
@@ -952,7 +999,10 @@ export class AccessControlService {
         ORDER BY id ASC`,
       [menuId],
     );
-    return this.filterPlatformOnlyActions(ctx, rows);
+    return this.filterPlatformOnlyActions(
+      ctx,
+      (rows as Array<Record<string, unknown>>).map((item: Record<string, unknown>) => normalizeSystemActionRecord(item)),
+    );
   }
 
   async createMenu(ctx: TenantContext, payload: {

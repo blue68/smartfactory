@@ -169,6 +169,28 @@
   margin-bottom: 16px;
 }
 
+.activeFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.activeFilterChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .segment {
   height: 36px;
   padding: 0 14px;
@@ -463,6 +485,10 @@
   .searchInput,
   .select {
     width: 100%;
+  }
+
+  .activeFilters {
+    gap: 8px;
   }
 
   .metaGrid {

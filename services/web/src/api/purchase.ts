@@ -50,6 +50,10 @@ export interface PurchaseSettlement {
   notes: string | null;
   diffReason: string | null;
   diffNotes: string | null;
+  returnOrderCount: number;
+  completedReturnOrderCount: number;
+  returnQty: string;
+  returnAmount: string;
   confirmedBy: string | null;
   confirmedAt: string | null;
   paidAt: string | null;
@@ -86,7 +90,7 @@ export const purchaseKeys = {
     [...purchaseKeys.deliveries(), 'list', params] as const,
   deliveryDetail: (id: number) => [...purchaseKeys.deliveries(), 'detail', id] as const,
   receipts: () => [...purchaseKeys.all, 'receipts'] as const,
-  receiptList: (params?: { status?: string; poId?: number; page?: number; pageSize?: number }) =>
+  receiptList: (params?: { status?: string; poId?: number; page?: number; pageSize?: number; assetAcceptanceOnly?: boolean }) =>
     [...purchaseKeys.receipts(), 'list', params] as const,
   receiptDetail: (id: number) => [...purchaseKeys.receipts(), 'detail', id] as const,
   matches: () => [...purchaseKeys.all, 'matches'] as const,
@@ -152,7 +156,7 @@ export const purchaseApi = {
   getDeliveryById: (id: number) =>
     request.get<DeliveryNote>(`/api/purchase/delivery-notes/${id}`),
 
-  getReceipts: (params?: { status?: string; poId?: number; page?: number; pageSize?: number }) =>
+  getReceipts: (params?: { status?: string; poId?: number; page?: number; pageSize?: number; assetAcceptanceOnly?: boolean }) =>
     request.get<PaginatedData<PurchaseReceipt>>(
       '/api/purchase/receipts',
       params as Record<string, unknown>,
@@ -321,7 +325,7 @@ export function useCreatePurchaseDelivery() {
 }
 
 /** 采购入库记录列表 */
-export function usePurchaseReceiptList(params?: { status?: string; poId?: number; page?: number; pageSize?: number }) {
+export function usePurchaseReceiptList(params?: { status?: string; poId?: number; page?: number; pageSize?: number; assetAcceptanceOnly?: boolean }) {
   return useQuery({
     queryKey: purchaseKeys.receiptList(params),
     queryFn: () => purchaseApi.getReceipts(params),

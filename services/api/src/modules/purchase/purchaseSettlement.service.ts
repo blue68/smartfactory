@@ -40,6 +40,10 @@ export interface PurchaseSettlement {
   notes: string | null;
   diffReason: string | null;
   diffNotes: string | null;
+  returnOrderCount: number;
+  completedReturnOrderCount: number;
+  returnQty: string;
+  returnAmount: string;
   confirmedBy: string | null;
   confirmedAt: string | null;
   paidAt: string | null;
@@ -196,6 +200,10 @@ export class PurchaseSettlementService {
     const rowsWithDyeLots = await Promise.all(rows.map(async (row) => ({
       ...row,
       dyeLotSummary: await this.getReceiptDyeLots(Number(row.receipt_id)),
+      returnSummary: await this.getSettlementReturnSummary(
+        Number(row.po_id),
+        row.delivery_note_id == null ? null : Number(row.delivery_note_id),
+      ),
     })));
 
     return buildPaginated(
@@ -235,6 +243,10 @@ export class PurchaseSettlementService {
     const rowsWithDyeLots = await Promise.all(rows.map(async (row) => ({
       ...row,
       dyeLotSummary: await this.getReceiptDyeLots(Number(row.receipt_id)),
+      returnSummary: await this.getSettlementReturnSummary(
+        Number(row.po_id),
+        row.delivery_note_id == null ? null : Number(row.delivery_note_id),
+      ),
     })));
     return rowsWithDyeLots.map((row) => this.mapRow(row));
   }
@@ -269,6 +281,10 @@ export class PurchaseSettlementService {
     return this.mapRow({
       ...row,
       dyeLotSummary: await this.getReceiptDyeLots(Number(row.receipt_id)),
+      returnSummary: await this.getSettlementReturnSummary(
+        Number(row.po_id),
+        row.delivery_note_id == null ? null : Number(row.delivery_note_id),
+      ),
     });
   }
 
@@ -473,6 +489,10 @@ export class PurchaseSettlementService {
       notes: row.notes ? String(row.notes) : null,
       diffReason: row.diffReason ? String(row.diffReason) : null,
       diffNotes: row.diffNotes ? String(row.diffNotes) : null,
+      returnOrderCount: Number((row.returnSummary as Record<string, unknown> | undefined)?.returnOrderCount ?? 0),
+      completedReturnOrderCount: Number((row.returnSummary as Record<string, unknown> | undefined)?.completedReturnOrderCount ?? 0),
+      returnQty: String((row.returnSummary as Record<string, unknown> | undefined)?.returnQty ?? '0.0000'),
+      returnAmount: String((row.returnSummary as Record<string, unknown> | undefined)?.returnAmount ?? '0.00'),
       confirmedBy: row.confirmedBy ? String(row.confirmedBy) : null,
       confirmedAt: row.confirmed_at ? String(row.confirmed_at) : null,
       paidAt: row.paid_at ? String(row.paid_at) : null,
@@ -549,5 +569,54 @@ export class PurchaseSettlementService {
       ? 'delivery_note_id'
       : 'dn_id';
     return PurchaseSettlementService.purchaseReceiptDeliveryColumn;
+  }
+
+  private async getSettlementReturnSummary(poId: number, deliveryNoteId: number | null): Promise<{
+    returnOrderCount: number;
+    completedReturnOrderCount: number;
+    returnQty: string;
+    returnAmount: string;
+  }> {
+    const [row] = await AppDataSource.query<Array<{
+      returnOrderCount: number;
+      completedReturnOrderCount: number;
+      returnQty: string;
+      returnAmount: string;
+    }>>(
+      `SELECT
+         COUNT(ro.id) AS returnOrderCount,
+         COALESCE(SUM(CASE WHEN ro.status = 'completed' THEN 1 ELSE 0 END), 0) AS completedReturnOrderCount,
+         COALESCE(SUM(CAST(ro.total_qty AS DECIMAL(16,4))), 0) AS returnQty,
+         COALESCE(SUM(COALESCE(roi.total_amount, 0)), 0) AS returnAmount
+       FROM return_orders ro
+       LEFT JOIN incoming_inspection_records ir
+         ON ir.id = ro.source_inspection_id
+        AND ir.tenant_id = ro.tenant_id
+       LEFT JOIN (
+         SELECT
+           tenant_id,
+           return_id,
+           SUM(CAST(qty_return AS DECIMAL(16,4)) * CAST(unit_price AS DECIMAL(14,4))) AS total_amount
+         FROM return_order_items
+         GROUP BY tenant_id, return_id
+       ) roi
+         ON roi.return_id = ro.id
+        AND roi.tenant_id = ro.tenant_id
+       WHERE ro.tenant_id = ?
+         AND ro.source_po_id = ?
+         AND (
+           ? IS NULL
+           OR ro.source_inspection_id IS NULL
+           OR ir.delivery_note_id = ?
+         )`,
+      [this.tenantId, poId, deliveryNoteId, deliveryNoteId],
+    );
+
+    return {
+      returnOrderCount: Number(row?.returnOrderCount ?? 0),
+      completedReturnOrderCount: Number(row?.completedReturnOrderCount ?? 0),
+      returnQty: String(row?.returnQty ?? '0.0000'),
+      returnAmount: String(row?.returnAmount ?? '0.00'),
+    };
   }
 }
