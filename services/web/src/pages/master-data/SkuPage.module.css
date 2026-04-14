@@ -449,6 +449,33 @@
   padding: 8px 12px;
   font-size: 12px;
 }
+.form_hint_box {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md, 8px);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.form_grid_two_col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+.toggle_grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+.profile_card {
+  padding: 14px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #fafafa;
+}
 
 /* Radio 按钮组 */
 .radio_group {
@@ -608,6 +635,11 @@
 
 @media (max-width: 960px) {
   .customer_ref_row {
+    grid-template-columns: 1fr;
+  }
+
+  .form_grid_two_col,
+  .toggle_grid {
     grid-template-columns: 1fr;
   }
 

@@ -771,7 +771,35 @@ Content-Type: application/json
 }
 ```
 
-## 4.9 查询资产台账列表
+## 4.9 固定资产退回
+
+```http
+POST /api/assets/cards/990001/return
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+```json
+{
+  "locationText": "资产中转区-A01",
+  "notes": "设备已由组装车间归还仓库"
+}
+```
+
+```json
+{
+  "code": 0,
+  "data": null,
+  "message": "固定资产退回完成"
+}
+```
+
+说明：
+- 退回后资产状态回到 `idle`
+- `departmentId` 与 `custodianUserId` 清空
+- 同步记录 `movement_type = return` 的资产流水
+
+## 4.10 查询资产台账列表
 
 ```http
 GET /api/assets/cards?page=1&pageSize=20&status=in_use&departmentId=25
@@ -854,4 +882,3 @@ Authorization: Bearer <token>
 - `M20260413_consumable_issue_tables.sql`
 - `M20260413_asset_ledger_tables.sql`
 - `M20260413_bom_mrp_guard_by_business_class.sql`
-

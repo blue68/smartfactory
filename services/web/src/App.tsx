@@ -40,6 +40,9 @@ import PurchaseReceiptPage from '@/pages/purchase/PurchaseReceiptPage';
 import IncomingInspectionPage from '@/pages/purchase/IncomingInspectionPage';
 import ReturnOrderPage from '@/pages/purchase/ReturnOrderPage';
 import PurchaseSettlementPage from '@/pages/purchase/PurchaseSettlementPage';
+import ConsumableIssuePage from '@/pages/consumables/ConsumableIssuePage';
+import AssetAcceptancePage from '@/pages/assets/AssetAcceptancePage';
+import AssetLedgerPage from '@/pages/assets/AssetLedgerPage';
 import ScheduleSuggestionPage from '@/pages/schedule/ScheduleSuggestionPage';
 import NotificationPage from '@/pages/notification/NotificationPage';
 import StocktakingPage from '@/pages/stocktaking/StocktakingPage';
@@ -215,6 +218,36 @@ export default function App() {
                 <Route path={route.path} element={route.element} />
               </Route>
             ))}
+            <Route
+              element={(
+                <RequireActionAccess
+                  actionCode={ACTION_CODES.CONSUMABLE_ISSUE_VIEW}
+                  fallbackRoles={[UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE, UserRole.PURCHASER]}
+                />
+              )}
+            >
+              <Route path="/consumables/issues" element={<ConsumableIssuePage />} />
+            </Route>
+            <Route
+              element={(
+                <RequireActionAccess
+                  actionCode={ACTION_CODES.ASSET_ACCEPTANCE_CREATE}
+                  fallbackRoles={[UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE]}
+                />
+              )}
+            >
+              <Route path="/assets/acceptance" element={<AssetAcceptancePage />} />
+            </Route>
+            <Route
+              element={(
+                <RequireActionAccess
+                  actionCode={ACTION_CODES.ASSET_VIEW}
+                  fallbackRoles={[UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WAREHOUSE, UserRole.PURCHASER]}
+                />
+              )}
+            >
+              <Route path="/assets/ledger" element={<AssetLedgerPage />} />
+            </Route>
             <Route element={<RequirePlatformScope />}>
               <Route
                 element={(

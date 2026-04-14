@@ -32,6 +32,12 @@ router.post(
 );
 
 router.post(
+  '/cards/:id/return',
+  requirePermissionsOrRoles(['asset:return'], 'boss', 'supervisor', 'warehouse'),
+  asyncHandler(assetController.returnCard.bind(assetController)),
+);
+
+router.post(
   '/cards/:id/scrap',
   requirePermissionsOrRoles(['asset:scrap'], 'boss', 'supervisor'),
   asyncHandler(assetController.scrapCard.bind(assetController)),

@@ -1,0 +1,322 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.18), transparent 30%),
+    linear-gradient(135deg, #fff8eb 0%, #fff 58%, #fff3dc 100%);
+  border: 1px solid rgba(245, 158, 11, 0.18);
+}
+
+.eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #b45309;
+}
+
+.title {
+  margin: 8px 0 10px;
+  font-size: 32px;
+  line-height: 1.1;
+  color: #1f2937;
+}
+
+.subtitle {
+  margin: 0;
+  max-width: 680px;
+  color: #6b7280;
+}
+
+.heroActions {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.summaryStrip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.summaryCard {
+  padding: 18px 20px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.04);
+}
+
+.summaryCard span,
+.summaryCard small {
+  display: block;
+  color: #6b7280;
+}
+
+.summaryCard strong {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 28px;
+  color: #111827;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+}
+
+.panelHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.panelHeader h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.panelHeader p {
+  margin: 0;
+  color: #6b7280;
+}
+
+.filters {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.filters input,
+.filters select,
+.formGrid input,
+.lineGrid input,
+.lineGrid select,
+.textareaLabel textarea,
+.noteSection textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+}
+
+.filters input {
+  min-width: 200px;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #b45309;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primaryCell {
+  font-weight: 600;
+  color: #111827;
+}
+
+.secondaryCell {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.stockMetric {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.drawerFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.statusActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.detailWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.detailHero {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fff8eb 0%, #fff 100%);
+}
+
+.detailHero h3 {
+  margin: 10px 0 6px;
+  font-size: 24px;
+}
+
+.detailHero p {
+  margin: 0;
+  color: #6b7280;
+}
+
+.metaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metaGrid div,
+.itemMetaGrid div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.metaGrid span,
+.itemMetaGrid span {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.noteSection,
+.formSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.noteSection label,
+.textareaLabel span,
+.lineGrid label span,
+.formGrid label span {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.itemsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sectionTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.itemCards,
+.lineList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.itemCard,
+.lineCard {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: #fff;
+}
+
+.itemCardHeader,
+.lineCardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.itemQty {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.itemMetaGrid,
+.lineGrid,
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.formShell {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.formGrid label,
+.lineGrid label,
+.textareaLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.emptyBlock {
+  padding: 18px;
+  border-radius: 16px;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+@media (max-width: 1080px) {
+  .grid,
+  .summaryStrip,
+  .metaGrid,
+  .itemMetaGrid,
+  .lineGrid,
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero,
+  .panelHeader {
+    flex-direction: column;
+  }
+
+  .heroActions,
+  .filters,
+  .statusActions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}

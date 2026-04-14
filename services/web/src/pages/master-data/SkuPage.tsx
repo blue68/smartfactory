@@ -25,7 +25,19 @@ import {
   Category2Code,
   Category2Label,
 } from '@/types/enums';
-import type { CustomerSkuRef, Sku, SkuBrandScope, SkuCategory, SkuListQuery } from '@/types/models';
+import type {
+  AssetProfile,
+  AssetTrackingMode,
+  BusinessClass,
+  ConsumableProfile,
+  ControlMode,
+  CustomerSkuRef,
+  DefaultWarehouseType,
+  Sku,
+  SkuBrandScope,
+  SkuCategory,
+  SkuListQuery,
+} from '@/types/models';
 import type { Column } from '@/components/common/Table';
 import Table from '@/components/common/Table';
 import Drawer from '@/components/common/Drawer';
@@ -68,6 +80,18 @@ interface SkuFormData {
   safetyStock: string;
   hasDyeLot: boolean;
   useFifo: boolean;
+  businessClass: BusinessClass;
+  controlMode: ControlMode;
+  allowBomComponent: boolean;
+  allowPurchase: boolean;
+  allowInventory: boolean;
+  allowProductionIssue: boolean;
+  requiresAssetAcceptance: boolean;
+  defaultWarehouseType: DefaultWarehouseType | '';
+  approvalPolicyCode: string;
+  assetTrackingMode: AssetTrackingMode | '';
+  consumableProfile: EditableConsumableProfile;
+  assetProfile: EditableAssetProfile;
   brandScope: SkuBrandScope;
   brandCustomerId: number | '';
   customerRefs: EditableCustomerSkuRef[];
@@ -82,25 +106,134 @@ interface EditableCustomerSkuRef {
   status: 'active' | 'inactive';
 }
 
-const EMPTY_FORM: SkuFormData = {
-  name: '',
-  category1Code: '',
-  category2Id: '',
-  spec: '',
-  purchaseUnit: '',
-  stockUnit: '',
-  stockConvFactor: '1',
-  productionUnit: '',
-  prodConvNote: '',
-  safetyStock: '',
-  hasDyeLot: false,
-  useFifo: true,
-  brandScope: 'factory',
-  brandCustomerId: '',
-  customerRefs: [],
-  description: '',
-  status: 'active',
+interface EditableConsumableProfile {
+  issueMode: NonNullable<ConsumableProfile['issueMode']>;
+  approvalLevel: NonNullable<ConsumableProfile['approvalLevel']>;
+  expenseSubject: string;
+  minStock: string;
+  maxStock: string;
+  purchaseLeadDays: string;
+  issueDeptRequired: boolean;
+  notes: string;
+}
+
+interface EditableAssetProfile {
+  assetCategory: string;
+  depreciationMethod: NonNullable<AssetProfile['depreciationMethod']>;
+  usefulLifeMonths: string;
+  residualRate: string;
+  capexSubject: string;
+  requiresSerialNo: boolean;
+  maintenanceCycleDays: string;
+  warrantyMonths: string;
+  notes: string;
+}
+
+const DEFAULT_CONSUMABLE_PROFILE: EditableConsumableProfile = {
+  issueMode: 'department_issue',
+  approvalLevel: 'normal',
+  expenseSubject: '',
+  minStock: '',
+  maxStock: '',
+  purchaseLeadDays: '',
+  issueDeptRequired: true,
+  notes: '',
 };
+
+const DEFAULT_ASSET_PROFILE: EditableAssetProfile = {
+  assetCategory: '',
+  depreciationMethod: 'straight_line',
+  usefulLifeMonths: '',
+  residualRate: '',
+  capexSubject: '',
+  requiresSerialNo: true,
+  maintenanceCycleDays: '',
+  warrantyMonths: '',
+  notes: '',
+};
+
+function getBusinessClassPreset(businessClass: BusinessClass): Pick<
+  SkuFormData,
+  | 'businessClass'
+  | 'controlMode'
+  | 'allowBomComponent'
+  | 'allowPurchase'
+  | 'allowInventory'
+  | 'allowProductionIssue'
+  | 'requiresAssetAcceptance'
+  | 'defaultWarehouseType'
+  | 'approvalPolicyCode'
+  | 'assetTrackingMode'
+> {
+  switch (businessClass) {
+    case 'consumable':
+      return {
+        businessClass,
+        controlMode: 'stock_only',
+        allowBomComponent: false,
+        allowPurchase: true,
+        allowInventory: true,
+        allowProductionIssue: false,
+        requiresAssetAcceptance: false,
+        defaultWarehouseType: 'consumable',
+        approvalPolicyCode: 'CONS-NORMAL',
+        assetTrackingMode: 'none',
+      };
+    case 'fixed_asset':
+      return {
+        businessClass,
+        controlMode: 'asset',
+        allowBomComponent: false,
+        allowPurchase: true,
+        allowInventory: false,
+        allowProductionIssue: false,
+        requiresAssetAcceptance: true,
+        defaultWarehouseType: 'asset_pending',
+        approvalPolicyCode: 'ASSET-STRICT',
+        assetTrackingMode: 'serial',
+      };
+    default:
+      return {
+        businessClass: 'production_material',
+        controlMode: 'mrp',
+        allowBomComponent: true,
+        allowPurchase: true,
+        allowInventory: true,
+        allowProductionIssue: true,
+        requiresAssetAcceptance: false,
+        defaultWarehouseType: 'raw_material',
+        approvalPolicyCode: '',
+        assetTrackingMode: 'none',
+      };
+  }
+}
+
+function createEmptyForm(businessClass: BusinessClass = 'production_material'): SkuFormData {
+  return {
+    name: '',
+    category1Code: '',
+    category2Id: '',
+    spec: '',
+    purchaseUnit: '',
+    stockUnit: '',
+    stockConvFactor: '1',
+    productionUnit: '',
+    prodConvNote: '',
+    safetyStock: '',
+    hasDyeLot: false,
+    useFifo: true,
+    ...getBusinessClassPreset(businessClass),
+    consumableProfile: { ...DEFAULT_CONSUMABLE_PROFILE },
+    assetProfile: { ...DEFAULT_ASSET_PROFILE },
+    brandScope: 'factory',
+    brandCustomerId: '',
+    customerRefs: [],
+    description: '',
+    status: 'active',
+  };
+}
+
+const EMPTY_FORM: SkuFormData = createEmptyForm();
 
 // ──────────────────────────────────────────────
 // 工具函数
@@ -140,9 +273,117 @@ function isFinishedSkuRecord(sku: Sku): boolean {
   return sku.category1Name === Category1Label[Category1Code.FINISHED];
 }
 
+function getBusinessClassLabel(value?: Sku['businessClass']): string {
+  switch (value) {
+    case 'consumable':
+      return '损耗品';
+    case 'fixed_asset':
+      return '固定资产';
+    case 'production_material':
+      return '生产物料';
+    default:
+      return '未配置';
+  }
+}
+
+function getBusinessClassTagVariant(value?: Sku['businessClass']): 'warning' | 'info' | 'neutral' {
+  switch (value) {
+    case 'consumable':
+      return 'warning';
+    case 'fixed_asset':
+      return 'info';
+    default:
+      return 'neutral';
+  }
+}
+
+function getControlModeLabel(value?: Sku['controlMode']): string {
+  switch (value) {
+    case 'mrp':
+      return 'MRP';
+    case 'stock_only':
+      return '仅库存';
+    case 'direct_expense':
+      return '直耗';
+    case 'asset':
+      return '资产';
+    default:
+      return '未配置';
+  }
+}
+
+function getDefaultWarehouseTypeLabel(value?: Sku['defaultWarehouseType']): string {
+  switch (value) {
+    case 'raw_material':
+      return '原料仓';
+    case 'consumable':
+      return '损耗品仓';
+    case 'asset_pending':
+      return '资产待验收仓';
+    case 'asset':
+      return '资产仓';
+    case 'finished':
+      return '成品仓';
+    default:
+      return '未配置';
+  }
+}
+
+function toEditableConsumableProfile(profile?: ConsumableProfile | null): EditableConsumableProfile {
+  return {
+    issueMode: profile?.issueMode ?? 'department_issue',
+    approvalLevel: profile?.approvalLevel ?? 'normal',
+    expenseSubject: profile?.expenseSubject ?? '',
+    minStock: profile?.minStock ?? '',
+    maxStock: profile?.maxStock ?? '',
+    purchaseLeadDays: profile?.purchaseLeadDays != null ? String(profile.purchaseLeadDays) : '',
+    issueDeptRequired: profile?.issueDeptRequired ?? true,
+    notes: profile?.notes ?? '',
+  };
+}
+
+function toEditableAssetProfile(profile?: AssetProfile | null): EditableAssetProfile {
+  return {
+    assetCategory: profile?.assetCategory ?? '',
+    depreciationMethod: profile?.depreciationMethod ?? 'straight_line',
+    usefulLifeMonths: profile?.usefulLifeMonths != null ? String(profile.usefulLifeMonths) : '',
+    residualRate: profile?.residualRate ?? '',
+    capexSubject: profile?.capexSubject ?? '',
+    requiresSerialNo: profile?.requiresSerialNo ?? true,
+    maintenanceCycleDays: profile?.maintenanceCycleDays != null ? String(profile.maintenanceCycleDays) : '',
+    warrantyMonths: profile?.warrantyMonths != null ? String(profile.warrantyMonths) : '',
+    notes: profile?.notes ?? '',
+  };
+}
+
+function applyBusinessClassPreset(form: SkuFormData, businessClass: BusinessClass): SkuFormData {
+  const preset = getBusinessClassPreset(businessClass);
+  return {
+    ...form,
+    ...preset,
+    consumableProfile: businessClass === 'consumable'
+      ? {
+          ...DEFAULT_CONSUMABLE_PROFILE,
+          ...form.consumableProfile,
+          expenseSubject: form.consumableProfile.expenseSubject || DEFAULT_CONSUMABLE_PROFILE.expenseSubject,
+        }
+      : { ...DEFAULT_CONSUMABLE_PROFILE, ...form.consumableProfile },
+    assetProfile: businessClass === 'fixed_asset'
+      ? {
+          ...DEFAULT_ASSET_PROFILE,
+          ...form.assetProfile,
+          assetCategory: form.assetProfile.assetCategory || DEFAULT_ASSET_PROFILE.assetCategory,
+        }
+      : { ...DEFAULT_ASSET_PROFILE, ...form.assetProfile },
+  };
+}
+
 function buildSkuFormData(sku: Sku, catData: SkuCategory[]): SkuFormData {
+  const businessClass = sku.businessClass ?? 'production_material';
+  const preset = getBusinessClassPreset(businessClass);
   const cat1Code = getCat1CodeFromId(catData, sku.category1Id) ?? '';
   return {
+    ...createEmptyForm(businessClass),
     name: sku.name,
     category1Code: cat1Code,
     category2Id: sku.category2Id,
@@ -155,6 +396,18 @@ function buildSkuFormData(sku: Sku, catData: SkuCategory[]): SkuFormData {
     safetyStock: sku.safetyStock ?? '',
     hasDyeLot: sku.hasDyeLot,
     useFifo: sku.useFifo,
+    businessClass,
+    controlMode: sku.controlMode ?? preset.controlMode,
+    allowBomComponent: sku.allowBomComponent ?? preset.allowBomComponent,
+    allowPurchase: sku.allowPurchase ?? preset.allowPurchase,
+    allowInventory: sku.allowInventory ?? preset.allowInventory,
+    allowProductionIssue: sku.allowProductionIssue ?? preset.allowProductionIssue,
+    requiresAssetAcceptance: sku.requiresAssetAcceptance ?? preset.requiresAssetAcceptance,
+    defaultWarehouseType: sku.defaultWarehouseType ?? preset.defaultWarehouseType,
+    approvalPolicyCode: sku.approvalPolicyCode ?? preset.approvalPolicyCode,
+    assetTrackingMode: sku.assetTrackingMode ?? preset.assetTrackingMode,
+    consumableProfile: toEditableConsumableProfile(sku.consumableProfile),
+    assetProfile: toEditableAssetProfile(sku.assetProfile),
     brandScope: sku.brandScope ?? 'factory',
     brandCustomerId: sku.brandCustomerId ?? '',
     customerRefs: toEditableCustomerRefs(sku.customerRefs),
@@ -274,7 +527,7 @@ export default function SkuPage() {
 
   // ── Drawer 开关 ──
   const openCreate = useCallback(() => {
-    setSkuForm(EMPTY_FORM);
+    setSkuForm(createEmptyForm());
     setEditingSku(null);
     setDrawerMode('create');
   }, []);
@@ -312,6 +565,8 @@ export default function SkuPage() {
     if (!category2Id) { showToast({ type: 'warning', message: '请选择二级品类' }); return; }
     if (!stockUnit) { showToast({ type: 'warning', message: '请填写库存单位' }); return; }
     if (!purchaseUnit) { showToast({ type: 'warning', message: '请填写采购单位' }); return; }
+    if (!skuForm.businessClass) { showToast({ type: 'warning', message: '请选择业务大类' }); return; }
+    if (!skuForm.controlMode) { showToast({ type: 'warning', message: '请选择控制模式' }); return; }
     if (isFinished && brandScope === 'customer' && !brandCustomerId) {
       showToast({ type: 'warning', message: '客户专属 SKU 必须选择所属客户' });
       return;
@@ -349,6 +604,41 @@ export default function SkuPage() {
       ? Number(brandCustomerId)
       : null;
     const effectiveCustomerRefs = isFinished ? normalizedCustomerRefs : [];
+    const trimmedApprovalPolicyCode = skuForm.approvalPolicyCode.trim();
+
+    const consumableProfile = skuForm.businessClass === 'consumable'
+      ? {
+          issueMode: skuForm.consumableProfile.issueMode,
+          approvalLevel: skuForm.consumableProfile.approvalLevel,
+          expenseSubject: skuForm.consumableProfile.expenseSubject.trim() || undefined,
+          minStock: skuForm.consumableProfile.minStock.trim() || undefined,
+          maxStock: skuForm.consumableProfile.maxStock.trim() || undefined,
+          purchaseLeadDays: skuForm.consumableProfile.purchaseLeadDays
+            ? Number(skuForm.consumableProfile.purchaseLeadDays)
+            : undefined,
+          issueDeptRequired: skuForm.consumableProfile.issueDeptRequired,
+          notes: skuForm.consumableProfile.notes.trim() || undefined,
+        }
+      : undefined;
+    const assetProfile = skuForm.businessClass === 'fixed_asset'
+      ? {
+          assetCategory: skuForm.assetProfile.assetCategory.trim() || undefined,
+          depreciationMethod: skuForm.assetProfile.depreciationMethod,
+          usefulLifeMonths: skuForm.assetProfile.usefulLifeMonths
+            ? Number(skuForm.assetProfile.usefulLifeMonths)
+            : undefined,
+          residualRate: skuForm.assetProfile.residualRate.trim() || undefined,
+          capexSubject: skuForm.assetProfile.capexSubject.trim() || undefined,
+          requiresSerialNo: skuForm.assetProfile.requiresSerialNo,
+          maintenanceCycleDays: skuForm.assetProfile.maintenanceCycleDays
+            ? Number(skuForm.assetProfile.maintenanceCycleDays)
+            : undefined,
+          warrantyMonths: skuForm.assetProfile.warrantyMonths
+            ? Number(skuForm.assetProfile.warrantyMonths)
+            : undefined,
+          notes: skuForm.assetProfile.notes.trim() || undefined,
+        }
+      : undefined;
 
     const payload = {
       name: name.trim(),
@@ -363,9 +653,21 @@ export default function SkuPage() {
       safetyStock: skuForm.safetyStock || undefined,
       hasDyeLot: Boolean(skuForm.hasDyeLot),
       useFifo: Boolean(skuForm.useFifo),
+      businessClass: skuForm.businessClass,
+      controlMode: skuForm.controlMode,
+      allowBomComponent: Boolean(skuForm.allowBomComponent),
+      allowPurchase: Boolean(skuForm.allowPurchase),
+      allowInventory: Boolean(skuForm.allowInventory),
+      allowProductionIssue: Boolean(skuForm.allowProductionIssue),
+      requiresAssetAcceptance: Boolean(skuForm.requiresAssetAcceptance),
+      defaultWarehouseType: skuForm.defaultWarehouseType || null,
+      approvalPolicyCode: trimmedApprovalPolicyCode || undefined,
+      assetTrackingMode: skuForm.assetTrackingMode || undefined,
       brandScope: effectiveBrandScope,
       brandCustomerId: effectiveBrandCustomerId,
       customerRefs: effectiveCustomerRefs,
+      consumableProfile,
+      assetProfile,
       description: skuForm.description || undefined,
       status: skuForm.status,
     };
@@ -513,6 +815,14 @@ export default function SkuPage() {
                       : '所属客户未设置'}
                   </span>
                 )}
+              </div>
+            )}
+            {(sku.businessClass || sku.controlMode) && (
+              <div className={styles.sku_meta_row}>
+                <span className={styles.sku_meta_tag}>{getBusinessClassLabel(sku.businessClass)}</span>
+                <span className={`${styles.sku_meta_tag} ${styles['sku_meta_tag--customer']}`}>
+                  {getControlModeLabel(sku.controlMode)}
+                </span>
               </div>
             )}
           </div>
@@ -1007,6 +1317,8 @@ function SkuFormDrawerContent({
   customerOptions,
 }: SkuFormDrawerContentProps) {
   const isFinished = isFinishedCategory(form.category1Code);
+  const isConsumable = form.businessClass === 'consumable';
+  const isFixedAsset = form.businessClass === 'fixed_asset';
   const set = useCallback(
     (field: keyof SkuFormData) =>
       (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -1015,9 +1327,73 @@ function SkuFormDrawerContent({
   );
 
   const setCheck = useCallback(
-    (field: 'hasDyeLot' | 'useFifo') =>
+    (
+      field:
+        | 'hasDyeLot'
+        | 'useFifo'
+        | 'allowBomComponent'
+        | 'allowPurchase'
+        | 'allowInventory'
+        | 'allowProductionIssue'
+        | 'requiresAssetAcceptance'
+    ) =>
       (e: React.ChangeEvent<HTMLInputElement>) =>
         onChange((f) => ({ ...f, [field]: e.target.checked })),
+    [onChange],
+  );
+  const setConsumableField = useCallback(
+    (field: keyof EditableConsumableProfile) =>
+      (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+        onChange((current) => ({
+          ...current,
+          consumableProfile: {
+            ...current.consumableProfile,
+            [field]: e.target.value,
+          },
+        })),
+    [onChange],
+  );
+  const setConsumableCheck = useCallback(
+    (field: 'issueDeptRequired') =>
+      (e: React.ChangeEvent<HTMLInputElement>) =>
+        onChange((current) => ({
+          ...current,
+          consumableProfile: {
+            ...current.consumableProfile,
+            [field]: e.target.checked,
+          },
+        })),
+    [onChange],
+  );
+  const setAssetField = useCallback(
+    (field: keyof EditableAssetProfile) =>
+      (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+        onChange((current) => ({
+          ...current,
+          assetProfile: {
+            ...current.assetProfile,
+            [field]: e.target.value,
+          },
+        })),
+    [onChange],
+  );
+  const setAssetCheck = useCallback(
+    (field: 'requiresSerialNo') =>
+      (e: React.ChangeEvent<HTMLInputElement>) =>
+        onChange((current) => ({
+          ...current,
+          assetProfile: {
+            ...current.assetProfile,
+            [field]: e.target.checked,
+          },
+        })),
+    [onChange],
+  );
+  const setBusinessClass = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const nextBusinessClass = e.target.value as BusinessClass;
+      onChange((current) => applyBusinessClassPreset(current, nextBusinessClass));
+    },
     [onChange],
   );
 
@@ -1254,6 +1630,148 @@ function SkuFormDrawerContent({
         <span className={styles.form_hint}>低于此数量触发预警</span>
       </div>
 
+      <div className={styles.form_section_title}>管控属性</div>
+
+      <div className={styles.form_grid_two_col}>
+        <div className={styles.form_field}>
+          <label className={styles.form_label}>
+            业务大类 <span className={styles.required}>*</span>
+          </label>
+          <select className={styles.form_input} value={form.businessClass} onChange={setBusinessClass}>
+            <option value="production_material">生产物料</option>
+            <option value="consumable">损耗品</option>
+            <option value="fixed_asset">固定资产</option>
+          </select>
+          <span className={styles.form_hint}>切换业务大类时，会带入推荐的控制模式和默认规则。</span>
+        </div>
+
+        <div className={styles.form_field}>
+          <label className={styles.form_label}>
+            控制模式 <span className={styles.required}>*</span>
+          </label>
+          <select
+            className={styles.form_input}
+            value={form.controlMode}
+            onChange={(e) => onChange((current) => ({ ...current, controlMode: e.target.value as ControlMode }))}
+          >
+            <option value="mrp">MRP</option>
+            <option value="stock_only">仅库存</option>
+            <option value="direct_expense">直耗</option>
+            <option value="asset">资产</option>
+          </select>
+        </div>
+
+        <div className={styles.form_field}>
+          <label className={styles.form_label}>默认仓库类型</label>
+          <select
+            className={styles.form_input}
+            value={form.defaultWarehouseType}
+            onChange={(e) => onChange((current) => ({ ...current, defaultWarehouseType: e.target.value as DefaultWarehouseType | '' }))}
+          >
+            <option value="">未指定</option>
+            <option value="raw_material">原料仓</option>
+            <option value="consumable">损耗品仓</option>
+            <option value="asset_pending">资产待验收仓</option>
+            <option value="asset">资产仓</option>
+            <option value="finished">成品仓</option>
+          </select>
+        </div>
+
+        <div className={styles.form_field}>
+          <label className={styles.form_label}>审批策略编码</label>
+          <input
+            className={styles.form_input}
+            value={form.approvalPolicyCode}
+            onChange={set('approvalPolicyCode')}
+            placeholder={isConsumable ? '例如 CONS-NORMAL' : isFixedAsset ? '例如 ASSET-STRICT' : '可留空'}
+          />
+        </div>
+
+        <div className={styles.form_field}>
+          <label className={styles.form_label}>跟踪模式</label>
+          <select
+            className={styles.form_input}
+            value={form.assetTrackingMode}
+            onChange={(e) => onChange((current) => ({ ...current, assetTrackingMode: e.target.value as AssetTrackingMode | '' }))}
+          >
+            <option value="none">不跟踪</option>
+            <option value="batch">批次</option>
+            <option value="serial">序列号</option>
+          </select>
+        </div>
+      </div>
+
+      <div className={styles.form_hint_box}>
+        <div>{isConsumable ? '损耗品默认走库存/领用规则，可维护审批强度和费用科目。' : isFixedAsset ? '固定资产默认要求验收建卡，建议启用序列号跟踪。' : '生产物料默认保留采购、库存和生产领用能力。'}</div>
+      </div>
+
+      <div className={styles.toggle_grid}>
+        <div className={styles.checkbox_field}>
+          <input
+            type="checkbox"
+            id="chk_allow_bom"
+            checked={form.allowBomComponent}
+            onChange={setCheck('allowBomComponent')}
+          />
+          <label htmlFor="chk_allow_bom">
+            <div>允许作为 BOM 组件</div>
+            <div className={styles.checkbox_sub_text}>损耗品通常默认关闭，避免误入生产配方。</div>
+          </label>
+        </div>
+
+        <div className={styles.checkbox_field}>
+          <input
+            type="checkbox"
+            id="chk_allow_purchase"
+            checked={form.allowPurchase}
+            onChange={setCheck('allowPurchase')}
+          />
+          <label htmlFor="chk_allow_purchase">
+            <div>允许采购</div>
+            <div className={styles.checkbox_sub_text}>决定采购单能否选择该 SKU。</div>
+          </label>
+        </div>
+
+        <div className={styles.checkbox_field}>
+          <input
+            type="checkbox"
+            id="chk_allow_inventory"
+            checked={form.allowInventory}
+            onChange={setCheck('allowInventory')}
+          />
+          <label htmlFor="chk_allow_inventory">
+            <div>允许进入库存</div>
+            <div className={styles.checkbox_sub_text}>固定资产通常关闭，走资产台账而不是普通库存。</div>
+          </label>
+        </div>
+
+        <div className={styles.checkbox_field}>
+          <input
+            type="checkbox"
+            id="chk_allow_issue"
+            checked={form.allowProductionIssue}
+            onChange={setCheck('allowProductionIssue')}
+          />
+          <label htmlFor="chk_allow_issue">
+            <div>允许生产领用</div>
+            <div className={styles.checkbox_sub_text}>生产物料默认开启，损耗品与资产默认关闭。</div>
+          </label>
+        </div>
+
+        <div className={styles.checkbox_field}>
+          <input
+            type="checkbox"
+            id="chk_asset_acceptance"
+            checked={form.requiresAssetAcceptance}
+            onChange={setCheck('requiresAssetAcceptance')}
+          />
+          <label htmlFor="chk_asset_acceptance">
+            <div>需要资产验收</div>
+            <div className={styles.checkbox_sub_text}>收货后是否进入资产验收建卡链路。</div>
+          </label>
+        </div>
+      </div>
+
       {/* ─ 特殊属性 ─ */}
       <div className={styles.form_section_title}>特殊属性</div>
 
@@ -1281,6 +1799,207 @@ function SkuFormDrawerContent({
           <div>启用先进先出（FIFO）出库</div>
         </label>
       </div>
+
+      {isConsumable && (
+        <>
+          <div className={styles.form_section_title}>损耗品档案</div>
+          <div className={styles.profile_card}>
+            <div className={styles.form_grid_two_col}>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>领用方式</label>
+                <select
+                  className={styles.form_input}
+                  value={form.consumableProfile.issueMode}
+                  onChange={setConsumableField('issueMode')}
+                >
+                  <option value="department_issue">部门领用</option>
+                  <option value="direct_expense">直接费用化</option>
+                </select>
+              </div>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>审批强度</label>
+                <select
+                  className={styles.form_input}
+                  value={form.consumableProfile.approvalLevel}
+                  onChange={setConsumableField('approvalLevel')}
+                >
+                  <option value="none">免审批</option>
+                  <option value="normal">普通</option>
+                  <option value="strict">严格</option>
+                </select>
+              </div>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>费用科目</label>
+                <input
+                  className={styles.form_input}
+                  value={form.consumableProfile.expenseSubject}
+                  onChange={setConsumableField('expenseSubject')}
+                  placeholder="例如 制造费用-低值易耗"
+                />
+              </div>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>采购提前期（天）</label>
+                <input
+                  type="number"
+                  min="0"
+                  className={styles.form_input}
+                  value={form.consumableProfile.purchaseLeadDays}
+                  onChange={setConsumableField('purchaseLeadDays')}
+                  placeholder="例如 7"
+                />
+              </div>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>最低库存</label>
+                <input
+                  className={styles.form_input}
+                  value={form.consumableProfile.minStock}
+                  onChange={setConsumableField('minStock')}
+                  placeholder="用于领用和补货阈值"
+                />
+              </div>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>最高库存</label>
+                <input
+                  className={styles.form_input}
+                  value={form.consumableProfile.maxStock}
+                  onChange={setConsumableField('maxStock')}
+                  placeholder="用于库存上限提醒"
+                />
+              </div>
+            </div>
+
+            <div className={styles.checkbox_field}>
+              <input
+                type="checkbox"
+                id="chk_issue_dept_required"
+                checked={form.consumableProfile.issueDeptRequired}
+                onChange={setConsumableCheck('issueDeptRequired')}
+              />
+              <label htmlFor="chk_issue_dept_required">
+                <div>领用时必须填写部门</div>
+                <div className={styles.checkbox_sub_text}>启用后，损耗品领用单创建时会强制要求部门字段。</div>
+              </label>
+            </div>
+
+            <div className={styles.form_field}>
+              <label className={styles.form_label}>档案备注</label>
+              <textarea
+                className={styles.form_textarea}
+                value={form.consumableProfile.notes}
+                onChange={setConsumableField('notes')}
+                rows={3}
+                placeholder="例如 默认按部门领用出库"
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      {isFixedAsset && (
+        <>
+          <div className={styles.form_section_title}>固定资产档案</div>
+          <div className={styles.profile_card}>
+            <div className={styles.form_grid_two_col}>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>资产类别</label>
+                <input
+                  className={styles.form_input}
+                  value={form.assetProfile.assetCategory}
+                  onChange={setAssetField('assetCategory')}
+                  placeholder="例如 equipment"
+                />
+              </div>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>折旧方式</label>
+                <select
+                  className={styles.form_input}
+                  value={form.assetProfile.depreciationMethod}
+                  onChange={setAssetField('depreciationMethod')}
+                >
+                  <option value="straight_line">直线法</option>
+                  <option value="manual">手工</option>
+                  <option value="none">不折旧</option>
+                </select>
+              </div>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>使用寿命（月）</label>
+                <input
+                  type="number"
+                  min="0"
+                  className={styles.form_input}
+                  value={form.assetProfile.usefulLifeMonths}
+                  onChange={setAssetField('usefulLifeMonths')}
+                  placeholder="例如 60"
+                />
+              </div>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>残值率（%）</label>
+                <input
+                  className={styles.form_input}
+                  value={form.assetProfile.residualRate}
+                  onChange={setAssetField('residualRate')}
+                  placeholder="例如 5"
+                />
+              </div>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>资本化科目</label>
+                <input
+                  className={styles.form_input}
+                  value={form.assetProfile.capexSubject}
+                  onChange={setAssetField('capexSubject')}
+                  placeholder="例如 固定资产-生产设备"
+                />
+              </div>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>维保周期（天）</label>
+                <input
+                  type="number"
+                  min="0"
+                  className={styles.form_input}
+                  value={form.assetProfile.maintenanceCycleDays}
+                  onChange={setAssetField('maintenanceCycleDays')}
+                  placeholder="例如 90"
+                />
+              </div>
+              <div className={styles.form_field}>
+                <label className={styles.form_label}>保修期（月）</label>
+                <input
+                  type="number"
+                  min="0"
+                  className={styles.form_input}
+                  value={form.assetProfile.warrantyMonths}
+                  onChange={setAssetField('warrantyMonths')}
+                  placeholder="例如 12"
+                />
+              </div>
+            </div>
+
+            <div className={styles.checkbox_field}>
+              <input
+                type="checkbox"
+                id="chk_requires_serial"
+                checked={form.assetProfile.requiresSerialNo}
+                onChange={setAssetCheck('requiresSerialNo')}
+              />
+              <label htmlFor="chk_requires_serial">
+                <div>要求序列号</div>
+                <div className={styles.checkbox_sub_text}>资产验收建卡时，若启用则必须填写 `serialNo`。</div>
+              </label>
+            </div>
+
+            <div className={styles.form_field}>
+              <label className={styles.form_label}>档案备注</label>
+              <textarea
+                className={styles.form_textarea}
+                value={form.assetProfile.notes}
+                onChange={setAssetField('notes')}
+                rows={3}
+                placeholder="例如 需到货验收后生成资产卡片"
+              />
+            </div>
+          </div>
+        </>
+      )}
 
       {isFinished && (
         <>
@@ -1542,6 +2261,46 @@ function SkuDetailContent({
         </div>
       </div>
 
+      <div className={styles.detail_section}>
+        <div className={styles.detail_section_title}>管控属性</div>
+        <div className={styles.detail_grid}>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>业务大类</div>
+            <div className={styles.detail_item_value}>
+              <Tag variant={getBusinessClassTagVariant(sku.businessClass)}>
+                {getBusinessClassLabel(sku.businessClass)}
+              </Tag>
+            </div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>控制模式</div>
+            <div className={styles.detail_item_value}>{getControlModeLabel(sku.controlMode)}</div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>默认仓库类型</div>
+            <div className={styles.detail_item_value}>{getDefaultWarehouseTypeLabel(sku.defaultWarehouseType)}</div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>BOM准入</div>
+            <div className={styles.detail_item_value}>
+              {typeof sku.allowBomComponent === 'boolean' ? (sku.allowBomComponent ? '允许' : '禁止') : '未配置'}
+            </div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>允许采购</div>
+            <div className={styles.detail_item_value}>
+              {typeof sku.allowPurchase === 'boolean' ? (sku.allowPurchase ? '是' : '否') : '未配置'}
+            </div>
+          </div>
+          <div className={styles.detail_item}>
+            <div className={styles.detail_item_label}>资产验收要求</div>
+            <div className={styles.detail_item_value}>
+              {typeof sku.requiresAssetAcceptance === 'boolean' ? (sku.requiresAssetAcceptance ? '必需' : '否') : '未配置'}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* 特殊属性 */}
       <div className={styles.detail_section}>
         <div className={styles.detail_section_title}>特殊属性</div>
@@ -1551,6 +2310,56 @@ function SkuDetailContent({
           {!sku.hasDyeLot && !sku.useFifo && <span style={{ color: '#9ca3af', fontSize: 13 }}>无特殊属性</span>}
         </div>
       </div>
+
+      {sku.businessClass === 'consumable' && sku.consumableProfile && (
+        <div className={styles.detail_section}>
+          <div className={styles.detail_section_title}>损耗品档案</div>
+          <div className={styles.detail_grid}>
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>领用方式</div>
+              <div className={styles.detail_item_value}>
+                {sku.consumableProfile.issueMode === 'direct_expense' ? '直接费用化' : '部门领用'}
+              </div>
+            </div>
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>审批强度</div>
+              <div className={styles.detail_item_value}>{sku.consumableProfile.approvalLevel ?? 'normal'}</div>
+            </div>
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>费用科目</div>
+              <div className={styles.detail_item_value}>{sku.consumableProfile.expenseSubject ?? '—'}</div>
+            </div>
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>最低库存</div>
+              <div className={styles.detail_item_value}>{sku.consumableProfile.minStock ?? '—'}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sku.businessClass === 'fixed_asset' && sku.assetProfile && (
+        <div className={styles.detail_section}>
+          <div className={styles.detail_section_title}>固定资产档案</div>
+          <div className={styles.detail_grid}>
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>资产类别</div>
+              <div className={styles.detail_item_value}>{sku.assetProfile.assetCategory ?? '—'}</div>
+            </div>
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>折旧方式</div>
+              <div className={styles.detail_item_value}>{sku.assetProfile.depreciationMethod ?? '—'}</div>
+            </div>
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>使用寿命(月)</div>
+              <div className={styles.detail_item_value}>{sku.assetProfile.usefulLifeMonths ?? '—'}</div>
+            </div>
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>资本化科目</div>
+              <div className={styles.detail_item_value}>{sku.assetProfile.capexSubject ?? '—'}</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showBrandingSection && (
         <div className={styles.detail_section}>

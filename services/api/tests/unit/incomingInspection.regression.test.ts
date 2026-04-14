@@ -30,6 +30,8 @@ describe('Incoming inspection regressions', () => {
     (IncomingInspectionService as any).purchaseReceiptDeliveryColumn = 'delivery_note_id';
     (IncomingInspectionService as any).purchaseReceiptItemsTableSupported = true;
     (IncomingInspectionService as any).purchaseReceiptTotalAmountColumnSupported = true;
+    (IncomingInspectionService as any).purchaseOrderItemControlColumnsSupported = null;
+    (IncomingInspectionService as any).purchaseReceiptItemControlColumnsSupported = null;
     (IncomingInspectionService as any).inventoryTransactionQtyChangeColumnSupported = true;
     (IncomingInspectionService as any).returnOrderItemUpdatedBySupported = true;
     (IncomingInspectionService as any).deliveryReceivedStatusSupported = true;
@@ -990,6 +992,210 @@ describe('Incoming inspection regressions', () => {
       String(sql).includes('INSERT INTO inventory_dye_lots'),
     ) as unknown[] | undefined;
     expect(inventoryDyeLotCall?.[1]).toEqual([7, 301, 'DY-20260327-B03', '12.0000']);
+  });
+
+  it('routes direct-expense consumables through receipt items without writing inventory ledger', async () => {
+    (IncomingInspectionService as any).purchaseOrderItemControlColumnsSupported = true;
+    (IncomingInspectionService as any).purchaseReceiptItemControlColumnsSupported = true;
+
+    const reevaluateSpy = jest
+      .spyOn(MrpService.prototype, 'reevaluateAfterReceipt')
+      .mockResolvedValue({ affectedOrderIds: [], updatedRequirements: 0 });
+
+    const manager = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT id, status FROM purchase_orders')) return [{ id: 100, status: 'confirmed' }];
+        if (sql.includes('INSERT INTO purchase_receipts')) return { insertId: 841 };
+        if (sql.includes('UPDATE delivery_notes')) return { affectedRows: 1 };
+        if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: 'pcs' }];
+        if (
+          sql.includes('SELECT business_class, receipt_mode, requires_acceptance, request_department_id, budget_code')
+          && sql.includes('FROM purchase_order_items')
+        ) {
+          return [{
+            business_class: 'consumable',
+            receipt_mode: 'direct_expense',
+            requires_acceptance: 0,
+            request_department_id: 25,
+            budget_code: 'BD-001',
+          }];
+        }
+        if (sql.includes('INSERT INTO purchase_receipt_items')) return { insertId: 941 };
+        if (sql.includes('UPDATE inventory') && sql.includes('qty_in_transit = GREATEST(qty_in_transit - ?, 0)')) {
+          return { affectedRows: 1 };
+        }
+        if (
+          sql.includes('SELECT production_operation_id')
+          && sql.includes('FROM purchase_order_items')
+        ) {
+          return [{ production_operation_id: null }];
+        }
+        if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
+        if (sql.includes('SUM(COALESCE(qty_ordered, 0)) AS total_ordered')) {
+          return [{ total_ordered: '20', total_received: '12' }];
+        }
+        if (sql.includes('UPDATE purchase_orders')) return { affectedRows: 1 };
+        if (sql.includes('UPDATE incoming_inspection_records')) return { affectedRows: 1 };
+        throw new Error(`Unexpected SQL: ${sql}`);
+      }),
+    };
+
+    jest.spyOn(generateNoModule, 'generateNo').mockResolvedValue('RC260413-00001');
+
+    const svc = new IncomingInspectionService({ tenantId: 7, userId: 11 });
+    await (svc as any).handlePassedItems(
+      manager,
+      10,
+      { po_id: 100, delivery_note_id: 200 },
+      [
+        {
+          sku_id: 401,
+          qty_delivered: '5',
+          qty_sampled: '5',
+          qty_passed: '5',
+          result: 'pass',
+          disposition: 'accept',
+          unit_price: '20.00',
+          purchase_unit: 'pcs',
+          po_item_id: 1201,
+        },
+      ],
+    );
+
+    const receiptItemCall = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO purchase_receipt_items'),
+    ) as unknown[] | undefined;
+    expect(receiptItemCall?.[1]).toEqual([
+      7,
+      841,
+      401,
+      1201,
+      'consumable',
+      'direct_expense',
+      0,
+      25,
+      'BD-001',
+      '5',
+      'pcs',
+      '20',
+      '100.00',
+      11,
+      11,
+    ]);
+
+    const inventoryUpdateCall = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('UPDATE inventory') && String(sql).includes('qty_in_transit = GREATEST(qty_in_transit - ?, 0)'),
+    ) as unknown[] | undefined;
+    expect(inventoryUpdateCall?.[1]).toEqual(['5.0000', 7, 401]);
+    expect(
+      manager.query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO inventory_transactions')),
+    ).toBe(false);
+    expect(
+      manager.query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO inventory_daily_snapshots')),
+    ).toBe(false);
+    expect(reevaluateSpy).not.toHaveBeenCalled();
+  });
+
+  it('routes fixed assets through capitalization receipt items without inventory side effects', async () => {
+    (IncomingInspectionService as any).purchaseOrderItemControlColumnsSupported = true;
+    (IncomingInspectionService as any).purchaseReceiptItemControlColumnsSupported = true;
+
+    const reevaluateSpy = jest
+      .spyOn(MrpService.prototype, 'reevaluateAfterReceipt')
+      .mockResolvedValue({ affectedOrderIds: [], updatedRequirements: 0 });
+
+    const manager = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT id, status FROM purchase_orders')) return [{ id: 100, status: 'confirmed' }];
+        if (sql.includes('INSERT INTO purchase_receipts')) return { insertId: 851 };
+        if (sql.includes('UPDATE delivery_notes')) return { affectedRows: 1 };
+        if (sql.includes('SELECT stock_unit FROM skus')) return [{ stock_unit: '台' }];
+        if (
+          sql.includes('SELECT business_class, receipt_mode, requires_acceptance, request_department_id, budget_code')
+          && sql.includes('FROM purchase_order_items')
+        ) {
+          return [{
+            business_class: 'fixed_asset',
+            receipt_mode: 'asset_capitalization',
+            requires_acceptance: 1,
+            request_department_id: 36,
+            budget_code: 'CAPEX-01',
+          }];
+        }
+        if (sql.includes('INSERT INTO purchase_receipt_items')) return { insertId: 951 };
+        if (sql.includes('UPDATE inventory') && sql.includes('qty_in_transit = GREATEST(qty_in_transit - ?, 0)')) {
+          return { affectedRows: 1 };
+        }
+        if (
+          sql.includes('SELECT production_operation_id')
+          && sql.includes('FROM purchase_order_items')
+        ) {
+          return [{ production_operation_id: null }];
+        }
+        if (sql.includes('UPDATE purchase_order_items')) return { affectedRows: 1 };
+        if (sql.includes('SUM(COALESCE(qty_ordered, 0)) AS total_ordered')) {
+          return [{ total_ordered: '3', total_received: '1' }];
+        }
+        if (sql.includes('UPDATE purchase_orders')) return { affectedRows: 1 };
+        if (sql.includes('UPDATE incoming_inspection_records')) return { affectedRows: 1 };
+        throw new Error(`Unexpected SQL: ${sql}`);
+      }),
+    };
+
+    jest.spyOn(generateNoModule, 'generateNo').mockResolvedValue('RC260413-00002');
+
+    const svc = new IncomingInspectionService({ tenantId: 7, userId: 11 });
+    await (svc as any).handlePassedItems(
+      manager,
+      11,
+      { po_id: 100, delivery_note_id: 201 },
+      [
+        {
+          sku_id: 501,
+          qty_delivered: '1',
+          qty_sampled: '1',
+          qty_passed: '1',
+          result: 'pass',
+          disposition: 'accept',
+          unit_price: '68000.00',
+          purchase_unit: '台',
+          po_item_id: 1301,
+        },
+      ],
+    );
+
+    const receiptItemCall = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO purchase_receipt_items'),
+    ) as unknown[] | undefined;
+    expect(receiptItemCall?.[1]).toEqual([
+      7,
+      851,
+      501,
+      1301,
+      'fixed_asset',
+      'asset_capitalization',
+      1,
+      36,
+      'CAPEX-01',
+      '1',
+      '台',
+      '68000',
+      '68000.00',
+      11,
+      11,
+    ]);
+
+    const inventoryUpdateCall = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('UPDATE inventory') && String(sql).includes('qty_in_transit = GREATEST(qty_in_transit - ?, 0)'),
+    ) as unknown[] | undefined;
+    expect(inventoryUpdateCall?.[1]).toEqual(['1.0000', 7, 501]);
+    expect(
+      manager.query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO inventory_transactions')),
+    ).toBe(false);
+    expect(
+      manager.query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO inventory_daily_snapshots')),
+    ).toBe(false);
+    expect(reevaluateSpy).not.toHaveBeenCalled();
   });
 
   it('persists dye lot when updating editable inspection items', async () => {

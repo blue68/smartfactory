@@ -127,6 +127,35 @@ export interface CustomerSkuRef {
   status: 'active' | 'inactive';
 }
 
+export type BusinessClass = 'production_material' | 'consumable' | 'fixed_asset';
+export type ControlMode = 'mrp' | 'stock_only' | 'direct_expense' | 'asset';
+export type DefaultWarehouseType = 'raw_material' | 'consumable' | 'asset_pending' | 'asset' | 'finished';
+export type ReceiptMode = 'inventory' | 'direct_expense' | 'asset_capitalization';
+export type AssetTrackingMode = 'none' | 'batch' | 'serial';
+
+export interface ConsumableProfile {
+  issueMode?: 'department_issue' | 'direct_expense';
+  approvalLevel?: 'none' | 'normal' | 'strict';
+  expenseSubject?: string | null;
+  minStock?: string | null;
+  maxStock?: string | null;
+  purchaseLeadDays?: number | null;
+  issueDeptRequired?: boolean;
+  notes?: string | null;
+}
+
+export interface AssetProfile {
+  assetCategory?: string | null;
+  depreciationMethod?: 'straight_line' | 'manual' | 'none';
+  usefulLifeMonths?: number | null;
+  residualRate?: string | null;
+  capexSubject?: string | null;
+  requiresSerialNo?: boolean;
+  maintenanceCycleDays?: number | null;
+  warrantyMonths?: number | null;
+  notes?: string | null;
+}
+
 // ─────────────────────────────────────────────
 // SKU 主数据
 // ─────────────────────────────────────────────
@@ -160,10 +189,22 @@ export interface Sku {
   safetyStock: string | null;
   status: SkuStatus;
   description?: string;
+  businessClass?: BusinessClass;
+  controlMode?: ControlMode;
+  allowBomComponent?: boolean;
+  allowPurchase?: boolean;
+  allowInventory?: boolean;
+  allowProductionIssue?: boolean;
+  requiresAssetAcceptance?: boolean;
+  defaultWarehouseType?: DefaultWarehouseType | null;
+  approvalPolicyCode?: string | null;
+  assetTrackingMode?: AssetTrackingMode;
   customerSkuCode?: string | null;
   customerSkuName?: string | null;
   customerRefs?: CustomerSkuRef[];
   unitConversions?: UnitConversion[];
+  consumableProfile?: ConsumableProfile | null;
+  assetProfile?: AssetProfile | null;
   /** 当前库存（联查，可能不存在） */
   qtyOnHand?: string;
   createdAt?: string;
@@ -198,9 +239,21 @@ export interface CreateSkuPayload {
   description?: string;
   stockConvFactor?: number;
   prodConvNote?: string;
+  businessClass?: BusinessClass;
+  controlMode?: ControlMode;
+  allowBomComponent?: boolean;
+  allowPurchase?: boolean;
+  allowInventory?: boolean;
+  allowProductionIssue?: boolean;
+  requiresAssetAcceptance?: boolean;
+  defaultWarehouseType?: DefaultWarehouseType | null;
+  approvalPolicyCode?: string | null;
+  assetTrackingMode?: AssetTrackingMode;
   brandScope?: SkuBrandScope;
   brandCustomerId?: number | null;
   customerRefs?: CustomerSkuRef[];
+  consumableProfile?: ConsumableProfile;
+  assetProfile?: AssetProfile;
 }
 
 export type UpdateSkuPayload = Partial<CreateSkuPayload>;
@@ -531,6 +584,12 @@ export interface PurchaseOrderItem {
   skuCode?: string;
   skuName?: string;
   hasDyeLot?: boolean;
+  businessClass?: BusinessClass;
+  receiptMode?: ReceiptMode;
+  requiresAcceptance?: boolean;
+  requestDepartmentId?: number | null;
+  requestDepartmentName?: string | null;
+  budgetCode?: string | null;
   qtyOrdered: string;
   qtyReceived?: string;
   gapQty?: string;
@@ -654,6 +713,12 @@ export interface PurchaseReceiptItem {
   skuCode?: string;
   skuName?: string;
   dyeLotNo?: string | null;
+  businessClass?: BusinessClass;
+  receiptMode?: ReceiptMode;
+  requiresAcceptance?: boolean;
+  requestDepartmentId?: number | null;
+  requestDepartmentName?: string | null;
+  budgetCode?: string | null;
   qtyReceived: string;
   purchaseUnit: string;
   unitPrice: string;
@@ -678,6 +743,162 @@ export interface PurchaseReceipt {
   inspectionNo?: string | null;
   operatorName?: string | null;
   items?: PurchaseReceiptItem[];
+}
+
+// ─────────────────────────────────────────────
+// 损耗品领用 / 固定资产
+// ─────────────────────────────────────────────
+export interface ConsumableIssueItem {
+  [key: string]: unknown;
+  id: number;
+  skuId: number;
+  skuCode?: string;
+  skuName?: string;
+  warehouseId?: number | null;
+  locationId?: number | null;
+  qtyRequested: string;
+  qtyIssued?: string;
+  issueUnit: string;
+  budgetCode?: string | null;
+  notes?: string | null;
+}
+
+export interface ConsumableIssueOrder {
+  [key: string]: unknown;
+  id: number;
+  issueNo: string;
+  requestDepartmentId?: number | null;
+  purpose?: string | null;
+  status: 'draft' | 'approved' | 'rejected' | 'issued' | string;
+  notes?: string | null;
+  approvedBy?: number | null;
+  approvedAt?: string | null;
+  issuedBy?: number | null;
+  issuedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  itemCount?: number;
+  totalQtyRequested?: string;
+  totalQtyIssued?: string;
+  items?: ConsumableIssueItem[];
+}
+
+export interface ConsumableStockItem {
+  [key: string]: unknown;
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  warehouseId?: number | null;
+  warehouseCode?: string | null;
+  warehouseName?: string | null;
+  locationId?: number | null;
+  locationCode?: string | null;
+  locationName?: string | null;
+  qtyOnHand: string;
+  qtyReserved: string;
+  qtyInTransit?: string;
+  qtyAvailable: string;
+  stockUnit: string;
+}
+
+export interface CreateConsumableIssuePayload {
+  requestDepartmentId?: number;
+  purpose?: string;
+  notes?: string;
+  items: Array<{
+    skuId: number;
+    qtyRequested: string;
+    issueUnit: string;
+    warehouseId?: number;
+    locationId?: number;
+    dyeLotNo?: string;
+    budgetCode?: string;
+    notes?: string;
+  }>;
+}
+
+export interface ApproveConsumableIssuePayload {
+  approved: boolean;
+  notes?: string;
+}
+
+export interface ExecuteConsumableIssuePayload {
+  notes?: string;
+}
+
+export interface AssetMovement {
+  [key: string]: unknown;
+  id: number;
+  movementNo: string;
+  movementType: 'acceptance' | 'transfer' | 'return' | 'repair' | 'scrap' | string;
+  fromDepartmentId?: number | null;
+  toDepartmentId?: number | null;
+  fromLocationText?: string | null;
+  toLocationText?: string | null;
+  referenceType?: string | null;
+  referenceId?: number | null;
+  notes?: string | null;
+  occurredAt: string;
+}
+
+export interface AssetCard {
+  [key: string]: unknown;
+  id: number;
+  assetNo: string;
+  assetName: string;
+  assetCategory?: string | null;
+  trackingMode?: AssetTrackingMode | string | null;
+  skuCode?: string | null;
+  skuName?: string | null;
+  serialNo?: string | null;
+  assetTagNo?: string | null;
+  status: 'in_storage' | 'in_use' | 'idle' | 'repair' | 'scrapped' | string;
+  receiptId?: number | null;
+  receiptItemId?: number | null;
+  purchaseOrderId?: number | null;
+  purchaseItemId?: number | null;
+  departmentId?: number | null;
+  custodianUserId?: number | null;
+  locationText?: string | null;
+  originalValue?: string | null;
+  netValue?: string | null;
+  capitalizedAt?: string | null;
+  notes?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  movements?: AssetMovement[];
+}
+
+export interface CreateAssetAcceptancePayload {
+  receiptId: number;
+  items: Array<{
+    receiptItemId: number;
+    cards: Array<{
+      assetName?: string;
+      serialNo?: string;
+      assetTagNo?: string;
+      departmentId?: number;
+      custodianUserId?: number;
+      locationText?: string;
+      notes?: string;
+    }>;
+  }>;
+}
+
+export interface AssetTransferPayload {
+  departmentId?: number;
+  custodianUserId?: number;
+  locationText?: string;
+  notes?: string;
+}
+
+export interface AssetReturnPayload {
+  locationText?: string;
+  notes?: string;
+}
+
+export interface AssetScrapPayload {
+  notes?: string;
 }
 
 export interface UpdatePurchaseReceiptNotesPayload {

@@ -22,6 +22,7 @@ import Table from '@/components/common/Table';
 import type { Column } from '@/components/common/Table';
 import StatusBadge from '@/components/common/StatusBadge';
 import ProgressBar from '@/components/common/ProgressBar';
+import Tag from '@/components/common/Tag';
 import styles from './PurchaseOrderPage.module.css';
 
 const PAGE_SIZE = 12;
@@ -73,6 +74,47 @@ function calcProgressPct(received?: string | number | null, ordered?: string | n
   const orderedValue = toNumber(ordered);
   if (orderedValue <= 0) return 0;
   return Math.min(100, Math.max(0, Math.round((toNumber(received) / orderedValue) * 100)));
+}
+
+function formatBusinessClassLabel(value?: string | null): string {
+  if (value === 'consumable') return '损耗品';
+  if (value === 'fixed_asset') return '固定资产';
+  if (value === 'production_material') return '生产物料';
+  return '待补配置';
+}
+
+function formatReceiptModeLabel(value?: string | null): string {
+  if (value === 'inventory') return '库存入库';
+  if (value === 'direct_expense') return '直耗';
+  if (value === 'asset_capitalization') return '资产待验收';
+  return '待补配置';
+}
+
+function getBusinessClassTagVariant(value?: string | null): 'warning' | 'info' | 'neutral' {
+  if (value === 'consumable') return 'warning';
+  if (value === 'fixed_asset') return 'info';
+  return 'neutral';
+}
+
+function getReceiptModeTagVariant(value?: string | null): 'warning' | 'info' | 'error' | 'neutral' {
+  if (value === 'direct_expense') return 'error';
+  if (value === 'asset_capitalization') return 'info';
+  if (value === 'inventory') return 'neutral';
+  return 'warning';
+}
+
+function summarizeOrderBusinessProps(order: PurchaseOrder): string {
+  const items = order.items ?? [];
+  if (items.length === 0) return '暂无明细';
+
+  const labels = new Set<string>();
+  items.forEach((item) => {
+    const base = formatBusinessClassLabel(item.businessClass);
+    const mode = formatReceiptModeLabel(item.receiptMode);
+    labels.add(base === '待补配置' && mode === '待补配置' ? '待补配置' : `${base}/${mode}`);
+  });
+
+  return Array.from(labels).join(' · ');
 }
 
 function resolveRiskTone(tail?: PurchaseOrderTailRow): 'danger' | 'warning' | 'safe' | 'neutral' {
@@ -267,6 +309,16 @@ function PurchaseOrderDetailDrawer({
                         <div className={styles.itemMeta}>
                           {item.skuCode ?? '—'} · 采购单位 {item.purchaseUnit}
                         </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                          <Tag variant={getBusinessClassTagVariant(item.businessClass)}>
+                            {formatBusinessClassLabel(item.businessClass)}
+                          </Tag>
+                          <Tag variant={getReceiptModeTagVariant(item.receiptMode)}>
+                            {formatReceiptModeLabel(item.receiptMode)}
+                          </Tag>
+                          {item.requiresAcceptance ? <Tag variant="info">需验收</Tag> : null}
+                          {item.budgetCode ? <Tag variant="neutral">预算 {item.budgetCode}</Tag> : null}
+                        </div>
                       </div>
                       <div className={styles.itemQty}>
                         {formatQty(item.qtyReceived)} / {formatQty(item.qtyOrdered)}
@@ -283,6 +335,7 @@ function PurchaseOrderDetailDrawer({
                       <span>未到货：{formatQty(item.gapQty)}</span>
                       <span>单价：{formatCurrency(item.unitPrice)}</span>
                       <span>金额：{formatCurrency(item.amount)}</span>
+                      {item.requestDepartmentName ? <span>需求部门：{item.requestDepartmentName}</span> : null}
                     </div>
 
                     {item.deliveryHistory?.length ? (
@@ -600,7 +653,9 @@ export default function PurchaseOrderPage() {
       render: (_value, record) => (
         <div className={styles.supplierBlock}>
           <div className={styles.supplierName}>{record.supplierName}</div>
-          <div className={styles.supplierNote}>{record.closeReason || record.notes || '暂无备注'}</div>
+          <div className={styles.supplierNote}>
+            {record.closeReason || record.notes || summarizeOrderBusinessProps(record)}
+          </div>
         </div>
       ),
     },

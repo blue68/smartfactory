@@ -1,0 +1,308 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.16), transparent 32%),
+    linear-gradient(135deg, #eef4ff 0%, #fff 58%, #f6f9ff 100%);
+  border: 1px solid rgba(59, 130, 246, 0.16);
+}
+
+.eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #1d4ed8;
+}
+
+.title {
+  margin: 8px 0 10px;
+  font-size: 32px;
+  line-height: 1.1;
+}
+
+.subtitle {
+  margin: 0;
+  max-width: 720px;
+  color: #64748b;
+}
+
+.heroStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.heroStats div {
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.heroStats span,
+.heroStats strong {
+  display: block;
+}
+
+.heroStats span {
+  color: #64748b;
+}
+
+.heroStats strong {
+  margin-top: 8px;
+  font-size: 28px;
+  color: #0f172a;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+}
+
+.panelHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.panelHeader h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.panelHeader p {
+  margin: 0;
+  color: #64748b;
+}
+
+.filters {
+  display: flex;
+  gap: 10px;
+}
+
+.filters select,
+.filters input,
+.modalBody input,
+.modalBody textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+}
+
+.filters input {
+  min-width: 260px;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primaryCell {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.secondaryCell {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.drawerFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.statusActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.detailWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #eff6ff 0%, #fff 100%);
+}
+
+.summary h3 {
+  margin: 10px 0 6px;
+  font-size: 24px;
+}
+
+.summary p {
+  margin: 0;
+  color: #64748b;
+}
+
+.metaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metaGrid div {
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.metaGrid span,
+.timelineMeta span,
+.modalBody label span {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sectionTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.timelineItem {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 0;
+}
+
+.timelineMarker {
+  width: 12px;
+  height: 12px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.12);
+}
+
+.timelineBody {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.timelineHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.timelineMeta {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.timelineNotes,
+.noteBlock {
+  margin: 0;
+  color: #334155;
+  white-space: pre-wrap;
+}
+
+.noteBlock {
+  padding: 16px;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.modalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modalBody p {
+  margin: 0;
+  color: #334155;
+}
+
+.modalHint {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.modalBody label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.emptyBlock {
+  padding: 18px;
+  border-radius: 16px;
+  background: #f8fafc;
+  color: #475569;
+}
+
+@media (max-width: 1080px) {
+  .hero,
+  .panelHeader,
+  .filters,
+  .timelineHeader {
+    flex-direction: column;
+  }
+
+  .metaGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .heroStats {
+    grid-template-columns: 1fr;
+  }
+
+  .filters input {
+    min-width: 0;
+  }
+
+  .statusActions {
+    width: 100%;
+  }
+}

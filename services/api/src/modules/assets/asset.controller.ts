@@ -35,6 +35,11 @@ const AssetScrapSchema = z.object({
   notes: z.string().trim().max(500).optional(),
 });
 
+const AssetReturnSchema = z.object({
+  locationText: z.string().trim().max(200).optional(),
+  notes: z.string().trim().max(500).optional(),
+});
+
 export class AssetController {
   private svc(req: Request): AssetService {
     return new AssetService({
@@ -77,6 +82,13 @@ export class AssetController {
     const body = AssetScrapSchema.parse(req.body ?? {});
     await this.svc(req).scrapCard(id, body);
     success(res, null, '固定资产已报废');
+  }
+
+  async returnCard(req: Request, res: Response): Promise<void> {
+    const id = Number(req.params.id);
+    const body = AssetReturnSchema.parse(req.body ?? {});
+    await this.svc(req).returnCard(id, body);
+    success(res, null, '固定资产退回完成');
   }
 }
 

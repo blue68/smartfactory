@@ -1,0 +1,310 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 28px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.16), transparent 32%),
+    linear-gradient(135deg, #effaff 0%, #fff 56%, #eef8ff 100%);
+  border: 1px solid rgba(14, 165, 233, 0.16);
+}
+
+.eyebrow {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #0369a1;
+}
+
+.title {
+  margin: 8px 0 10px;
+  font-size: 32px;
+  line-height: 1.1;
+}
+
+.subtitle {
+  margin: 0;
+  max-width: 720px;
+  color: #64748b;
+}
+
+.heroMeta {
+  min-width: 170px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.heroMeta span,
+.heroMeta strong {
+  display: block;
+}
+
+.heroMeta span {
+  color: #64748b;
+}
+
+.heroMeta strong {
+  margin-top: 8px;
+  font-size: 32px;
+  color: #0f172a;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+}
+
+.panelHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.panelHeader h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.panelHeader p {
+  margin: 0;
+  color: #64748b;
+}
+
+.search,
+.countControl input,
+.cardGrid input,
+.cardGrid select,
+.noteLabel textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+}
+
+.search {
+  max-width: 280px;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0369a1;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primaryCell {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.secondaryCell {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.statusCell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.drawerFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.statusActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.drawerBody {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.receiptSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #f0f9ff 0%, #fff 100%);
+}
+
+.receiptSummary h3 {
+  margin: 10px 0 6px;
+  font-size: 24px;
+}
+
+.receiptSummary p {
+  margin: 0;
+  color: #64748b;
+}
+
+.metaGrid,
+.itemMeta,
+.cardGrid,
+.createdGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metaGrid div,
+.itemMeta div,
+.createdCard {
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.metaGrid span,
+.itemMeta span,
+.createdCard span,
+.countControl span,
+.cardGrid label span,
+.noteLabel span {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.itemList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.itemCard {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: #fff;
+}
+
+.itemHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.itemBadges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.countControl {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 160px;
+  margin: 14px 0;
+}
+
+.cardList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cardDraft {
+  padding: 14px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.cardDraftTitle {
+  margin-bottom: 10px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.cardGrid label,
+.noteLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.selectWithInput {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.noteLabel {
+  margin-top: 12px;
+}
+
+.successPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.successPanel h3 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.createdCard strong {
+  display: block;
+  font-size: 18px;
+  color: #0369a1;
+}
+
+.emptyBlock {
+  padding: 18px;
+  border-radius: 16px;
+  background: #f8fafc;
+  color: #475569;
+}
+
+@media (max-width: 1080px) {
+  .hero,
+  .panelHeader,
+  .itemHeader {
+    flex-direction: column;
+  }
+
+  .metaGrid,
+  .itemMeta,
+  .cardGrid,
+  .createdGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .search {
+    max-width: none;
+  }
+
+  .statusActions {
+    width: 100%;
+  }
+}

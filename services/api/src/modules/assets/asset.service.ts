@@ -40,6 +40,11 @@ export interface AssetScrapParams {
   notes?: string;
 }
 
+export interface AssetReturnParams {
+  locationText?: string;
+  notes?: string;
+}
+
 export class AssetService {
   private readonly tenantId: number;
   private readonly userId: number;
@@ -449,6 +454,68 @@ export class AssetService {
           movementNo,
           card.department_id ?? null,
           card.location_text ?? null,
+          id,
+          this.mergeNotes(params.notes),
+          this.userId,
+        ],
+      );
+    });
+  }
+
+  async returnCard(id: number, params: AssetReturnParams): Promise<void> {
+    await AppDataSource.transaction(async (manager) => {
+      const [card] = await manager.query<Array<{
+        department_id: number | null;
+        custodian_user_id: number | null;
+        location_text: string | null;
+        status: string;
+      }>>(
+        `SELECT department_id, custodian_user_id, location_text, status
+         FROM asset_cards
+         WHERE id = ? AND tenant_id = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [id, this.tenantId],
+      );
+
+      if (!card) {
+        throw AppError.notFound('固定资产卡片不存在');
+      }
+      if (card.status === 'scrapped') {
+        throw AppError.conflict('已报废资产不允许退回');
+      }
+
+      const nextLocationText = params.locationText?.trim() || card.location_text || null;
+      await manager.query(
+        `UPDATE asset_cards
+         SET department_id = NULL,
+             custodian_user_id = NULL,
+             location_text = ?,
+             status = 'idle',
+             notes = ?,
+             updated_by = ?
+         WHERE id = ? AND tenant_id = ?`,
+        [
+          nextLocationText,
+          this.mergeNotes(params.notes),
+          this.userId,
+          id,
+          this.tenantId,
+        ],
+      );
+
+      const movementNo = await generateNo('asset_movement', this.tenantId);
+      await manager.query(
+        `INSERT INTO asset_movements
+           (tenant_id, asset_card_id, movement_no, movement_type, from_department_id, from_location_text, to_location_text, reference_type, reference_id, notes, occurred_at, created_by)
+         VALUES (?, ?, ?, 'return', ?, ?, ?, 'asset_card', ?, ?, NOW(3), ?)`,
+        [
+          this.tenantId,
+          id,
+          movementNo,
+          card.department_id ?? null,
+          card.location_text ?? null,
+          nextLocationText,
           id,
           this.mergeNotes(params.notes),
           this.userId,
