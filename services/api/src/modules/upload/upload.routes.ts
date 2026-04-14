@@ -1,15 +1,13 @@
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
-import fs from 'fs';
-import crypto from 'crypto';
 import { authMiddleware } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
+import { AppError } from '../../shared/AppError';
+import { UploadService } from './upload.service';
 
 const router = Router();
 router.use(authMiddleware);
-
-const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || '/app/uploads');
 
 function sanitizeFileName(name: string): string {
   return path.basename(name)
@@ -46,26 +44,8 @@ function normalizeUploadOriginalName(rawName: string): string {
   return mojibakeScore(decoded) < mojibakeScore(base) ? decoded : base;
 }
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    try {
-      if (!fs.existsSync(UPLOAD_DIR)) {
-        fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-      }
-      cb(null, UPLOAD_DIR);
-    } catch (error) {
-      cb(error as Error, UPLOAD_DIR);
-    }
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const hash = crypto.randomBytes(16).toString('hex');
-    cb(null, `${Date.now()}-${hash}${ext}`);
-  },
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (_req, file, cb) => {
     const allowed = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.doc', '.docx', '.xls', '.xlsx'];
@@ -78,18 +58,43 @@ const upload = multer({
   },
 });
 
+router.get('/files/:id/content', asyncHandler(async (req, res) => {
+  const fileId = Number(req.params.id);
+  if (!Number.isInteger(fileId) || fileId <= 0) {
+    throw AppError.badRequest('无效的文件 ID');
+  }
+
+  const svc = new UploadService(req.tenantId, req.userId);
+  const file = await svc.getFileContent(fileId);
+  const encodedFilename = encodeURIComponent(file.originalName);
+
+  res.setHeader('Content-Type', file.mimeType ?? 'application/octet-stream');
+  res.setHeader('Content-Length', String(file.buffer.length));
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  res.setHeader(
+    'Content-Disposition',
+    `${file.inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodedFilename}`,
+  );
+  res.end(file.buffer);
+}));
+
 router.post('/', upload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) {
     res.status(400).json({ code: 1001, data: null, message: '请选择要上传的文件' });
     return;
   }
-  const fileUrl = `/uploads/${req.file.filename}`;
+  const originalName = normalizeUploadOriginalName(req.file.originalname);
+  const svc = new UploadService(req.tenantId, req.userId);
+  const stored = await svc.saveUploadedFile(req.file, originalName);
   res.json({
     code: 0,
     data: {
-      url: fileUrl,
-      originalName: normalizeUploadOriginalName(req.file.originalname),
-      size: req.file.size,
+      id: stored.id,
+      url: stored.url,
+      originalName: stored.originalName,
+      size: stored.size,
+      path: stored.path,
+      storageDriver: stored.storageDriver,
     },
     message: 'ok',
   });

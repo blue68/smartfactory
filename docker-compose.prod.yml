@@ -40,6 +40,13 @@ services:
     environment:
       NODE_ENV: production
       LOG_LEVEL: warn
+      FILE_STORAGE_DRIVER: ${FILE_STORAGE_DRIVER:-oss}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
+      OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:-}
+      OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:-}
+      OSS_BUCKET: ${OSS_BUCKET:-}
+      OSS_ENDPOINT: ${OSS_ENDPOINT:-}
+      OSS_PATH_PREFIX: ${OSS_PATH_PREFIX:-smartfactory}
     # 生产环境不挂载本地源码
     volumes:
       - api_logs:/app/logs

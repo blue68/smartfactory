@@ -8,32 +8,7 @@ import {
 } from './settlement.service';
 import { success, created } from '../../shared/ApiResponse';
 import { AppError } from '../../shared/AppError';
-
-const SETTLEMENT_STATUS_LABEL: Record<string, string> = {
-  draft: '草稿',
-  confirmed: '已确认',
-  paid: '已付款',
-  cancelled: '已取消',
-};
-
-function pad2(value: number): string {
-  return String(value).padStart(2, '0');
-}
-
-function formatDateTime(value: unknown): string {
-  if (value == null) return '';
-
-  if (typeof value === 'string') {
-    const normalized = value.trim().replace('T', ' ').replace(/\.\d{1,6}Z?$/, '');
-    if (/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/.test(normalized)) {
-      return normalized.length === 10 ? `${normalized} 00:00:00` : normalized;
-    }
-  }
-
-  const date = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return String(value);
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
-}
+import { formatExportDateTime, formatSalesSettlementStatus } from '../../shared/exportFormat';
 
 /**
  * SettlementController — F-707 销售财务结算
@@ -108,10 +83,10 @@ export class SettlementController {
         row.customerName,
         row.orderNo,
         row.totalAmount,
-        SETTLEMENT_STATUS_LABEL[row.status] ?? row.status,
-        row.dueDate ?? '',
+        formatSalesSettlementStatus(row.status),
+        formatExportDateTime(row.dueDate),
         overdue ? '是' : '否',
-        formatDateTime(row.createdAt),
+        formatExportDateTime(row.createdAt),
       ].map(escape).join(',') + '\n');
     }
 

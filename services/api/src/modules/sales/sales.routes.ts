@@ -3,6 +3,7 @@ import { salesController } from './sales.controller';
 import { SalesService } from './sales.service';
 import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
+import { formatExportDateTime, formatSalesOrderStatus } from '../../shared/exportFormat';
 
 const router = Router();
 router.use(authMiddleware);
@@ -39,19 +40,13 @@ router.get('/export/csv', requirePermissionsOrRoles(['sales:order:view'], 'sales
   while (hasMore) {
     const { list } = await svc.listOrders({ page, pageSize: BATCH_SIZE });
     for (const so of list as Array<Record<string, unknown>>) {
-      // expected_delivery 可能是 Date 对象，取 YYYY-MM-DD 部分
-      const expectedDelivery = so.expected_delivery instanceof Date
-        ? so.expected_delivery.toISOString().slice(0, 10)
-        : String(so.expected_delivery ?? '');
-      // created_at 可能是 Date 对象或字符串，统一格式化为 YYYY-MM-DD HH:mm:ss
-      const createdAt = so.created_at instanceof Date
-        ? so.created_at.toISOString().replace('T', ' ').slice(0, 19)
-        : String(so.created_at ?? '');
+      const expectedDelivery = formatExportDateTime(so.expected_delivery);
+      const createdAt = formatExportDateTime(so.created_at);
       res.write([
         String(so.order_no ?? ''),
         String(so.customerName ?? ''),
         String(so.total_amount ?? ''),
-        String(so.status ?? ''),
+        formatSalesOrderStatus(so.status),
         expectedDelivery,
         createdAt,
       ].map(escape).join(',') + '\n');

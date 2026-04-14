@@ -246,7 +246,7 @@ export function useUpdatePrice() {
 }
 
 /** 上传协议文件（multipart/form-data） */
-export async function uploadPriceFile(file: File): Promise<{ url: string; originalName: string; size: number }> {
+export async function uploadPriceFile(file: File): Promise<{ id: number; url: string; originalName: string; size: number; path: string; storageDriver: 'local' | 'oss' }> {
   const formData = new FormData();
   formData.append('file', file);
   // Use instance directly — delete Content-Type so browser sets multipart boundary

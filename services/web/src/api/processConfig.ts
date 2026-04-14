@@ -192,7 +192,7 @@ export const processConfigApi = {
     ),
 };
 
-export async function uploadProcessGuideFile(file: File): Promise<{ url: string; originalName: string; size: number }> {
+export async function uploadProcessGuideFile(file: File): Promise<{ id: number; url: string; originalName: string; size: number; path: string; storageDriver: 'local' | 'oss' }> {
   const formData = new FormData();
   formData.append('file', file);
   const res = await request.instance.post('/api/upload', formData, {

@@ -5,6 +5,7 @@ import { SupplierService } from './supplier.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
 import { AppError } from '../../shared/AppError';
+import { formatActiveStatus, formatExportDateTime } from '../../shared/exportFormat';
 
 const ListQuerySchema = PaginationSchema.extend({
   keyword: z.string().max(100).optional(),
@@ -239,7 +240,7 @@ export class SupplierController {
       s.code,
       s.name,
       s.grade,
-      s.status === 'active' ? '启用' : '停用',
+      formatActiveStatus(s.status),
       s.contact ?? '',
       s.phone ?? '',
       s.contactEmail ?? '',
@@ -248,9 +249,7 @@ export class SupplierController {
       s.leadDays ?? '',
       s.category ?? '',
       s.notes ?? '',
-      s.createdAt instanceof Date
-        ? s.createdAt.toISOString().slice(0, 19).replace('T', ' ')
-        : String(s.createdAt ?? ''),
+      formatExportDateTime(s.createdAt),
     ]);
 
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);

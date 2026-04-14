@@ -11,6 +11,7 @@ import {
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
 import { PermissionSnapshot } from '../access-control/access-control.types';
+import { formatExportDateTime, formatPurchaseSettlementStatus } from '../../shared/exportFormat';
 
 const POItemSchema = z.object({
   skuId: z.number().int().positive(),
@@ -276,9 +277,9 @@ export class PurchaseController {
         row.supplierName,
         row.receiptNo,
         row.totalAmount,
-        row.status,
-        row.dueDate ?? '',
-        row.createdAt,
+        formatPurchaseSettlementStatus(row.status),
+        formatExportDateTime(row.dueDate),
+        formatExportDateTime(row.createdAt),
       ].map(escape).join(',') + '\n');
     }
 

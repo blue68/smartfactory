@@ -3,6 +3,7 @@ import { z } from 'zod';
 import * as XLSX from 'xlsx';
 import { WageService } from './wage.service';
 import { success, buildPaginated } from '../../shared/ApiResponse';
+import { formatExportDateTime } from '../../shared/exportFormat';
 import { PaginationSchema } from '../../middleware/validator';
 
 const WageFilterSchema = PaginationSchema.extend({
@@ -73,7 +74,7 @@ export class WageController {
     const header = ['工人', '技能等级', '工序', '完成数量', '单价', '小计', '日期'];
     const rows = list.map((r) => [
       r.userName, r.workerGrade, r.stepName, r.qty,
-      r.unitPrice, r.subtotal, r.reportDate,
+      r.unitPrice, r.subtotal, formatExportDateTime(r.reportDate),
     ]);
 
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);

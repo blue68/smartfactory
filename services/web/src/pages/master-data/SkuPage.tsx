@@ -759,7 +759,12 @@ export default function SkuPage() {
       brandCustomerName: sku.brandScope === 'customer'
         ? (customerLabelById.get(Number(sku.brandCustomerId)) ?? `客户 #${sku.brandCustomerId ?? ''}`)
         : '全部客户',
-    })) as Record<string, unknown>[]);
+    })) as Record<string, unknown>[], (value, key) => {
+      if (key === 'status') {
+        return value === 'active' ? '启用' : value === 'inactive' ? '停用' : String(value ?? '');
+      }
+      return String(value ?? '');
+    });
     showToast({ type: 'success', message: '导出成功' });
   }, [skuList, selectedIds, showToast, customerLabelById]);
 

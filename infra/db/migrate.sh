@@ -29,18 +29,35 @@ DB_HOST="${DB_HOST:-mysql}"
 DB_PORT="${DB_PORT:-3306}"
 DB_HOST_FALLBACK="${DB_HOST_FALLBACK:-127.0.0.1}"
 DB_PORT_FALLBACK="${DB_PORT_FALLBACK:-3307}"
+DB_DOCKER_CONTAINER="${DB_DOCKER_CONTAINER:-sf_mysql}"
 DB_NAME="${DB_NAME:-smart_factory}"
 DB_USER="${DB_USER:-sf_app}"
 DB_PASS="${DB_PASS:-}"
 
-# 使用 MYSQL_PWD 环境变量传递密码，避免命令行暴露（ENV-01）
-export MYSQL_PWD="$DB_PASS"
+MYSQL_MODE="local"
 
-build_mysql_cmd() {
-  MYSQL_CMD="mysql -h $DB_HOST -P $DB_PORT -u $DB_USER"
+run_mysql() {
+  if [ "$MYSQL_MODE" = "docker" ]; then
+    local docker_cmd=(docker exec -i "$DB_DOCKER_CONTAINER" mysql "-u$DB_USER")
+    if [ -n "$DB_PASS" ]; then
+      docker_cmd+=("-p$DB_PASS")
+    fi
+    "${docker_cmd[@]}" "$@"
+    return
+  fi
+
+  local mysql_cmd=(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER")
+  if [ -n "$DB_PASS" ]; then
+    MYSQL_PWD="$DB_PASS" "${mysql_cmd[@]}" "$@"
+  else
+    "${mysql_cmd[@]}" "$@"
+  fi
 }
 
-build_mysql_cmd
+docker_mysql_available() {
+  command -v docker >/dev/null 2>&1 || return 1
+  docker ps --format '{{.Names}}' 2>/dev/null | grep -Fxq "$DB_DOCKER_CONTAINER"
+}
 
 echo "=== Database Migration ==="
 echo "Host: $DB_HOST:$DB_PORT  DB: $DB_NAME"
@@ -48,27 +65,34 @@ echo "Host: $DB_HOST:$DB_PORT  DB: $DB_NAME"
 # 等待数据库就绪（最多 30 秒）
 ready=0
 for i in $(seq 1 6); do
-  if $MYSQL_CMD -e "SELECT 1" "$DB_NAME" > /dev/null 2>&1; then
+  if run_mysql -e "SELECT 1" "$DB_NAME" > /dev/null 2>&1; then
     ready=1
     break
   fi
-  if [ "$i" = "3" ] && [ "${DB_HOST:-mysql}" = "mysql" ] && [ "${DB_PORT:-3306}" = "3306" ]; then
+  if [ "$i" = "3" ] && [ "$MYSQL_MODE" = "local" ] && [ "${DB_HOST:-mysql}" = "mysql" ] && [ "${DB_PORT:-3306}" = "3306" ]; then
     DB_HOST="$DB_HOST_FALLBACK"
     DB_PORT="$DB_PORT_FALLBACK"
-    build_mysql_cmd
     echo "Switching to host fallback: $DB_HOST:$DB_PORT"
+  fi
+  if [ "$i" = "5" ] && [ "$MYSQL_MODE" = "local" ] && docker_mysql_available; then
+    MYSQL_MODE="docker"
+    echo "Switching to docker fallback: $DB_DOCKER_CONTAINER"
   fi
   echo "Waiting for MySQL... ($i/6)"
   sleep 5
 done
 
 if [ "$ready" != "1" ]; then
-  echo "Failed to connect to MySQL at $DB_HOST:$DB_PORT"
+  if [ "$MYSQL_MODE" = "docker" ]; then
+    echo "Failed to connect to MySQL via docker container: $DB_DOCKER_CONTAINER"
+  else
+    echo "Failed to connect to MySQL at $DB_HOST:$DB_PORT"
+  fi
   exit 1
 fi
 
 # 创建迁移记录表（幂等）
-$MYSQL_CMD "$DB_NAME" <<'SQL'
+run_mysql "$DB_NAME" <<'SQL'
 CREATE TABLE IF NOT EXISTS migration_history (
   id          INT AUTO_INCREMENT PRIMARY KEY,
   filename    VARCHAR(255) NOT NULL UNIQUE,
@@ -90,7 +114,7 @@ for sql_file in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | sort); do
   filename="$(basename "$sql_file")"
 
   # 检查是否已执行
-  exists=$($MYSQL_CMD -N -e "SELECT COUNT(*) FROM migration_history WHERE filename='$filename'" "$DB_NAME" 2>/dev/null)
+  exists=$(run_mysql -N -e "SELECT COUNT(*) FROM migration_history WHERE filename='$filename'" "$DB_NAME" 2>/dev/null)
 
   if [ "$exists" = "1" ]; then
     skipped=$((skipped + 1))
@@ -98,10 +122,10 @@ for sql_file in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | sort); do
   fi
 
   echo "Applying: $filename ..."
-  $MYSQL_CMD "$DB_NAME" < "$sql_file"
+  run_mysql "$DB_NAME" < "$sql_file"
 
   # 记录已执行
-  $MYSQL_CMD -e "INSERT INTO migration_history (filename) VALUES ('$filename')" "$DB_NAME"
+  run_mysql -e "INSERT INTO migration_history (filename) VALUES ('$filename')" "$DB_NAME"
   applied=$((applied + 1))
   echo "  ✓ Done"
 done

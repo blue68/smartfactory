@@ -225,7 +225,7 @@ export function useQualityInspectionOptions(
 }
 
 /** 上传质量问题图片（复用通用上传接口） */
-export async function uploadQualityImage(file: File): Promise<{ url: string; originalName: string; size: number }> {
+export async function uploadQualityImage(file: File): Promise<{ id: number; url: string; originalName: string; size: number; path: string; storageDriver: 'local' | 'oss' }> {
   const formData = new FormData();
   formData.append('file', file);
   const res = await request.instance.post('/api/upload', formData, {

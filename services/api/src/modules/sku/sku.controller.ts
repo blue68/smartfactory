@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { SkuService, ImportSkuRow } from './sku.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { AppError } from '../../shared/AppError';
+import { formatActiveStatus, formatExportDateTime } from '../../shared/exportFormat';
 import { PaginationSchema } from '../../middleware/validator';
 import {
   SKU_APPROVAL_LEVELS,
@@ -271,12 +272,10 @@ export class SkuController {
       s.purchaseUnit ?? '',
       s.productionUnit ?? '',
       s.safetyStock ?? '0',
-      s.status === 'active' ? '启用' : '停用',
+      formatActiveStatus(s.status),
       s.hasDyeLot ? '是' : '否',
       s.description ?? '',
-      s.createdAt instanceof Date
-        ? s.createdAt.toISOString().slice(0, 19).replace('T', ' ')
-        : String(s.createdAt ?? ''),
+      formatExportDateTime(s.createdAt),
     ]);
 
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);

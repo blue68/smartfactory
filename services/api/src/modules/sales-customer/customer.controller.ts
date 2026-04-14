@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { CustomerService } from './customer.service';
 import { success, created, buildPaginated } from '../../shared/ApiResponse';
 import { PaginationSchema } from '../../middleware/validator';
+import { formatCustomerStatus, formatExportDateTime } from '../../shared/exportFormat';
 
 // ─── 校验 Schema ──────────────────────────────────────────────────────────────
 
@@ -168,7 +169,7 @@ export class CustomerController {
       c.code,
       c.name,
       c.grade,
-      c.status === 'active' ? '活跃' : '停用',
+      formatCustomerStatus(c.status),
       c.contact ?? '',
       c.phone ?? '',
       c.email ?? '',
@@ -177,9 +178,7 @@ export class CustomerController {
       c.creditLimit != null ? Number(c.creditLimit) : '',
       c.paymentDays ?? '',
       c.notes ?? '',
-      c.createdAt instanceof Date
-        ? c.createdAt.toISOString().slice(0, 19).replace('T', ' ')
-        : String(c.createdAt ?? ''),
+      formatExportDateTime(c.createdAt),
     ]);
 
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);

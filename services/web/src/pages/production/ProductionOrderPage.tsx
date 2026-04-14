@@ -118,6 +118,25 @@ function formatQty(value: number | string | null | undefined): string {
   return Number.isInteger(numeric) ? `${numeric}` : numeric.toFixed(2);
 }
 
+function formatExportDateTime(value: string | null | undefined): string {
+  if (!value) return '';
+  const normalized = String(value).trim().replace('T', ' ').replace(/\.\d{1,6}Z?$/, '');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return `${normalized} 00:00:00`;
+  }
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(normalized)) {
+    return `${normalized}:00`;
+  }
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return normalized;
+  const pad2 = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+}
+
 function formatDecimal(value: number | string | null | undefined, digits = 4): string {
   const numeric = Number(value ?? 0);
   if (!Number.isFinite(numeric)) return '0';
@@ -688,8 +707,8 @@ export default function ProductionOrderPage() {
       order.qtyPlanned ?? '',
       order.qtyCompleted ?? '0',
       order.progressPct ?? 0,
-      order.plannedStart ? String(order.plannedStart).slice(0, 10) : '',
-      order.plannedEnd ? String(order.plannedEnd).slice(0, 10) : '',
+      formatExportDateTime(order.plannedStart),
+      formatExportDateTime(order.plannedEnd),
     ]);
     const csv = [header, ...rows]
       .map((row) => row.map(escapeCsvField).join(','))

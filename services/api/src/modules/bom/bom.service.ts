@@ -4,6 +4,7 @@ import { AppDataSource } from '../../config/database';
 import { TenantContext } from '../../shared/BaseRepository';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
+import { formatBomStatus } from '../../shared/exportFormat';
 import { getRedisClient, RedisKeys, RedisTTL } from '../../config/redis';
 
 // ─── 常量 ────────────────────────────────────────────────────────
@@ -975,7 +976,7 @@ export class BomService {
 
     // 第一行：BOM 基本信息（使用 aoa_to_sheet 自定义布局）
     const infoRows: unknown[][] = [
-      ['成品名称', bom.skuName ?? '', '版本', bom.version, '状态', bom.status],
+      ['成品名称', bom.skuName ?? '', '版本', bom.version, '状态', formatBomStatus(bom.status)],
       [],  // 空行（第二行）
       // 第三行起：物料明细（由 sheet_add_json 追加）
     ];

@@ -3,6 +3,7 @@ import { purchaseController } from './purchase.controller';
 import { PurchaseService } from './purchase.service';
 import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
+import { formatExportDateTime, formatPurchaseOrderStatus } from '../../shared/exportFormat';
 
 const router = Router();
 router.use(authMiddleware);
@@ -51,15 +52,12 @@ router.get('/orders/export/csv', requirePermissionsOrRoles(['purchase:order:view
   while (hasMore) {
     const { list } = await svc.listPOs({ page, pageSize: BATCH_SIZE });
     for (const po of list as Array<Record<string, unknown>>) {
-      // created_at 可能是 Date 对象或字符串，统一格式化为 YYYY-MM-DD HH:mm:ss
-      const createdAt = po.created_at instanceof Date
-        ? po.created_at.toISOString().replace('T', ' ').slice(0, 19)
-        : String(po.created_at ?? '');
+      const createdAt = formatExportDateTime(po.created_at);
       res.write([
         String(po.po_no ?? ''),
         String(po.supplierName ?? ''),
         String(po.total_amount ?? ''),
-        String(po.status ?? ''),
+        formatPurchaseOrderStatus(po.status),
         createdAt,
       ].map(escape).join(',') + '\n');
     }

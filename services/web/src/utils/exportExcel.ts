@@ -49,14 +49,15 @@ export function exportToCSV(
 export function exportObjectsToCSV<T extends Record<string, unknown>>(
   filename: string,
   columns: Array<{ key: keyof T; label: string }>,
-  data: T[]
+  data: T[],
+  formatter?: (value: unknown, key: keyof T, row: T) => string
 ): void {
   const headers = columns.map((col) => col.label);
   const rows = data.map((item) =>
     columns.map((col) => {
       const val = item[col.key];
       if (val === null || val === undefined) return '';
-      return String(val);
+      return formatter ? formatter(val, col.key, item) : String(val);
     })
   );
   exportToCSV(filename, headers, rows);

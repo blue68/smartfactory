@@ -128,6 +128,14 @@ services:
       # 应用
       APP_NAME:       ${APP_NAME:-智造管家}
       LOG_LEVEL:      ${LOG_LEVEL:-info}
+      # 文件上传
+      FILE_STORAGE_DRIVER: ${FILE_STORAGE_DRIVER:-local}
+      UPLOAD_DIR:     ${UPLOAD_DIR:-/app/uploads}
+      OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:-}
+      OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:-}
+      OSS_BUCKET:     ${OSS_BUCKET:-}
+      OSS_ENDPOINT:   ${OSS_ENDPOINT:-}
+      OSS_PATH_PREFIX: ${OSS_PATH_PREFIX:-smartfactory}
       # CORS
       CORS_ORIGINS:   ${CORS_ORIGINS:-http://localhost,http://localhost:80,http://127.0.0.1,http://127.0.0.1:80}
       # AI（Phase 2，暂时留空）
