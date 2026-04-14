@@ -20,6 +20,7 @@ deliverables:
 - 部署步骤与回滚路径
 - 发布后监控项
 - 一页式正式环境总清单入口
+- 新服务器生产部署脚本与运行手册入口
 risks:
 - 正式环境发布时若未基于最新代码重建 Web 镜像，部署入口将无法反映本轮页面、权限与手工采购流转修复
 exit_criteria:
@@ -38,6 +39,7 @@ precheck:
 
 steps:
 - 发布前先备份数据库并导出本轮涉及表结构与主数据快照
+- 新服务器首次部署或后续升级优先使用 `bash scripts/deploy-prod.sh <tag-or-branch>`；新生产环境运行手册见 `docs/production-server-deployment-runbook.md`
 - 按既有迁移顺序部署 `services/api/src/migrations/*` 与后端服务
 - 核对 `uploaded_files` 表、`/api/upload/files/:id/content` 路由与 `FILE_STORAGE_DRIVER` 环境变量在目标环境中的实际生效值
 - 构建并发布最新 `services/web` 前端产物，确认包含 `consumables.issue`、`assets.acceptance`、`assets.ledger` 三个页面入口
