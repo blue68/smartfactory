@@ -10,13 +10,13 @@ import {
   skuApi,
   useSkuList,
   useSkuDetail,
-  useSkuCategories,
   useSkuStats,
   useCreateSku,
   useUpdateSku,
   useBatchUpdateStatus,
   useBatchSetSafetyStock,
 } from '@/api/sku';
+import { useSkuCategoryList } from '@/api/skuCategory';
 import { useCustomerOptions } from '@/api/customer';
 import {
   SkuStatus,
@@ -36,6 +36,7 @@ import type {
   Sku,
   SkuBrandScope,
   SkuCategory,
+  SkuCategoryFull,
   SkuListQuery,
 } from '@/types/models';
 import type { Column } from '@/components/common/Table';
@@ -254,6 +255,30 @@ function getCat1IdByCode(catData: SkuCategory[], code: Category1Code): number | 
   return catData.find((c) => c.level === 1 && c.code === code)?.id;
 }
 
+function flattenCategoryTree(nodes: SkuCategoryFull[]): SkuCategory[] {
+  return nodes.flatMap((node) => {
+    const current: SkuCategory = {
+      id: Number(node.id),
+      level: node.level,
+      parentId: node.parentId == null ? null : Number(node.parentId),
+      code: node.code as Category1Code | Category2Code,
+      name: node.name,
+      sortOrder: Number(node.sortOrder ?? 0),
+    };
+
+    const children = (node.children ?? []).map((child) => ({
+      id: Number(child.id),
+      level: child.level,
+      parentId: child.parentId == null ? null : Number(child.parentId),
+      code: child.code as Category1Code | Category2Code,
+      name: child.name,
+      sortOrder: Number(child.sortOrder ?? 0),
+    }));
+
+    return [current, ...children];
+  });
+}
+
 function toEditableCustomerRefs(refs?: CustomerSkuRef[]): EditableCustomerSkuRef[] {
   return (refs ?? []).map((ref) => ({
     customerId: Number(ref.customerId) || '',
@@ -461,8 +486,8 @@ export default function SkuPage() {
   }, [keyword]);
 
   // 数据
-  const { data: rawCatData } = useSkuCategories();
-  const catData: SkuCategory[] = useMemo(() => rawCatData ?? [], [rawCatData]);
+  const { data: rawCatTree = [] } = useSkuCategoryList({ editableView: true });
+  const catData: SkuCategory[] = useMemo(() => flattenCategoryTree(rawCatTree), [rawCatTree]);
   const { data: customerOptions = [] } = useCustomerOptions();
   const { data: statsData } = useSkuStats();
   const { data, isLoading, error } = useSkuList(query);
