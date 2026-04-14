@@ -7,3 +7,4 @@ dist/
 .playwright-mcp/
 test-results/
 services/web/dist-fresh/
+.tmp_uploads/
