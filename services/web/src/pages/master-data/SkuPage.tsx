@@ -79,6 +79,7 @@ interface SkuFormData {
   stockUnit: string;
   stockConvFactor: string;
   productionUnit: string;
+  productionConvFactor: string;
   prodConvNote: string;
   safetyStock: string;
   hasDyeLot: boolean;
@@ -234,6 +235,7 @@ function createEmptyForm(businessClass: BusinessClass = 'production_material'): 
     stockUnit: '',
     stockConvFactor: '1',
     productionUnit: '',
+    productionConvFactor: '',
     prodConvNote: '',
     safetyStock: '',
     hasDyeLot: false,
@@ -456,6 +458,7 @@ function buildSkuFormData(sku: Sku, catData: SkuCategory[]): SkuFormData {
     stockUnit: sku.stockUnit,
     stockConvFactor: String(sku.stockConvFactor ?? 1),
     productionUnit: sku.productionUnit,
+    productionConvFactor: sku.productionConvFactor != null ? String(sku.productionConvFactor) : '',
     prodConvNote: sku.prodConvNote ?? '',
     safetyStock: sku.safetyStock ?? '',
     hasDyeLot: sku.hasDyeLot,
@@ -629,6 +632,15 @@ export default function SkuPage() {
     if (!category2Id) { showToast({ type: 'warning', message: '请选择二级品类' }); return; }
     if (!stockUnit) { showToast({ type: 'warning', message: '请填写库存单位' }); return; }
     if (!purchaseUnit) { showToast({ type: 'warning', message: '请填写采购单位' }); return; }
+    if (purchaseUnit !== stockUnit && !(parseFloat(skuForm.stockConvFactor) > 0)) {
+      showToast({ type: 'warning', message: '采购单位与库存单位不一致时，请填写大于 0 的库存换算系数' });
+      return;
+    }
+    const effectiveProductionUnit = skuForm.productionUnit || stockUnit;
+    if (effectiveProductionUnit !== stockUnit && !(parseFloat(skuForm.productionConvFactor) > 0)) {
+      showToast({ type: 'warning', message: '生产领用单位与库存单位不一致时，请填写大于 0 的生产领用换算系数' });
+      return;
+    }
     if (!skuForm.businessClass) { showToast({ type: 'warning', message: '请选择业务大类' }); return; }
     if (!skuForm.controlMode) { showToast({ type: 'warning', message: '请选择控制模式' }); return; }
     if (isFinished && brandScope === 'customer' && !brandCustomerId) {
@@ -711,8 +723,11 @@ export default function SkuPage() {
       spec: skuForm.spec || undefined,
       stockUnit,
       purchaseUnit,
-      productionUnit: skuForm.productionUnit || stockUnit,
+      productionUnit: effectiveProductionUnit,
       stockConvFactor: parseFloat(skuForm.stockConvFactor) || 1,
+      productionConvFactor: skuForm.productionConvFactor
+        ? (parseFloat(skuForm.productionConvFactor) || undefined)
+        : undefined,
       prodConvNote: skuForm.prodConvNote || undefined,
       safetyStock: skuForm.safetyStock || undefined,
       hasDyeLot: Boolean(skuForm.hasDyeLot),
@@ -798,6 +813,9 @@ export default function SkuPage() {
       { key: 'brandCustomerName', label: '所属客户' },
       { key: 'stockUnit',  label: '库存单位' },
       { key: 'purchaseUnit', label: '采购单位' },
+      { key: 'productionUnit', label: '生产领用单位' },
+      { key: 'stockConvFactor', label: '采购换算系数' },
+      { key: 'productionConvFactor', label: '领用换算系数' },
       { key: 'safetyStock', label: '安全库存' },
       { key: 'qtyOnHand',  label: '当前库存' },
       { key: 'status',     label: '状态' },
@@ -1661,7 +1679,7 @@ function SkuFormDrawerContent({
 
       {/* 生产领用单位 */}
       <div className={styles.unit_config_row}>
-        <span className={styles.unit_config_label}>生产领用</span>
+        <span className={styles.unit_config_label}>生产领用单位</span>
         <select
           className={styles.form_input}
           value={form.productionUnit}
@@ -1670,6 +1688,15 @@ function SkuFormDrawerContent({
           <option value="">请选择</option>
           {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
         </select>
+        <input
+          type="number"
+          min="0.000001"
+          step="any"
+          className={styles.form_input}
+          value={form.productionConvFactor}
+          onChange={set('productionConvFactor')}
+          placeholder="生产领用换算系数"
+        />
         <input
           className={styles.form_input}
           value={form.prodConvNote}
@@ -1681,7 +1708,10 @@ function SkuFormDrawerContent({
       {/* 单位示例提示 */}
       <div className={`${styles.form_hint} ${styles['form_hint--blue']}`}>
         示例：1 {form.purchaseUnit || '张'}（采购）= {form.stockConvFactor || '1.00'} {form.stockUnit || '张'}（库存）
-        {form.prodConvNote ? ` = ${form.prodConvNote} ${form.productionUnit || 'mm²'}（领用）` : ''}
+        {form.productionUnit && form.productionUnit !== form.stockUnit && form.productionConvFactor
+          ? `；1 ${form.productionUnit}（领用）= ${form.productionConvFactor} ${form.stockUnit || '张'}（库存）`
+          : ''}
+        {form.prodConvNote ? `；说明：${form.prodConvNote}` : ''}
       </div>
 
       {/* ─ 安全库存 ─ */}
@@ -2334,8 +2364,14 @@ function SkuDetailContent({
           </div>
           {sku.stockConvFactor != null && (
             <div className={styles.detail_item}>
-              <div className={styles.detail_item_label}>换算系数</div>
+              <div className={styles.detail_item_label}>采购换算系数</div>
               <div className={styles.detail_item_value}>{sku.stockConvFactor}</div>
+            </div>
+          )}
+          {sku.productionConvFactor != null && (
+            <div className={styles.detail_item}>
+              <div className={styles.detail_item_label}>领用换算系数</div>
+              <div className={styles.detail_item_value}>{sku.productionConvFactor}</div>
             </div>
           )}
           {sku.prodConvNote && (

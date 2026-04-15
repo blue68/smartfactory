@@ -28,6 +28,7 @@ import {
   waitForProductionTaskStarted,
   waitForProductionTaskSuspended,
 } from './helpers/productionTaskFlow';
+import { loginAsTenantUser } from './helpers/accessControlFlow';
 
 test.describe.serial('生产任务前端交互（真实后端）', () => {
   test.setTimeout(120_000);
@@ -44,9 +45,9 @@ test.describe.serial('生产任务前端交互（真实后端）', () => {
       await page.goto(`${APP_BASE_URL}/production/tasks`);
 
       await expect(page.locator('#main-content').getByRole('heading', { name: '生产任务管理' })).toBeVisible();
-      await page.getByLabel('关键词搜索').fill(scenario.taskNo);
+      await page.getByLabel('关键词搜索').fill(scenario.orderNo);
 
-      const row = page.locator('tbody tr').filter({ hasText: scenario.taskNo }).first();
+      const row = page.locator('tbody tr').filter({ hasText: scenario.orderNo }).first();
       await expect(row).toBeVisible({ timeout: 15_000 });
       await expect(row.getByText(scenario.orderNo)).toBeVisible();
       await expect(row.getByText(scenario.currentStepName)).toBeVisible();
@@ -305,7 +306,11 @@ test.describe.serial('生产任务前端交互（真实后端）', () => {
     const scenario = await seedProductionTaskIssueScenario();
 
     try {
-      await seedAuth(page, 'supervisor');
+      await loginAsTenantUser(page, {
+        username: 'test_supervisor',
+        password: 'Dev123!2026',
+        tenantCode: 'TEST9999',
+      });
       await page.goto(`${APP_BASE_URL}/production/tasks`);
 
       await expect(page.locator('#main-content').getByRole('heading', { name: '生产任务管理' })).toBeVisible();
@@ -325,6 +330,8 @@ test.describe.serial('生产任务前端交互（真实后端）', () => {
       await expect(modal).toBeVisible();
       await expect(modal.getByText('需缸号')).toBeVisible();
       await expect(modal.getByLabel('本次领料数量')).toHaveValue('12');
+      await expect(modal.getByText(`领料单位 ${scenario.issueUnit}`)).toBeVisible();
+      await expect(modal.getByLabel('领料单位')).toHaveValue(scenario.issueUnit);
       await expect(modal.getByLabel('仓库')).toHaveValue(String(scenario.sourceWarehouseId));
       await expect(modal.getByLabel('库位')).toHaveValue(String(scenario.sourceLocationId));
 
@@ -337,11 +344,14 @@ test.describe.serial('生产任务前端交互（真实后端）', () => {
       await expect(page.getByRole('alert').filter({ hasText: `任务 #${scenario.taskId} 已完成领料` })).toBeVisible();
       await expect(modal).toBeHidden();
       await expect(drawer.getByText('线边有余料').first()).toBeVisible();
-      await expect(drawer.getByText(`已领 ${scenario.issueQty} / 已耗 0.0000 / 在线边 ${scenario.issueQty}`)).toBeVisible();
+      await expect(drawer.getByText(`已领 ${scenario.expectedIssueStockQty} / 已耗 0.0000 / 在线边 ${scenario.expectedIssueStockQty}`)).toBeVisible();
       await expect(drawer.getByText(`${scenario.sourceWarehouseName}-${scenario.sourceLocationName}`)).toBeVisible();
 
       const issued = await waitForProductionTaskIssued(scenario);
       expect(issued.issueQty).toBe(scenario.issueQty);
+      expect(issued.issueUnit).toBe(scenario.issueUnit);
+      expect(issued.stockUnit).toBe(scenario.stockUnit);
+      expect(issued.stockQty).toBe(scenario.expectedIssueStockQty);
       expect(issued.outboundTransactionNo).toBeTruthy();
       expect(issued.inboundTransactionNo).toBeTruthy();
       expect(issued.dyeLotNo).toBe(scenario.dyeLotNo);

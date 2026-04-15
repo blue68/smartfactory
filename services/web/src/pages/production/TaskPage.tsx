@@ -141,6 +141,9 @@ interface ProductionTask {
     skuCode: string | null;
     skuName: string | null;
     unit: string | null;
+    stockUnit?: string | null;
+    purchaseUnit?: string | null;
+    productionUnit?: string | null;
     hasDyeLot?: boolean;
     requiredQty: string;
     issuedQty: string;
@@ -163,6 +166,9 @@ interface ProductionTask {
     skuCode: string | null;
     skuName: string | null;
     unit: string | null;
+    stockUnit?: string | null;
+    purchaseUnit?: string | null;
+    productionUnit?: string | null;
     hasDyeLot?: boolean;
     requiredQty: string;
     fulfilledQty: string;
@@ -248,6 +254,7 @@ interface TaskListResponse {
 interface MaterialActionDraft {
   skuId: number;
   qty: string;
+  unit?: string;
   dyeLotNo?: string;
   warehouseId?: number;
   locationId?: number;
@@ -430,6 +437,17 @@ function extractLineSideQty(status?: string | null): number {
   const matched = status.match(/在线边\s+(\d+(?:\.\d+)?)/);
   const value = matched ? Number(matched[1]) : 0;
   return Number.isFinite(value) ? value : 0;
+}
+
+function getMaterialActionUnits(
+  item: Pick<NonNullable<ProductionTask['inputItems']>[number], 'unit' | 'stockUnit' | 'purchaseUnit' | 'productionUnit'>,
+): string[] {
+  return Array.from(new Set([
+    String(item.productionUnit ?? '').trim(),
+    String(item.purchaseUnit ?? '').trim(),
+    String(item.stockUnit ?? item.unit ?? '').trim(),
+    String(item.unit ?? '').trim(),
+  ].filter(Boolean)));
 }
 
 function renderMaterialIssueBadge(task: Pick<ProductionTask, 'materialIssueStatus' | 'materialIssueLabel'>) {
@@ -952,6 +970,7 @@ export default function TaskPage() {
       const returnQty = extractLineSideQty(item.status);
       return {
         skuId: item.skuId,
+        unit: item.productionUnit || item.purchaseUnit || item.stockUnit || item.unit || undefined,
         dyeLotNo: '',
         warehouseId: item.warehouseId ?? undefined,
         locationId: item.locationId ?? undefined,
@@ -1011,6 +1030,7 @@ export default function TaskPage() {
           return {
             skuId: item.skuId,
             qty: String(qty),
+            unit: draft?.unit || item.productionUnit || item.purchaseUnit || item.stockUnit || item.unit || undefined,
             ...(dyeLotNo ? { dyeLotNo } : {}),
             warehouseId: draft?.warehouseId ?? item.warehouseId ?? undefined,
             locationId: draft?.locationId ?? item.locationId ?? undefined,
@@ -2638,6 +2658,8 @@ function MaterialActionRowEditor({
   const selectedWarehouseId = draft?.warehouseId ?? item.warehouseId ?? undefined;
   const { data: locationOptions = [] } = useLocationOptions(selectedWarehouseId, true);
   const selectedLocationId = draft?.locationId ?? item.locationId ?? undefined;
+  const unitOptions = getMaterialActionUnits(item);
+  const selectedUnit = draft?.unit || item.productionUnit || item.purchaseUnit || item.stockUnit || item.unit || '';
 
   const handleWarehouseChange = useCallback((value: string) => {
     const warehouseId = value ? Number(value) : undefined;
@@ -2664,6 +2686,7 @@ function MaterialActionRowEditor({
         <span>需求 {formatQtyWithUnit(item.requiredQty, item.unit)}</span>
         <span>当前状态 {item.status || '—'}</span>
         <span>默认仓库/库位 {formatWarehouseLocation(item)}</span>
+        {selectedUnit ? <span>领料单位 {selectedUnit}</span> : null}
         {item.hasDyeLot ? <span>需缸号</span> : null}
       </div>
       <div className={styles.formRow}>
@@ -2681,6 +2704,24 @@ function MaterialActionRowEditor({
             value={draft?.qty ?? ''}
             onChange={(e) => onDraftChange(item.skuId, { qty: e.target.value })}
           />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel} htmlFor={`material-unit-${item.skuId}`}>
+            领料单位
+          </label>
+          <select
+            id={`material-unit-${item.skuId}`}
+            className={styles.select}
+            value={selectedUnit}
+            onChange={(e) => onDraftChange(item.skuId, { unit: e.target.value })}
+            disabled={unitOptions.length <= 1}
+          >
+            {unitOptions.map((unit) => (
+              <option key={unit} value={unit}>
+                {unit}
+              </option>
+            ))}
+          </select>
         </div>
         {item.hasDyeLot ? (
           <div className={styles.formGroup}>

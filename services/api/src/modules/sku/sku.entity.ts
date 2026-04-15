@@ -57,6 +57,9 @@ export class SkuEntity {
   @Column({ name: 'stock_conv_factor', type: 'decimal', precision: 10, scale: 4, default: 1 })
   stockConvFactor: number;
 
+  @Column({ name: 'production_conv_factor', type: 'decimal', precision: 10, scale: 4, nullable: true })
+  productionConvFactor: number | null;
+
   @Column({ name: 'prod_conv_note', type: 'varchar', length: 200, nullable: true })
   prodConvNote: string | null;
 

@@ -178,6 +178,7 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
               s.stock_unit    AS stockUnit,
               s.purchase_unit AS purchaseUnit,
               s.production_unit AS productionUnit,
+              s.production_conv_factor AS productionConvFactor,
               s.safety_stock  AS safetyStock,
               s.status,
               s.has_dye_lot   AS hasDyeLot,
@@ -498,6 +499,14 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
          updated_by      = VALUES(updated_by)`,
       [this.tenantId, skuId, fromUnit, toUnit, rate, description ?? null,
         this.currentUserId, this.currentUserId],
+    );
+  }
+
+  async deleteAutoUnitConversions(skuId: number): Promise<void> {
+    await AppDataSource.query(
+      `DELETE FROM sku_unit_conversions
+       WHERE tenant_id = ? AND sku_id = ? AND description LIKE '[auto] %'`,
+      [this.tenantId, skuId],
     );
   }
 

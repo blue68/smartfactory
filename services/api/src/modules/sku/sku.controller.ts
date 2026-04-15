@@ -26,6 +26,7 @@ const IMPORT_TEMPLATE_COLUMNS = [
   '库存单位',
   '库存换算系数',
   '生产领用单位',
+  '生产领用换算系数',
   '领用换算说明',
   '安全库存',
   '品牌归属',
@@ -50,6 +51,7 @@ const DEFAULT_COLUMN_MAP: Record<string, keyof ImportSkuRow> = {
   '计价单位': 'productionUnit',
   '生产领用单位': 'productionUnit',
   '库存换算系数': 'stockConvFactor',
+  '生产领用换算系数': 'productionConvFactor',
   '领用换算说明': 'prodConvNote',
   '安全库存': 'safetyStock',
   '状态':    'status',
@@ -72,6 +74,7 @@ const CreateSkuSchema = z.object({
   purchaseUnit: z.string().min(1).max(20),
   productionUnit: z.string().min(1).max(20),
   stockConvFactor: z.number().optional(),
+  productionConvFactor: z.number().optional(),
   prodConvNote: z.string().max(200).optional(),
   hasDyeLot: z.boolean().optional(),
   useFifo: z.boolean().optional(),
@@ -185,6 +188,7 @@ export class SkuController {
       { wch: 12 },
       { wch: 14 },
       { wch: 14 },
+      { wch: 16 },
       { wch: 18 },
       { wch: 12 },
       { wch: 14 },
@@ -205,6 +209,7 @@ export class SkuController {
       ['库存单位', '是', '对应库存单位', '套'],
       ['库存换算系数', '否', '1 采购单位 = N 库存单位；留空默认 1', '1'],
       ['生产领用单位', '否', '留空时默认等于库存单位', '套'],
+      ['生产领用换算系数', '条件必填', '当生产领用单位与库存单位不一致时填写；1 生产领用单位 = N 库存单位', '25'],
       ['领用换算说明', '否', '对应新增页中的换算说明', '按套领用'],
       ['安全库存', '否', '最多支持 4 位小数；留空默认 0', '3'],
       ['品牌归属', '否', '仅一级分类=成品时生效；支持 工厂自主品牌/factory、客户专属/customer', '工厂自主品牌'],
@@ -350,7 +355,7 @@ export class SkuController {
     const header = [
       'SKU编码', '物料名称', '规格型号',
       '一级分类', '二级分类',
-      '基本单位', '采购单位', '计价单位',
+      '基本单位', '采购单位', '生产领用单位', '生产领用换算系数',
       '安全库存', '状态', '缸号管理', '备注', '创建时间',
     ];
 
@@ -363,6 +368,7 @@ export class SkuController {
       s.stockUnit ?? '',
       s.purchaseUnit ?? '',
       s.productionUnit ?? '',
+      s.productionConvFactor ?? '',
       s.safetyStock ?? '0',
       formatActiveStatus(s.status),
       s.hasDyeLot ? '是' : '否',
@@ -374,7 +380,7 @@ export class SkuController {
     ws['!cols'] = [
       { wch: 14 }, { wch: 24 }, { wch: 16 },
       { wch: 12 }, { wch: 12 },
-      { wch: 8  }, { wch: 8  }, { wch: 8  },
+      { wch: 8  }, { wch: 8  }, { wch: 8  }, { wch: 14 },
       { wch: 10 }, { wch: 6  }, { wch: 10 }, { wch: 20 }, { wch: 20 },
     ];
 

@@ -179,8 +179,10 @@ export interface Sku {
   productionUnit: string;
   brandScope?: SkuBrandScope;
   brandCustomerId?: number | null;
-  /** 生产单位换算系数（1 采购单位 = stockConvFactor 库存单位） */
+  /** 采购换算系数（1 采购单位 = stockConvFactor 库存单位） */
   stockConvFactor?: number;
+  /** 生产领用单位换算系数（1 生产领用单位 = productionConvFactor 库存单位） */
+  productionConvFactor?: number | null;
   /** 生产领用换算说明，如 "200×2400 mm²" */
   prodConvNote?: string;
   hasDyeLot: boolean;
@@ -238,6 +240,7 @@ export interface CreateSkuPayload {
   safetyStock?: string;
   description?: string;
   stockConvFactor?: number;
+  productionConvFactor?: number;
   prodConvNote?: string;
   businessClass?: BusinessClass;
   controlMode?: ControlMode;

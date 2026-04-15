@@ -5,6 +5,7 @@ import { getRedisClient, RedisKeys, RedisTTL } from '../../config/redis';
 import { AppError } from '../../shared/AppError';
 import { ResponseCode } from '../../shared/ApiResponse';
 import { generateNo } from '../../shared/generateNo';
+import { UnitConverter } from '../../shared/unitConverter';
 import { ProductionPhase1Service } from './production-phase1.service';
 import { WorkflowEngineService } from './workflow-engine.service';
 import { syncInventoryDailySnapshotForSku } from '../inventory/daily-snapshot.util';
@@ -109,6 +110,7 @@ interface WorkReportSchema {
 interface TaskInventoryActionItem {
   skuId: number;
   qty: string;
+  unit?: string;
   warehouseId?: number;
   locationId?: number;
   dyeLotNo?: string;
@@ -138,6 +140,8 @@ interface TaskInputPlanRow {
 
 interface InventorySkuRow {
   stockUnit: string;
+  purchaseUnit: string;
+  productionUnit: string;
   hasDyeLot: boolean;
   skuName: string;
 }
@@ -774,6 +778,7 @@ export class SchedulerService {
           referenceNo: lockedTask.task_no,
           skuId: Number(item.skuId),
           qty: item.qty,
+          inputUnit: item.unit,
           dyeLotNo: item.dyeLotNo ?? null,
           notes: item.notes ?? null,
           sourceWarehouseId: sourceLocation.warehouseId,
@@ -869,6 +874,7 @@ export class SchedulerService {
           referenceNo: lockedTask.task_no,
           skuId,
           qty: item.qty,
+          inputUnit: item.unit,
           dyeLotNo: item.dyeLotNo ?? null,
           notes: item.notes ?? null,
           sourceWarehouseId: wipLocation.warehouseId,
@@ -1567,10 +1573,16 @@ export class SchedulerService {
   ): Promise<InventorySkuRow> {
     const [row] = await manager.query<Array<{
       stockUnit: string;
+      purchaseUnit: string | null;
+      productionUnit: string | null;
       hasDyeLot: number | boolean;
       skuName: string;
     }>>(
-      `SELECT stock_unit AS stockUnit, has_dye_lot AS hasDyeLot, name AS skuName
+      `SELECT stock_unit AS stockUnit,
+              purchase_unit AS purchaseUnit,
+              production_unit AS productionUnit,
+              has_dye_lot AS hasDyeLot,
+              name AS skuName
        FROM skus
        WHERE id = ? AND tenant_id = ?
        LIMIT 1`,
@@ -1583,9 +1595,22 @@ export class SchedulerService {
 
     return {
       stockUnit: String(row.stockUnit ?? 'pcs'),
+      purchaseUnit: String(row.purchaseUnit ?? row.stockUnit ?? 'pcs'),
+      productionUnit: String(row.productionUnit ?? row.stockUnit ?? 'pcs'),
       hasDyeLot: Boolean(row.hasDyeLot),
       skuName: String(row.skuName ?? `SKU#${skuId}`),
     };
+  }
+
+  private async getUnitConversions(
+    skuId: number,
+  ): Promise<Array<{ fromUnit: string; toUnit: string; conversionRate: string }>> {
+    return AppDataSource.query(
+      `SELECT from_unit AS fromUnit, to_unit AS toUnit, conversion_rate AS conversionRate
+       FROM sku_unit_conversions
+       WHERE tenant_id = ? AND sku_id = ?`,
+      [this.tenantId, skuId],
+    );
   }
 
   private async lockInventoryRow(
@@ -1614,7 +1639,9 @@ export class SchedulerService {
       warehouseId: number;
       locationId: number;
       sourceRef: string;
-      qty: string;
+      qtyInput: string;
+      inputUnit: string;
+      qtyStockUnit: string;
       stockUnit: string;
       dyeLotNo?: string | null;
       productionOrderId?: number | null;
@@ -1642,9 +1669,9 @@ export class SchedulerService {
         params.warehouseId,
         params.locationId,
         params.sourceRef,
-        params.qty,
-        params.stockUnit,
-        params.qty,
+        params.qtyInput,
+        params.inputUnit,
+        params.qtyStockUnit,
         params.stockUnit,
         params.dyeLotNo ?? null,
         params.productionOrderId ?? null,
@@ -1783,6 +1810,7 @@ export class SchedulerService {
       referenceNo: string;
       skuId: number;
       qty: string;
+      inputUnit?: string;
       dyeLotNo: string | null;
       notes: string | null;
       sourceWarehouseId: number;
@@ -1801,7 +1829,11 @@ export class SchedulerService {
       throw new AppError(`SKU ${sku.skuName} 需要指定缸号`, ResponseCode.INVENTORY_DYE_LOT_REQUIRED);
     }
 
-    const qty = new Decimal(params.qty).toFixed(4);
+    const inputUnit = String(params.inputUnit ?? sku.productionUnit ?? sku.stockUnit).trim() || sku.stockUnit;
+    const conversions = await this.getUnitConversions(params.skuId);
+    const converted = UnitConverter.convert(params.qty, inputUnit, conversions, sku.stockUnit);
+    const qtyInput = new Decimal(params.qty).toFixed(4);
+    const qty = converted.qty.toFixed(4);
     await this.subtractInventoryStock(manager, {
       skuId: params.skuId,
       warehouseId: params.sourceWarehouseId,
@@ -1818,7 +1850,9 @@ export class SchedulerService {
       warehouseId: params.sourceWarehouseId,
       locationId: params.sourceLocationId,
       sourceRef: params.sourceRef,
-      qty,
+      qtyInput,
+      inputUnit,
+      qtyStockUnit: qty,
       stockUnit: sku.stockUnit,
       dyeLotNo: params.dyeLotNo,
       productionOrderId: params.productionOrderId,
@@ -1835,7 +1869,9 @@ export class SchedulerService {
       warehouseId: params.targetWarehouseId,
       locationId: params.targetLocationId,
       sourceRef: params.sourceRef,
-      qty,
+      qtyInput,
+      inputUnit,
+      qtyStockUnit: qty,
       stockUnit: sku.stockUnit,
       dyeLotNo: params.dyeLotNo,
       productionOrderId: params.productionOrderId,
@@ -1955,7 +1991,9 @@ export class SchedulerService {
           warehouseId: wipLocation.warehouseId,
           locationId: wipLocation.locationId,
           sourceRef: 'production:task:consume',
-          qty: consumeQty.toFixed(4),
+          qtyInput: consumeQty.toFixed(4),
+          inputUnit: sku.stockUnit,
+          qtyStockUnit: consumeQty.toFixed(4),
           stockUnit: sku.stockUnit,
           dyeLotNo: entry.dyeLotNo,
           productionOrderId: task.production_order_id,

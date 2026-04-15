@@ -184,6 +184,7 @@ CREATE TABLE IF NOT EXISTS `skus` (
   `purchase_unit`   VARCHAR(20)      NOT NULL COMMENT '采购单位',
   `production_unit` VARCHAR(20)      NOT NULL COMMENT '生产单位',
   `stock_conv_factor` DECIMAL(10,4)  DEFAULT 1 COMMENT '库存换算系数',
+  `production_conv_factor` DECIMAL(10,4) DEFAULT NULL COMMENT '生产领用换算系数',
   `prod_conv_note`  VARCHAR(200)     DEFAULT NULL COMMENT '生产换算说明',
   `has_dye_lot`     TINYINT(1)       NOT NULL DEFAULT 0 COMMENT '是否启用缸号管理',
   `use_fifo`        TINYINT(1)       NOT NULL DEFAULT 1 COMMENT '启用FIFO出库',

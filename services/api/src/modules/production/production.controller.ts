@@ -34,6 +34,7 @@ const CompleteTaskV2Schema = CompleteTaskSchema.extend({
 const TaskInventoryActionItemSchema = z.object({
   skuId: z.number().int().positive(),
   qty: z.string().regex(/^\d+(\.\d{1,4})?$/),
+  unit: z.string().trim().min(1).max(20).optional(),
   warehouseId: z.number().int().positive().optional(),
   locationId: z.number().int().positive().optional(),
   dyeLotNo: z.string().trim().max(100).optional(),

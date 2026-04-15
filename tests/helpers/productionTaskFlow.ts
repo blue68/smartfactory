@@ -13,6 +13,7 @@ const DB_NAME = process.env.DB_NAME ?? 'smart_factory';
 const TEST_BOSS_ID = 99001;
 const TEST_SUPERVISOR_ID = 99004;
 const TEST_WORKER_ID = 99005;
+const TEST_LOGIN_PASSWORD_HASH = '$2b$10$MmgwQ9xr9HEolYqOUjcpUumg/M3wle7C3ySCi4ziZSCnJfAl1zacO';
 
 let dbPool: Pool | null = null;
 
@@ -167,6 +168,11 @@ export interface ProductionTaskStartScenario extends ProductionTaskScenario {
 
 export interface ProductionTaskIssueScenario extends ProductionTaskStartScenario {
   issueQty: string;
+  issueUnit: string;
+  stockUnit: string;
+  purchaseUnit: string;
+  productionUnit: string;
+  expectedIssueStockQty: string;
   dyeLotNo: string;
   sourceWarehouseId: number;
   sourceLocationId: number;
@@ -324,16 +330,21 @@ export async function seedProductionTaskScenario(): Promise<ProductionTaskScenar
     `INSERT INTO users
        (id, tenant_id, username, password_hash, real_name, status, skill_level, created_by, updated_by)
      VALUES
-       (?, ?, 'test_boss', 'playwright-password', '测试老板', 'active', NULL, 0, 0),
-       (?, ?, 'test_supervisor', 'playwright-password', '测试主管', 'active', NULL, 0, 0),
-       (?, ?, 'test_worker', 'playwright-password', '测试熟练工', 'active', 'skilled', 0, 0)
+       (?, ?, 'test_boss', ?, '测试老板', 'active', NULL, 0, 0),
+       (?, ?, 'test_supervisor', ?, '测试主管', 'active', NULL, 0, 0),
+       (?, ?, 'test_worker', ?, '测试熟练工', 'active', 'skilled', 0, 0)
      ON DUPLICATE KEY UPDATE
        username = VALUES(username),
+       password_hash = VALUES(password_hash),
        real_name = VALUES(real_name),
        status = VALUES(status),
        skill_level = VALUES(skill_level),
        updated_by = VALUES(updated_by)`,
-    [TEST_BOSS_ID, TEST_TENANT_ID, TEST_SUPERVISOR_ID, TEST_TENANT_ID, TEST_WORKER_ID, TEST_TENANT_ID],
+    [
+      TEST_BOSS_ID, TEST_TENANT_ID, TEST_LOGIN_PASSWORD_HASH,
+      TEST_SUPERVISOR_ID, TEST_TENANT_ID, TEST_LOGIN_PASSWORD_HASH,
+      TEST_WORKER_ID, TEST_TENANT_ID, TEST_LOGIN_PASSWORD_HASH,
+    ],
   );
 
   await pool.execute(
@@ -370,18 +381,20 @@ export async function seedProductionTaskScenario(): Promise<ProductionTaskScenar
   await pool.execute(
     `INSERT INTO skus
        (id, tenant_id, sku_code, name, category1_id, category2_id,
-        stock_unit, purchase_unit, production_unit, has_dye_lot, use_fifo,
-        safety_stock, status, created_by, updated_by)
+        stock_unit, purchase_unit, production_unit, stock_conv_factor, prod_conv_note,
+        has_dye_lot, use_fifo, safety_stock, status, created_by, updated_by)
      VALUES
-       (?, ?, ?, ?, 1, 1, '件', '件', '件', 0, 1, 0, 'active', ?, ?),
-       (?, ?, ?, ?, 1, 1, '件', '件', '件', 0, 1, 0, 'active', ?, ?),
-       (?, ?, ?, ?, 1, 1, '张', '张', '张', 0, 1, 0, 'active', ?, ?)
+       (?, ?, ?, ?, 1, 1, '件', '件', '件', 1.0000, NULL, 0, 1, 0, 'active', ?, ?),
+       (?, ?, ?, ?, 1, 1, '件', '件', '件', 1.0000, NULL, 0, 1, 0, 'active', ?, ?),
+       (?, ?, ?, ?, 1, 1, '米', '卷', '卷', 25.0000, '1卷=25米', 0, 1, 0, 'active', ?, ?)
      ON DUPLICATE KEY UPDATE
        sku_code = VALUES(sku_code),
        name = VALUES(name),
        stock_unit = VALUES(stock_unit),
        purchase_unit = VALUES(purchase_unit),
        production_unit = VALUES(production_unit),
+       stock_conv_factor = VALUES(stock_conv_factor),
+       prod_conv_note = VALUES(prod_conv_note),
        status = VALUES(status),
        updated_by = VALUES(updated_by)`,
     [
@@ -389,6 +402,17 @@ export async function seedProductionTaskScenario(): Promise<ProductionTaskScenar
       ids.wipSkuId, TEST_TENANT_ID, `WIP-TASK-${ids.suffix}`, outputSkuName, TEST_BOSS_ID, TEST_BOSS_ID,
       ids.materialSkuId, TEST_TENANT_ID, `RM-TASK-${ids.suffix}`, materialSkuName, TEST_BOSS_ID, TEST_BOSS_ID,
     ],
+  );
+
+  await pool.execute(
+    `INSERT INTO sku_unit_conversions
+       (tenant_id, sku_id, from_unit, to_unit, conversion_rate, description, created_by, updated_by)
+     VALUES (?, ?, '卷', '米', 25.00000000, '[test] 生产任务领料卷转米', ?, ?)
+     ON DUPLICATE KEY UPDATE
+       conversion_rate = VALUES(conversion_rate),
+       description = VALUES(description),
+       updated_by = VALUES(updated_by)`,
+    [TEST_TENANT_ID, ids.materialSkuId, TEST_BOSS_ID, TEST_BOSS_ID],
   );
 
   await pool.execute(
@@ -1350,6 +1374,11 @@ export async function seedProductionTaskIssueScenario(): Promise<ProductionTaskI
   const sourceLocationName = `Playwright库位-${scenario.taskId}`;
   const dyeLotNo = `DYE-TASK-${scenario.taskId}`;
   const issueQty = scenario.expectedInputQty;
+  const issueUnit = '卷';
+  const stockUnit = '米';
+  const purchaseUnit = '卷';
+  const productionUnit = '卷';
+  const expectedIssueStockQty = new Decimal(issueQty).mul(25).toFixed(4);
 
   await pool.execute(
     `UPDATE skus
@@ -1418,7 +1447,7 @@ export async function seedProductionTaskIssueScenario(): Promise<ProductionTaskI
       scenario.materialSkuId,
       sourceWarehouseId,
       sourceLocationId,
-      issueQty,
+      expectedIssueStockQty,
       TEST_BOSS_ID,
     ],
   );
@@ -1431,12 +1460,17 @@ export async function seedProductionTaskIssueScenario(): Promise<ProductionTaskI
        qty_on_hand = VALUES(qty_on_hand),
        qty_reserved = VALUES(qty_reserved),
        last_in_at = VALUES(last_in_at)`,
-    [TEST_TENANT_ID, scenario.materialSkuId, dyeLotNo, issueQty],
+    [TEST_TENANT_ID, scenario.materialSkuId, dyeLotNo, expectedIssueStockQty],
   );
 
   return {
     ...scenario,
     issueQty,
+    issueUnit,
+    stockUnit,
+    purchaseUnit,
+    productionUnit,
+    expectedIssueStockQty,
     dyeLotNo,
     sourceWarehouseId,
     sourceLocationId,
@@ -1995,6 +2029,9 @@ export async function waitForProductionTaskIssued(
   scenario: ProductionTaskIssueScenario,
 ): Promise<{
   issueQty: string;
+  issueUnit: string;
+  stockUnit: string;
+  stockQty: string;
   outboundTransactionNo: string;
   inboundTransactionNo: string;
   dyeLotNo: string | null;
@@ -2002,6 +2039,7 @@ export async function waitForProductionTaskIssued(
 }> {
   const pool = getDbPool();
   const expectedIssueQty = new Decimal(scenario.issueQty);
+  const expectedStockQty = new Decimal(scenario.expectedIssueStockQty);
 
   return poll(async () => {
     const [txRows] = await pool.query<Array<RowDataPacket & {
@@ -2012,7 +2050,10 @@ export async function waitForProductionTaskIssued(
       warehouseCode: string | null;
       locationId: number;
       locationCode: string | null;
+      qtyInput: string;
+      inputUnit: string | null;
       qtyStockUnit: string;
+      stockUnit: string | null;
       dyeLotNo: string | null;
     }>>(
       `SELECT
@@ -2023,7 +2064,10 @@ export async function waitForProductionTaskIssued(
           w.code AS warehouseCode,
           it.location_id AS locationId,
           l.code AS locationCode,
+          CAST(it.qty_input AS CHAR) AS qtyInput,
+          input_unit AS inputUnit,
           CAST(it.qty_stock_unit AS CHAR) AS qtyStockUnit,
+          stock_unit AS stockUnit,
           dye_lot_no AS dyeLotNo
        FROM inventory_transactions it
        LEFT JOIN warehouses w
@@ -2047,9 +2091,14 @@ export async function waitForProductionTaskIssued(
       return null;
     }
 
+    const outboundInputQty = new Decimal(outboundTx.qtyInput ?? 0);
+    const inboundInputQty = new Decimal(inboundTx.qtyInput ?? 0);
     const outboundQty = new Decimal(outboundTx.qtyStockUnit ?? 0);
     const inboundQty = new Decimal(inboundTx.qtyStockUnit ?? 0);
-    const matchesExpectedQty = outboundQty.eq(expectedIssueQty) && inboundQty.eq(expectedIssueQty);
+    const matchesExpectedQty = outboundInputQty.eq(expectedIssueQty)
+      && inboundInputQty.eq(expectedIssueQty)
+      && outboundQty.eq(expectedStockQty)
+      && inboundQty.eq(expectedStockQty);
     const matchesSourceLocation = (
       Number(outboundTx.warehouseId) === scenario.sourceWarehouseId
       && Number(outboundTx.locationId) === scenario.sourceLocationId
@@ -2058,8 +2107,12 @@ export async function waitForProductionTaskIssued(
       String(inboundTx.warehouseCode ?? '') === 'PROD-WIP'
       && String(inboundTx.locationCode ?? '') === 'PROD-WIP-LINE'
     );
+    const matchesUnits = outboundTx.inputUnit === scenario.issueUnit
+      && inboundTx.inputUnit === scenario.issueUnit
+      && outboundTx.stockUnit === scenario.stockUnit
+      && inboundTx.stockUnit === scenario.stockUnit;
     const matchesDyeLot = outboundTx.dyeLotNo === scenario.dyeLotNo && inboundTx.dyeLotNo === scenario.dyeLotNo;
-    if (!matchesExpectedQty || !matchesSourceLocation || !matchesWipLocation || !matchesDyeLot) {
+    if (!matchesExpectedQty || !matchesSourceLocation || !matchesWipLocation || !matchesUnits || !matchesDyeLot) {
       return null;
     }
 
@@ -2086,12 +2139,15 @@ export async function waitForProductionTaskIssued(
     }
 
     const movementQty = new Decimal(movement.qty ?? 0);
-    if (!movementQty.eq(expectedIssueQty) || Number(movement.inventoryTxId) !== Number(inboundTx.id)) {
+    if (!movementQty.eq(expectedStockQty) || Number(movement.inventoryTxId) !== Number(inboundTx.id)) {
       return null;
     }
 
     return {
       issueQty: scenario.issueQty,
+      issueUnit: scenario.issueUnit,
+      stockUnit: scenario.stockUnit,
+      stockQty: scenario.expectedIssueStockQty,
       outboundTransactionNo: String(outboundTx.transactionNo ?? ''),
       inboundTransactionNo: String(inboundTx.transactionNo ?? ''),
       dyeLotNo: inboundTx.dyeLotNo ? String(inboundTx.dyeLotNo) : null,

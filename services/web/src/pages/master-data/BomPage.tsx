@@ -270,7 +270,7 @@ function WizardModal({ open, onClose, onComplete, skuItems, submitting }: Wizard
   const [manualSearch, setManualSearch] = useState('');
   const [manualQty, setManualQty] = useState('1');
   const [manualUnit, setManualUnit] = useState('个');
-  const [manualSelectedSku, setManualSelectedSku] = useState<{ id: number; skuCode: string; name: string; stockUnit: string } | null>(null);
+  const [manualSelectedSku, setManualSelectedSku] = useState<{ id: number; skuCode: string; name: string; stockUnit: string; productionUnit?: string | null } | null>(null);
   /* ── Step 3 版本号 ── */
   const [version, setVersion] = useState('1.0');
 
@@ -692,7 +692,7 @@ function WizardModal({ open, onClose, onComplete, skuItems, submitting }: Wizard
                         {manualSkuList.map(sku => (
                           <div
                             key={String(sku.id)}
-                            onClick={() => { setManualSelectedSku({ id: Number(sku.id), skuCode: sku.skuCode, name: sku.name, stockUnit: sku.stockUnit }); setManualUnit(sku.stockUnit || '个'); setManualSearch(''); }}
+                            onClick={() => { setManualSelectedSku({ id: Number(sku.id), skuCode: sku.skuCode, name: sku.name, stockUnit: sku.stockUnit, productionUnit: sku.productionUnit }); setManualUnit(sku.productionUnit || sku.stockUnit || '个'); setManualSearch(''); }}
                             style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border-default)', fontSize: '0.875rem' }}
                             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-secondary, #f1f5f9)'; }}
                             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = ''; }}
@@ -991,7 +991,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
   const [matQty, setMatQty] = useState('1');
   const [matUnit, setMatUnit] = useState('个');
   const [matScrapRate, setMatScrapRate] = useState('0');
-  const [matSelectedSku, setMatSelectedSku] = useState<{ id: number; skuCode: string; name: string; stockUnit: string } | null>(null);
+  const [matSelectedSku, setMatSelectedSku] = useState<{ id: number; skuCode: string; name: string; stockUnit: string; productionUnit?: string | null } | null>(null);
 
   // 物料分类列表（level 1）
   const { data: matCategories } = useSkuCategories();
@@ -1430,7 +1430,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
             {matSkuList.map(sku => (
               <div
                 key={String(sku.id)}
-                onClick={() => { setMatSelectedSku({ id: Number(sku.id), skuCode: sku.skuCode, name: sku.name, stockUnit: sku.stockUnit }); setMatUnit(sku.stockUnit || '个'); }}
+                onClick={() => { setMatSelectedSku({ id: Number(sku.id), skuCode: sku.skuCode, name: sku.name, stockUnit: sku.stockUnit, productionUnit: sku.productionUnit }); setMatUnit(sku.productionUnit || sku.stockUnit || '个'); }}
                 style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border-default)', fontSize: '0.875rem' }}
                 onMouseEnter={(e) => { (e.target as HTMLElement).style.background = 'var(--bg-secondary)'; }}
                 onMouseLeave={(e) => { (e.target as HTMLElement).style.background = ''; }}
@@ -1438,7 +1438,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
                 <span style={{ color: 'var(--color-primary-600)', marginRight: '0.5rem' }}>{sku.skuCode}</span>
                 {sku.name}
                 {sku.spec && <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>{sku.spec}</span>}
-                <span style={{ color: 'var(--text-tertiary)', marginLeft: '0.5rem', fontSize: '0.75rem' }}>{sku.stockUnit}</span>
+                <span style={{ color: 'var(--text-tertiary)', marginLeft: '0.5rem', fontSize: '0.75rem' }}>{sku.productionUnit || sku.stockUnit}</span>
               </div>
             ))}
           </div>
@@ -1450,7 +1450,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
         {matSelectedSku && (
           <div style={{ padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', marginBottom: '1rem', fontSize: '0.875rem' }}>
             已选择：<strong>{matSelectedSku.skuCode}</strong> — {matSelectedSku.name}
-            <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>（单位：{matSelectedSku.stockUnit || '个'}）</span>
+            <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>（单位：{matSelectedSku.productionUnit || matSelectedSku.stockUnit || '个'}）</span>
             <button onClick={() => setMatSelectedSku(null)} style={{ marginLeft: '0.5rem', color: 'var(--color-primary-600)', background: 'none', border: 'none', cursor: 'pointer' }}>更换</button>
           </div>
         )}
@@ -1483,8 +1483,8 @@ function EditorView({ row, onBack }: EditorViewProps) {
               <option>桶</option>
               <option>卷</option>
               <option>块</option>
-              {matSelectedSku?.stockUnit && !['个','张','米','套','副','瓶','桶','卷','块'].includes(matSelectedSku.stockUnit) && (
-                <option>{matSelectedSku.stockUnit}</option>
+              {(matSelectedSku?.productionUnit || matSelectedSku?.stockUnit) && !['个','张','米','套','副','瓶','桶','卷','块'].includes((matSelectedSku?.productionUnit || matSelectedSku?.stockUnit) as string) && (
+                <option>{matSelectedSku?.productionUnit || matSelectedSku?.stockUnit}</option>
               )}
             </select>
           </div>

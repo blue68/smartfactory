@@ -1756,6 +1756,9 @@ export class ProductionService {
     skuCode: string | null;
     skuName: string | null;
     unit: string | null;
+    stockUnit: string | null;
+    purchaseUnit: string | null;
+    productionUnit: string | null;
     hasDyeLot: boolean;
     requiredQty: string;
     issuedQty: string;
@@ -1773,6 +1776,9 @@ export class ProductionService {
       skuCode: string | null;
       skuName: string | null;
       unit: string | null;
+      stockUnit: string | null;
+      purchaseUnit: string | null;
+      productionUnit: string | null;
       hasDyeLot: boolean;
       usagePerUnit: string;
       lossRate: string;
@@ -1784,6 +1790,9 @@ export class ProductionService {
           sku.sku_code AS skuCode,
           sku.name AS skuName,
           sku.stock_unit AS unit,
+          sku.stock_unit AS stockUnit,
+          sku.purchase_unit AS purchaseUnit,
+          sku.production_unit AS productionUnit,
           sku.has_dye_lot AS hasDyeLot,
           psm.usage_per_unit AS usagePerUnit,
           psm.loss_rate AS lossRate,
@@ -1837,6 +1846,9 @@ export class ProductionService {
           skuCode: item.skuCode,
           skuName: item.skuName,
           unit: item.unit,
+          stockUnit: item.stockUnit,
+          purchaseUnit: item.purchaseUnit,
+          productionUnit: item.productionUnit,
           hasDyeLot: Boolean(item.hasDyeLot),
           requiredQty: requiredQty.toFixed(4),
           issuedQty: issuedQty.toFixed(4),
@@ -1861,6 +1873,9 @@ export class ProductionService {
         skuCode: transaction?.skuCode ?? null,
         skuName: transaction?.skuName ?? null,
         unit: transaction?.stockUnit ?? null,
+        stockUnit: transaction?.stockUnit ?? null,
+        purchaseUnit: transaction?.stockUnit ?? null,
+        productionUnit: transaction?.stockUnit ?? null,
         hasDyeLot: Boolean(transaction?.hasDyeLot),
         requiredQty: transaction?.plannedQty ?? '0.0000',
         issuedQty: issuedQty.toFixed(4),
@@ -1882,6 +1897,9 @@ export class ProductionService {
       skuCode: string | null;
       skuName: string | null;
       unit: string | null;
+      stockUnit: string | null;
+      purchaseUnit: string | null;
+      productionUnit: string | null;
       hasDyeLot: boolean;
       qtyRequired: string;
       availableQty: string;
@@ -1892,6 +1910,9 @@ export class ProductionService {
           sku.sku_code AS skuCode,
           sku.name AS skuName,
           sku.stock_unit AS unit,
+          sku.stock_unit AS stockUnit,
+          sku.purchase_unit AS purchaseUnit,
+          sku.production_unit AS productionUnit,
           sku.has_dye_lot AS hasDyeLot,
           mr.qty_required AS qtyRequired,
           CAST(COALESCE(inv.qtyAvailable, 0) AS CHAR) AS availableQty,
@@ -1928,6 +1949,9 @@ export class ProductionService {
         skuCode: item.skuCode,
         skuName: item.skuName,
         unit: item.unit,
+        stockUnit: item.stockUnit,
+        purchaseUnit: item.purchaseUnit,
+        productionUnit: item.productionUnit,
         hasDyeLot: Boolean(item.hasDyeLot),
         requiredQty: scaledRequiredQty.toFixed(4),
         issuedQty: '0.0000',
@@ -1984,6 +2008,9 @@ export class ProductionService {
     skuCode: string | null;
     skuName: string | null;
     unit: string | null;
+    stockUnit: string | null;
+    purchaseUnit: string | null;
+    productionUnit: string | null;
     hasDyeLot: boolean;
     requiredQty: string;
     fulfilledQty: string;
@@ -2008,6 +2035,9 @@ export class ProductionService {
           skuCode: item.skuCode,
           skuName: item.skuName,
           unit: item.unit,
+          stockUnit: item.unit,
+          purchaseUnit: item.unit,
+          productionUnit: item.unit,
           hasDyeLot: false,
           requiredQty: requiredQty.toFixed(4),
           fulfilledQty: fulfilledQty.toFixed(4),
@@ -2038,6 +2068,9 @@ export class ProductionService {
         skuCode: item.skuCode,
         skuName: item.skuName,
         unit: item.unit,
+        stockUnit: item.stockUnit ?? item.unit,
+        purchaseUnit: item.purchaseUnit ?? item.unit,
+        productionUnit: item.productionUnit ?? item.stockUnit ?? item.unit,
         hasDyeLot: item.hasDyeLot,
         requiredQty: item.requiredQty,
         fulfilledQty: item.issuedQty,
@@ -2090,6 +2123,9 @@ export class ProductionService {
     skuCode: string | null;
     skuName: string | null;
     unit: string | null;
+    stockUnit: string | null;
+    purchaseUnit: string | null;
+    productionUnit: string | null;
     hasDyeLot: boolean;
     requiredQty: string;
     fulfilledQty: string;
@@ -2118,6 +2154,9 @@ export class ProductionService {
       skuCode: string | null;
       skuName: string | null;
       unit: string | null;
+      stockUnit: string | null;
+      purchaseUnit: string | null;
+      productionUnit: string | null;
       hasDyeLot: boolean;
       quantity: string;
       scrapRate: string;
@@ -2129,6 +2168,9 @@ export class ProductionService {
           sku.sku_code AS skuCode,
           sku.name AS skuName,
           COALESCE(NULLIF(bi.unit, ''), sku.stock_unit) AS unit,
+          sku.stock_unit AS stockUnit,
+          sku.purchase_unit AS purchaseUnit,
+          sku.production_unit AS productionUnit,
           sku.has_dye_lot AS hasDyeLot,
           bi.quantity AS quantity,
           bi.scrap_rate AS scrapRate,
@@ -2187,6 +2229,9 @@ export class ProductionService {
           skuCode: item.skuCode,
           skuName: item.skuName,
           unit: item.unit,
+          stockUnit: item.stockUnit,
+          purchaseUnit: item.purchaseUnit,
+          productionUnit: item.productionUnit,
           hasDyeLot: false,
           requiredQty: requiredQty.toFixed(4),
           fulfilledQty: fulfilledQty.toFixed(4),
@@ -2211,6 +2256,9 @@ export class ProductionService {
         skuCode: item.skuCode,
         skuName: item.skuName,
         unit: item.unit,
+        stockUnit: item.stockUnit,
+        purchaseUnit: item.purchaseUnit,
+        productionUnit: item.productionUnit,
         hasDyeLot: Boolean(item.hasDyeLot),
         requiredQty: requiredQty.toFixed(4),
         fulfilledQty: transaction?.actualQty ?? '0.0000',

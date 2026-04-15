@@ -109,6 +109,7 @@ export interface ProductionTask {
 export interface TaskInventoryActionItemPayload {
   skuId: number;
   qty: string;
+  unit?: string;
   warehouseId?: number;
   locationId?: number;
   dyeLotNo?: string;

@@ -23,6 +23,7 @@ export interface ImportSkuRow {
   purchaseUnit: string;
   productionUnit?: string;
   stockConvFactor?: string;
+  productionConvFactor?: string;
   prodConvNote?: string;
   safetyStock?: string;
   brandScope?: string;
@@ -52,6 +53,7 @@ export interface CreateSkuParams {
   purchaseUnit: string;
   productionUnit: string;
   stockConvFactor?: number;
+  productionConvFactor?: number;
   prodConvNote?: string;
   hasDyeLot?: boolean;
   useFifo?: boolean;
@@ -72,6 +74,14 @@ export interface CreateSkuParams {
   assetTrackingMode?: SkuAssetTrackingMode;
   consumableProfile?: ConsumableProfileInput;
   assetProfile?: AssetProfileInput;
+}
+
+interface AutoUnitConversionContext {
+  stockUnit: string;
+  purchaseUnit: string;
+  productionUnit: string;
+  stockConvFactor?: number;
+  productionConvFactor?: number;
 }
 
 export interface UnitConversionParam {
@@ -135,6 +145,7 @@ export class SkuService {
       : null;
     const normalizedCustomerRefs = isFinished ? (params.customerRefs ?? []) : [];
     await this.validateBranding(normalizedBrandScope, normalizedBrandCustomerId, normalizedCustomerRefs);
+    this.validateUnitFactors(params);
     const controlConfig = this.normalizeControlConfig(params, category1Code);
 
     // 若外部已传入 skuCode，直接使用；否则带重试生成，防止并发 UNIQUE KEY 冲突
@@ -156,6 +167,9 @@ export class SkuService {
           stockUnit: params.stockUnit,
           purchaseUnit: params.purchaseUnit,
           productionUnit: params.productionUnit,
+          stockConvFactor: params.stockConvFactor,
+          productionConvFactor: params.productionConvFactor,
+          prodConvNote: params.prodConvNote ?? null,
           brandScope: normalizedBrandScope,
           brandCustomerId: normalizedBrandCustomerId,
           hasDyeLot,
@@ -178,6 +192,13 @@ export class SkuService {
             ? this.repo.replaceCustomerRefs(sku.id, normalizedCustomerRefs)
             : Promise.resolve(),
           this.syncProfilesByBusinessClass(sku.id, controlConfig.businessClass, params),
+          this.syncAutoUnitConversions(sku.id, {
+            stockUnit: params.stockUnit,
+            purchaseUnit: params.purchaseUnit,
+            productionUnit: params.productionUnit,
+            stockConvFactor: params.stockConvFactor,
+            productionConvFactor: params.productionConvFactor,
+          }),
         ]);
 
         // 失效 SKU 列表缓存
@@ -218,6 +239,15 @@ export class SkuService {
       : null;
     const nextCustomerRefs = isFinished ? (params.customerRefs ?? []) : [];
     await this.validateBranding(nextBrandScope, nextBrandCustomerId, nextCustomerRefs);
+    this.validateUnitFactors({
+      stockUnit: params.stockUnit ?? currentSku.stockUnit,
+      purchaseUnit: params.purchaseUnit ?? currentSku.purchaseUnit,
+      productionUnit: params.productionUnit ?? currentSku.productionUnit,
+      stockConvFactor: params.stockConvFactor ?? Number(currentSku.stockConvFactor ?? 1),
+      productionConvFactor: params.productionConvFactor ?? (currentSku.productionConvFactor != null
+        ? Number(currentSku.productionConvFactor)
+        : undefined),
+    });
     const controlConfig = this.normalizeControlConfig(
       params,
       category1Code,
@@ -243,6 +273,7 @@ export class SkuService {
     if (params.purchaseUnit !== undefined) updateData.purchaseUnit = params.purchaseUnit;
     if (params.productionUnit !== undefined) updateData.productionUnit = params.productionUnit;
     if (params.stockConvFactor !== undefined) updateData.stockConvFactor = params.stockConvFactor;
+    if (params.productionConvFactor !== undefined) updateData.productionConvFactor = params.productionConvFactor;
     if (params.prodConvNote !== undefined) updateData.prodConvNote = params.prodConvNote;
     if (params.safetyStock !== undefined) updateData.safetyStock = params.safetyStock;
     if (params.hasDyeLot !== undefined) updateData.hasDyeLot = params.hasDyeLot;
@@ -280,6 +311,15 @@ export class SkuService {
       await this.repo.replaceCustomerRefs(id, []);
     }
     await this.syncProfilesByBusinessClass(id, controlConfig.businessClass, params);
+    await this.syncAutoUnitConversions(id, {
+      stockUnit: String(updateData.stockUnit ?? currentSku.stockUnit),
+      purchaseUnit: String(updateData.purchaseUnit ?? currentSku.purchaseUnit),
+      productionUnit: String(updateData.productionUnit ?? currentSku.productionUnit),
+      stockConvFactor: Number(updateData.stockConvFactor ?? currentSku.stockConvFactor ?? 1),
+      productionConvFactor: updateData.productionConvFactor !== undefined
+        ? Number(updateData.productionConvFactor ?? 0)
+        : (currentSku.productionConvFactor != null ? Number(currentSku.productionConvFactor) : undefined),
+    });
 
     await getRedisClient().del(RedisKeys.skuList(this.repo.tenantId));
     return updated;
@@ -399,6 +439,19 @@ export class SkuService {
           stockConvFactor = parsedFactor;
         }
 
+        let productionConvFactor: number | undefined;
+        if (row.productionConvFactor?.trim()) {
+          const factor = row.productionConvFactor.trim();
+          if (!/^\d+(\.\d+)?$/.test(factor)) {
+            throw new Error(`生产领用换算系数格式不正确: ${factor}`);
+          }
+          const parsedFactor = Number(factor);
+          if (!Number.isFinite(parsedFactor) || parsedFactor <= 0) {
+            throw new Error(`生产领用换算系数必须大于 0: ${factor}`);
+          }
+          productionConvFactor = parsedFactor;
+        }
+
         // 校验并格式化安全库存（允许为空，默认 '0'）
         let safetyStock: string | undefined;
         if (row.safetyStock?.trim()) {
@@ -446,6 +499,7 @@ export class SkuService {
           purchaseUnit:   row.purchaseUnit.trim(),
           productionUnit: row.productionUnit?.trim() || row.stockUnit.trim(),
           stockConvFactor,
+          productionConvFactor,
           prodConvNote:   row.prodConvNote?.trim() || undefined,
           safetyStock,
           brandScope:     importedBrandScope,
@@ -591,6 +645,82 @@ export class SkuService {
   private requireCustomerSkuCodeFromName(customerSkuName?: string): string {
     void customerSkuName;
     throw new Error('客户SKU编码不能为空');
+  }
+
+  private async syncAutoUnitConversions(
+    skuId: number,
+    params: AutoUnitConversionContext,
+  ): Promise<void> {
+    const stockUnit = String(params.stockUnit ?? '').trim();
+    const purchaseUnit = String(params.purchaseUnit ?? '').trim();
+    const productionUnit = String(params.productionUnit ?? '').trim();
+    const factor = Number(params.stockConvFactor ?? 1);
+    const explicitProductionFactor = params.productionConvFactor != null
+      ? Number(params.productionConvFactor)
+      : undefined;
+    const productionFactor = explicitProductionFactor && Number.isFinite(explicitProductionFactor) && explicitProductionFactor > 0
+      ? explicitProductionFactor
+      : (productionUnit === purchaseUnit ? factor : undefined);
+
+    await this.repo.deleteAutoUnitConversions(skuId);
+
+    if (!stockUnit || !purchaseUnit || !Number.isFinite(factor) || factor <= 0) {
+      return;
+    }
+
+    if (purchaseUnit !== stockUnit) {
+      await this.repo.upsertUnitConversion(
+        skuId,
+        purchaseUnit,
+        stockUnit,
+        factor.toString(),
+        '[auto] 采购单位→库存单位',
+      );
+    }
+
+    if (
+      productionUnit
+      && productionUnit !== stockUnit
+      && productionFactor
+      && Number.isFinite(productionFactor)
+      && productionFactor > 0
+    ) {
+      await this.repo.upsertUnitConversion(
+        skuId,
+        productionUnit,
+        stockUnit,
+        productionFactor.toString(),
+        '[auto] 生产领用单位→库存单位',
+      );
+    }
+  }
+
+  private validateUnitFactors(params: {
+    stockUnit?: string;
+    purchaseUnit?: string;
+    productionUnit?: string;
+    stockConvFactor?: number;
+    productionConvFactor?: number;
+  }): void {
+    const stockUnit = String(params.stockUnit ?? '').trim();
+    const purchaseUnit = String(params.purchaseUnit ?? '').trim();
+    const productionUnit = String(params.productionUnit ?? '').trim();
+    const stockConvFactor = params.stockConvFactor == null ? undefined : Number(params.stockConvFactor);
+    const productionConvFactor = params.productionConvFactor == null ? undefined : Number(params.productionConvFactor);
+
+    if (purchaseUnit && stockUnit && purchaseUnit !== stockUnit) {
+      if (!Number.isFinite(stockConvFactor ?? NaN) || (stockConvFactor ?? 0) <= 0) {
+        throw AppError.badRequest('采购单位与库存单位不一致时，必须填写大于 0 的库存换算系数');
+      }
+    }
+
+    if (productionUnit && stockUnit && productionUnit !== stockUnit) {
+      const hasExplicitProductionFactor = Number.isFinite(productionConvFactor ?? NaN)
+        && (productionConvFactor ?? 0) > 0;
+      if (!hasExplicitProductionFactor) {
+        throw AppError.badRequest('生产领用单位与库存单位不一致时，必须填写大于 0 的生产领用换算系数');
+      }
+    }
   }
 
   private async generateSkuCode(cat1Id: number, cat2Id: number): Promise<string> {

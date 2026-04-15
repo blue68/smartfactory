@@ -136,3 +136,73 @@ describe('SkuService.importSkus', () => {
     }));
   });
 });
+
+describe('SkuService.syncAutoUnitConversions', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('syncs purchase-to-stock conversion rules from SKU unit fields', async () => {
+    const svc = new SkuService({ tenantId: 7, userId: 11 });
+    const repo = {
+      deleteAutoUnitConversions: jest.fn().mockResolvedValue(undefined),
+      upsertUnitConversion: jest.fn().mockResolvedValue(undefined),
+    };
+    (svc as any).repo = repo;
+
+    await (svc as any).syncAutoUnitConversions(101, {
+      stockUnit: '米',
+      purchaseUnit: '卷',
+      productionUnit: '卷',
+      stockConvFactor: 900,
+    });
+
+    expect(repo.deleteAutoUnitConversions).toHaveBeenCalledWith(101);
+    expect(repo.upsertUnitConversion).toHaveBeenCalledWith(
+      101,
+      '卷',
+      '米',
+      '900',
+      '[auto] 采购单位→库存单位',
+    );
+    expect(repo.upsertUnitConversion).toHaveBeenCalledWith(
+      101,
+      '卷',
+      '米',
+      '900',
+      '[auto] 生产领用单位→库存单位',
+    );
+  });
+
+  it('uses explicit production conversion factor when production issue unit differs from purchase unit', async () => {
+    const svc = new SkuService({ tenantId: 7, userId: 11 });
+    const repo = {
+      deleteAutoUnitConversions: jest.fn().mockResolvedValue(undefined),
+      upsertUnitConversion: jest.fn().mockResolvedValue(undefined),
+    };
+    (svc as any).repo = repo;
+
+    await (svc as any).syncAutoUnitConversions(102, {
+      stockUnit: '米',
+      purchaseUnit: '卷',
+      productionUnit: '箱',
+      stockConvFactor: 900,
+      productionConvFactor: 1800,
+    });
+
+    expect(repo.upsertUnitConversion).toHaveBeenCalledWith(
+      102,
+      '卷',
+      '米',
+      '900',
+      '[auto] 采购单位→库存单位',
+    );
+    expect(repo.upsertUnitConversion).toHaveBeenCalledWith(
+      102,
+      '箱',
+      '米',
+      '1800',
+      '[auto] 生产领用单位→库存单位',
+    );
+  });
+});
