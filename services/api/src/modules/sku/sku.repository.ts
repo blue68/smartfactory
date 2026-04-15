@@ -406,9 +406,9 @@ export class SkuRepository extends BaseRepository<SkuEntity> {
 
   async deleteProfilesForBusinessClass(
     skuId: number,
-    businessClass: 'production_material' | 'consumable' | 'fixed_asset',
+    businessClass: 'production_material' | 'finished_goods' | 'consumable' | 'fixed_asset',
   ): Promise<void> {
-    if (businessClass === 'production_material') {
+    if (businessClass === 'production_material' || businessClass === 'finished_goods') {
       await Promise.all([
         AppDataSource.query(
           'DELETE FROM sku_consumable_profiles WHERE tenant_id = ? AND sku_id = ?',

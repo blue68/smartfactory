@@ -78,7 +78,7 @@ export class SkuEntity {
   @Column({
     name: 'business_class',
     type: 'enum',
-    enum: ['production_material', 'consumable', 'fixed_asset'],
+    enum: ['production_material', 'finished_goods', 'consumable', 'fixed_asset'],
     default: 'production_material',
   })
   businessClass: SkuBusinessClass;

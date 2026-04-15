@@ -169,6 +169,19 @@ function getBusinessClassPreset(businessClass: BusinessClass): Pick<
   | 'assetTrackingMode'
 > {
   switch (businessClass) {
+    case 'finished_goods':
+      return {
+        businessClass,
+        controlMode: 'stock_only',
+        allowBomComponent: false,
+        allowPurchase: true,
+        allowInventory: true,
+        allowProductionIssue: false,
+        requiresAssetAcceptance: false,
+        defaultWarehouseType: 'finished',
+        approvalPolicyCode: '',
+        assetTrackingMode: 'none',
+      };
     case 'consumable':
       return {
         businessClass,
@@ -295,6 +308,7 @@ function isFinishedCategory(code: Category1Code | '' | undefined): boolean {
 
 function getRecommendedBusinessClassByCategory1(code: Category1Code | '' | undefined): BusinessClass {
   if (code === Category1Code.PACKING) return 'consumable';
+  if (code === Category1Code.FINISHED) return 'finished_goods';
   if (code === Category1Code.ASSET) return 'fixed_asset';
   return 'production_material';
 }
@@ -308,6 +322,8 @@ function isFinishedSkuRecord(sku: Sku): boolean {
 
 function getBusinessClassLabel(value?: Sku['businessClass']): string {
   switch (value) {
+    case 'finished_goods':
+      return '成品商品';
     case 'consumable':
       return '损耗品';
     case 'fixed_asset':
@@ -319,8 +335,10 @@ function getBusinessClassLabel(value?: Sku['businessClass']): string {
   }
 }
 
-function getBusinessClassTagVariant(value?: Sku['businessClass']): 'warning' | 'info' | 'neutral' {
+function getBusinessClassTagVariant(value?: Sku['businessClass']): 'success' | 'warning' | 'info' | 'neutral' {
   switch (value) {
+    case 'finished_goods':
+      return 'success';
     case 'consumable':
       return 'warning';
     case 'fixed_asset':
@@ -1374,6 +1392,7 @@ function SkuFormDrawerContent({
   customerOptions,
 }: SkuFormDrawerContentProps) {
   const isFinished = isFinishedCategory(form.category1Code);
+  const isFinishedGoods = form.businessClass === 'finished_goods';
   const isConsumable = form.businessClass === 'consumable';
   const isFixedAsset = form.businessClass === 'fixed_asset';
   const isDerivedControlReadonly = true;
@@ -1697,6 +1716,7 @@ function SkuFormDrawerContent({
           </label>
           <select className={styles.form_input} value={form.businessClass} onChange={setBusinessClass}>
             <option value="production_material">生产物料</option>
+            <option value="finished_goods">成品商品</option>
             <option value="consumable">损耗品</option>
             <option value="fixed_asset">固定资产</option>
           </select>
@@ -1752,7 +1772,7 @@ function SkuFormDrawerContent({
               className={styles.form_input}
               value={form.approvalPolicyCode}
               onChange={set('approvalPolicyCode')}
-              placeholder={isConsumable ? '例如 CONS-NORMAL' : isFixedAsset ? '例如 ASSET-STRICT' : '可留空'}
+              placeholder={isConsumable ? '例如 CONS-NORMAL' : isFixedAsset ? '例如 ASSET-STRICT' : isFinishedGoods ? '例如 FG-STOCK' : '可留空'}
             />
           )}
         </div>
@@ -1776,7 +1796,7 @@ function SkuFormDrawerContent({
       </div>
 
       <div className={styles.form_hint_box}>
-        <div>{isConsumable ? '损耗品默认走库存/领用规则，可维护审批强度和费用科目。' : isFixedAsset ? '固定资产默认要求验收建卡，建议启用序列号跟踪。' : '生产物料默认保留采购、库存和生产领用能力。'}</div>
+        <div>{isConsumable ? '损耗品默认走库存/领用规则，可维护审批强度和费用科目。' : isFixedAsset ? '固定资产默认要求验收建卡，建议启用序列号跟踪。' : isFinishedGoods ? '成品商品默认进入成品库存，可采购、可销售，但不参与 BOM 子件与生产领用。' : '生产物料默认保留采购、库存和生产领用能力。'}</div>
         {isDerivedControlReadonly && <div>除业务大类外，其余管控规则按系统预设自动带出，只读展示。</div>}
       </div>
 

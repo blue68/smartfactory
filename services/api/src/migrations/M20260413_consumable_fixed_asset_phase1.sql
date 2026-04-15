@@ -55,7 +55,7 @@ DELIMITER ;
 CALL safe_add_column_m20260413_phase1(
   'skus',
   'business_class',
-  "ENUM('production_material','consumable','fixed_asset') NOT NULL DEFAULT 'production_material' COMMENT '业务大类：生产物料 / 损耗品 / 固定资产'"
+  "ENUM('production_material','finished_goods','consumable','fixed_asset') NOT NULL DEFAULT 'production_material' COMMENT '业务大类：生产物料 / 成品商品 / 损耗品 / 固定资产'"
 );
 
 CALL safe_add_column_m20260413_phase1(
@@ -171,13 +171,15 @@ UPDATE `skus` s
 INNER JOIN `sku_categories` c ON c.id = s.category1_id
 SET
   s.business_class = CASE
-    WHEN c.code IN ('MATERIAL', 'SEMIFIN', 'FINISHED') THEN 'production_material'
+    WHEN c.code IN ('MATERIAL', 'SEMIFIN') THEN 'production_material'
+    WHEN c.code = 'FINISHED' THEN 'finished_goods'
     WHEN c.code = 'PACKING' THEN 'consumable'
     WHEN c.code = 'ASSET' THEN 'fixed_asset'
     ELSE s.business_class
   END,
   s.control_mode = CASE
-    WHEN c.code IN ('MATERIAL', 'SEMIFIN', 'FINISHED') THEN 'mrp'
+    WHEN c.code IN ('MATERIAL', 'SEMIFIN') THEN 'mrp'
+    WHEN c.code = 'FINISHED' THEN 'stock_only'
     WHEN c.code = 'PACKING' THEN 'stock_only'
     WHEN c.code = 'ASSET' THEN 'asset'
     ELSE s.control_mode
@@ -188,7 +190,7 @@ SET
     ELSE s.allow_bom_component
   END,
   s.allow_purchase = CASE
-    WHEN c.code = 'FINISHED' THEN 0
+    WHEN c.code = 'FINISHED' THEN 1
     WHEN c.code = 'ASSET' THEN 1
     ELSE 1
   END,

@@ -37,6 +37,7 @@ interface AcceptanceDraftItem {
 }
 
 function formatBusinessClassLabel(value?: string | null): string {
+  if (value === 'finished_goods') return '成品商品';
   if (value === 'consumable') return '损耗品';
   if (value === 'fixed_asset') return '固定资产';
   if (value === 'production_material') return '生产物料';

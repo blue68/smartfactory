@@ -1,5 +1,6 @@
 export const SKU_BUSINESS_CLASSES = [
   'production_material',
+  'finished_goods',
   'consumable',
   'fixed_asset',
 ] as const;
@@ -63,4 +64,3 @@ export interface AssetProfileInput {
   warrantyMonths?: number | null;
   notes?: string;
 }
-

@@ -1,6 +1,7 @@
 import type { BusinessClass, ControlMode, ReceiptMode } from '@/types/models';
 
 export function formatBusinessClassLabel(value?: BusinessClass | string | null): string {
+  if (value === 'finished_goods') return '成品商品';
   if (value === 'consumable') return '损耗品';
   if (value === 'fixed_asset') return '固定资产';
   if (value === 'production_material') return '生产物料';
@@ -20,8 +21,15 @@ export function resolveReceiptModeByControlMode(controlMode?: ControlMode | stri
   return 'inventory';
 }
 
-export function formatReceiptNextStepLabel(receiptMode?: ReceiptMode | string | null): string {
-  if (receiptMode === 'inventory') return '进入库存，可继续发起领用';
+export function formatReceiptNextStepLabel(
+  receiptMode?: ReceiptMode | string | null,
+  businessClass?: BusinessClass | string | null,
+): string {
+  if (receiptMode === 'inventory') {
+    if (businessClass === 'consumable') return '进入损耗品库存，可继续发起领用';
+    if (businessClass === 'finished_goods') return '进入成品库存，可继续销售或发货';
+    return '进入库存，按标准库存链路继续处理';
+  }
   if (receiptMode === 'direct_expense') return '到货即费用化，不进入库存';
   if (receiptMode === 'asset_capitalization') return '进入资产验收池，待建卡';
   return '按默认采购收货路径处理';

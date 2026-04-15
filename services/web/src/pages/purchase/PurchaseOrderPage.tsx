@@ -117,7 +117,8 @@ function calcProgressPct(received?: string | number | null, ordered?: string | n
   return Math.min(100, Math.max(0, Math.round((toNumber(received) / orderedValue) * 100)));
 }
 
-function getBusinessClassTagVariant(value?: string | null): 'warning' | 'info' | 'neutral' {
+function getBusinessClassTagVariant(value?: string | null): 'success' | 'warning' | 'info' | 'neutral' {
+  if (value === 'finished_goods') return 'success';
   if (value === 'consumable') return 'warning';
   if (value === 'fixed_asset') return 'info';
   return 'neutral';
@@ -206,7 +207,10 @@ function ManualPurchaseOrderDrawer({
   const skuOptions = useMemo(
     () =>
       (skuQuery.data?.list ?? EMPTY_SKUS).filter(
-        (sku) => sku.businessClass === 'consumable' || sku.businessClass === 'fixed_asset',
+        (sku) => (sku.allowPurchase !== false)
+          && (sku.businessClass === 'consumable'
+            || sku.businessClass === 'fixed_asset'
+            || sku.businessClass === 'finished_goods'),
       ).sort((left, right) => left.skuCode.localeCompare(right.skuCode, 'zh-CN')),
     [skuQuery.data?.list],
   );
@@ -214,8 +218,8 @@ function ManualPurchaseOrderDrawer({
   const skuSelectPlaceholder = useMemo(() => {
     if (skuQuery.isLoading) return '正在加载可采购 SKU...';
     if (skuQuery.isError) return 'SKU 加载失败，请稍后重试';
-    if (skuOptions.length === 0) return '暂无可选的损耗品或固定资产 SKU';
-    return '请选择损耗品或固定资产 SKU';
+    if (skuOptions.length === 0) return '暂无可选的损耗品、固定资产或成品商品 SKU';
+    return '请选择损耗品、固定资产或成品商品 SKU';
   }, [skuOptions.length, skuQuery.isError, skuQuery.isLoading]);
 
   const departmentMap = useMemo(
@@ -328,13 +332,14 @@ function ManualPurchaseOrderDrawer({
         <section className={styles.manualHero}>
           <div className={styles.manualHeroText}>
             <div className={styles.manualEyebrow}>Manual Procurement</div>
-            <h3 className={styles.manualTitle}>损耗品 / 固定资产手工建单</h3>
+            <h3 className={styles.manualTitle}>损耗品 / 固定资产 / 成品商品手工建单</h3>
             <p className={styles.manualSubtitle}>
-              这条入口用于非 MRP 自动建议场景。系统会按 SKU 的管控属性自动带出收货模式，并把后续分流到损耗品库存、直耗或资产验收。
+              这条入口用于非 MRP 自动建议场景。系统会按 SKU 的管控属性自动带出收货模式，并把后续分流到损耗品库存、直耗、成品库存或资产验收。
             </p>
           </div>
           <div className={styles.manualHeroChips}>
             <span className={styles.manualChip}>损耗品 -&gt; 库存入库 / 直耗</span>
+            <span className={styles.manualChip}>成品商品 -&gt; 成品库存</span>
             <span className={styles.manualChip}>固定资产 -&gt; 资产待验收</span>
           </div>
         </section>
@@ -391,7 +396,7 @@ function ManualPurchaseOrderDrawer({
           <div className={styles.sectionHeader}>
             <div>
               <h3 className={styles.sectionTitle}>采购明细</h3>
-              <p className={styles.sectionHint}>仅支持损耗品和固定资产 SKU，业务大类与收货模式会自动带出。</p>
+              <p className={styles.sectionHint}>支持损耗品、固定资产和成品商品 SKU，业务大类与收货模式会自动带出。</p>
             </div>
             <Button size="sm" variant="secondary" onClick={addItem}>新增明细</Button>
           </div>
@@ -511,13 +516,15 @@ function ManualPurchaseOrderDrawer({
 
                     <div className={styles.manualInfoCard}>
                       <span>收货后分流</span>
-                      <strong>{sku ? formatReceiptNextStepLabel(receiptMode) : '待选择 SKU'}</strong>
+                      <strong>{sku ? formatReceiptNextStepLabel(receiptMode, businessClass) : '待选择 SKU'}</strong>
                       {sku ? (
                         <div className={styles.manualInfoMeta}>
                           采购单位 {sku.purchaseUnit || sku.stockUnit} ·
                           {businessClass === 'consumable'
                             ? ` 需求部门 ${formatDepartmentLabel(item.requestDepartmentId, departmentMap)}`
-                            : ` 资产跟踪 ${sku.assetTrackingMode ?? '未配置'}`}
+                            : businessClass === 'fixed_asset'
+                              ? ` 资产跟踪 ${sku.assetTrackingMode ?? '未配置'}`
+                              : ` 收货模式 ${formatReceiptModeLabel(receiptMode)}`}
                         </div>
                       ) : null}
                     </div>
@@ -1351,14 +1358,14 @@ export default function PurchaseOrderPage() {
                 <span className={styles.flowIndex}>1</span>
                 <div className={styles.flowCopy}>
                   <strong>审批转单 / 手工建单</strong>
-                  <span>生产物料通常由采购建议审批后转单；损耗品和固定资产可直接在本页手工创建采购订单。</span>
+                  <span>生产物料通常由采购建议审批后转单；损耗品、固定资产和成品商品可直接在本页手工创建采购订单。</span>
                 </div>
               </div>
               <div className={styles.flowStep}>
                 <span className={styles.flowIndex}>2</span>
                 <div className={styles.flowCopy}>
                   <strong>分批送货 / 入库</strong>
-                  <span>供应商可多次送货，入库后按收货模式自动分流到损耗品库存、直耗或资产验收。</span>
+                  <span>供应商可多次送货，入库后按收货模式自动分流到损耗品库存、直耗、成品库存或资产验收。</span>
                 </div>
               </div>
               <div className={styles.flowStep}>

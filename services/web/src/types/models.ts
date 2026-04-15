@@ -127,7 +127,7 @@ export interface CustomerSkuRef {
   status: 'active' | 'inactive';
 }
 
-export type BusinessClass = 'production_material' | 'consumable' | 'fixed_asset';
+export type BusinessClass = 'production_material' | 'finished_goods' | 'consumable' | 'fixed_asset';
 export type ControlMode = 'mrp' | 'stock_only' | 'direct_expense' | 'asset';
 export type DefaultWarehouseType = 'raw_material' | 'consumable' | 'asset_pending' | 'asset' | 'finished';
 export type ReceiptMode = 'inventory' | 'direct_expense' | 'asset_capitalization';

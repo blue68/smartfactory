@@ -65,7 +65,7 @@ DELIMITER ;
 CALL safe_add_column_m20260413_phase2(
   'purchase_order_items',
   'business_class',
-  "ENUM('production_material','consumable','fixed_asset') NOT NULL DEFAULT 'production_material' COMMENT '采购明细业务大类' AFTER `sku_id`"
+  "ENUM('production_material','finished_goods','consumable','fixed_asset') NOT NULL DEFAULT 'production_material' COMMENT '采购明细业务大类' AFTER `sku_id`"
 );
 CALL safe_add_column_m20260413_phase2(
   'purchase_order_items',
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS `purchase_receipt_items` (
   `receipt_id`            BIGINT UNSIGNED NOT NULL,
   `sku_id`                BIGINT UNSIGNED NOT NULL,
   `po_item_id`            BIGINT UNSIGNED DEFAULT NULL,
-  `business_class`        ENUM('production_material','consumable','fixed_asset') NOT NULL DEFAULT 'production_material',
+  `business_class`        ENUM('production_material','finished_goods','consumable','fixed_asset') NOT NULL DEFAULT 'production_material',
   `receipt_mode`          ENUM('inventory','direct_expense','asset_capitalization') NOT NULL DEFAULT 'inventory',
   `requires_acceptance`   TINYINT(1) NOT NULL DEFAULT 0,
   `request_department_id` BIGINT UNSIGNED DEFAULT NULL,
@@ -127,7 +127,7 @@ CALL safe_add_column_m20260413_phase2(
 CALL safe_add_column_m20260413_phase2(
   'purchase_receipt_items',
   'business_class',
-  "ENUM('production_material','consumable','fixed_asset') NOT NULL DEFAULT 'production_material' COMMENT '入库明细业务大类' AFTER `po_item_id`"
+  "ENUM('production_material','finished_goods','consumable','fixed_asset') NOT NULL DEFAULT 'production_material' COMMENT '入库明细业务大类' AFTER `po_item_id`"
 );
 CALL safe_add_column_m20260413_phase2(
   'purchase_receipt_items',
@@ -158,7 +158,7 @@ CALL safe_add_index_m20260413_phase2(
 CALL safe_add_column_m20260413_phase2(
   'inventory_transactions',
   'business_class',
-  "ENUM('production_material','consumable') NOT NULL DEFAULT 'production_material' COMMENT '库存流水业务大类' AFTER `sku_id`"
+  "ENUM('production_material','finished_goods','consumable') NOT NULL DEFAULT 'production_material' COMMENT '库存流水业务大类' AFTER `sku_id`"
 );
 CALL safe_add_column_m20260413_phase2(
   'inventory_transactions',

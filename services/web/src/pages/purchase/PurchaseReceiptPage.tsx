@@ -96,6 +96,9 @@ function ReceiptDetailDrawer({
     const assetCount = data.items.filter(
       (item) => item.businessClass === 'fixed_asset' && item.receiptMode === 'asset_capitalization',
     ).length;
+    const finishedGoodsCount = data.items.filter(
+      (item) => item.businessClass === 'finished_goods' && item.receiptMode === 'inventory',
+    ).length;
     const consumableInventoryCount = data.items.filter(
       (item) => item.businessClass === 'consumable' && item.receiptMode === 'inventory',
     ).length;
@@ -120,6 +123,14 @@ function ReceiptDetailDrawer({
         actionLabel: '去损耗品领用',
         action: onOpenConsumableIssue,
         tone: 'warning',
+      });
+    }
+    if (finishedGoodsCount > 0) {
+      cards.push({
+        key: 'finished-goods',
+        title: '成品库存',
+        description: `${finishedGoodsCount} 条明细已入成品库存，后续可进入销售或发货链路，不参与资产验收与损耗品领用。`,
+        tone: 'neutral',
       });
     }
     if (directExpenseCount > 0) {

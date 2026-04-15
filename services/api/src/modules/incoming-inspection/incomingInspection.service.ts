@@ -155,6 +155,7 @@ export class IncomingInspectionService {
   private static purchaseReceiptItemsTableSupported: boolean | null = null;
   private static purchaseReceiptTotalAmountColumnSupported: boolean | null = null;
   private static inventoryTransactionQtyChangeColumnSupported: boolean | null = null;
+  private static inventoryTransactionBusinessClassColumnSupported: boolean | null = null;
   private static returnOrderItemUpdatedBySupported: boolean | null = null;
   private static deliveryReceivedStatusSupported: boolean | null = null;
   private static deliveryNoteItemPoItemSupported: boolean | null = null;
@@ -785,6 +786,24 @@ export class IncomingInspectionService {
 
     IncomingInspectionService.inventoryTransactionQtyChangeColumnSupported = Number(rows[0]?.cnt ?? 0) > 0;
     return IncomingInspectionService.inventoryTransactionQtyChangeColumnSupported;
+  }
+
+  private async hasInventoryTransactionBusinessClassColumn(manager?: EntityManager): Promise<boolean> {
+    if (IncomingInspectionService.inventoryTransactionBusinessClassColumnSupported !== null) {
+      return IncomingInspectionService.inventoryTransactionBusinessClassColumnSupported;
+    }
+
+    const runner = manager ?? AppDataSource;
+    const rows = await runner.query<Array<{ cnt: number }>>(
+      `SELECT COUNT(*) AS cnt
+       FROM information_schema.columns
+       WHERE table_schema = DATABASE()
+         AND table_name = 'inventory_transactions'
+         AND column_name = 'business_class'`,
+    );
+
+    IncomingInspectionService.inventoryTransactionBusinessClassColumnSupported = Number(rows[0]?.cnt ?? 0) > 0;
+    return IncomingInspectionService.inventoryTransactionBusinessClassColumnSupported;
   }
 
   private async hasReturnOrderItemUpdatedByColumn(manager?: EntityManager): Promise<boolean> {
@@ -1622,6 +1641,7 @@ export class IncomingInspectionService {
     const affectedOperationIds = new Set<number>();
     const supportsInventoryUpdatedBy = await this.hasInventoryUpdatedByColumn(manager);
     const supportsInventoryQtyChange = await this.hasInventoryTransactionQtyChangeColumn(manager);
+    const supportsInventoryBusinessClass = await this.hasInventoryTransactionBusinessClassColumn(manager);
     let warehouseLocation: Awaited<ReturnType<typeof resolveWarehouseLocationBinding>> | null = null;
 
     for (const item of passedItems) {
@@ -1717,26 +1737,45 @@ export class IncomingInspectionService {
         receivedSkuIds.add(Number(item.sku_id));
         let txResult;
         if (supportsInventoryQtyChange) {
+          const txColumns = [
+            'tenant_id',
+            'sku_id',
+            ...(supportsInventoryBusinessClass ? ['business_class'] : []),
+            'transaction_type',
+            'warehouse_id',
+            'location_id',
+            'qty_change',
+            'reference_type',
+            'reference_id',
+            'reference_no',
+            'source_ref',
+            'notes',
+            'dye_lot_no',
+            'created_by',
+            'updated_by',
+          ];
+          const txValues = [
+            this.tenantId,
+            item.sku_id,
+            ...(supportsInventoryBusinessClass ? [controlConfig.businessClass] : []),
+            'PURCHASE_IN',
+            warehouseLocation!.warehouseId,
+            warehouseLocation!.locationId,
+            convertedQty.toFixed(4),
+            'purchase_receipt',
+            receiptId,
+            receiptNo,
+            'incoming_inspection:submit',
+            `质检入库 IQC#${inspectionId}`,
+            dyeLotNo,
+            this.userId,
+            this.userId,
+          ];
           txResult = await manager.query(
             `INSERT INTO inventory_transactions
-               (tenant_id, sku_id, transaction_type, warehouse_id, location_id, qty_change, reference_type,
-                reference_id, reference_no, source_ref, notes, dye_lot_no, created_by, updated_by)
-             VALUES (?,?,'PURCHASE_IN',?,?,?,?,?,?,?,?,?,?,?)`,
-            [
-              this.tenantId,
-              item.sku_id,
-              warehouseLocation!.warehouseId,
-              warehouseLocation!.locationId,
-              convertedQty.toFixed(4),
-              'purchase_receipt',
-              receiptId,
-              receiptNo,
-              'incoming_inspection:submit',
-              `质检入库 IQC#${inspectionId}`,
-              dyeLotNo,
-              this.userId,
-              this.userId,
-            ],
+               (${txColumns.join(', ')})
+             VALUES (${txColumns.map(() => '?').join(',')})`,
+            txValues,
           );
         } else {
           const txNo = await generateNo('transaction', this.tenantId);
@@ -1744,6 +1783,7 @@ export class IncomingInspectionService {
             'tenant_id',
             'transaction_no',
             'sku_id',
+            ...(supportsInventoryBusinessClass ? ['business_class'] : []),
             'transaction_type',
             'direction',
             'warehouse_id',
@@ -1765,6 +1805,7 @@ export class IncomingInspectionService {
             this.tenantId,
             txNo,
             item.sku_id,
+            ...(supportsInventoryBusinessClass ? [controlConfig.businessClass] : []),
             'PURCHASE_IN',
             'IN',
             warehouseLocation!.warehouseId,
@@ -1940,7 +1981,7 @@ export class IncomingInspectionService {
     manager: EntityManager,
     item: any,
   ): Promise<{
-    businessClass: 'production_material' | 'consumable' | 'fixed_asset';
+    businessClass: 'production_material' | 'finished_goods' | 'consumable' | 'fixed_asset';
     receiptMode: 'inventory' | 'direct_expense' | 'asset_capitalization';
     requiresAcceptance: boolean;
     requestDepartmentId?: number;
@@ -1958,7 +1999,7 @@ export class IncomingInspectionService {
 
     if (item.po_item_id) {
       const [poItem] = await manager.query<Array<{
-        business_class: 'production_material' | 'consumable' | 'fixed_asset';
+        business_class: 'production_material' | 'finished_goods' | 'consumable' | 'fixed_asset';
         receipt_mode: 'inventory' | 'direct_expense' | 'asset_capitalization';
         requires_acceptance: number;
         request_department_id: number | null;
@@ -1983,7 +2024,7 @@ export class IncomingInspectionService {
     }
 
     const [sku] = await manager.query<Array<{
-      business_class: 'production_material' | 'consumable' | 'fixed_asset';
+      business_class: 'production_material' | 'finished_goods' | 'consumable' | 'fixed_asset';
       control_mode: 'mrp' | 'stock_only' | 'direct_expense' | 'asset';
       requires_asset_acceptance: number;
     }>>(

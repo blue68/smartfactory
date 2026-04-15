@@ -18,7 +18,7 @@ export interface CreatePOParams {
     qtyOrdered: string;
     purchaseUnit: string;
     unitPrice: string;
-    businessClass?: 'production_material' | 'consumable' | 'fixed_asset';
+    businessClass?: 'production_material' | 'finished_goods' | 'consumable' | 'fixed_asset';
     receiptMode?: 'inventory' | 'direct_expense' | 'asset_capitalization';
     requiresAcceptance?: boolean;
     requestDepartmentId?: number;
@@ -1580,7 +1580,7 @@ export class PurchaseService {
     skuId: number,
     item: CreatePOParams['items'][number],
   ): Promise<{
-    businessClass: 'production_material' | 'consumable' | 'fixed_asset';
+    businessClass: 'production_material' | 'finished_goods' | 'consumable' | 'fixed_asset';
     receiptMode: 'inventory' | 'direct_expense' | 'asset_capitalization';
     requiresAcceptance: boolean;
     requestDepartmentId?: number;
@@ -1602,7 +1602,7 @@ export class PurchaseService {
     }
 
     const [sku] = await manager.query<Array<{
-      business_class: 'production_material' | 'consumable' | 'fixed_asset';
+      business_class: 'production_material' | 'finished_goods' | 'consumable' | 'fixed_asset';
       control_mode: 'mrp' | 'stock_only' | 'direct_expense' | 'asset';
       requires_asset_acceptance: number;
     }>>(
