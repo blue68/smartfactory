@@ -2547,8 +2547,11 @@ interface ImportWizardModalProps {
 }
 
 // ── 文件解析工具函数（支持 .xlsx / .xls / .csv）──────────────
-function parseFileData(buffer: ArrayBuffer): { headers: string[]; rows: string[][] } {
-  const wb = XLSX.read(buffer, { type: 'array' });
+function parseFileData(buffer: ArrayBuffer, fileName?: string): { headers: string[]; rows: string[][] } {
+  const isCsv = fileName ? /\.csv$/i.test(fileName) : false;
+  const wb = isCsv
+    ? XLSX.read(new TextDecoder('utf-8').decode(buffer), { type: 'string' })
+    : XLSX.read(buffer, { type: 'array' });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const data = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' });
 
@@ -2572,8 +2575,44 @@ interface FieldMappingRow {
 }
 
 const SYSTEM_FIELDS = [
-  'SKU编码', '物料名称', '规格型号', '一级分类', '二级分类',
-  '基本单位', '采购单位', '计价单位', '安全库存', '状态', '备注',
+  'SKU编码', '物料名称', '规格型号', '规格描述', '一级分类', '二级分类', '二级品类',
+  '基本单位', '库存单位', '采购单位', '计价单位', '生产领用单位',
+  '库存换算系数', '领用换算说明', '安全库存', '状态', '品牌归属',
+  '所属客户编码', '所属客户名称', '客户SKU编码', '客户SKU名称', '备注',
+] as const;
+
+const CANONICAL_FIELD_ALIASES: Record<string, string> = {
+  'SKU编码': 'SKU编码',
+  '物料名称': '物料名称',
+  '规格型号': '规格描述',
+  '规格描述': '规格描述',
+  '一级分类': '一级分类',
+  '二级分类': '二级品类',
+  '二级品类': '二级品类',
+  '基本单位': '库存单位',
+  '库存单位': '库存单位',
+  '采购单位': '采购单位',
+  '计价单位': '生产领用单位',
+  '生产领用单位': '生产领用单位',
+  '库存换算系数': '库存换算系数',
+  '领用换算说明': '领用换算说明',
+  '安全库存': '安全库存',
+  '状态': '状态',
+  '品牌归属': '品牌归属',
+  '所属客户编码': '所属客户编码',
+  '所属客户名称': '所属客户名称',
+  '客户SKU编码': '客户SKU编码',
+  '客户SKU名称': '客户SKU名称',
+  '备注': '备注',
+};
+
+const IMPORT_PREVIEW_FIELDS = [
+  '物料名称',
+  '规格描述',
+  '一级分类',
+  '二级品类',
+  '采购单位',
+  '库存单位',
 ] as const;
 
 function autoMatchField(col: string): { sysField: string; status: MappingStatus } {
@@ -2581,20 +2620,26 @@ function autoMatchField(col: string): { sysField: string; status: MappingStatus 
 
   // Exact match first
   for (const f of SYSTEM_FIELDS) {
-    if (col === f) return { sysField: f, status: 'ok' };
+    if (col === f) return { sysField: CANONICAL_FIELD_ALIASES[f] ?? f, status: 'ok' };
   }
 
   // Fuzzy rules
-  if (c.includes('编码') || c.includes('code')) return { sysField: 'SKU编码', status: 'warn' };
+  if (c.includes('所属客户') && c.includes('编码')) return { sysField: '所属客户编码', status: 'warn' };
+  if (c.includes('所属客户') && c.includes('名称')) return { sysField: '所属客户名称', status: 'warn' };
+  if (c.includes('客户sku') && c.includes('编码')) return { sysField: '客户SKU编码', status: 'warn' };
+  if (c.includes('客户sku') && c.includes('名称')) return { sysField: '客户SKU名称', status: 'warn' };
+  if (c.includes('物料') && c.includes('编码')) return { sysField: 'SKU编码', status: 'warn' };
   if (c.includes('名称') || c.includes('品名') || c.includes('name')) return { sysField: '物料名称', status: 'warn' };
-  if (c.includes('规格') || c.includes('spec')) return { sysField: '规格型号', status: 'warn' };
+  if (c.includes('规格') || c.includes('spec')) return { sysField: '规格描述', status: 'warn' };
   if (c.includes('一级') || c.includes('大类')) return { sysField: '一级分类', status: 'warn' };
-  if (c.includes('二级') || c.includes('子类') || c.includes('小类')) return { sysField: '二级分类', status: 'warn' };
-  if ((c.includes('库存') && c.includes('单位')) || c.includes('uom')) return { sysField: '基本单位', status: 'warn' };
+  if (c.includes('二级') || c.includes('子类') || c.includes('小类')) return { sysField: '二级品类', status: 'warn' };
+  if ((c.includes('库存') && c.includes('单位')) || c.includes('uom')) return { sysField: '库存单位', status: 'warn' };
   if (c.includes('采购') && c.includes('单位')) return { sysField: '采购单位', status: 'warn' };
-  if (c.includes('计价') || c.includes('换算')) return { sysField: '计价单位', status: 'warn' };
+  if (c.includes('生产') && c.includes('单位')) return { sysField: '生产领用单位', status: 'warn' };
+  if (c.includes('库存') && c.includes('换算')) return { sysField: '库存换算系数', status: 'warn' };
+  if (c.includes('领用') && c.includes('换算')) return { sysField: '领用换算说明', status: 'warn' };
   if (c.includes('安全') || c.includes('safety')) return { sysField: '安全库存', status: 'warn' };
-  if (c.includes('状态') || c.includes('status')) return { sysField: '状态', status: 'warn' };
+  if (c.includes('品牌')) return { sysField: '品牌归属', status: 'warn' };
   if (c.includes('备注') || c.includes('remark')) return { sysField: '备注', status: 'warn' };
 
   return { sysField: '', status: 'none' };
@@ -2620,6 +2665,7 @@ function ImportWizardModal({ open, onClose, onSuccess }: ImportWizardModalProps)
   const [fieldMapping, setFieldMapping] = useState<FieldMappingRow[]>([]);
 
   // Import state
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
   const [importing, setImporting] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{
@@ -2638,6 +2684,7 @@ function ImportWizardModal({ open, onClose, onSuccess }: ImportWizardModalProps)
     setParseError(null);
     setImportResult(null);
     setImporting(false);
+    setDownloadingTemplate(false);
     onClose();
   }, [onClose]);
 
@@ -2656,7 +2703,7 @@ function ImportWizardModal({ open, onClose, onSuccess }: ImportWizardModalProps)
       const reader = new FileReader();
       reader.onload = (e) => {
         const buffer = e.target?.result as ArrayBuffer;
-        const { headers, rows } = parseFileData(buffer);
+        const { headers, rows } = parseFileData(buffer, selectedFile.name);
 
         if (headers.length === 0) {
           setParseError('文件内容为空或格式不正确，请检查文件后重试。');
@@ -2739,6 +2786,23 @@ function ImportWizardModal({ open, onClose, onSuccess }: ImportWizardModalProps)
     return idx >= 0 ? (row[idx] ?? '') : '';
   };
 
+  const handleDownloadTemplate = useCallback(async () => {
+    try {
+      setDownloadingTemplate(true);
+      const blob = await skuApi.downloadImportTemplate();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'SKU导入模板.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  }, []);
+
   return (
     <Modal
       open={open}
@@ -2797,25 +2861,15 @@ function ImportWizardModal({ open, onClose, onSuccess }: ImportWizardModalProps)
           <button
             className={styles.import_download_btn}
             type="button"
-            onClick={() => {
-              const header = ['SKU编码', '物料名称', '规格型号', '一级分类', '二级分类', '基本单位', '采购单位', '计价单位', '安全库存', '状态', '备注'];
-              const example = ['RM-99001', '示例物料', '100x200mm', 'MATERIAL', 'FABRIC', '米', '卷', 'm²', '100', 'active', ''];
-              const BOM = '\uFEFF';
-              const csv = BOM + [header.join(','), example.join(',')].join('\r\n');
-              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = 'SKU导入模板.csv';
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              URL.revokeObjectURL(url);
-            }}
+            onClick={() => void handleDownloadTemplate()}
           >
             <span>⬇</span>
-            <span>下载 Excel 导入模板</span>
+            <span>{downloadingTemplate ? '模板下载中...' : '下载 Excel 导入模板'}</span>
           </button>
+
+          <div className={styles.import_upload_sub}>
+            模板已对齐最新 SKU 新增页通用字段；系统编码、业务大类和控制规则会自动生成，无需在导入文件中填写。
+          </div>
 
           <div
             className={`${styles.import_upload_area} ${isDragOver ? styles['import_upload_area--dragover'] : ''}`}
@@ -2942,23 +2996,17 @@ function ImportWizardModal({ open, onClose, onSuccess }: ImportWizardModalProps)
                 <table className={styles.import_preview_table}>
                   <thead>
                     <tr>
-                      <th>SKU编码</th>
-                      <th>物料名称</th>
-                      <th>规格型号</th>
-                      <th>一级分类</th>
-                      <th>二级分类</th>
-                      <th>基本单位</th>
+                      {IMPORT_PREVIEW_FIELDS.map((field) => (
+                        <th key={field}>{field}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
                     {previewRows.map((row, i) => (
                       <tr key={i}>
-                        <td style={{ fontFamily: 'monospace' }}>{getCellValue(row, 'SKU编码')}</td>
-                        <td>{getCellValue(row, '物料名称')}</td>
-                        <td>{getCellValue(row, '规格型号')}</td>
-                        <td>{getCellValue(row, '一级分类')}</td>
-                        <td>{getCellValue(row, '二级分类')}</td>
-                        <td>{getCellValue(row, '基本单位')}</td>
+                        {IMPORT_PREVIEW_FIELDS.map((field) => (
+                          <td key={`${field}-${i}`}>{getCellValue(row, field)}</td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>

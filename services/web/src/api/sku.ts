@@ -83,6 +83,10 @@ export const skuApi = {
       '/api/skus/import', form, { headers: { 'Content-Type': undefined as unknown as string } },
     );
   },
+
+  /** GET /api/skus/import-template — 下载 SKU 导入模板 */
+  downloadImportTemplate: () =>
+    request.downloadBlob('/api/skus/import-template'),
 };
 
 // ── React Query Hooks ────────────────────────

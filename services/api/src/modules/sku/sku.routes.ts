@@ -36,6 +36,7 @@ router.get('/stats',               requirePermissionsOrRoles(['sku:view'], 'boss
 router.get('/',                    requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.list.bind(skuController)));
 // export / import 路由须在 /:id 参数路由之前注册，防止被路由截获
 router.get('/export',              requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.exportExcel.bind(skuController)));
+router.get('/import-template',     requirePermissionsOrRoles(['sku:create'], 'boss', 'purchaser'), asyncHandler(skuController.downloadImportTemplate.bind(skuController)));
 router.post('/import',             requirePermissionsOrRoles(['sku:create'], 'boss', 'purchaser'), upload.single('file'), asyncHandler(skuController.importSkus.bind(skuController)));
 router.get('/:id',                 requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.getOne.bind(skuController)));
 router.post('/',                   requirePermissionsOrRoles(['sku:create'], 'boss', 'purchaser'), asyncHandler(skuController.create.bind(skuController)));

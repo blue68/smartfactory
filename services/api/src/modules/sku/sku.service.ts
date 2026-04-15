@@ -21,8 +21,15 @@ export interface ImportSkuRow {
   category2Code: string;
   stockUnit: string;
   purchaseUnit: string;
-  productionUnit: string;
+  productionUnit?: string;
+  stockConvFactor?: string;
+  prodConvNote?: string;
   safetyStock?: string;
+  brandScope?: string;
+  brandCustomerCode?: string;
+  brandCustomerName?: string;
+  customerSkuCode?: string;
+  customerSkuName?: string;
   status?: string;
   description?: string;
 }
@@ -339,6 +346,7 @@ export class SkuService {
 
     // 一次性加载租户分类映射，避免每行重复查库
     const catMap = await this.loadCategoryMap();
+    const customerMap = await this.loadCustomerMap();
 
     for (let i = 0; i < rows.length; i++) {
       const rowNum = i + 2; // CSV 第1行为表头，数据从第2行开始
@@ -355,10 +363,6 @@ export class SkuService {
         if (!row.purchaseUnit?.trim()) {
           throw new Error('采购单位不能为空');
         }
-        if (!row.productionUnit?.trim()) {
-          throw new Error('计价单位不能为空');
-        }
-
         // 解析一级分类
         // 查找顺序：原始值（支持中文名如"原材料"）→ 大写值（支持英文 code 如"MATERIAL"）
         const cat1Raw = row.category1Code?.trim();
@@ -381,6 +385,20 @@ export class SkuService {
           throw new Error(`二级分类 "${cat2Raw}" 不属于一级分类 "${cat1Raw}"`);
         }
 
+        // 校验并格式化库存换算系数（允许为空，默认 1）
+        let stockConvFactor: number | undefined;
+        if (row.stockConvFactor?.trim()) {
+          const factor = row.stockConvFactor.trim();
+          if (!/^\d+(\.\d+)?$/.test(factor)) {
+            throw new Error(`库存换算系数格式不正确: ${factor}`);
+          }
+          const parsedFactor = Number(factor);
+          if (!Number.isFinite(parsedFactor) || parsedFactor <= 0) {
+            throw new Error(`库存换算系数必须大于 0: ${factor}`);
+          }
+          stockConvFactor = parsedFactor;
+        }
+
         // 校验并格式化安全库存（允许为空，默认 '0'）
         let safetyStock: string | undefined;
         if (row.safetyStock?.trim()) {
@@ -391,6 +409,33 @@ export class SkuService {
           safetyStock = ss;
         }
 
+        const isFinished = cat1.code === FINISHED_CATEGORY_CODE;
+        const normalizedBrandScope = isFinished
+          ? this.normalizeImportedBrandScope(row.brandScope)
+          : undefined;
+        const importedBrandScope = isFinished ? (normalizedBrandScope ?? 'factory') : undefined;
+        let brandCustomerId: number | null | undefined;
+        if (isFinished && (importedBrandScope === 'customer' || row.customerSkuCode?.trim() || row.customerSkuName?.trim())) {
+          const customerIdentifier = row.brandCustomerCode?.trim() || row.brandCustomerName?.trim();
+          if (!customerIdentifier) {
+            throw new Error('客户专属成品或带客户 SKU 编码的成品，必须填写所属客户编码或所属客户名称');
+          }
+          brandCustomerId = this.resolveImportedCustomerId(
+            row.brandCustomerCode?.trim(),
+            row.brandCustomerName?.trim(),
+            customerMap,
+          );
+        }
+
+        const customerRefs = brandCustomerId && (row.customerSkuCode?.trim() || row.customerSkuName?.trim())
+          ? [{
+              customerId: brandCustomerId,
+              customerSkuCode: row.customerSkuCode?.trim() || this.requireCustomerSkuCodeFromName(row.customerSkuName?.trim()),
+              customerSkuName: row.customerSkuName?.trim() || undefined,
+              status: 'active' as const,
+            }]
+          : [];
+
         await this.createSku({
           skuCode:        row.skuCode?.trim() || undefined,
           name:           row.name.trim(),
@@ -399,8 +444,13 @@ export class SkuService {
           category2Id:    cat2.id,
           stockUnit:      row.stockUnit.trim(),
           purchaseUnit:   row.purchaseUnit.trim(),
-          productionUnit: row.productionUnit.trim(),
+          productionUnit: row.productionUnit?.trim() || row.stockUnit.trim(),
+          stockConvFactor,
+          prodConvNote:   row.prodConvNote?.trim() || undefined,
           safetyStock,
+          brandScope:     importedBrandScope,
+          brandCustomerId: brandCustomerId ?? undefined,
+          customerRefs,
           description:    row.description?.trim() || undefined,
         });
 
@@ -429,7 +479,7 @@ export class SkuService {
    *
    * 仅在单次 importSkus() 调用内复用，不做跨请求缓存。
    */
-  private async loadCategoryMap(): Promise<Map<string, { id: number; level: number; parentId: number | null }>> {
+  private async loadCategoryMap(): Promise<Map<string, { id: number; level: number; parentId: number | null; code: string }>> {
     const rows = await AppDataSource.query<Array<{
       id: number;
       code: string;
@@ -443,12 +493,13 @@ export class SkuService {
       [this.repo.tenantId],
     );
 
-    const map = new Map<string, { id: number; level: number; parentId: number | null }>();
+    const map = new Map<string, { id: number; level: number; parentId: number | null; code: string }>();
     for (const row of rows) {
       const entry = {
         id:       Number(row.id),
         level:    Number(row.level),
         parentId: row.parent_id != null ? Number(row.parent_id) : null,
+        code:     row.code,
       };
       // 按中文 name 索引（支持用户在 Excel 中填写 "原材料" 等中文名称）
       if (row.name) {
@@ -460,6 +511,86 @@ export class SkuService {
       }
     }
     return map;
+  }
+
+  private async loadCustomerMap(): Promise<{
+    byCode: Map<string, { id: number; code: string; name: string }>;
+    byName: Map<string, { id: number; code: string; name: string } | 'AMBIGUOUS'>;
+  }> {
+    const rows = await AppDataSource.query<Array<{ id: number; code: string; name: string }>>(
+      `SELECT id, code, name
+       FROM customers
+       WHERE tenant_id = ? AND status = 'active'`,
+      [this.repo.tenantId],
+    );
+
+    const byCode = new Map<string, { id: number; code: string; name: string }>();
+    const byName = new Map<string, { id: number; code: string; name: string } | 'AMBIGUOUS'>();
+
+    for (const row of rows) {
+      const entry = {
+        id: Number(row.id),
+        code: row.code,
+        name: row.name,
+      };
+      if (row.code) {
+        byCode.set(row.code.toUpperCase(), entry);
+      }
+      if (row.name) {
+        const existing = byName.get(row.name);
+        byName.set(row.name, existing ? 'AMBIGUOUS' : entry);
+      }
+    }
+
+    return { byCode, byName };
+  }
+
+  private normalizeImportedBrandScope(value?: string): 'factory' | 'customer' | undefined {
+    const normalized = value?.trim();
+    if (!normalized) return undefined;
+    const lower = normalized.toLowerCase();
+    if (lower === 'factory' || normalized === '工厂自主品牌' || normalized === '自主品牌' || normalized === '工厂') {
+      return 'factory';
+    }
+    if (lower === 'customer' || normalized === '客户专属') {
+      return 'customer';
+    }
+    throw new Error(`品牌归属取值不正确: ${normalized}`);
+  }
+
+  private resolveImportedCustomerId(
+    customerCode: string | undefined,
+    customerName: string | undefined,
+    customerMap: {
+      byCode: Map<string, { id: number; code: string; name: string }>;
+      byName: Map<string, { id: number; code: string; name: string } | 'AMBIGUOUS'>;
+    },
+  ): number {
+    if (customerCode) {
+      const matchedByCode = customerMap.byCode.get(customerCode.toUpperCase());
+      if (!matchedByCode) {
+        throw new Error(`所属客户编码 "${customerCode}" 不存在或未启用`);
+      }
+      return matchedByCode.id;
+    }
+
+    if (customerName) {
+      const matchedByName = customerMap.byName.get(customerName);
+      if (!matchedByName) {
+        throw new Error(`所属客户名称 "${customerName}" 不存在或未启用`);
+      }
+      if (matchedByName === 'AMBIGUOUS') {
+        throw new Error(`所属客户名称 "${customerName}" 匹配到多个客户，请改填所属客户编码`);
+      }
+      return matchedByName.id;
+    }
+
+    throw new Error('未提供所属客户编码或所属客户名称');
+  }
+
+  private requireCustomerSkuCodeFromName(customerSkuName?: string): string {
+    void customerSkuName;
+    throw new Error('客户SKU编码不能为空');
   }
 
   private async generateSkuCode(cat1Id: number, cat2Id: number): Promise<string> {

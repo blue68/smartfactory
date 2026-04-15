@@ -16,19 +16,48 @@ import {
   SKU_DEPRECIATION_METHODS,
 } from './sku.types';
 
-// ─── CSV 模板默认列顺序 ─────────────────────────────────────────────────────────
-// SKU编码,物料名称,规格型号,一级分类,二级分类,基本单位,采购单位,计价单位,安全库存,状态,备注
+// ─── SKU 导入模板默认列顺序 ─────────────────────────────────────────────────────
+const IMPORT_TEMPLATE_COLUMNS = [
+  '物料名称',
+  '规格描述',
+  '一级分类',
+  '二级品类',
+  '采购单位',
+  '库存单位',
+  '库存换算系数',
+  '生产领用单位',
+  '领用换算说明',
+  '安全库存',
+  '品牌归属',
+  '所属客户编码',
+  '所属客户名称',
+  '客户SKU编码',
+  '客户SKU名称',
+  '备注',
+] as const;
+
 const DEFAULT_COLUMN_MAP: Record<string, keyof ImportSkuRow> = {
   'SKU编码':  'skuCode',
   '物料名称': 'name',
   '规格型号': 'spec',
+  '规格描述': 'spec',
   '一级分类': 'category1Code',
   '二级分类': 'category2Code',
+  '二级品类': 'category2Code',
   '基本单位': 'stockUnit',
+  '库存单位': 'stockUnit',
   '采购单位': 'purchaseUnit',
   '计价单位': 'productionUnit',
+  '生产领用单位': 'productionUnit',
+  '库存换算系数': 'stockConvFactor',
+  '领用换算说明': 'prodConvNote',
   '安全库存': 'safetyStock',
   '状态':    'status',
+  '品牌归属': 'brandScope',
+  '所属客户编码': 'brandCustomerCode',
+  '所属客户名称': 'brandCustomerName',
+  '客户SKU编码': 'customerSkuCode',
+  '客户SKU名称': 'customerSkuName',
   '备注':    'description',
 };
 
@@ -143,6 +172,67 @@ const UnitConversionSchema = z.object({
 export class SkuController {
   private svc(req: Request): SkuService {
     return new SkuService({ tenantId: req.tenantId, userId: req.userId });
+  }
+
+  async downloadImportTemplate(_req: Request, res: Response): Promise<void> {
+    const dataSheet = XLSX.utils.aoa_to_sheet([Array.from(IMPORT_TEMPLATE_COLUMNS)]);
+    dataSheet['!cols'] = [
+      { wch: 22 },
+      { wch: 22 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 18 },
+      { wch: 12 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 22 },
+      { wch: 28 },
+    ];
+
+    const guideSheet = XLSX.utils.aoa_to_sheet([
+      ['字段', '是否必填', '说明', '示例'],
+      ['物料名称', '是', '对应新增 SKU 的物料名称', '品牌沙发成品-01'],
+      ['规格描述', '否', '对应新增 SKU 的规格描述', '三人位 / 200×2400mm'],
+      ['一级分类', '是', '支持填一级类目中文名或编码', '成品 / FINISHED'],
+      ['二级品类', '是', '支持填二级类目中文名或编码，且必须属于上方一级分类', '沙发成品 / SOFA'],
+      ['采购单位', '是', '对应采购单位', '套'],
+      ['库存单位', '是', '对应库存单位', '套'],
+      ['库存换算系数', '否', '1 采购单位 = N 库存单位；留空默认 1', '1'],
+      ['生产领用单位', '否', '留空时默认等于库存单位', '套'],
+      ['领用换算说明', '否', '对应新增页中的换算说明', '按套领用'],
+      ['安全库存', '否', '最多支持 4 位小数；留空默认 0', '3'],
+      ['品牌归属', '否', '仅一级分类=成品时生效；支持 工厂自主品牌/factory、客户专属/customer', '工厂自主品牌'],
+      ['所属客户编码', '条件必填', '品牌归属=客户专属，或需要维护客户 SKU 编码时填写；优先按客户编码匹配', 'CUST-001'],
+      ['所属客户名称', '条件必填', '当未填写所属客户编码时，可按客户名称精确匹配；若重名会报错', '华东家居'],
+      ['客户SKU编码', '否', '如需维护客户侧 SKU 编码时填写；填写后需同时提供所属客户编码/名称', 'CUS-SKU-001'],
+      ['客户SKU名称', '否', '客户侧展示名称，可与客户 SKU 编码配合导入', '华东沙发-A款'],
+      ['备注', '否', '对应新增 SKU 的备注', '品牌样品首发款'],
+      ['系统编码', '无需填写', 'SKU 编码由系统自动生成，模板中已移除', ''],
+      ['业务大类/控制模式/仓库类型', '无需填写', '系统会根据一级分类自动带出默认规则', ''],
+      ['损耗品档案/固定资产档案', '按页面单独维护', '批量导入模板当前仅覆盖新增页的通用字段与成品品牌字段', ''],
+    ]);
+    guideSheet['!cols'] = [
+      { wch: 18 },
+      { wch: 12 },
+      { wch: 62 },
+      { wch: 28 },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, dataSheet, 'SKU导入模板');
+    XLSX.utils.book_append_sheet(wb, guideSheet, '填写说明');
+
+    const xlsxBuf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=sku-import-template.xlsx');
+    res.setHeader('Content-Length', String(xlsxBuf.length));
+    res.end(xlsxBuf);
   }
 
   async list(req: Request, res: Response): Promise<void> {

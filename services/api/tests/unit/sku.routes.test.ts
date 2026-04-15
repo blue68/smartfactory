@@ -23,6 +23,7 @@ jest.mock('../../src/modules/sku/sku.controller', () => ({
     getStats: jest.fn(),
     list: jest.fn(),
     exportExcel: jest.fn(),
+    downloadImportTemplate: jest.fn(),
     importSkus: jest.fn(),
     getOne: jest.fn(),
     create: jest.fn(),
@@ -61,11 +62,14 @@ describe('sku.routes wiring', () => {
       .map((layer: any) => layer.route.path);
 
     expect(routePaths.indexOf('/export')).toBeLessThan(routePaths.indexOf('/:id'));
+    expect(routePaths.indexOf('/import-template')).toBeLessThan(routePaths.indexOf('/:id'));
     expect(routePaths.indexOf('/import')).toBeLessThan(routePaths.indexOf('/:id'));
   });
 
   it('declares expected permission guards for sku routes', () => {
     expect(getRouteGuard('/', 'get')?.requiredPermissions).toEqual(['sku:view']);
+    expect(getRouteGuard('/import-template', 'get')?.requiredPermissions).toEqual(['sku:create']);
+    expect(getRouteGuard('/import-template', 'get')?.allowedRoles).toEqual(['boss', 'purchaser']);
     expect(getRouteGuard('/import', 'post')?.requiredPermissions).toEqual(['sku:create']);
     expect(getRouteGuard('/import', 'post')?.allowedRoles).toEqual(['boss', 'purchaser']);
     expect(getRouteGuard('/', 'post')?.requiredPermissions).toEqual(['sku:create']);
