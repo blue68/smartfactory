@@ -116,14 +116,19 @@ function DyeLotPanel({
     );
   }
 
-  // 使用真实 API 数据，或 fallback 到 mock（后端尚未支持该字段时）
-  const lots: DyeLot[] = data?.length
-    ? data
-    : [
-        { dyeLotNo: 'DY-2026-001', firstInAt: '2026-01-05', lastInAt: '2026-01-05', qtyOnHand: '32', qtyReserved: '0', qtyAvailable: '32' },
-        { dyeLotNo: 'DY-2026-002', firstInAt: '2026-02-18', lastInAt: '2026-02-18', qtyOnHand: '18', qtyReserved: '0', qtyAvailable: '18' },
-        { dyeLotNo: 'DY-2025-088', firstInAt: '2025-11-20', lastInAt: '2025-11-20', qtyOnHand: '5',  qtyReserved: '0', qtyAvailable: '5'  },
-      ];
+  const lots: DyeLot[] = data ?? [];
+
+  if (lots.length === 0) {
+    return (
+      <div className={styles.dye_lot_inner}>
+        <div className={styles.dye_lot_title}>
+          <span aria-hidden="true">🎨</span>
+          缸号批次明细 — {skuName}
+        </div>
+        <div className={styles.sub_note}>当前没有缸号批次库存记录。</div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.dye_lot_inner}>
@@ -1118,16 +1123,16 @@ export default function InventoryPage() {
                               </div>
                               <div className={styles.sku_code}>SKU: {item.skuCode}</div>
                               <div className={styles.sub_note}>
-                                {item.warehouseCode && item.locationCode
-                                  ? `${item.warehouseCode}/${item.locationCode}${item.isDefaultLocation ? '（默认）' : ''}`
+                                {(item.warehouseName || item.warehouseCode) && (item.locationCode || item.locationName)
+                                  ? `${item.warehouseName ?? item.warehouseCode} / ${item.locationCode ?? item.locationName}${item.isDefaultLocation ? '（默认）' : ''}`
                                   : '未绑定（需修复）'}
                               </div>
                             </td>
 
-                            {/* 分类 — 暂无 category2Name 直接显示，从 skuCode 前缀推断或留空 */}
+                            {/* 分类 */}
                             <td className={styles.td}>
                               <Tag variant="neutral">
-                                {getCategoryLabel(item.skuCode)}
+                                {item.category2Name ?? item.category1Name ?? getCategoryLabel(item.skuCode)}
                               </Tag>
                             </td>
 

@@ -206,6 +206,16 @@ function CopyBomBtn({ row }: { row: BomListRow }) {
   );
 }
 
+function suggestNextBomVersion(version?: string | null): string {
+  const current = version?.trim();
+  if (!current) return '1.1';
+  const match = current.match(/^(\d+)(?:\.(\d+))?$/);
+  if (!match) return `${current}-copy`;
+  const major = Number(match[1]);
+  const minor = Number(match[2] ?? '0');
+  return `${major}.${minor + 1}`;
+}
+
 /* ──────────────────────────────────────────────────────────────
    辅助：向导 Modal（4步骤 + SKU 选择）
 ────────────────────────────────────────────────────────────── */
@@ -363,7 +373,7 @@ function WizardModal({ open, onClose, onComplete, skuItems, submitting }: Wizard
   };
 
   /* ── Step 2：同步来自 Step 1 勾选项的用量（在 Step 3 确认时合并） ── */
-  const QTY_REGEX = /^\d+(\.\d{1,4})?$/;
+  const QTY_REGEX = /^\d+(\.\d{1,6})?$/;
   const getFinalItems = (): Array<{ componentSkuId: number; quantity: string; unit: string }> | null => {
     const aiSelected = aiItems
       .filter(item => item.checked)
@@ -1005,6 +1015,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
   const deleteBomItem = useDeleteBomItem();
   const activateBom = useActivateBom();
   const updateBomItem = useUpdateBomItem();
+  const copyBom = useCopyBom();
 
   // 激活确认对话框状态
   const [activateConfirmOpen, setActivateConfirmOpen] = useState(false);
@@ -1023,6 +1034,8 @@ function EditorView({ row, onBack }: EditorViewProps) {
   const [editVersion, setEditVersion] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const updateBom = useUpdateBom();
+  const [copyForEditOpen, setCopyForEditOpen] = useState(false);
+  const [copyForEditVersion, setCopyForEditVersion] = useState('');
 
   // TASK-BOM-03: 物料需求计算弹框状态
   const [calcReqOpen, setCalcReqOpen] = useState(false);
@@ -1091,6 +1104,26 @@ function EditorView({ row, onBack }: EditorViewProps) {
     setEditVersion(detailData?.version ?? '');
     setEditDesc(detailData?.description ?? '');
     setEditInfoOpen(true);
+  };
+
+  const openCopyForEdit = () => {
+    setCopyForEditVersion(suggestNextBomVersion(detailData?.version));
+    setCopyForEditOpen(true);
+  };
+
+  const handleCopyForEdit = async () => {
+    const trimmed = copyForEditVersion.trim();
+    if (!trimmed) {
+      showToast({ type: 'error', message: '请输入新版本号' });
+      return;
+    }
+    try {
+      await copyBom.mutateAsync({ id: row.id, newVersion: trimmed });
+      showToast({ type: 'success', message: `已复制为新草稿版本 ${trimmed}，请返回列表继续编辑` });
+      setCopyForEditOpen(false);
+    } catch {
+      showToast({ type: 'error', message: '复制失败，请稍后重试' });
+    }
   };
 
   const handleSaveInfo = async () => {
@@ -1199,6 +1232,36 @@ function EditorView({ row, onBack }: EditorViewProps) {
         </div>
       </Modal>
 
+      <Modal
+        open={copyForEditOpen}
+        title="复制为新草稿"
+        onClose={() => setCopyForEditOpen(false)}
+        onConfirm={handleCopyForEdit}
+        confirmLabel={copyBom.isPending ? '复制中...' : '确认复制'}
+        cancelLabel="取消"
+        size="sm"
+      >
+        <p style={{ fontSize: '0.9375rem', color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: '0.75rem' }}>
+          当前 BOM 已处于<strong>{row.status === BomStatus.ACTIVE ? '已激活' : '已归档'}</strong>状态，不能直接修改物料用量。
+        </p>
+        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '1rem' }}>
+          建议先复制出一个新草稿版本，修改完成后再重新激活。现有版本会继续保留，避免影响历史追溯和在途使用。
+        </p>
+        <div>
+          <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+            新版本号
+          </label>
+          <input
+            type="text"
+            value={copyForEditVersion}
+            onChange={(e) => setCopyForEditVersion(e.target.value)}
+            placeholder="例如：1.1、2.0"
+            autoFocus
+            style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', boxSizing: 'border-box' }}
+          />
+        </div>
+      </Modal>
+
       {/* 激活确认弹框 */}
       <Modal
         open={activateConfirmOpen}
@@ -1239,7 +1302,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
         onClose={() => setEditQtyOpen(false)}
         onConfirm={async () => {
           if (!selectedItem) return;
-          const qtyRegex = /^\d+(\.\d{1,4})?$/;
+          const qtyRegex = /^\d+(\.\d{1,6})?$/;
           const trimmedQty = editQtyValue.trim();
           if (!qtyRegex.test(trimmedQty) || Number(trimmedQty) <= 0) {
             showToast({ type: 'error', message: '用量格式不正确，请输入大于0的正数（最多4位小数）' });
@@ -1522,7 +1585,12 @@ function EditorView({ row, onBack }: EditorViewProps) {
               {activateBom.isPending ? '激活中...' : '激活'}
             </Button>
           )}
-          <Button variant="primary" onClick={() => setAddMatOpen(true)}>
+          {row.status !== BomStatus.DRAFT && (
+            <Button variant="secondary" onClick={openCopyForEdit}>
+              复制为新草稿
+            </Button>
+          )}
+          <Button variant="primary" onClick={() => setAddMatOpen(true)} disabled={row.status !== BomStatus.DRAFT}>
             + 新增物料
           </Button>
           {/* BOM-REM-001: 编辑信息入口，调用 useUpdateBom */}
@@ -1558,6 +1626,32 @@ function EditorView({ row, onBack }: EditorViewProps) {
           </Button>
         </div>
       </div>
+
+      {row.status !== BomStatus.DRAFT && (
+        <div
+          style={{
+            marginTop: '1rem',
+            marginBottom: '1rem',
+            padding: '0.875rem 1rem',
+            borderRadius: 'var(--radius-lg)',
+            border: '1px solid rgba(245, 158, 11, 0.28)',
+            background: 'rgba(255, 247, 237, 0.95)',
+            color: 'var(--text-primary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+          }}
+        >
+          <div style={{ fontSize: '0.875rem', lineHeight: 1.6 }}>
+            当前 BOM 已{row.status === BomStatus.ACTIVE ? '激活' : '归档'}，物料新增、删除和用量修改已锁定。
+            如需调整，请先复制为新草稿，修改后再重新激活。
+          </div>
+          <Button variant="secondary" size="sm" onClick={openCopyForEdit}>
+            复制后编辑
+          </Button>
+        </div>
+      )}
 
       {/* 左右分栏 */}
       <div className={styles.bom_editor}>
@@ -1625,7 +1719,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
                   </span>
                 </div>
                 <div className={styles.detail_actions}>
-                  <Button variant="secondary" size="sm" onClick={() => {
+                  <Button variant="secondary" size="sm" disabled={row.status !== BomStatus.DRAFT} onClick={() => {
                     if (selectedItem) {
                       setEditQtyValue(selectedItem.quantity);
                       setEditUnitValue(selectedItem.unit);
@@ -1639,12 +1733,17 @@ function EditorView({ row, onBack }: EditorViewProps) {
                     variant="ghost"
                     size="sm"
                     className={styles.btn_delete}
-                    disabled={deleteBomItem.isPending}
+                    disabled={deleteBomItem.isPending || row.status !== BomStatus.DRAFT}
                     onClick={handleDeleteItem}
                   >
                     {deleteBomItem.isPending ? '删除中...' : '删除此物料'}
                   </Button>
                 </div>
+                {row.status !== BomStatus.DRAFT && (
+                  <div style={{ marginTop: '0.75rem', fontSize: '0.8125rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    当前版本不可直接修改此物料；请使用上方“复制为新草稿”后再调整用量。
+                  </div>
+                )}
               </>
             ) : isBomEmpty ? (
               <div style={{ padding: '1.5rem 0', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>

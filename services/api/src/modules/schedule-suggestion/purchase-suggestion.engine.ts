@@ -195,7 +195,11 @@ export class PurchaseSuggestionEngine {
     // 批量查询供应商报价
     const supplierPriceRows = await AppDataSource.query<(SupplierPriceRow & { sku_id: number })[]>(
       `SELECT sp.sku_id, sp.supplier_id, sup.name AS supplier_name,
-              sp.price AS unit_price, NULL AS lead_time_days
+              sp.price AS unit_price,
+              CASE
+                WHEN sp.purchase_cycle_days IS NULL AND sp.transport_cycle_days IS NULL THEN NULL
+                ELSE COALESCE(sp.purchase_cycle_days, 0) + COALESCE(sp.transport_cycle_days, 0)
+              END AS lead_time_days
        FROM supplier_prices sp
        INNER JOIN suppliers sup ON sup.id = sp.supplier_id AND sup.tenant_id = sp.tenant_id
        WHERE sp.sku_id IN (${skuPlaceholders}) AND sp.tenant_id = ?

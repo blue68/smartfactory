@@ -6,7 +6,7 @@ import { success, created } from '../../shared/ApiResponse';
 const CreateBomItemSchema: z.ZodType<any> = z.lazy(() =>
   z.object({
     componentSkuId: z.number().int().positive(),
-    quantity: z.string().regex(/^\d+(\.\d{1,4})?$/).refine((v) => Number(v) > 0, { message: '用量必须大于0' }),
+    quantity: z.string().regex(/^\d+(\.\d{1,6})?$/).refine((v) => Number(v) > 0, { message: '用量必须大于0' }),
     unit: z.string().trim().min(1).max(20),
     scrapRate: z.string().regex(/^0(\.\d{1,4})?$/).optional(),
     sortOrder: z.number().int().min(0).optional(),
@@ -28,7 +28,7 @@ const CalcRequirementsSchema = z.object({
 
 const AddBomItemSchema = z.object({
   componentSkuId: z.coerce.number().int().positive(),
-  quantity: z.string().regex(/^\d+(\.\d{1,4})?$/).refine((v) => Number(v) > 0, { message: '用量必须大于0' }),
+  quantity: z.string().regex(/^\d+(\.\d{1,6})?$/).refine((v) => Number(v) > 0, { message: '用量必须大于0' }),
   unit: z.string().trim().min(1).max(20),
   // scrapRate 必须在 0~0.9999 之间（与 CreateBomItemSchema 对齐）
   scrapRate: z.string().regex(/^0(\.\d{1,4})?$/).optional(),
@@ -67,7 +67,7 @@ const CopyBomSchema = z.object({
 
 // V2-S2: BOM 明细行字段更新 Schema
 const UpdateBomItemSchema = z.object({
-  quantity:  z.string().regex(/^\d+(\.\d{1,4})?$/).refine((v) => Number(v) > 0, { message: '用量必须大于0' }).optional(),
+  quantity:  z.string().regex(/^\d+(\.\d{1,6})?$/).refine((v) => Number(v) > 0, { message: '用量必须大于0' }).optional(),
   unit:      z.string().trim().min(1).max(20).optional(),
   scrapRate: z.string().regex(/^0(\.\d{1,4})?$/).optional(),
 }).refine(

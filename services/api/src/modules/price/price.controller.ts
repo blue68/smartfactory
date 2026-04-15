@@ -17,6 +17,8 @@ const CreateSchema = z.object({
   unitPrice: z.string().regex(/^\d+(\.\d{1,4})?$/),
   purchaseUnit: z.string().min(1).max(20),
   moq: z.number().int().nonnegative().optional(),
+  purchaseCycleDays: z.number().int().nonnegative().optional(),
+  transportCycleDays: z.number().int().nonnegative().optional(),
   validFrom: z.string().optional(),
   validTo: z.string().optional(),
   notes: z.string().max(2000).optional(),

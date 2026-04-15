@@ -37,6 +37,12 @@ export class PriceEntity {
   @Column({ type: 'int', unsigned: true, nullable: true })
   moq: number | null;
 
+  @Column({ name: 'purchase_cycle_days', type: 'int', unsigned: true, nullable: true })
+  purchaseCycleDays: number | null;
+
+  @Column({ name: 'transport_cycle_days', type: 'int', unsigned: true, nullable: true })
+  transportCycleDays: number | null;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 

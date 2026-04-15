@@ -75,6 +75,8 @@ export interface InventorySnapshot {
   skuId: number;
   skuCode: string;
   skuName: string;
+  category1Name?: string | null;
+  category2Name?: string | null;
   qtyOnHand: string;
   qtyReserved: string;
   qtyInTransit: string;
@@ -1457,6 +1459,8 @@ export class InventoryService {
     const [rows, countRows] = await Promise.all([
       AppDataSource.query<any[]>(
         `SELECT s.id AS skuId, s.sku_code AS skuCode, s.name AS skuName,
+                c1.name AS category1Name,
+                c2.name AS category2Name,
                 s.stock_unit AS stockUnit, s.purchase_unit AS purchaseUnit,
                 COALESCE(uc.conversion_rate, s.stock_conv_factor) AS stockConvFactor,
                 s.safety_stock AS safetyStock, s.has_dye_lot AS hasDyeLot,
@@ -1475,6 +1479,12 @@ export class InventoryService {
           AND uc.tenant_id = s.tenant_id
           AND uc.from_unit = s.purchase_unit
           AND uc.to_unit = s.stock_unit
+         LEFT JOIN sku_categories c1
+           ON c1.id = s.category1_id
+          AND c1.tenant_id IN (0, s.tenant_id)
+         LEFT JOIN sku_categories c2
+           ON c2.id = s.category2_id
+          AND c2.tenant_id IN (0, s.tenant_id)
          LEFT JOIN inventory inv ON inv.sku_id = s.id AND inv.tenant_id = s.tenant_id
          LEFT JOIN warehouses w ON w.id = inv.warehouse_id AND w.tenant_id = inv.tenant_id
          LEFT JOIN locations l ON l.id = inv.location_id AND l.tenant_id = inv.tenant_id

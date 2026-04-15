@@ -395,6 +395,10 @@ function getAssetTrackingModeLabel(value?: Sku['assetTrackingMode'] | ''): strin
   }
 }
 
+function toBooleanFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
 function toEditableConsumableProfile(profile?: ConsumableProfile | null): EditableConsumableProfile {
   return {
     issueMode: profile?.issueMode ?? 'department_issue',
@@ -540,6 +544,13 @@ export default function SkuPage() {
   const cat2Options = useMemo(
     () => catData.filter((c) => c.level === 2),
     [catData],
+  );
+  const filterCat2Options = useMemo(
+    () => {
+      if (!query.category1Id) return cat2Options;
+      return cat2Options.filter((category) => Number(category.parentId) === Number(query.category1Id));
+    },
+    [cat2Options, query.category1Id],
   );
 
   // 选中 category1Code 时的二级分类列表（表单内）
@@ -885,7 +896,7 @@ export default function SkuPage() {
           <div className={styles.sku_name_cell}>
             <div className={styles.sku_name_row}>
               <span className={styles.sku_name_text}>{sku.name}</span>
-              {sku.hasDyeLot && (
+              {toBooleanFlag(sku.hasDyeLot) && (
                 <span className={styles.dye_lot_tag}>需缸号管理</span>
               )}
             </div>
@@ -1181,7 +1192,10 @@ export default function SkuPage() {
         <select
           className={styles.filter_select}
           value={query.category1Id ?? ''}
-          onChange={(e) => setFilter({ category1Id: e.target.value ? Number(e.target.value) : undefined })}
+          onChange={(e) => setFilter({
+            category1Id: e.target.value ? Number(e.target.value) : undefined,
+            category2Id: undefined,
+          })}
           aria-label="一级分类筛选"
         >
           <option value="">全部分类</option>
@@ -1198,7 +1212,7 @@ export default function SkuPage() {
           aria-label="二级品类筛选"
         >
           <option value="">全部二级品类</option>
-          {cat2Options.map((c) => (
+          {filterCat2Options.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
@@ -2298,6 +2312,17 @@ function SkuDetailContent({
     || !category2Text
     || category2Text === '未分类';
   const showBrandingSection = isFinishedSkuRecord(sku);
+  const hasDyeLot = toBooleanFlag(sku.hasDyeLot);
+  const useFifo = toBooleanFlag(sku.useFifo);
+  const allowBomComponent = typeof sku.allowBomComponent === 'boolean'
+    ? sku.allowBomComponent
+    : (sku.allowBomComponent == null ? undefined : toBooleanFlag(sku.allowBomComponent));
+  const allowPurchase = typeof sku.allowPurchase === 'boolean'
+    ? sku.allowPurchase
+    : (sku.allowPurchase == null ? undefined : toBooleanFlag(sku.allowPurchase));
+  const requiresAssetAcceptance = typeof sku.requiresAssetAcceptance === 'boolean'
+    ? sku.requiresAssetAcceptance
+    : (sku.requiresAssetAcceptance == null ? undefined : toBooleanFlag(sku.requiresAssetAcceptance));
 
   return (
     <div>
@@ -2419,19 +2444,19 @@ function SkuDetailContent({
           <div className={styles.detail_item}>
             <div className={styles.detail_item_label}>BOM准入</div>
             <div className={styles.detail_item_value}>
-              {typeof sku.allowBomComponent === 'boolean' ? (sku.allowBomComponent ? '允许' : '禁止') : '未配置'}
+              {typeof allowBomComponent === 'boolean' ? (allowBomComponent ? '允许' : '禁止') : '未配置'}
             </div>
           </div>
           <div className={styles.detail_item}>
             <div className={styles.detail_item_label}>允许采购</div>
             <div className={styles.detail_item_value}>
-              {typeof sku.allowPurchase === 'boolean' ? (sku.allowPurchase ? '是' : '否') : '未配置'}
+              {typeof allowPurchase === 'boolean' ? (allowPurchase ? '是' : '否') : '未配置'}
             </div>
           </div>
           <div className={styles.detail_item}>
             <div className={styles.detail_item_label}>资产验收要求</div>
             <div className={styles.detail_item_value}>
-              {typeof sku.requiresAssetAcceptance === 'boolean' ? (sku.requiresAssetAcceptance ? '必需' : '否') : '未配置'}
+              {typeof requiresAssetAcceptance === 'boolean' ? (requiresAssetAcceptance ? '必需' : '否') : '未配置'}
             </div>
           </div>
         </div>
@@ -2441,9 +2466,9 @@ function SkuDetailContent({
       <div className={styles.detail_section}>
         <div className={styles.detail_section_title}>特殊属性</div>
         <div className={styles.detail_tag_list}>
-          {sku.hasDyeLot && <Tag variant="dye-lot">需缸号管理</Tag>}
-          {sku.useFifo && <Tag variant="info">FIFO先进先出</Tag>}
-          {!sku.hasDyeLot && !sku.useFifo && <span style={{ color: '#9ca3af', fontSize: 13 }}>无特殊属性</span>}
+          {hasDyeLot && <Tag variant="dye-lot">需缸号管理</Tag>}
+          {useFifo && <Tag variant="info">FIFO先进先出</Tag>}
+          {!hasDyeLot && !useFifo && <span style={{ color: '#9ca3af', fontSize: 13 }}>无特殊属性</span>}
         </div>
       </div>
 

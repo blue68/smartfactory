@@ -23,6 +23,8 @@ export interface ImportPriceRow {
   unitPrice: string;
   purchaseUnit: string;
   moq?: string;
+  purchaseCycleDays?: string;
+  transportCycleDays?: string;
   validFrom?: string;
   validTo?: string;
 }
@@ -54,6 +56,8 @@ export interface CreatePriceParams {
   unitPrice: string;
   purchaseUnit: string;
   moq?: number;
+  purchaseCycleDays?: number;
+  transportCycleDays?: number;
   validFrom?: string;
   validTo?: string;
   notes?: string;
@@ -70,6 +74,26 @@ export class PriceService {
   constructor(ctx: { tenantId: number; userId: number }) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+  }
+
+  private parseCycleDays(raw: string | undefined, column: string, rowNo: number): {
+    value: number | null;
+    error?: ImportErrorDetail;
+  } {
+    if (!raw || raw.trim() === '') {
+      return { value: null };
+    }
+
+    const normalized = raw.trim().replace(/\s+/g, '');
+    const match = normalized.match(/^(\d+)(天)?$/);
+    if (!match) {
+      return {
+        value: null,
+        error: { row: rowNo, column, message: `${column}格式非法: ${raw}`, type: 'error' },
+      };
+    }
+
+    return { value: Number(match[1]) };
   }
 
   async list(filter: PriceListFilter): Promise<[any[], number]> {
@@ -90,6 +114,8 @@ export class PriceService {
         'p.effective_at AS validFrom',
         'p.expired_at AS validTo',
         'p.moq AS moq',
+        'p.purchase_cycle_days AS purchaseCycleDays',
+        'p.transport_cycle_days AS transportCycleDays',
         'p.notes AS notes',
         'p.tax_rate AS taxRate',
         'p.batch_pricing AS batchPricing',
@@ -160,6 +186,8 @@ export class PriceService {
         effectiveAt: params.validFrom ?? null,
         expiredAt: params.validTo ?? null,
         moq: params.moq || null,
+        purchaseCycleDays: params.purchaseCycleDays ?? null,
+        transportCycleDays: params.transportCycleDays ?? null,
         notes: params.notes ?? null,
         taxRate: params.taxRate ?? null,
         batchPricing: params.batchPricing ?? false,
@@ -195,6 +223,8 @@ export class PriceService {
       ...(params.validFrom !== undefined ? { effectiveAt: params.validFrom } : {}),
       ...(params.validTo !== undefined ? { expiredAt: params.validTo } : {}),
       ...(params.moq !== undefined ? { moq: params.moq || null } : {}),
+      ...(params.purchaseCycleDays !== undefined ? { purchaseCycleDays: params.purchaseCycleDays ?? null } : {}),
+      ...(params.transportCycleDays !== undefined ? { transportCycleDays: params.transportCycleDays ?? null } : {}),
       ...(params.notes !== undefined ? { notes: params.notes } : {}),
       ...(params.taxRate !== undefined ? { taxRate: params.taxRate } : {}),
       ...(params.batchPricing !== undefined ? { batchPricing: params.batchPricing } : {}),
@@ -215,21 +245,21 @@ export class PriceService {
   generateImportTemplate(): Buffer {
     const header = [
       '供应商编码*', 'SKU编码*', '单价*', '采购单位*',
-      '最小起订量', '生效日期(YYYY-MM-DD)', '失效日期(YYYY-MM-DD)',
+      '最小起订量', '采购周期(天)', '运输周期(天)', '生效日期(YYYY-MM-DD)', '失效日期(YYYY-MM-DD)',
     ];
     const exampleRow = [
       'SUP-001', 'SKU-0001', '88.50', '件',
-      '100', '2026-01-01', '2026-12-31',
+      '100', '5', '2', '2026-01-01', '2026-12-31',
     ];
     const noteRow = [
-      '说明: 带*为必填; 单价保留最多4位小数; 日期格式YYYY-MM-DD; 上限5000行',
-      '', '', '', '', '', '',
+      '说明: 带*为必填; 单价保留最多4位小数; 周期填写整数天数或“X天”; 日期格式YYYY-MM-DD; 上限5000行',
+      '', '', '', '', '', '', '', '',
     ];
 
     const ws = XLSX.utils.aoa_to_sheet([header, exampleRow, noteRow]);
     ws['!cols'] = [
       { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 12 },
-      { wch: 12 }, { wch: 22 }, { wch: 22 },
+      { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 22 },
     ];
 
     const wb = XLSX.utils.book_new();
@@ -321,6 +351,10 @@ export class PriceService {
         '单价*':      'unitPrice',    '单价':      'unitPrice',
         '采购单位*':  'purchaseUnit', '采购单位':  'purchaseUnit',
         '最小起订量':             'moq',
+        '采购周期(天)':          'purchaseCycleDays',
+        '采购周期':              'purchaseCycleDays',
+        '运输周期(天)':          'transportCycleDays',
+        '运输周期':              'transportCycleDays',
         '生效日期(YYYY-MM-DD)':  'validFrom',
         '失效日期(YYYY-MM-DD)':  'validTo',
       };
@@ -376,6 +410,7 @@ export class PriceService {
       type ValidRow = {
         rowNo: number; supplierId: number; skuId: number;
         unitPrice: string; purchaseUnit: string; moq: number | null;
+        purchaseCycleDays: number | null; transportCycleDays: number | null;
         validFrom: string | null; validTo: string | null;
         priceAnomaly: boolean;
       };
@@ -441,6 +476,17 @@ export class PriceService {
           }
         }
 
+        const purchaseCycle = this.parseCycleDays(row.purchaseCycleDays, '采购周期', rowNo);
+        if (purchaseCycle.error) {
+          errors.push(purchaseCycle.error);
+          continue;
+        }
+        const transportCycle = this.parseCycleDays(row.transportCycleDays, '运输周期', rowNo);
+        if (transportCycle.error) {
+          errors.push(transportCycle.error);
+          continue;
+        }
+
         // 价格异常检测（超历史均价 20% → warning，不阻断）
         const avg = avgPriceMap.get(skuId) ?? new Decimal(0);
         const current = new Decimal(row.unitPrice);
@@ -460,6 +506,8 @@ export class PriceService {
           unitPrice: row.unitPrice,
           purchaseUnit: row.purchaseUnit,
           moq,
+          purchaseCycleDays: purchaseCycle.value,
+          transportCycleDays: transportCycle.value,
           validFrom: row.validFrom || null,
           validTo: row.validTo || null,
           priceAnomaly,
@@ -494,6 +542,8 @@ export class PriceService {
               effectiveAt: vr.validFrom,
               expiredAt: vr.validTo,
               moq: vr.moq,
+              purchaseCycleDays: vr.purchaseCycleDays,
+              transportCycleDays: vr.transportCycleDays,
               notes: vr.priceAnomaly ? '【价格异常】超历史均价20%' : null,
               createdBy: userId,
               updatedBy: userId,

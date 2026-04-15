@@ -95,6 +95,10 @@ export class BomService {
   private readonly tenantId: number;
   private readonly userId: number;
 
+  private formatBomQuantity(value: Decimal): string {
+    return value.toFixed(6).replace(/\.?0+$/, '');
+  }
+
   constructor(ctx: TenantContext) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
@@ -110,7 +114,8 @@ export class BomService {
       params.push(skuId);
     }
 
-    // 硬性上限 500 条，防止大结果集 DoS
+    // BOM 主数据页当前未接分页协议，这里保留一个足够大的保护上限，
+    // 避免像 FACTORY002 这类 1000+ 套 BOM 被静默截断成 500 条。
     const headers = await AppDataSource.query<Array<{
       id: number; sku_id: number; sku_name: string; sku_code: string; version: string; status: string; item_count: number;
     }>>(
@@ -120,7 +125,7 @@ export class BomService {
        INNER JOIN skus s ON s.id = b.sku_id
        WHERE ${conditions.join(' AND ')}
        ORDER BY b.id DESC
-       LIMIT 500`,
+       LIMIT 5000`,
       params,
     );
 
@@ -155,14 +160,94 @@ export class BomService {
   // ── BOM 递归展开核心算法（WITH RECURSIVE CTE）──────────────
 
   /**
-   * 使用 MySQL 8.0 WITH RECURSIVE 一次性展开所有层级，
-   * 然后在应用层组装为树形结构。
+   * BOM管理页采用“动态引用树”语义：
+   * - 若组件 SKU 存在 active 子 BOM，则优先按该子 BOM 继续展开
+   * - 若组件 SKU 不存在 active 子 BOM，则回退到当前 header 内联 children
    *
-   * 防循环引用：MySQL CTE 深度默认 1000，应用层额外限制到 10 层。
+   * 这样同一个半成品 BOM 被多个上层引用时，修改子 BOM 后上层展开树会同步反映最新结构。
    */
   async expandBom(bomId: number): Promise<BomItemNode[]> {
-    // 1. 用递归 CTE 取全量 BOM 明细（含路径用于检测循环引用）
-    const rows = await AppDataSource.query<Array<{
+    return this.expandBomHeader(bomId, 1, new Set<number>([bomId]));
+  }
+
+  private async expandBomHeader(
+    bomId: number,
+    levelBase: number,
+    visitedBomIds: Set<number>,
+  ): Promise<BomItemNode[]> {
+    const rows = await this.fetchBomRows(bomId);
+    return this.buildDynamicTree(rows, null, levelBase, visitedBomIds);
+  }
+
+  private async buildDynamicTree(
+    rows: Array<{
+      id: number; parent_item_id: number | null; component_sku_id: number;
+      sku_code: string; sku_name: string; spec: string | null;
+      business_class: string; control_mode: string;
+      quantity: string; unit: string; scrap_rate: string; sort_order: number;
+    }>,
+    parentId: number | null,
+    currentLevel: number,
+    visitedBomIds: Set<number>,
+  ): Promise<BomItemNode[]> {
+    const siblings = rows
+      .filter((r) => r.parent_item_id === parentId)
+      .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+
+    const result: BomItemNode[] = [];
+    for (const row of siblings) {
+      const qty = new Decimal(row.quantity);
+      const scrap = new Decimal(row.scrap_rate);
+      const netQty = qty.mul(new Decimal(1).plus(scrap));
+
+      const activeChildBomId = await this.findActiveBomIdBySku(row.component_sku_id);
+      let children: BomItemNode[] = [];
+
+      if (activeChildBomId !== null && !visitedBomIds.has(activeChildBomId)) {
+        const nextVisited = new Set(visitedBomIds);
+        nextVisited.add(activeChildBomId);
+        children = await this.expandBomHeader(activeChildBomId, currentLevel + 1, nextVisited);
+      } else {
+        children = await this.buildDynamicTree(rows, row.id, currentLevel + 1, visitedBomIds);
+      }
+
+      result.push({
+        bomItemId: Number(row.id),
+        componentSkuId: Number(row.component_sku_id),
+        skuCode: row.sku_code,
+        skuName: row.sku_name,
+        spec: row.spec,
+        quantity: this.formatBomQuantity(qty),
+        unit: row.unit,
+        scrapRate: scrap.toFixed(4),
+        netQuantity: this.formatBomQuantity(netQty),
+        businessClass: row.business_class,
+        controlMode: row.control_mode,
+        level: currentLevel,
+        children,
+      });
+    }
+
+    return result;
+  }
+
+  private async fetchBomRows(
+    bomId: number,
+  ): Promise<Array<{
+    id: number;
+    parent_item_id: number | null;
+    component_sku_id: number;
+    sku_code: string;
+    sku_name: string;
+    spec: string | null;
+    business_class: string;
+    control_mode: string;
+    quantity: string;
+    unit: string;
+    scrap_rate: string;
+    sort_order: number;
+  }>> {
+    return AppDataSource.query<Array<{
       id: number;
       parent_item_id: number | null;
       component_sku_id: number;
@@ -173,99 +258,56 @@ export class BomService {
       control_mode: string;
       quantity: string;
       unit: string;
-      level: number;
       scrap_rate: string;
       sort_order: number;
-      path: string; // 逗号拼接的祖先 sku_id 路径，用于循环检测
     }>>(
-      `WITH RECURSIVE bom_tree AS (
-         -- 锚点：第一层 BOM 明细
-         SELECT
-           bi.id,
-           bi.parent_item_id,
-           bi.component_sku_id,
-           s.sku_code,
-           s.name  AS sku_name,
-           s.spec,
-           s.business_class,
-           s.control_mode,
-           bi.quantity,
-           bi.unit,
-           bi.level,
-           bi.scrap_rate,
-           bi.sort_order,
-           CAST(bi.component_sku_id AS CHAR(500)) AS path
-         FROM bom_items bi
-         INNER JOIN skus s ON s.id = bi.component_sku_id
-         WHERE bi.bom_header_id = ? AND bi.parent_item_id IS NULL AND bi.tenant_id = ?
-
-         UNION ALL
-
-         -- 递归：子层 BOM 明细（关联子 BOM 表头）
-         SELECT
-           bi2.id,
-           bi2.parent_item_id,
-           bi2.component_sku_id,
-           s2.sku_code,
-           s2.name  AS sku_name,
-           s2.spec,
-           s2.business_class,
-           s2.control_mode,
-           bi2.quantity,
-           bi2.unit,
-           bi2.level,
-           bi2.scrap_rate,
-           bi2.sort_order,
-           CONCAT(bt.path, ',', bi2.component_sku_id) AS path
-         FROM bom_items bi2
-         INNER JOIN skus s2 ON s2.id = bi2.component_sku_id
-         INNER JOIN bom_tree bt ON bt.id = bi2.parent_item_id
-         WHERE bi2.tenant_id = ?
-           -- 防循环引用：若当前 sku_id 已在祖先路径中则停止
-           AND FIND_IN_SET(bi2.component_sku_id, bt.path) = 0
-           -- 最大10层
-           AND bi2.level <= 10
-       )
-       SELECT * FROM bom_tree ORDER BY level, sort_order`,
-      [bomId, this.tenantId, this.tenantId],
+      `SELECT
+         bi.id,
+         bi.parent_item_id,
+         bi.component_sku_id,
+         s.sku_code,
+         s.name AS sku_name,
+         s.spec,
+         s.business_class,
+         s.control_mode,
+         bi.quantity,
+         bi.unit,
+         bi.scrap_rate,
+         bi.sort_order
+       FROM bom_items bi
+       INNER JOIN skus s ON s.id = bi.component_sku_id
+       WHERE bi.bom_header_id = ? AND bi.tenant_id = ?
+       ORDER BY bi.level, bi.sort_order, bi.id`,
+      [bomId, this.tenantId],
     );
-
-    // 2. 应用层组装树形结构
-    return this.buildTree(rows, null);
   }
 
-  private buildTree(
-    rows: Array<{
-      id: number; parent_item_id: number | null; component_sku_id: number;
-      sku_code: string; sku_name: string; spec: string | null;
-      business_class: string; control_mode: string;
-      quantity: string; unit: string; level: number; scrap_rate: string; sort_order: number;
-    }>,
-    parentId: number | null,
-  ): BomItemNode[] {
-    return rows
-      .filter((r) => r.parent_item_id === parentId)
-      .map((r) => {
-        const qty = new Decimal(r.quantity);
-        const scrap = new Decimal(r.scrap_rate);
-        const netQty = qty.mul(new Decimal(1).plus(scrap));
+  private async findActiveBomIdBySku(componentSkuId: number): Promise<number | null> {
+    const [row] = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT id
+         FROM bom_headers
+        WHERE tenant_id = ? AND sku_id = ? AND status = 'active'
+        ORDER BY id DESC
+        LIMIT 1`,
+      [this.tenantId, componentSkuId],
+    );
+    return row ? Number(row.id) : null;
+  }
 
-        return {
-          bomItemId: r.id,
-          componentSkuId: r.component_sku_id,
-          skuCode: r.sku_code,
-          skuName: r.sku_name,
-          spec: r.spec,
-          quantity: qty.toFixed(4),
-          unit: r.unit,
-          scrapRate: scrap.toFixed(4),
-          netQuantity: netQty.toFixed(4),
-          businessClass: r.business_class,
-          controlMode: r.control_mode,
-          level: r.level,
-          children: this.buildTree(rows, r.id),
-        };
-      });
+  private async invalidateExpandedCache(): Promise<void> {
+    const redis = getRedisClient();
+    let cursor = '0';
+    const keys: string[] = [];
+
+    do {
+      const [nextCursor, batch] = await redis.scan(cursor, 'MATCH', `bom:${this.tenantId}:*`, 'COUNT', 500);
+      cursor = nextCursor;
+      if (Array.isArray(batch) && batch.length > 0) keys.push(...batch);
+    } while (cursor !== '0');
+
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
   }
 
   // ── 物料需求计算（BOM展开 × 生产数量）─────────────────────
@@ -308,7 +350,7 @@ export class BomService {
         stockUnit: info?.stock_unit ?? req.unit,
         purchaseUnit: info?.purchase_unit ?? req.unit,
         hasDyeLot: Boolean(info?.has_dye_lot),
-        totalQty: total.toFixed(4),
+        totalQty: this.formatBomQuantity(total),
         unit: info?.stock_unit ?? req.unit,
       };
     });
@@ -462,7 +504,7 @@ export class BomService {
       [bomId, this.tenantId],
     );
     if (header) {
-      await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, header.version));
+    await this.invalidateExpandedCache();
     }
   }
 
@@ -527,10 +569,7 @@ export class BomService {
     });
 
     // 事务提交后失效 Redis 缓存
-    await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, oldVersion!));
-    if (payload.version) {
-      await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, payload.version));
-    }
+    await this.invalidateExpandedCache();
   }
 
   // ── BE-P1-001: 删除 BOM 明细行 ──────────────────────────────
@@ -581,15 +620,7 @@ export class BomService {
 
     // 失效该 BOM 的展开缓存（在事务提交后执行）
     if (capturedBomHeaderId !== undefined) {
-      const [header] = await AppDataSource.query<Array<{ version: string }>>(
-        'SELECT version FROM bom_headers WHERE id = ? AND tenant_id = ? LIMIT 1',
-        [capturedBomHeaderId, this.tenantId],
-      );
-      if (header) {
-        await getRedisClient().del(
-          RedisKeys.bomExpanded(this.tenantId, capturedBomHeaderId, header.version),
-        );
-      }
+      await this.invalidateExpandedCache();
     }
   }
 
@@ -733,69 +764,103 @@ export class BomService {
     // 1. 先确认 BOM 存在（复用私有方法，不存在时抛 NotFound）
     await this.getBomHeader(bomId);
 
-    // 2. 按品类汇总成本
-    //    使用 supplier_prices 表（is_current=1 取 effective_at 最新的一条报价）
-    const segmentRows = await AppDataSource.query<Array<{
+    // 2. 成本占比按“动态展开后的真实叶子物料”统计，而不是按 bom_items 直子项统计。
+    const bom = await this.getBomWithExpansion(bomId);
+    const accumulator = new Map<number, { total: Decimal; unit: string }>();
+    this.traverseForCostBreakdown(bom.items, new Decimal(1), accumulator);
+
+    const skuIds = [...accumulator.keys()];
+    if (skuIds.length === 0) {
+      return { bomTotal: '0.00', segments: [], missingPriceCount: 0 };
+    }
+
+    const placeholders = skuIds.map(() => '?').join(',');
+    const skuInfoRows = await AppDataSource.query<Array<{
+      id: number;
       categoryName: string | null;
-      totalCost: string;
     }>>(
-      `SELECT
-         COALESCE(c.name, '未分类') AS categoryName,
-         SUM(
-           CAST(bi.quantity AS DECIMAL(18,4)) *
-           COALESCE(p.price, 0)
-         ) AS totalCost
-       FROM bom_items bi
-       INNER JOIN skus s ON s.id = bi.component_sku_id AND s.tenant_id = bi.tenant_id
-       LEFT JOIN sku_categories c ON c.id = s.category1_id AND c.tenant_id = bi.tenant_id
-       LEFT JOIN (
-         SELECT sku_id, price,
-           ROW_NUMBER() OVER (PARTITION BY sku_id ORDER BY effective_at DESC, id DESC) AS rn
-         FROM supplier_prices
-         WHERE tenant_id = ? AND is_current = 1
-       ) p ON p.sku_id = bi.component_sku_id AND p.rn = 1
-       WHERE bi.bom_header_id = ? AND bi.tenant_id = ?
-       GROUP BY c.id, c.name
-       ORDER BY totalCost DESC`,
-      [this.tenantId, bomId, this.tenantId],
+      `SELECT s.id, COALESCE(c2.name, c1.name, '未分类') AS categoryName
+         FROM skus s
+         LEFT JOIN sku_categories c1
+           ON c1.id = s.category1_id
+          AND c1.tenant_id IN (0, s.tenant_id)
+         LEFT JOIN sku_categories c2
+           ON c2.id = s.category2_id
+          AND c2.tenant_id IN (0, s.tenant_id)
+        WHERE s.tenant_id = ?
+          AND s.id IN (${placeholders})`,
+      [this.tenantId, ...skuIds],
     );
+    const skuInfoMap = new Map(skuInfoRows.map((row) => [Number(row.id), row]));
 
-    // 3. 统计未维护价格的物料数
-    const [missingRow] = await AppDataSource.query<Array<{ cnt: string }>>(
-      `SELECT COUNT(*) AS cnt
-       FROM bom_items bi
-       LEFT JOIN (
-         SELECT DISTINCT sku_id
-         FROM supplier_prices
-         WHERE tenant_id = ? AND is_current = 1
-       ) p ON p.sku_id = bi.component_sku_id
-       WHERE bi.bom_header_id = ? AND bi.tenant_id = ?
-         AND p.sku_id IS NULL`,
-      [this.tenantId, bomId, this.tenantId],
+    const priceRows = await AppDataSource.query<Array<{
+      sku_id: number;
+      price: string;
+    }>>(
+      `SELECT sku_id, price
+         FROM (
+           SELECT sku_id, price,
+                  ROW_NUMBER() OVER (PARTITION BY sku_id ORDER BY effective_at DESC, id DESC) AS rn
+             FROM supplier_prices
+            WHERE tenant_id = ? AND is_current = 1
+              AND sku_id IN (${placeholders})
+         ) t
+        WHERE rn = 1`,
+      [this.tenantId, ...skuIds],
     );
-    const missingPriceCount = Number(missingRow?.cnt ?? 0);
+    const priceMap = new Map(priceRows.map((row) => [Number(row.sku_id), new Decimal(row.price ?? 0)]));
 
-    // 4. 计算总成本及各品类占比
+    const categoryCostMap = new Map<string, Decimal>();
     let bomTotalDecimal = new Decimal(0);
-    const rawSegments = segmentRows.map((row) => {
-      const cost = new Decimal(row.totalCost ?? 0);
-      bomTotalDecimal = bomTotalDecimal.plus(cost);
-      return { categoryName: row.categoryName ?? '未分类', cost };
-    });
+    let missingPriceCount = 0;
 
-    const segments: CostSegment[] = rawSegments.map(({ categoryName, cost }) => ({
-      categoryName,
-      totalCost: cost.toFixed(2),
-      percentage: bomTotalDecimal.isZero()
-        ? 0
-        : Math.round(cost.div(bomTotalDecimal).mul(100).toNumber()),
-    }));
+    for (const [skuId, value] of accumulator.entries()) {
+      const price = priceMap.get(skuId);
+      if (!price) {
+        missingPriceCount += 1;
+        continue;
+      }
+      const categoryName = skuInfoMap.get(skuId)?.categoryName ?? '未分类';
+      const cost = value.total.mul(price);
+      bomTotalDecimal = bomTotalDecimal.plus(cost);
+      categoryCostMap.set(categoryName, (categoryCostMap.get(categoryName) ?? new Decimal(0)).plus(cost));
+    }
+
+    const segments: CostSegment[] = [...categoryCostMap.entries()]
+      .sort((a, b) => b[1].comparedTo(a[1]))
+      .map(([categoryName, cost]) => ({
+        categoryName,
+        totalCost: cost.toFixed(2),
+        percentage: bomTotalDecimal.isZero()
+          ? 0
+          : Math.round(cost.div(bomTotalDecimal).mul(100).toNumber()),
+      }));
 
     return {
       bomTotal: bomTotalDecimal.toFixed(2),
       segments,
       missingPriceCount,
     };
+  }
+
+  private traverseForCostBreakdown(
+    nodes: BomItemNode[],
+    parentQty: Decimal,
+    acc: Map<number, { total: Decimal; unit: string }>,
+  ): void {
+    for (const node of nodes) {
+      const nodeQty = parentQty.mul(new Decimal(node.netQuantity));
+      if (node.children.length === 0) {
+        const existing = acc.get(node.componentSkuId);
+        if (existing) {
+          existing.total = existing.total.plus(nodeQty);
+        } else {
+          acc.set(node.componentSkuId, { total: nodeQty, unit: node.unit });
+        }
+      } else {
+        this.traverseForCostBreakdown(node.children, nodeQty, acc);
+      }
+    }
   }
 
   // ── 新增 BOM 明细行（顶层，level = 1）──────────────────────
@@ -862,7 +927,7 @@ export class BomService {
     });
 
     // 5. 事务提交后失效 Redis 展开缓存
-    await getRedisClient().del(RedisKeys.bomExpanded(this.tenantId, bomId, cachedVersion!));
+    await this.invalidateExpandedCache();
 
     return { bomItemId: bomItemId! };
   }
@@ -925,9 +990,7 @@ export class BomService {
     });
 
     // 4. 事务提交后失效 Redis 展开缓存
-    await getRedisClient().del(
-      RedisKeys.bomExpanded(this.tenantId, bomId, capturedVersion!),
-    );
+    await this.invalidateExpandedCache();
   }
 
   // ── BOM 导出 Excel ───────────────────────────────────────────

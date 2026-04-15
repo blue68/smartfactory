@@ -43,7 +43,8 @@ export class SkuCategoryService {
    * 获取完整类目树。
    * editableView=true 时，用于租户配置页面：
    * - 保留系统一级类目作为基础骨架
-   * - 隐藏系统二级类目，只显示当前租户自己的二级类目
+   * - 系统二级类目也保持可见，避免 SKU 已引用的预置品类在配置页缺失
+   * - 系统预置类目仍由写接口限制为不可删除/跨租户不可改
    */
   async getTree(opts: {
     level?: 1 | 2;
@@ -107,9 +108,7 @@ export class SkuCategoryService {
       }
     }
 
-    const visibleRows = opts.editableView
-      ? rows.filter((r) => Number(r.level) === 1 || Number(r.tenantId) === this.tenantId)
-      : rows;
+    const visibleRows = rows;
 
     const nodes: CategoryTreeNode[] = visibleRows.map((r) => ({
       id: Number(r.id),

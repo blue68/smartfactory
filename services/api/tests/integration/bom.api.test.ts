@@ -32,6 +32,8 @@ const SKU_L3_ID      = SKU_SEMI_ID + 100;
 const SKU_L4_ID      = SKU_SEMI_ID + 200;
 const SKU_L5_ID      = SKU_SEMI_ID + 300;
 const SKU_L6_ID      = SKU_SEMI_ID + 400;
+const SKU_PARENT_B_ID = 30501;  // 上层成品B
+const SKU_PARENT_C_ID = 30502;  // 上层成品C
 
 let dbPool: Pool | null = null;
 
@@ -82,6 +84,8 @@ describe('BOM 模块 API 集成测试', () => {
       { id: SKU_L4_ID, code: 'SKU-BOM-L4', name: 'BOM测试四层组件', stockUnit: '块', purchaseUnit: '块', productionUnit: '块', hasDyeLot: 0 },
       { id: SKU_L5_ID, code: 'SKU-BOM-L5', name: 'BOM测试五层组件', stockUnit: '张', purchaseUnit: '张', productionUnit: '张', hasDyeLot: 0 },
       { id: SKU_L6_ID, code: 'SKU-BOM-L6', name: 'BOM测试六层组件', stockUnit: '根', purchaseUnit: '根', productionUnit: '根', hasDyeLot: 0 },
+      { id: SKU_PARENT_B_ID, code: 'SKU-BOM-PARENT-B', name: 'BOM动态引用父件B', stockUnit: '套', purchaseUnit: '套', productionUnit: '套', hasDyeLot: 0 },
+      { id: SKU_PARENT_C_ID, code: 'SKU-BOM-PARENT-C', name: 'BOM动态引用父件C', stockUnit: '套', purchaseUnit: '套', productionUnit: '套', hasDyeLot: 0 },
     ];
 
     for (const sku of seedSkus) {
@@ -271,6 +275,123 @@ describe('BOM 模块 API 集成测试', () => {
 
       expect(res.status).toBe(404);
       expect(res.body.code).toBe(3001);
+    });
+  });
+
+  describe('动态引用树展开', () => {
+    let semiBomV1Id: number;
+    let semiBomV2Id: number;
+    let parentBBomId: number;
+    let parentCBomId: number;
+
+    beforeAll(async () => {
+      const semiV1 = await request(BASE_URL)
+        .post('/api/bom')
+        .set(authHeader('supervisor'))
+        .send({
+          skuId: SKU_SEMI_ID,
+          version: shortVersion('semi1-'),
+          items: [{
+            componentSkuId: SKU_RAW_ID,
+            quantity: '10',
+            unit: '张',
+            scrapRate: '0',
+          }],
+        });
+      semiBomV1Id = semiV1.body.data?.id;
+
+      await request(BASE_URL)
+        .post(`/api/bom/${semiBomV1Id}/activate`)
+        .set(authHeader('supervisor'));
+
+      const parentB = await request(BASE_URL)
+        .post('/api/bom')
+        .set(authHeader('supervisor'))
+        .send({
+          skuId: SKU_PARENT_B_ID,
+          version: shortVersion('pb-'),
+          items: [{
+            componentSkuId: SKU_SEMI_ID,
+            quantity: '1',
+            unit: '套',
+            scrapRate: '0',
+          }],
+        });
+      parentBBomId = parentB.body.data?.id;
+      await request(BASE_URL)
+        .post(`/api/bom/${parentBBomId}/activate`)
+        .set(authHeader('supervisor'));
+
+      const parentC = await request(BASE_URL)
+        .post('/api/bom')
+        .set(authHeader('supervisor'))
+        .send({
+          skuId: SKU_PARENT_C_ID,
+          version: shortVersion('pc-'),
+          items: [{
+            componentSkuId: SKU_SEMI_ID,
+            quantity: '1',
+            unit: '套',
+            scrapRate: '0',
+          }],
+        });
+      parentCBomId = parentC.body.data?.id;
+      await request(BASE_URL)
+        .post(`/api/bom/${parentCBomId}/activate`)
+        .set(authHeader('supervisor'));
+
+      const semiV2 = await request(BASE_URL)
+        .post('/api/bom')
+        .set(authHeader('supervisor'))
+        .send({
+          skuId: SKU_SEMI_ID,
+          version: shortVersion('semi2-'),
+          items: [{
+            componentSkuId: SKU_RAW_ID,
+            quantity: '20',
+            unit: '张',
+            scrapRate: '0',
+          }],
+        });
+      semiBomV2Id = semiV2.body.data?.id;
+    });
+
+    test('父件展开优先引用子SKU的active BOM', async () => {
+      const [resB, resC] = await Promise.all([
+        request(BASE_URL).get(`/api/bom/${parentBBomId}/expand`).set(authHeader('supervisor')),
+        request(BASE_URL).get(`/api/bom/${parentCBomId}/expand`).set(authHeader('supervisor')),
+      ]);
+
+      expect(resB.body.code).toBe(0);
+      expect(resC.body.code).toBe(0);
+
+      const childB = resB.body.data.items[0];
+      const childC = resC.body.data.items[0];
+      expect(Number(childB.componentSkuId)).toBe(SKU_SEMI_ID);
+      expect(Number(childC.componentSkuId)).toBe(SKU_SEMI_ID);
+      expect(childB.children[0].quantity).toBe('10.0000');
+      expect(childC.children[0].quantity).toBe('10.0000');
+    });
+
+    test('子BOM激活新版本后，上层BOM树与物料需求同步反映新用量', async () => {
+      await request(BASE_URL)
+        .post(`/api/bom/${semiBomV2Id}/activate`)
+        .set(authHeader('supervisor'));
+
+      const [resB, resC, reqB, reqC] = await Promise.all([
+        request(BASE_URL).get(`/api/bom/${parentBBomId}/expand`).set(authHeader('supervisor')),
+        request(BASE_URL).get(`/api/bom/${parentCBomId}/expand`).set(authHeader('supervisor')),
+        request(BASE_URL).get(`/api/bom/${parentBBomId}/material-requirements?productionQty=1`).set(authHeader('supervisor')),
+        request(BASE_URL).get(`/api/bom/${parentCBomId}/material-requirements?productionQty=1`).set(authHeader('supervisor')),
+      ]);
+
+      expect(resB.body.data.items[0].children[0].quantity).toBe('20.0000');
+      expect(resC.body.data.items[0].children[0].quantity).toBe('20.0000');
+
+      const rawB = reqB.body.data.find((r: any) => idEq(r.skuId, SKU_RAW_ID));
+      const rawC = reqC.body.data.find((r: any) => idEq(r.skuId, SKU_RAW_ID));
+      expect(rawB.totalQty).toBe('20.0000');
+      expect(rawC.totalQty).toBe('20.0000');
     });
   });
 

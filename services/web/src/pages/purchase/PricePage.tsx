@@ -532,11 +532,13 @@ function ChartPanel({
   allPricesForSku,
   supplierGradeMap,
   onClose,
+  showHeader = true,
 }: {
   price: PriceRow;
   allPricesForSku: PriceRow[];
   supplierGradeMap: Map<number, SupplierGrade>;
   onClose: () => void;
+  showHeader?: boolean;
 }) {
   const { data: historyData } = usePriceHistory(price.skuId, price.supplierId);
   const history = historyData ?? [];
@@ -556,27 +558,34 @@ function ChartPanel({
 
   return (
     <div className={styles.chart_panel}>
-      <div className={styles.chart_panel__header}>
-        <span className={styles.chart_panel__header_icon}>&#128200;</span>
-        <div>
-          <div className={styles.chart_panel__title}>
-            价格详情 &mdash; {price.skuName}
+      {showHeader && (
+        <div className={styles.chart_panel__header}>
+          <span className={styles.chart_panel__header_icon}>&#128200;</span>
+          <div>
+            <div className={styles.chart_panel__title}>
+              价格详情 &mdash; {price.skuName}
+            </div>
+            <div className={styles.chart_panel__sub}>
+              {price.supplierName} &middot; 过去12个月价格趋势
+            </div>
           </div>
-          <div className={styles.chart_panel__sub}>
-            {price.supplierName} &middot; 过去12个月价格趋势
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            style={{ marginLeft: 'auto' }}
+            onClick={onClose}
+          >
+            收起 &uarr;
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          style={{ marginLeft: 'auto' }}
-          onClick={onClose}
-        >
-          收起 &uarr;
-        </Button>
-      </div>
+      )}
 
       <div className={styles.chart_panel__body}>
+        {!showHeader && (
+          <div style={{ marginBottom: 'var(--space-4)', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+            {price.supplierName} &middot; 过去12个月价格趋势
+          </div>
+        )}
         {/* Supplier compare table */}
         {comparePrices.length > 0 && (
           <div style={{ marginBottom: 'var(--space-4)' }}>
@@ -665,6 +674,26 @@ function ChartPanel({
               <span className={styles.agreement_detail__label}>最小起订量</span>
               <span className={styles.agreement_detail__value}>
                 {price.moq != null ? `${price.moq} ${price.purchaseUnit}` : '—'}
+              </span>
+            </div>
+            <div className={styles.agreement_detail__item}>
+              <span className={styles.agreement_detail__label}>采购周期</span>
+              <span className={styles.agreement_detail__value}>
+                {price.purchaseCycleDays != null ? `${price.purchaseCycleDays} 天` : '—'}
+              </span>
+            </div>
+            <div className={styles.agreement_detail__item}>
+              <span className={styles.agreement_detail__label}>运输周期</span>
+              <span className={styles.agreement_detail__value}>
+                {price.transportCycleDays != null ? `${price.transportCycleDays} 天` : '—'}
+              </span>
+            </div>
+            <div className={styles.agreement_detail__item}>
+              <span className={styles.agreement_detail__label}>采购时效合计</span>
+              <span className={styles.agreement_detail__value}>
+                {price.purchaseCycleDays != null || price.transportCycleDays != null
+                  ? `${(price.purchaseCycleDays ?? 0) + (price.transportCycleDays ?? 0)} 天`
+                  : '—'}
               </span>
             </div>
             <div className={styles.agreement_detail__item}>
@@ -939,6 +968,8 @@ type PriceFormData = {
   taxRate: string;
   purchaseUnit: string;
   moq: string;
+  purchaseCycleDays: string;
+  transportCycleDays: string;
   validFrom: string;
   validTo: string;
   batchPricing: boolean;
@@ -959,6 +990,8 @@ const EMPTY_PRICE_FORM: PriceFormData = {
   taxRate: '13%',
   purchaseUnit: '',
   moq: '',
+  purchaseCycleDays: '',
+  transportCycleDays: '',
   validFrom: '',
   validTo: '',
   batchPricing: false,
@@ -1144,6 +1177,34 @@ function DrawerFormFields({
               />
               <span className={styles.input_suffix}>{form.purchaseUnit || '件'}</span>
             </div>
+          </div>
+        </div>
+        <div className={styles.form_grid_2}>
+          <div className={styles.form_group}>
+            <label className={styles.form_label} htmlFor="drawerPurchaseCycle">采购周期（天）</label>
+            <input
+              className={styles.form_input}
+              type="number"
+              id="drawerPurchaseCycle"
+              min="0"
+              step="1"
+              placeholder="例如 5"
+              value={form.purchaseCycleDays}
+              onChange={set('purchaseCycleDays')}
+            />
+          </div>
+          <div className={styles.form_group}>
+            <label className={styles.form_label} htmlFor="drawerTransportCycle">运输周期（天）</label>
+            <input
+              className={styles.form_input}
+              type="number"
+              id="drawerTransportCycle"
+              min="0"
+              step="1"
+              placeholder="例如 2"
+              value={form.transportCycleDays}
+              onChange={set('transportCycleDays')}
+            />
           </div>
         </div>
       </div>
@@ -1494,6 +1555,8 @@ export default function PricePage() {
       taxRate: price.taxRate ? `${price.taxRate}%` : '13%',
       purchaseUnit: price.purchaseUnit,
       moq: price.moq != null ? String(price.moq) : '',
+      purchaseCycleDays: price.purchaseCycleDays != null ? String(price.purchaseCycleDays) : '',
+      transportCycleDays: price.transportCycleDays != null ? String(price.transportCycleDays) : '',
       validFrom: price.validFrom ? price.validFrom.slice(0, 10) : '',
       validTo: price.validTo ? price.validTo.slice(0, 10) : '',
       batchPricing: Boolean(price.batchPricing),
@@ -1535,6 +1598,8 @@ export default function PricePage() {
       unitPrice: priceForm.unitPrice,
       purchaseUnit: priceForm.purchaseUnit || '件',
       moq: priceForm.moq ? Number(priceForm.moq) : 0,
+      purchaseCycleDays: priceForm.purchaseCycleDays ? Number(priceForm.purchaseCycleDays) : undefined,
+      transportCycleDays: priceForm.transportCycleDays ? Number(priceForm.transportCycleDays) : undefined,
       validFrom: priceForm.validFrom,
       validTo: priceForm.validTo || undefined,
       notes: priceForm.remark || undefined,
@@ -1568,6 +1633,8 @@ export default function PricePage() {
             unitPrice: payload.unitPrice,
             purchaseUnit: payload.purchaseUnit,
             moq: payload.moq,
+            purchaseCycleDays: payload.purchaseCycleDays,
+            transportCycleDays: payload.transportCycleDays,
             validFrom: payload.validFrom,
             validTo: payload.validTo,
             notes: payload.notes,
@@ -1588,11 +1655,6 @@ export default function PricePage() {
 
   const handleSelectPrice = useCallback((id: number | null) => {
     setSelectedPriceId(id);
-    if (id !== null) {
-      setTimeout(() => {
-        document.getElementById('chart-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 50);
-    }
   }, []);
 
   // SKU results for drawer
@@ -1798,16 +1860,23 @@ export default function PricePage() {
         </div>
       )}
 
-      {/* -- Chart Panel -- */}
+      {/* -- Detail Modal -- */}
       {selectedPrice !== null && (
-        <div id="chart-panel">
+        <Modal
+          open
+          title={`采购价格详情 — ${selectedPrice.skuName}`}
+          onClose={() => setSelectedPriceId(null)}
+          hideFooter
+          size="xl"
+        >
           <ChartPanel
             price={selectedPrice}
             allPricesForSku={allPricesForSelectedSku}
             supplierGradeMap={supplierGradeMap}
             onClose={() => setSelectedPriceId(null)}
+            showHeader={false}
           />
-        </div>
+        </Modal>
       )}
 
       {/* -- Drawer: New / Edit Price Agreement -- */}

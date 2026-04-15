@@ -328,6 +328,8 @@ export interface InventoryItem {
   skuId: number;
   skuCode: string;
   skuName: string;
+  category1Name?: string | null;
+  category2Name?: string | null;
   stockUnit: string;
   purchaseUnit?: string | null;
   stockConvFactor?: number | string | null;

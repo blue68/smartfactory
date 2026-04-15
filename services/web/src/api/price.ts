@@ -23,6 +23,10 @@ export interface Price {
   purchaseUnit: string;
   /** 最小起订量 */
   moq?: number;
+  /** 采购周期（天） */
+  purchaseCycleDays?: number;
+  /** 运输周期（天） */
+  transportCycleDays?: number;
   /** 报价有效期开始 */
   validFrom: string;
   /** 报价有效期截止，null 表示长期有效 */
@@ -58,6 +62,8 @@ export interface CreatePricePayload {
   unitPrice: string;
   purchaseUnit: string;
   moq?: number;
+  purchaseCycleDays?: number;
+  transportCycleDays?: number;
   validFrom: string;
   validTo?: string;
   notes?: string;

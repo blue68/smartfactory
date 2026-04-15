@@ -72,9 +72,8 @@ export class SkuCategoryController {
   /**
    * GET /api/sku-categories
    * 获取类目树。
-   * editableView=true 时，租户管理视图仅返回：
-   *   - 系统一级类目
-   *   - 当前租户的二级类目
+   * editableView=true 时，租户管理视图返回系统一级/二级类目 + 当前租户自定义类目；
+   * 系统预置类目保持可见，但写接口仍限制其不可删除且不可跨租户修改。
    */
   async getTree(req: Request, res: Response): Promise<void> {
     const q = GetTreeQuerySchema.parse(req.query);
