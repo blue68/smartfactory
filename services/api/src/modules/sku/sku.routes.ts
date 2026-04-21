@@ -33,7 +33,7 @@ router.use(authMiddleware);
 
 router.get('/categories',          requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.getCategories.bind(skuController)));
 router.get('/stats',               requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.getStats.bind(skuController)));
-router.get('/',                    requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.list.bind(skuController)));
+router.get('/',                    requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse', 'sales'), asyncHandler(skuController.list.bind(skuController)));
 // export / import 路由须在 /:id 参数路由之前注册，防止被路由截获
 router.get('/export',              requirePermissionsOrRoles(['sku:view'], 'boss', 'supervisor', 'purchaser', 'warehouse'), asyncHandler(skuController.exportExcel.bind(skuController)));
 router.get('/import-template',     requirePermissionsOrRoles(['sku:create'], 'boss', 'purchaser'), asyncHandler(skuController.downloadImportTemplate.bind(skuController)));

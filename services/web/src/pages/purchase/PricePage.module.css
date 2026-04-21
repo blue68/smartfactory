@@ -463,7 +463,9 @@
 }
 
 .supplier_group__body--open {
-  max-height: 600px;
+  max-height: min(70vh, 960px);
+  overflow-y: auto;
+  overflow-x: auto;
 }
 
 /* ─────────────────────────────────────────────

@@ -117,6 +117,20 @@ function renderValidPeriod(price: Price): string {
   return `${from} ~ ${to}`;
 }
 
+function getUnitPriceDecimals(value: string | number): number {
+  const text = String(value).trim();
+  const fraction = text.includes('.') ? text.split('.')[1] ?? '' : '';
+  const trimmed = fraction.replace(/0+$/, '');
+  if (trimmed.length === 0) {
+    return 2;
+  }
+  return Math.min(Math.max(trimmed.length, 2), 6);
+}
+
+function formatUnitPriceCNY(value: string | number): string {
+  return formatCNY(value, getUnitPriceDecimals(value));
+}
+
 // ─────────────────────────────────────────────
 // 组件：Stats Strip
 // ─────────────────────────────────────────────
@@ -610,7 +624,7 @@ function ChartPanel({
                         <strong>{cp.supplierName}</strong>
                         {isCurrent && <span className={styles.primary_supplier_label}>当前主供</span>}
                       </td>
-                      <td className={styles['compare_price--normal']}>{formatCNY(cp.unitPrice)}</td>
+                      <td className={styles['compare_price--normal']}>{formatUnitPriceCNY(cp.unitPrice)}</td>
                       <td><GradeBadge grade={grade} /></td>
                       <td>
                         {cp.validTo ? `至 ${formatDate(cp.validTo)}` : '长期'}
@@ -635,7 +649,7 @@ function ChartPanel({
           <div className={styles.chart_meta__item}>
             <span className={styles.chart_meta__label}>当前价格</span>
             <span className={styles.chart_meta__value}>
-              {formatCNY(price.unitPrice)} / {price.purchaseUnit}
+              {formatUnitPriceCNY(price.unitPrice)} / {price.purchaseUnit}
             </span>
           </div>
           <div className={styles.chart_meta__item}>
@@ -810,7 +824,7 @@ function SupplierGroupAccordion({
                   </td>
                   <td>{p.purchaseUnit}</td>
                   <td style={{ textAlign: 'right' }}>
-                    <span className={styles.price_value}>{formatCNY(p.unitPrice)}</span>
+                    <span className={styles.price_value}>{formatUnitPriceCNY(p.unitPrice)}</span>
                   </td>
                   <td>
                     <PriceDiffPill pct={p.priceChangePct} />
@@ -881,7 +895,7 @@ function MaterialGroupAccordion({
         <div className={styles.supplier_group__actions}>
           {group.bestActivePrice && (
             <span className={styles.supplier_group__count}>
-              最优有效价：{group.bestActivePrice.supplierName} {formatCNY(group.bestActivePrice.unitPrice)}
+              最优有效价：{group.bestActivePrice.supplierName} {formatUnitPriceCNY(group.bestActivePrice.unitPrice)}
             </span>
           )}
           {group.expiringCount > 0 && (
@@ -923,7 +937,7 @@ function MaterialGroupAccordion({
                   <td><GradeBadge grade={supplierGradeMap.get(p.supplierId) ?? 'B'} /></td>
                   <td>{p.purchaseUnit}</td>
                   <td style={{ textAlign: 'right' }}>
-                    <span className={styles.price_value}>{formatCNY(p.unitPrice)}</span>
+                    <span className={styles.price_value}>{formatUnitPriceCNY(p.unitPrice)}</span>
                   </td>
                   <td>
                     <PriceDiffPill pct={p.priceChangePct} />
@@ -1618,7 +1632,7 @@ export default function PricePage() {
           const avg = parseFloat(String(resultAny.avgPrice ?? 0));
           const current = parseFloat(priceForm.unitPrice);
           const pct = avg > 0 ? ((current - avg) / avg * 100) : 0;
-          setPriceWarnNewPrice(formatCNY(priceForm.unitPrice));
+          setPriceWarnNewPrice(formatUnitPriceCNY(priceForm.unitPrice));
           setPriceWarnExceedPct(`+${pct.toFixed(1)}%`);
           setPriceWarnModal(true);
         } else {

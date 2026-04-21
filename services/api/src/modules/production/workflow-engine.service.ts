@@ -31,11 +31,6 @@ interface SiblingTaskRow {
   status: string;
 }
 
-interface NextStepRow {
-  id: number;
-  step_no: number;
-}
-
 interface NextTaskRow {
   id: number;
   status: string;
@@ -133,11 +128,10 @@ export class WorkflowEngineService {
       );
     }
 
-    // Step 4: 解锁下道工序任务
+    // Step 4: 解锁依赖当前工序的后续任务
     await this._unlockNextStep(
       task.production_order_id,
-      step.step_no,
-      step.template_id,
+      task.process_step_id,
       manager,
     );
 
@@ -309,58 +303,73 @@ export class WorkflowEngineService {
    */
   private async _unlockNextStep(
     productionOrderId: number,
-    currentStepNo: number,
-    templateId: number,
+    currentProcessStepId: number,
     manager: EntityManager,
   ): Promise<void> {
-    // 查询当前工序在同一工单内的所有同步任务（同一工序可能有多任务）
     const siblingTasks: SiblingTaskRow[] = await manager.query(
       `SELECT pt.id, pt.status
        FROM production_tasks pt
-       INNER JOIN process_steps ps ON ps.id = pt.process_step_id
        WHERE pt.production_order_id = ? AND pt.tenant_id = ?
-         AND ps.step_no = ? AND ps.template_id = ?`,
-      [productionOrderId, this.tenantId, currentStepNo, templateId],
+         AND pt.process_step_id = ?`,
+      [productionOrderId, this.tenantId, currentProcessStepId],
     );
 
-    // 若当前工序还有未完成任务，不解锁下道工序
     const allCurrentCompleted = siblingTasks.every(
       (t) => t.status === 'completed' || t.status === 'cancelled',
     );
     if (!allCurrentCompleted) return;
 
-    // 查询下道工序步骤（step_no + 1）
-    const nextStepRows: NextStepRow[] = await manager.query(
-      `SELECT id, step_no FROM process_steps
-       WHERE template_id = ? AND tenant_id = ? AND step_no = ?
-       LIMIT 1`,
-      [templateId, this.tenantId, currentStepNo + 1],
-    );
-
-    if (nextStepRows.length === 0) return;
-
-    const nextStep = nextStepRows[0];
-
-    // 查询下道工序对应的任务（可能处于 suspended 或其他阻塞状态）
     const nextTasks: NextTaskRow[] = await manager.query(
       `SELECT pt.id, pt.status, pt.process_step_id
        FROM production_tasks pt
+       INNER JOIN production_operation_dependencies dep
+         ON dep.operation_id = pt.operation_id
+        AND dep.tenant_id = pt.tenant_id
+       INNER JOIN production_operations pred
+         ON pred.id = dep.predecessor_operation_id
+        AND pred.tenant_id = dep.tenant_id
        WHERE pt.production_order_id = ? AND pt.tenant_id = ?
-         AND pt.process_step_id = ?
-         AND pt.status NOT IN ('completed', 'cancelled', 'started')`,
-      [productionOrderId, this.tenantId, nextStep.id],
+         AND pred.process_step_id = ?
+         AND pt.status NOT IN ('completed', 'cancelled', 'started')
+       GROUP BY pt.id, pt.status, pt.process_step_id`,
+      [productionOrderId, this.tenantId, currentProcessStepId],
     );
 
     if (nextTasks.length === 0) return;
 
-    // 解锁为 pending
-    const nextTaskIds = nextTasks.map((t) => t.id);
-    const placeholders = nextTaskIds.map(() => '?').join(',');
+    const releasableTaskIds: number[] = [];
+    for (const task of nextTasks) {
+      const [dependencyRow] = await manager.query<Array<{ blockedCount: string }>>(
+        `SELECT SUM(CASE
+                 WHEN COALESCE(pred.completed_qty, 0) < dep.required_qty THEN 1
+                 ELSE 0
+               END) AS blockedCount
+         FROM production_operation_dependencies dep
+         INNER JOIN production_operations pred
+           ON pred.id = dep.predecessor_operation_id
+          AND pred.tenant_id = dep.tenant_id
+         WHERE dep.tenant_id = ?
+           AND dep.operation_id = (
+             SELECT operation_id
+             FROM production_tasks
+             WHERE id = ? AND tenant_id = ?
+             LIMIT 1
+           )`,
+        [this.tenantId, task.id, this.tenantId],
+      );
+      if (Number(dependencyRow?.blockedCount ?? 0) === 0) {
+        releasableTaskIds.push(task.id);
+      }
+    }
+
+    if (releasableTaskIds.length === 0) return;
+
+    const placeholders = releasableTaskIds.map(() => '?').join(',');
     await manager.query(
       `UPDATE production_tasks
        SET status = 'pending', updated_by = ?
        WHERE id IN (${placeholders}) AND tenant_id = ?`,
-      [this.userId, ...nextTaskIds, this.tenantId],
+      [this.userId, ...releasableTaskIds, this.tenantId],
     );
   }
 

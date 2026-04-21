@@ -1258,6 +1258,26 @@
   font-style: italic;
 }
 
+.inputSourceBanner {
+  padding: 0.75rem 0.875rem;
+  border-radius: 12px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.inputSourceBanner--fallback {
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  background: linear-gradient(180deg, #FFFBEB 0%, #FFFFFF 100%);
+  color: #B45309;
+}
+
+.inputSourceBanner--step {
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  background: linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%);
+  color: #1D4ED8;
+}
+
 .guideCard {
   display: grid;
   gap: 0.875rem;

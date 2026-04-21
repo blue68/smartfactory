@@ -26,6 +26,8 @@ export interface BomTreeProps {
   onSelect?: (item: BomItem) => void;
   /** 当前选中的 bomItemId */
   selectedId?: number;
+  /** 点击“被引用”列 */
+  onReferenceClick?: (item: BomItem) => void;
   /** 内部透传：已展开节点的 bomItemId 集合 */
   _expandedIds?: Set<number>;
   /** 内部透传：切换展开状态的回调 */
@@ -49,6 +51,7 @@ interface BomNodeProps {
   expandedIds: Set<number>;
   onSelect?: (item: BomItem) => void;
   onToggle: (id: number) => void;
+  onReferenceClick?: (item: BomItem) => void;
 }
 
 function BomNode({
@@ -58,6 +61,7 @@ function BomNode({
   expandedIds,
   onSelect,
   onToggle,
+  onReferenceClick,
 }: BomNodeProps) {
   const hasChildren = item.children && item.children.length > 0;
   const isExpanded = expandedIds.has(item.bomItemId);
@@ -90,6 +94,14 @@ function BomNode({
       onToggle(item.bomItemId);
     },
     [item.bomItemId, onToggle],
+  );
+
+  const handleReferenceClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onReferenceClick?.(item);
+    },
+    [item, onReferenceClick],
   );
 
   return (
@@ -167,6 +179,15 @@ function BomNode({
           >
             {displayScrapRate}
           </span>
+
+          {/* 被引用 */}
+          <button
+            type="button"
+            className={styles['bom-tree__reference-btn']}
+            onClick={handleReferenceClick}
+          >
+            查看引用
+          </button>
         </div>
       </div>
 
@@ -186,6 +207,7 @@ function BomNode({
               expandedIds={expandedIds}
               onSelect={onSelect}
               onToggle={onToggle}
+              onReferenceClick={onReferenceClick}
             />
           ))}
         </div>
@@ -218,6 +240,7 @@ const BomTree = forwardRef<BomTreeRef, BomTreeProps>(function BomTree({
   level = 0,
   onSelect,
   selectedId,
+  onReferenceClick,
 }, ref) {
   // 初始展开第一层（所有顶层节点）
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => {
@@ -271,6 +294,7 @@ const BomTree = forwardRef<BomTreeRef, BomTreeProps>(function BomTree({
           <span>数量</span>
           <span>单位</span>
           <span>损耗率</span>
+          <span>被引用</span>
         </div>
       </div>
 
@@ -284,6 +308,7 @@ const BomTree = forwardRef<BomTreeRef, BomTreeProps>(function BomTree({
           expandedIds={expandedIds}
           onSelect={onSelect}
           onToggle={handleToggle}
+          onReferenceClick={onReferenceClick}
         />
       ))}
     </div>

@@ -62,26 +62,43 @@ interface ProcessSnapshotRow {
   templateName?: string;
   version?: string;
   snapshotAt?: string;
-  steps?: Array<{
-    id?: number | string;
-    processStepId?: number | string;
-    stepNo?: number | string;
-    step_no?: number | string;
-    stepName?: string;
-    step_name?: string;
-    workstationType?: string | null;
-    workstation_type?: string | null;
-    workstationId?: number | null;
-    workstation_id?: number | null;
-    standardHours?: string | null;
+    steps?: Array<{
+      id?: number | string;
+      processStepId?: number | string;
+      stepNo?: number | string;
+      step_no?: number | string;
+      stepName?: string;
+      step_name?: string;
+      guideText?: string | null;
+      guide_text?: string | null;
+      guideAttachmentUrl?: string | null;
+      guide_attachment_url?: string | null;
+      guideAttachmentName?: string | null;
+      guide_attachment_name?: string | null;
+      workstationType?: string | null;
+      workstation_type?: string | null;
+      workstationId?: number | null;
+      workstation_id?: number | null;
+      standardHours?: string | null;
     standard_hours?: string | null;
     maxHours?: string | null;
     max_hours?: string | null;
-    outputType?: string | null;
-    output_type?: string | null;
-    outputSkuId?: number | null;
-    output_sku_id?: number | null;
-  }>;
+      outputType?: string | null;
+      output_type?: string | null;
+      outputSkuId?: number | null;
+      output_sku_id?: number | null;
+      materials?: Array<{
+        inputSkuId?: number | string;
+        usagePerUnit?: string | number | null;
+        lossRate?: string | number | null;
+        consumeTiming?: 'start' | 'complete' | null;
+        isKeyMaterial?: boolean | number | null;
+        specText?: string | null;
+        spec_text?: string | null;
+        processParams?: Record<string, unknown> | null;
+        process_params?: Record<string, unknown> | null;
+      }>;
+    }>;
 }
 
 // ─── 公共接口 ────────────────────────────────────────────────────────────────
@@ -240,6 +257,7 @@ export class ProductionOrderService {
         let templateRows: ProcessTemplateRow[] = await manager.query(
           `SELECT id FROM process_templates
            WHERE sku_id = ? AND tenant_id = ? AND is_default = 1
+           ORDER BY id DESC
            LIMIT 1`,
           [item.sku_id, this.tenantId],
         );

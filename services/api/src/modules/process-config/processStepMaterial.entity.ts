@@ -34,6 +34,15 @@ export class ProcessStepMaterialEntity {
   @Column({ name: 'consume_timing', type: 'enum', enum: ['start', 'complete'], default: 'start' })
   consumeTiming: 'start' | 'complete';
 
+  @Column({ name: 'is_key_material', type: 'tinyint', width: 1, default: 0 })
+  isKeyMaterial: boolean;
+
+  @Column({ name: 'spec_text', type: 'varchar', length: 255, nullable: true })
+  specText: string | null;
+
+  @Column({ name: 'process_params_json', type: 'json', nullable: true })
+  processParamsJson: Record<string, unknown> | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime', precision: 3 })
   createdAt: Date;
 

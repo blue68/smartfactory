@@ -20,7 +20,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/appStore';
-import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useUpdateBom, useCopyBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem, useUpdateBomItem, useMaterialRequirements, useCostBreakdown } from '@/api/bom';
+import { useBomList, useBomExpanded, useActivateBom, useCreateBom, useUpdateBom, useCopyBom, useAiBomSuggestion, useAddBomItem, useDeleteBomItem, useUpdateBomItem, useMaterialRequirements, useCostBreakdown, useBomReferencedBy } from '@/api/bom';
 import { useQuery } from '@tanstack/react-query';
 import { useSkuCategories, useSkuList, skuApi, skuKeys } from '@/api/sku';
 import type { BomHeader, BomItem } from '@/types/models';
@@ -989,9 +989,15 @@ function EditorView({ row, onBack }: EditorViewProps) {
 
   // 树节点选中
   const [selectedItem, setSelectedItem] = useState<BomItem | null>(null);
+  const [referenceTarget, setReferenceTarget] = useState<BomItem | null>(null);
+  const { data: referencedByRows, isLoading: referencedByLoading } = useBomReferencedBy(referenceTarget?.componentSkuId ?? null);
 
   const handleSelectItem = useCallback((item: BomItem) => {
     setSelectedItem((prev) => (prev?.bomItemId === item.bomItemId ? null : item));
+  }, []);
+
+  const handleOpenReferenceModal = useCallback((item: BomItem) => {
+    setReferenceTarget(item);
   }, []);
 
   // 新增物料弹框状态
@@ -1194,6 +1200,93 @@ function EditorView({ row, onBack }: EditorViewProps) {
 
   return (
     <>
+      <Modal
+        open={referenceTarget !== null}
+        title={referenceTarget ? `被引用情况 — ${referenceTarget.skuName}` : '被引用情况'}
+        onClose={() => setReferenceTarget(null)}
+        hideFooter
+        size="md"
+      >
+        {referenceTarget && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '96px 1fr', gap: '0.5rem 0.75rem', fontSize: '0.875rem' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>当前物料</span>
+              <span style={{ fontWeight: 600 }}>{referenceTarget.skuName}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>SKU编码</span>
+              <span style={{ fontFamily: 'var(--font-family-mono)' }}>{referenceTarget.skuCode}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>统计范围</span>
+              <span>仅统计“半成品”活动 BOM 对该 SKU 的引用</span>
+            </div>
+
+            {referencedByLoading ? (
+              <div className={styles.table_loading} style={{ minHeight: 180 }}>
+                <div className="spinner" role="status" aria-label="加载中" />
+                <div style={{ marginTop: '0.5rem' }}>加载引用关系...</div>
+              </div>
+            ) : !referencedByRows || referencedByRows.length === 0 ? (
+              <div style={{ padding: '1rem', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-lg)', background: 'var(--color-gray-50)', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                当前没有半成品 SKU 引用该物料。
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                  共 <strong style={{ color: 'var(--text-primary)' }}>{referencedByRows.length}</strong> 个半成品 SKU 引用该物料。
+                </div>
+                <div style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                    <thead style={{ background: 'var(--color-gray-50)' }}>
+                      <tr>
+                        <th style={{ textAlign: 'left', padding: '0.75rem 0.875rem', color: 'var(--text-secondary)', fontWeight: 600 }}>被引用 SKU</th>
+                        <th style={{ textAlign: 'left', padding: '0.75rem 0.875rem', color: 'var(--text-secondary)', fontWeight: 600 }}>BOM版本</th>
+                        <th style={{ textAlign: 'left', padding: '0.75rem 0.875rem', color: 'var(--text-secondary)', fontWeight: 600 }}>所在层级</th>
+                        <th style={{ textAlign: 'right', padding: '0.75rem 0.875rem', color: 'var(--text-secondary)', fontWeight: 600 }}>出现次数</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {referencedByRows.map((ref) => (
+                        <tr key={`${ref.skuId}-${ref.bomHeaderId}`} style={{ borderTop: '1px solid var(--border-default)' }}>
+                          <td style={{ padding: '0.875rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{ref.skuName}</span>
+                              <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-family-mono)', fontSize: '0.75rem' }}>{ref.skuCode}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.875rem', color: 'var(--text-primary)' }}>{ref.bomVersion}</td>
+                          <td style={{ padding: '0.875rem' }}>
+                            <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+                              {ref.levels.map((level) => (
+                                <span
+                                  key={level}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    padding: '0.15rem 0.5rem',
+                                    borderRadius: '999px',
+                                    background: 'var(--color-primary-50)',
+                                    color: 'var(--color-primary-700)',
+                                    fontWeight: 600,
+                                    fontSize: '0.75rem',
+                                  }}
+                                >
+                                  L{level}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.875rem', textAlign: 'right', fontFamily: 'var(--font-family-mono)', color: 'var(--text-primary)' }}>
+                            {ref.occurrenceCount}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
       {/* BOM-REM-001: 编辑信息弹框（版本号 / 描述） */}
       <Modal
         open={editInfoOpen}
@@ -1672,6 +1765,7 @@ function EditorView({ row, onBack }: EditorViewProps) {
                 items={detailData.items}
                 selectedId={selectedItem?.bomItemId}
                 onSelect={handleSelectItem}
+                onReferenceClick={handleOpenReferenceModal}
               />
             ) : (
               <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
@@ -2072,6 +2166,7 @@ export default function BomPage() {
   const { setPageTitle, showToast } = useAppStore();
   const [view, setView] = useState<'list' | 'editor'>('list');
   const [editingRow, setEditingRow] = useState<BomListRow | null>(null);
+  const [referenceRow, setReferenceRow] = useState<BomListRow | null>(null);
   const [keyword, setKeyword] = useState('');
   const [completionFilter, setCompletionFilter] = useState<CompletionFilter>('');
   const [page, setPage] = useState(1);
@@ -2080,6 +2175,11 @@ export default function BomPage() {
   const PAGE_SIZE = 20;
 
   useEffect(() => { setPageTitle('BOM 管理'); }, [setPageTitle]);
+
+  const {
+    data: listReferencedByRows,
+    isLoading: listReferencedByLoading,
+  } = useBomReferencedBy(referenceRow?.skuId ?? null);
 
   // ── 真实 API 数据 ──
   const { data: bomHeaders, isLoading: bomListLoading } = useBomList();
@@ -2276,6 +2376,7 @@ export default function BomPage() {
                 <th>成品名称</th>
                 <th style={{ minWidth: 200 }}>BOM完整度</th>
                 <th>物料种数</th>
+                <th>被引用</th>
                 <th>关联订单</th>
                 <th>操作</th>
               </tr>
@@ -2283,13 +2384,13 @@ export default function BomPage() {
             <tbody>
               {bomListLoading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
                     加载中...
                   </td>
                 </tr>
               ) : paged.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className={styles.table_empty}>暂无 BOM 数据</td>
+                  <td colSpan={7} className={styles.table_empty}>暂无 BOM 数据</td>
                 </tr>
               ) : (
                 paged.map((row) => (
@@ -2314,6 +2415,15 @@ export default function BomPage() {
                     </td>
                     <td style={{ color: row.materialCount === null ? 'var(--text-disabled)' : undefined }}>
                       {row.materialCount !== null ? `${row.materialCount} 种` : '—'}
+                    </td>
+                    <td>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setReferenceRow(row)}
+                      >
+                        查看引用
+                      </Button>
                     </td>
                     <td style={{ color: row.orderCount === 0 ? 'var(--text-disabled)' : undefined }}>
                       {row.orderCount === 0 ? '—' : `${row.orderCount} 单`}
@@ -2369,6 +2479,107 @@ export default function BomPage() {
           </div>
         </div>
       </div>
+
+      <Modal
+        open={Boolean(referenceRow)}
+        title={referenceRow ? `被引用情况 — ${referenceRow.skuName}` : '被引用情况'}
+        onClose={() => setReferenceRow(null)}
+        size="lg"
+      >
+        {referenceRow ? (
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '0.75rem',
+                padding: '1rem',
+                borderRadius: 'var(--radius-lg)',
+                background: 'var(--surface-subtle)',
+              }}
+            >
+              <div style={{ display: 'grid', gap: '0.25rem' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>成品名称</span>
+                <strong>{referenceRow.skuName}</strong>
+              </div>
+              <div style={{ display: 'grid', gap: '0.25rem' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>SKU编码</span>
+                <strong>{referenceRow.skuCode}</strong>
+              </div>
+              <div style={{ display: 'grid', gap: '0.25rem' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>统计范围</span>
+                <strong>仅统计半成品 SKU 的活动 BOM 引用</strong>
+              </div>
+            </div>
+
+            {listReferencedByLoading ? (
+              <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                正在加载引用关系...
+              </div>
+            ) : (listReferencedByRows?.length ?? 0) === 0 ? (
+              <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                当前没有半成品 SKU 引用该物料。
+              </div>
+            ) : (
+              <div
+                style={{
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-lg)',
+                  overflow: 'hidden',
+                }}
+              >
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+                    <thead style={{ background: 'var(--color-gray-50)' }}>
+                      <tr>
+                        <th style={{ textAlign: 'left', padding: '0.75rem 0.875rem', color: 'var(--text-secondary)', fontWeight: 600 }}>被引用 SKU</th>
+                        <th style={{ textAlign: 'left', padding: '0.75rem 0.875rem', color: 'var(--text-secondary)', fontWeight: 600 }}>BOM版本</th>
+                        <th style={{ textAlign: 'left', padding: '0.75rem 0.875rem', color: 'var(--text-secondary)', fontWeight: 600 }}>所在层级</th>
+                        <th style={{ textAlign: 'left', padding: '0.75rem 0.875rem', color: 'var(--text-secondary)', fontWeight: 600 }}>出现次数</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {listReferencedByRows!.map((item) => (
+                        <tr key={`${item.skuId}-${item.bomHeaderId}`} style={{ borderTop: '1px solid var(--border-default)' }}>
+                          <td style={{ padding: '0.875rem' }}>
+                            <div style={{ display: 'grid', gap: '0.25rem' }}>
+                              <strong>{item.skuName}</strong>
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{item.skuCode}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.875rem' }}>{item.bomVersion}</td>
+                          <td style={{ padding: '0.875rem' }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                              {item.levels.map((level) => (
+                                <span
+                                  key={`${item.skuId}-${level}`}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    padding: '0.125rem 0.5rem',
+                                    borderRadius: 999,
+                                    background: 'rgba(59, 130, 246, 0.12)',
+                                    color: 'var(--color-primary-600)',
+                                    fontSize: '0.8125rem',
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  L{level}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.875rem' }}>{item.occurrenceCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </Modal>
 
       {/* 向导 Modal */}
       <WizardModal

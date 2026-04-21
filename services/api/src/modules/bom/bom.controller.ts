@@ -172,6 +172,12 @@ export class BomController {
     success(res, data);
   }
 
+  async getReferencedBy(req: Request, res: Response): Promise<void> {
+    const { skuId } = SkuIdParamSchema.parse(req.params);
+    const data = await this.svc(req).getReferencedBySemiFinished(skuId);
+    success(res, data);
+  }
+
   // ── 品类成本占比分析 ────────────────────────────────────────
 
   async getCostBreakdown(req: Request, res: Response): Promise<void> {

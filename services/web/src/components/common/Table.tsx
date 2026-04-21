@@ -40,6 +40,15 @@ export interface TableProps<T extends Record<string, unknown>> {
   rowClassName?: (record: T, index: number) => string;
 }
 
+function buildPageItems(current: number, totalPages: number): Array<number | 'ellipsis'> {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, idx) => idx + 1);
+  if (current <= 4) return [1, 2, 3, 4, 5, 'ellipsis', totalPages];
+  if (current >= totalPages - 3) {
+    return [1, 'ellipsis', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+  }
+  return [1, 'ellipsis', current - 1, current, current + 1, 'ellipsis', totalPages];
+}
+
 export default function Table<T extends Record<string, unknown>>({
   columns,
   dataSource,
@@ -78,6 +87,7 @@ export default function Table<T extends Record<string, unknown>>({
   };
 
   const totalPages = pagination ? Math.ceil(pagination.total / pagination.pageSize) : 1;
+  const pageItems = pagination ? buildPageItems(pagination.page, totalPages) : [];
 
   return (
     <div className={`${styles.table_wrap} ${className}`}>
@@ -216,20 +226,23 @@ export default function Table<T extends Record<string, unknown>>({
             >
               ‹
             </button>
-            {Array.from({ length: Math.min(totalPages, 7) }).map((_, i) => {
-              const p = i + 1;
-              return (
+            {pageItems.map((item, idx) =>
+              item === 'ellipsis' ? (
+                <span key={`ellipsis-${idx}`} className={styles.pagination__btn} aria-hidden="true">
+                  …
+                </span>
+              ) : (
                 <button
-                  key={p}
-                  className={`${styles.pagination__btn} ${pagination.page === p ? styles['pagination__btn--active'] : ''}`}
-                  onClick={() => pagination.onChange(p)}
-                  aria-label={`第 ${p} 页`}
-                  aria-current={pagination.page === p ? 'page' : undefined}
+                  key={item}
+                  className={`${styles.pagination__btn} ${pagination.page === item ? styles['pagination__btn--active'] : ''}`}
+                  onClick={() => pagination.onChange(item)}
+                  aria-label={`第 ${item} 页`}
+                  aria-current={pagination.page === item ? 'page' : undefined}
                 >
-                  {p}
+                  {item}
                 </button>
-              );
-            })}
+              ),
+            )}
             <button
               className={styles.pagination__btn}
               onClick={() => pagination.onChange(pagination.page + 1)}

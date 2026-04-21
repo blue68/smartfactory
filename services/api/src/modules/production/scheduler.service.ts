@@ -7,6 +7,7 @@ import { ResponseCode } from '../../shared/ApiResponse';
 import { generateNo } from '../../shared/generateNo';
 import { UnitConverter } from '../../shared/unitConverter';
 import { ProductionPhase1Service } from './production-phase1.service';
+import { ProcessTemplateSnapshotBuilder } from './processTemplateSnapshotBuilder';
 import { WorkflowEngineService } from './workflow-engine.service';
 import { syncInventoryDailySnapshotForSku } from '../inventory/daily-snapshot.util';
 import { ensureProductionWipWarehouseLocation, resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
@@ -133,6 +134,7 @@ interface LockedTaskRow {
 interface TaskInputPlanRow {
   inputSkuId: number;
   actualSkuId: number;
+  itemType: string | null;
   usagePerUnit: string;
   lossRate: string;
   consumeTiming: 'start' | 'complete';
@@ -427,10 +429,19 @@ export class SchedulerService {
     const schedules = await AppDataSource.query<Array<{
       id: number; production_order_id: number; operation_id: number | null;
       component_id: number | null; process_step_id: number; output_sku_id: number | null;
-      worker_id: number | null; planned_qty: string;
+      worker_id: number | null; planned_qty: string; has_dependencies: number;
     }>>(
       `SELECT ps.id, ps.production_order_id, ps.operation_id, ps.component_id, ps.process_step_id,
-              ps.output_sku_id, ps.worker_id, ps.planned_qty
+              ps.output_sku_id, ps.worker_id, ps.planned_qty,
+              CASE
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM production_operation_dependencies dep
+                  WHERE dep.tenant_id = ps.tenant_id
+                    AND dep.operation_id = ps.operation_id
+                ) THEN 1
+                ELSE 0
+              END AS has_dependencies
        FROM production_schedules ps
        WHERE ps.tenant_id = ? AND ps.schedule_date = ? AND ps.status = 'confirmed' AND ps.worker_id IS NOT NULL
          AND NOT EXISTS (
@@ -453,19 +464,20 @@ export class SchedulerService {
       const CHUNK_SIZE = 500;
       for (let offset = 0; offset < rows.length; offset += CHUNK_SIZE) {
         const chunk = rows.slice(offset, offset + CHUNK_SIZE);
-        const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,\'pending\',?,?)').join(', ');
+        const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(', ');
         const params: unknown[] = [];
         for (const { s, taskNo } of chunk) {
+          const taskStatus = Number(s.has_dependencies ?? 0) > 0 ? 'suspended' : 'pending';
           params.push(
             this.tenantId, taskNo, s.id, s.production_order_id,
             s.operation_id, s.component_id, s.process_step_id, s.output_sku_id,
-            s.worker_id, date, s.planned_qty,
+            s.worker_id, date, s.planned_qty, taskStatus,
             this.userId, this.userId,
           );
         }
         await AppDataSource.query(
           `INSERT IGNORE INTO production_tasks
-             (tenant_id, task_no, schedule_id, production_order_id, operation_id, component_id,
+            (tenant_id, task_no, schedule_id, production_order_id, operation_id, component_id,
               process_step_id, output_sku_id, worker_id, task_date, planned_qty, status, created_by, updated_by)
            VALUES ${placeholders}`,
           params,
@@ -478,59 +490,22 @@ export class SchedulerService {
     if (orderIds.length > 0) {
       for (const orderId of orderIds) {
         const orders = await AppDataSource.query<Array<{
-          id: number; process_template_id: number | null; process_snapshot: string | null;
+          id: number; sku_id: number; process_template_id: number | null; process_snapshot: string | null;
         }>>(
-          `SELECT id, process_template_id, process_snapshot
+          `SELECT id, sku_id, process_template_id, process_snapshot
            FROM production_orders WHERE id = ? AND tenant_id = ?`,
           [orderId, this.tenantId],
         );
         const order = orders[0];
         if (!order || order.process_snapshot || !order.process_template_id) continue;
 
-        const templates = await AppDataSource.query<Array<{
-          id: number; name: string; version: string;
-        }>>(
-          `SELECT id, name, version FROM process_templates
-           WHERE id = ? AND tenant_id = ?`,
-          [order.process_template_id, this.tenantId],
+        const snapshot = JSON.stringify(
+          await new ProcessTemplateSnapshotBuilder(this.tenantId).build(
+            AppDataSource,
+            order.process_template_id,
+            order.sku_id,
+          ),
         );
-        const tmpl = templates[0];
-        if (!tmpl) continue;
-
-        const steps = await AppDataSource.query<Array<{
-          id: number;
-          step_no: number; step_name: string;
-          workstation_type: string | null;
-          workstation_id: number | null;
-          standard_hours: string | null;
-          max_hours: string | null;
-          output_type: 'semi_finished' | 'final_product' | 'none' | null;
-          output_sku_id: number | null;
-        }>>(
-          `SELECT id, step_no, step_name, workstation_type, workstation_id, standard_hours, max_hours,
-                  output_type, output_sku_id
-           FROM process_steps WHERE template_id = ? AND tenant_id = ?
-           ORDER BY step_no ASC`,
-          [tmpl.id, this.tenantId],
-        );
-
-        const snapshot = JSON.stringify({
-          templateId: tmpl.id,
-          templateName: tmpl.name,
-          version: tmpl.version ?? '1.0',
-          snapshotAt: new Date().toISOString(),
-          steps: steps.map((s) => ({
-            id: s.id,
-            stepNo: s.step_no,
-            stepName: s.step_name,
-            workstationType: s.workstation_type ?? null,
-            workstationId: s.workstation_id ?? null,
-            standardHours: s.standard_hours ?? null,
-            maxHours: s.max_hours ?? null,
-            outputType: s.output_type ?? null,
-            outputSkuId: s.output_sku_id ?? null,
-          })),
-        });
 
         await AppDataSource.query(
           `UPDATE production_orders
@@ -1450,12 +1425,17 @@ export class SchedulerService {
     task: {
       production_order_id: number;
       process_step_id: number;
+      output_sku_id?: number | null;
     },
   ): Promise<TaskInputPlanRow[]> {
-    return manager.query<TaskInputPlanRow[]>(
+    const stepPlans = await manager.query<TaskInputPlanRow[]>(
       `SELECT
           psm.input_sku_id AS inputSkuId,
           COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id) AS actualSkuId,
+          CASE
+            WHEN c1.code = 'SEMIFIN' THEN 'semi_finished'
+            ELSE 'material'
+          END AS itemType,
           psm.usage_per_unit AS usagePerUnit,
           psm.loss_rate AS lossRate,
           psm.consume_timing AS consumeTiming
@@ -1464,6 +1444,11 @@ export class SchedulerService {
          ON psm.tenant_id = ps.tenant_id
         AND psm.template_id = ps.template_id
         AND psm.step_no = ps.step_no
+       INNER JOIN skus si
+         ON si.id = psm.input_sku_id
+        AND si.tenant_id = ps.tenant_id
+       LEFT JOIN sku_categories c1
+         ON c1.id = si.category1_id
        LEFT JOIN production_order_components poc
          ON poc.tenant_id = ?
         AND poc.production_order_id = ?
@@ -1472,6 +1457,79 @@ export class SchedulerService {
        ORDER BY psm.id ASC`,
       [this.tenantId, task.production_order_id, task.process_step_id, this.tenantId],
     );
+
+    if (stepPlans.length > 0) {
+      return stepPlans;
+    }
+
+    return this.fetchTaskBomInputMaterialPlans(manager, task);
+  }
+
+  private async fetchTaskBomInputMaterialPlans(
+    manager: { query: typeof AppDataSource.query },
+    task: {
+      production_order_id: number;
+      output_sku_id?: number | null;
+    },
+  ): Promise<TaskInputPlanRow[]> {
+    const outputSkuId = await this.resolveTaskMaterialPlanOutputSku(manager, task);
+    if (!outputSkuId) {
+      return [];
+    }
+
+    return manager.query<TaskInputPlanRow[]>(
+      `SELECT
+          bi.component_sku_id AS inputSkuId,
+          COALESCE(poc.resolved_sku_id, poc.sku_id, bi.component_sku_id) AS actualSkuId,
+          CASE
+            WHEN c1.code = 'SEMIFIN' THEN 'semi_finished'
+            ELSE 'material'
+          END AS itemType,
+          CAST(bi.quantity AS CHAR) AS usagePerUnit,
+          CAST(COALESCE(bi.scrap_rate, 0) AS CHAR) AS lossRate,
+          'start' AS consumeTiming
+       FROM bom_headers bh
+       INNER JOIN bom_items bi
+         ON bi.bom_header_id = bh.id
+        AND bi.tenant_id = bh.tenant_id
+        AND bi.parent_item_id IS NULL
+       INNER JOIN skus cs
+         ON cs.id = bi.component_sku_id
+        AND cs.tenant_id = bh.tenant_id
+       LEFT JOIN sku_categories c1
+         ON c1.id = cs.category1_id
+       LEFT JOIN production_order_components poc
+         ON poc.tenant_id = bh.tenant_id
+        AND poc.production_order_id = ?
+        AND poc.sku_id = bi.component_sku_id
+       WHERE bh.tenant_id = ?
+         AND bh.sku_id = ?
+         AND bh.status = 'active'
+       ORDER BY bi.sort_order ASC, bi.id ASC`,
+      [task.production_order_id, this.tenantId, outputSkuId],
+    );
+  }
+
+  private async resolveTaskMaterialPlanOutputSku(
+    manager: { query: typeof AppDataSource.query },
+    task: {
+      production_order_id: number;
+      output_sku_id?: number | null;
+    },
+  ): Promise<number | null> {
+    if (task.output_sku_id) {
+      return Number(task.output_sku_id);
+    }
+
+    const [row] = await manager.query<Array<{ sku_id: number | null }>>(
+      `SELECT sku_id
+       FROM production_orders
+       WHERE id = ? AND tenant_id = ?
+       LIMIT 1`,
+      [task.production_order_id, this.tenantId],
+    );
+
+    return row?.sku_id ? Number(row.sku_id) : null;
   }
 
   private async ensureTaskInputTransactions(
@@ -1919,6 +1977,7 @@ export class SchedulerService {
     taskMaterialMap: Map<number, number>,
   ): Promise<number[]> {
     const requiredBySku = new Map<number, Decimal>();
+    const itemTypeBySku = new Map<number, string>();
     const completed = new Decimal(completedQty);
     for (const material of materialPlans) {
       const usagePerUnit = new Decimal(material.usagePerUnit ?? 0);
@@ -1927,6 +1986,7 @@ export class SchedulerService {
       if (requiredQty.lte(0)) continue;
       const key = Number(material.actualSkuId ?? material.inputSkuId);
       requiredBySku.set(key, (requiredBySku.get(key) ?? new Decimal(0)).plus(requiredQty));
+      itemTypeBySku.set(key, String(material.itemType ?? 'material'));
     }
 
     if (requiredBySku.size === 0) {
@@ -1940,11 +2000,14 @@ export class SchedulerService {
     for (const [skuId, requiredQty] of requiredBySku.entries()) {
       const sku = await this.getSkuInfo(manager, skuId);
       const taskMaterialTxId = taskMaterialMap.get(skuId) ?? null;
+      const itemType = itemTypeBySku.get(skuId) ?? 'material';
       const availableEntries = Array.from(taskIssuedMap.entries())
         .filter(([key, value]) => key.startsWith(`${skuId}::`) && new Decimal(value).gt(0))
         .map(([key, value]) => ({
           dyeLotNo: key.split('::')[1] || null,
           qty: new Decimal(value),
+          warehouseId: wipLocation.warehouseId,
+          locationId: wipLocation.locationId,
         }))
         .sort((left, right) => {
           if (left.dyeLotNo === right.dyeLotNo) return 0;
@@ -1953,7 +2016,45 @@ export class SchedulerService {
           return left.dyeLotNo.localeCompare(right.dyeLotNo);
         });
 
-      const totalAvailable = availableEntries.reduce((sum, item) => sum.plus(item.qty), new Decimal(0));
+      let totalAvailable = availableEntries.reduce((sum, item) => sum.plus(item.qty), new Decimal(0));
+      if (requiredQty.gt(totalAvailable) && itemType !== 'material') {
+        const fallbackRows = await manager.query<Array<{
+          warehouseId: number;
+          locationId: number;
+          dyeLotNo: string | null;
+          qtyOnHand: string;
+          qtyReserved: string;
+        }>>(
+          `SELECT
+              warehouse_id AS warehouseId,
+              location_id AS locationId,
+              NULL AS dyeLotNo,
+              qty_on_hand AS qtyOnHand,
+              qty_reserved AS qtyReserved
+           FROM inventory
+           WHERE tenant_id = ? AND sku_id = ? AND qty_on_hand > 0
+           ORDER BY qty_on_hand DESC, warehouse_id ASC, location_id ASC`,
+          [this.tenantId, skuId],
+        );
+
+        for (const row of fallbackRows) {
+          const onHand = new Decimal(row.qtyOnHand ?? 0);
+          const reserved = new Decimal(row.qtyReserved ?? 0);
+          const available = Decimal.max(onHand.minus(reserved), 0);
+          if (available.lte(0)) continue;
+          availableEntries.push({
+            dyeLotNo: row.dyeLotNo ? String(row.dyeLotNo) : null,
+            qty: available,
+            warehouseId: Number(row.warehouseId),
+            locationId: Number(row.locationId),
+          });
+          totalAvailable = totalAvailable.plus(available);
+          if (requiredQty.lte(totalAvailable)) {
+            break;
+          }
+        }
+      }
+
       if (requiredQty.gt(totalAvailable)) {
         throw AppError.conflict(
           `任务线边库存不足：${sku.skuName} 仅有 ${totalAvailable.toFixed(4)} ${sku.stockUnit}，需要 ${requiredQty.toFixed(4)} ${sku.stockUnit}`,
@@ -1968,11 +2069,11 @@ export class SchedulerService {
 
         await this.subtractInventoryStock(manager, {
           skuId,
-          warehouseId: wipLocation.warehouseId,
-          locationId: wipLocation.locationId,
+          warehouseId: entry.warehouseId,
+          locationId: entry.locationId,
           qty: consumeQty.toFixed(4),
           stockUnit: sku.stockUnit,
-          respectReserved: false,
+          respectReserved: itemType !== 'material',
         });
 
         if (entry.dyeLotNo) {
@@ -1988,8 +2089,8 @@ export class SchedulerService {
           skuId,
           transactionType: 'PRODUCTION_CONSUME_OUT',
           direction: 'OUT',
-          warehouseId: wipLocation.warehouseId,
-          locationId: wipLocation.locationId,
+          warehouseId: entry.warehouseId,
+          locationId: entry.locationId,
           sourceRef: 'production:task:consume',
           qtyInput: consumeQty.toFixed(4),
           inputUnit: sku.stockUnit,
@@ -2064,6 +2165,44 @@ export class SchedulerService {
            updated_by = ?
        WHERE id = ? AND tenant_id = ?`,
       [row?.qtyCompleted ?? '0', status, this.userId, productionOrderId, this.tenantId],
+    );
+
+    if (status === 'completed') {
+      await this.releaseCompletedOrderMaterialReservations(manager, productionOrderId);
+    }
+  }
+
+  private async releaseCompletedOrderMaterialReservations(
+    manager: { query: typeof AppDataSource.query; __inventorySnapshotSkuIds?: Set<number> },
+    productionOrderId: number,
+  ): Promise<void> {
+    const materialRows = await manager.query<Array<{ sku_id: number; qty_reserved: string }>>(
+      `SELECT sku_id, qty_reserved
+       FROM material_requirements
+       WHERE production_order_id = ? AND tenant_id = ? AND qty_reserved > 0`,
+      [productionOrderId, this.tenantId],
+    );
+
+    for (const mat of materialRows) {
+      const reservedQty = new Decimal(mat.qty_reserved ?? 0);
+      if (reservedQty.lte(0)) continue;
+
+      await manager.query(
+        `UPDATE inventory
+         SET qty_reserved = GREATEST(qty_reserved - ?, 0), updated_at = NOW()
+         WHERE sku_id = ? AND tenant_id = ?`,
+        [reservedQty.toFixed(4), mat.sku_id, this.tenantId],
+      );
+
+      await this.syncInventoryDailySnapshot(manager, Number(mat.sku_id));
+      this.trackInventorySnapshotCacheInvalidation(manager, [Number(mat.sku_id)]);
+    }
+
+    await manager.query(
+      `UPDATE material_requirements
+       SET qty_reserved = 0, qty_shortage = 0, status = 'fulfilled', updated_at = NOW()
+       WHERE production_order_id = ? AND tenant_id = ?`,
+      [productionOrderId, this.tenantId],
     );
   }
 

@@ -389,7 +389,7 @@ export class ProductionService {
     }
 
     const placeholders = taskIds.map(() => '?').join(', ');
-    const requiredRows = await AppDataSource.query<Array<{ taskId: number; skuId: number; requiredQty: string }>>(
+    const stepRequiredRows = await AppDataSource.query<Array<{ taskId: number; skuId: number; requiredQty: string }>>(
       `SELECT
           pt.id AS taskId,
           COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id) AS skuId,
@@ -415,6 +415,70 @@ export class ProductionService {
        GROUP BY pt.id, COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id)`,
       [this.tenantId, ...taskIds],
     );
+
+    const stepMaterialCountRows = await AppDataSource.query<Array<{ taskId: number; materialCount: string }>>(
+      `SELECT
+          pt.id AS taskId,
+          COUNT(psm.id) AS materialCount
+       FROM production_tasks pt
+       INNER JOIN process_steps ps
+         ON ps.id = pt.process_step_id
+        AND ps.tenant_id = pt.tenant_id
+       LEFT JOIN process_step_materials psm
+         ON psm.tenant_id = ps.tenant_id
+        AND psm.template_id = ps.template_id
+        AND psm.step_no = ps.step_no
+       WHERE pt.tenant_id = ?
+         AND pt.id IN (${placeholders})
+       GROUP BY pt.id`,
+      [this.tenantId, ...taskIds],
+    );
+
+    const fallbackTaskIds = stepMaterialCountRows
+      .filter((row) => Number(row.materialCount ?? 0) === 0)
+      .map((row) => Number(row.taskId))
+      .filter((taskId) => Number.isFinite(taskId) && taskId > 0);
+
+    const bomFallbackRows = fallbackTaskIds.length > 0
+      ? await AppDataSource.query<Array<{ taskId: number; skuId: number; requiredQty: string }>>(
+        `SELECT
+            pt.id AS taskId,
+            COALESCE(poc.resolved_sku_id, poc.sku_id, bi.component_sku_id) AS skuId,
+            CAST(
+              pt.planned_qty
+              * bi.quantity
+              * (1 + COALESCE(bi.scrap_rate, 0))
+              AS CHAR
+            ) AS requiredQty
+         FROM production_tasks pt
+         INNER JOIN process_steps ps
+           ON ps.id = pt.process_step_id
+          AND ps.tenant_id = pt.tenant_id
+         INNER JOIN bom_headers bh
+           ON bh.tenant_id = pt.tenant_id
+          AND bh.sku_id = COALESCE(pt.output_sku_id, ps.output_sku_id)
+          AND bh.status = 'active'
+         INNER JOIN bom_items bi
+           ON bi.bom_header_id = bh.id
+          AND bi.tenant_id = bh.tenant_id
+          AND bi.parent_item_id IS NULL
+         LEFT JOIN production_order_components poc
+           ON poc.tenant_id = pt.tenant_id
+          AND poc.production_order_id = pt.production_order_id
+          AND poc.sku_id = bi.component_sku_id
+         WHERE pt.tenant_id = ?
+           AND pt.id IN (${fallbackTaskIds.map(() => '?').join(', ')})
+           AND NOT EXISTS (
+             SELECT 1
+             FROM bom_headers sub_bh
+             WHERE sub_bh.tenant_id = bh.tenant_id
+               AND sub_bh.sku_id = bi.component_sku_id
+               AND sub_bh.status = 'active'
+             LIMIT 1
+           )`,
+        [this.tenantId, ...fallbackTaskIds],
+      )
+      : [];
 
     const movementRows = await AppDataSource.query<Array<{
       taskId: number;
@@ -444,7 +508,10 @@ export class ProductionService {
       [this.tenantId, ...taskIds],
     );
 
-    const normalizedRequiredRows = Array.isArray(requiredRows) ? requiredRows : [];
+    const normalizedRequiredRows = [
+      ...(Array.isArray(stepRequiredRows) ? stepRequiredRows : []),
+      ...(Array.isArray(bomFallbackRows) ? bomFallbackRows : []),
+    ];
     const normalizedMovementRows = Array.isArray(movementRows) ? movementRows : [];
 
     const requiredMap = new Map(
@@ -1767,6 +1834,8 @@ export class ProductionService {
     isShortage: boolean;
     inventoryTxId: number | null;
     movementStatus: string;
+    specText?: string | null;
+    processParams?: Record<string, unknown> | null;
   }>> {
     const inputTransactions = materialTransactions.filter((item) => item.ioType === 'input');
     const flowSummary = this.summarizeTaskMaterialFlows(inputTransactions);
@@ -1784,6 +1853,8 @@ export class ProductionService {
       lossRate: string;
       consumeTiming: 'start' | 'complete';
       qtyAvailable: string;
+      specText: string | null;
+      processParamsJson: string | Record<string, unknown> | null;
     }>>(
       `SELECT
           COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id) AS skuId,
@@ -1797,6 +1868,8 @@ export class ProductionService {
           psm.usage_per_unit AS usagePerUnit,
           psm.loss_rate AS lossRate,
           psm.consume_timing AS consumeTiming,
+          psm.spec_text AS specText,
+          psm.process_params_json AS processParamsJson,
           CAST(COALESCE(inv.qtyAvailable, 0) AS CHAR) AS qtyAvailable
        FROM process_steps ps
        INNER JOIN process_step_materials psm
@@ -1857,6 +1930,18 @@ export class ProductionService {
           isShortage: shortageQty.gt(0),
           inventoryTxId: summary?.inventoryTxId ?? null,
           movementStatus: `已领 ${issuedQty.toFixed(4)} / 已耗 ${(summary?.consumedQty ?? new Decimal(0)).toFixed(4)} / 在线边 ${lineSideQty.toFixed(4)}`,
+          specText: item.specText ?? null,
+          processParams: (() => {
+            if (!item.processParamsJson) return null;
+            if (typeof item.processParamsJson === 'string') {
+              try {
+                return JSON.parse(item.processParamsJson) as Record<string, unknown>;
+              } catch {
+                return null;
+              }
+            }
+            return item.processParamsJson;
+          })(),
         };
       });
     }
@@ -1884,6 +1969,8 @@ export class ProductionService {
         isShortage: Number(transaction?.shortageQty ?? 0) > 0,
         inventoryTxId: summary.inventoryTxId,
         movementStatus: `已领 ${issuedQty.toFixed(4)} / 已耗 ${summary.consumedQty.toFixed(4)} / 在线边 ${lineSideQty.toFixed(4)}`,
+        specText: null,
+        processParams: null,
       };
       });
     }
@@ -1960,6 +2047,8 @@ export class ProductionService {
         isShortage: shortageQty.gt(0),
         inventoryTxId: null,
         movementStatus: shortageQty.gt(0) ? '缺料待领' : '待领料',
+        specText: null,
+        processParams: null,
       };
     });
   }
@@ -2051,38 +2140,42 @@ export class ProductionService {
         };
       });
 
-    if (task.taskType === 'semi_finished' && task.outputSkuId) {
+    const materialItems = await this.getTaskInputMaterials(task, materialTransactions);
+    if (materialItems.length > 0) {
+      return [
+        ...predecessorItems,
+        ...materialItems.map((item) => ({
+          itemType: 'material' as const,
+          sourceLabel: item.sourceLabel,
+          skuId: item.skuId,
+          skuCode: item.skuCode,
+          skuName: item.skuName,
+          unit: item.unit,
+          stockUnit: item.stockUnit ?? item.unit,
+          purchaseUnit: item.purchaseUnit ?? item.unit,
+          productionUnit: item.productionUnit ?? item.stockUnit ?? item.unit,
+          hasDyeLot: item.hasDyeLot,
+          requiredQty: item.requiredQty,
+          fulfilledQty: item.issuedQty,
+          qtyAvailable: item.qtyAvailable,
+          shortageQty: item.shortageQty,
+          isShortage: item.isShortage,
+          status: item.movementStatus || (item.inventoryTxId ? '已投料' : Number(item.shortageQty ?? 0) > 0 ? '缺料' : '待投料'),
+          operationId: null,
+          stepName: null,
+          inventoryTxId: item.inventoryTxId,
+        })),
+      ];
+    }
+
+    if (task.outputSkuId) {
       const bomInputItems = await this.getTaskBomInputItems(task, predecessors, materialTransactions);
       if (bomInputItems.length > 0) {
         return bomInputItems;
       }
     }
 
-    const materialItems = await this.getTaskInputMaterials(task, materialTransactions);
-    return [
-      ...predecessorItems,
-      ...materialItems.map((item) => ({
-        itemType: 'material' as const,
-        sourceLabel: item.sourceLabel,
-        skuId: item.skuId,
-        skuCode: item.skuCode,
-        skuName: item.skuName,
-        unit: item.unit,
-        stockUnit: item.stockUnit ?? item.unit,
-        purchaseUnit: item.purchaseUnit ?? item.unit,
-        productionUnit: item.productionUnit ?? item.stockUnit ?? item.unit,
-        hasDyeLot: item.hasDyeLot,
-        requiredQty: item.requiredQty,
-        fulfilledQty: item.issuedQty,
-        qtyAvailable: item.qtyAvailable,
-        shortageQty: item.shortageQty,
-        isShortage: item.isShortage,
-        status: item.movementStatus || (item.inventoryTxId ? '已投料' : Number(item.shortageQty ?? 0) > 0 ? '缺料' : '待投料'),
-        operationId: null,
-        stepName: null,
-        inventoryTxId: item.inventoryTxId,
-      })),
-    ];
+    return predecessorItems;
   }
 
   private async getTaskBomInputItems(
@@ -2224,7 +2317,7 @@ export class ProductionService {
 
         return {
           itemType: 'semi_finished' as const,
-          sourceLabel: '一级 BOM 依赖',
+          sourceLabel: 'BOM汇总回退 · 半成品依赖',
           skuId: Number(item.skuId),
           skuCode: item.skuCode,
           skuName: item.skuName,
@@ -2251,7 +2344,7 @@ export class ProductionService {
 
       return {
         itemType: 'material' as const,
-        sourceLabel: '一级 BOM 依赖',
+        sourceLabel: 'BOM汇总回退 · 原材料',
         skuId: Number(item.skuId),
         skuCode: item.skuCode,
         skuName: item.skuName,

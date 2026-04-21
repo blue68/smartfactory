@@ -193,10 +193,22 @@ export default function OrderPage() {
     skuTypes: 'finished',
     customerId: selectedCustomerId,
   });
-  const finishedSkus = useMemo(
+  const { data: fallbackSkuPage } = useSkuList({
+    pageSize: 200,
+    skuTypes: 'finished',
+  });
+  const customerFinishedSkus = useMemo(
     () => (skuPage?.list ?? []).filter((sku) => sku.category1Code === 'FINISHED'),
     [skuPage],
   );
+  const fallbackFinishedSkus = useMemo(
+    () => (fallbackSkuPage?.list ?? []).filter((sku) => sku.category1Code === 'FINISHED'),
+    [fallbackSkuPage],
+  );
+  const finishedSkus = useMemo(() => {
+    if (!selectedCustomerId) return fallbackFinishedSkus;
+    return customerFinishedSkus.length > 0 ? customerFinishedSkus : fallbackFinishedSkus;
+  }, [selectedCustomerId, customerFinishedSkus, fallbackFinishedSkus]);
 
   const [showConstraintCard, setShowConstraintCard] = useState(false);
   const [urgentModalOpen, setUrgentModalOpen] = useState(false);

@@ -23,6 +23,11 @@ export interface CreateProcessConfigParams {
     workstationType?: string;
     workstationId?: number;
     executionMode?: 'internal' | 'outsource';
+    outputType?: 'semi_finished' | 'final_product' | 'none';
+    outputSkuId?: number | null;
+    predecessorStepNos?: number[];
+    routeGroupKey?: string | null;
+    routeLevel?: number | null;
     guideText?: string;
     guideAttachmentUrl?: string;
     guideAttachmentName?: string;
@@ -36,6 +41,26 @@ interface StepMaterialInput {
   lossRate?: number;
   consumeTiming?: 'start' | 'complete';
   isKeyMaterial?: boolean;
+  specText?: string;
+  processParams?: Record<string, unknown> | null;
+}
+
+interface ProcessStepMaterialView {
+  id: number;
+  tenantId: number;
+  templateId: number;
+  stepNo: number;
+  inputSkuId: number;
+  usagePerUnit: string;
+  lossRate: string;
+  consumeTiming: 'start' | 'complete';
+  isKeyMaterial: boolean;
+  specText: string | null;
+  processParamsJson: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+  skuCode: string | null;
+  skuName: string | null;
 }
 
 export class ProcessConfigService {
@@ -93,14 +118,66 @@ export class ProcessConfigService {
     return { template, steps };
   }
 
-  async getStepMaterials(templateId: number): Promise<ProcessStepMaterialEntity[]> {
+  async getStepMaterials(templateId: number): Promise<ProcessStepMaterialView[]> {
     const templateRepo = AppDataSource.getRepository(ProcessTemplateEntity);
     const template = await templateRepo.findOne({ where: { id: templateId, tenantId: this.tenantId } });
     if (!template) throw AppError.notFound('工序模板不存在');
 
-    return AppDataSource.getRepository(ProcessStepMaterialEntity).find({
-      where: { tenantId: this.tenantId, templateId },
-      order: { stepNo: 'ASC', inputSkuId: 'ASC' },
+    const rows = await AppDataSource.getRepository(ProcessStepMaterialEntity)
+      .createQueryBuilder('psm')
+      .leftJoin('skus', 'sku', 'sku.id = psm.input_sku_id AND sku.tenant_id = psm.tenant_id')
+      .select([
+        'psm.id AS id',
+        'psm.tenant_id AS tenantId',
+        'psm.template_id AS templateId',
+        'psm.step_no AS stepNo',
+        'psm.input_sku_id AS inputSkuId',
+        'psm.usage_per_unit AS usagePerUnit',
+        'psm.loss_rate AS lossRate',
+        'psm.consume_timing AS consumeTiming',
+        'psm.is_key_material AS isKeyMaterial',
+        'psm.spec_text AS specText',
+        'psm.process_params_json AS processParamsJson',
+        'psm.created_at AS createdAt',
+        'psm.updated_at AS updatedAt',
+        'sku.sku_code AS skuCode',
+        'sku.name AS skuName',
+      ])
+      .where('psm.tenant_id = :tenantId', { tenantId: this.tenantId })
+      .andWhere('psm.template_id = :templateId', { templateId })
+      .orderBy('psm.step_no', 'ASC')
+      .addOrderBy('psm.input_sku_id', 'ASC')
+      .getRawMany();
+
+    return rows.map((row) => {
+      let parsedProcessParams: Record<string, unknown> | null = null;
+      if (typeof row.processParamsJson === 'string') {
+        try {
+          parsedProcessParams = JSON.parse(row.processParamsJson);
+        } catch {
+          parsedProcessParams = null;
+        }
+      } else if (row.processParamsJson && typeof row.processParamsJson === 'object') {
+        parsedProcessParams = row.processParamsJson;
+      }
+
+      return {
+      id: Number(row.id),
+      tenantId: Number(row.tenantId),
+      templateId: Number(row.templateId),
+      stepNo: Number(row.stepNo),
+      inputSkuId: Number(row.inputSkuId),
+      usagePerUnit: String(row.usagePerUnit ?? '0'),
+      lossRate: String(row.lossRate ?? '0'),
+      consumeTiming: row.consumeTiming === 'complete' ? 'complete' : 'start',
+      isKeyMaterial: Boolean(Number(row.isKeyMaterial)),
+      specText: row.specText ?? null,
+      processParamsJson: parsedProcessParams,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      skuCode: row.skuCode ?? null,
+      skuName: row.skuName ?? null,
+      };
     });
   }
 
@@ -139,6 +216,10 @@ export class ProcessConfigService {
         lossRate: (item.lossRate ?? 0).toFixed(4),
         consumeTiming: item.consumeTiming ?? 'start',
         isKeyMaterial: Boolean(item.isKeyMaterial),
+        specText: item.specText?.trim() || null,
+        processParamsJson: item.processParams && Object.keys(item.processParams).length > 0
+          ? item.processParams
+          : null,
         createdBy: this.userId,
         updatedBy: this.userId,
       }));
@@ -173,6 +254,11 @@ export class ProcessConfigService {
           workstationType: s.workstationType ?? null,
           workstationId: s.workstationId ?? null,
           executionMode: s.executionMode ?? 'internal',
+          outputType: s.outputType ?? 'none',
+          outputSkuId: s.outputSkuId ?? null,
+          predecessorStepNosJson: s.predecessorStepNos ?? null,
+          routeGroupKey: s.routeGroupKey ?? null,
+          routeLevel: s.routeLevel ?? null,
           guideText: s.guideText ?? null,
           guideAttachmentUrl: s.guideAttachmentUrl ?? null,
           guideAttachmentName: s.guideAttachmentName ?? null,
@@ -209,6 +295,11 @@ export class ProcessConfigService {
           workstationType: s.workstationType ?? null,
           workstationId: s.workstationId ?? null,
           executionMode: s.executionMode ?? 'internal',
+          outputType: s.outputType ?? 'none',
+          outputSkuId: s.outputSkuId ?? null,
+          predecessorStepNosJson: s.predecessorStepNos ?? null,
+          routeGroupKey: s.routeGroupKey ?? null,
+          routeLevel: s.routeLevel ?? null,
           guideText: s.guideText ?? null,
           guideAttachmentUrl: s.guideAttachmentUrl ?? null,
           guideAttachmentName: s.guideAttachmentName ?? null,
@@ -528,6 +619,11 @@ export class ProcessConfigService {
       workstationType?: string;
       workstationId?: number;
       executionMode?: 'internal' | 'outsource';
+      outputType?: 'semi_finished' | 'final_product' | 'none';
+      outputSkuId?: number | null;
+      predecessorStepNos?: number[];
+      routeGroupKey?: string | null;
+      routeLevel?: number | null;
       guideText?: string;
       guideAttachmentUrl?: string;
       guideAttachmentName?: string;
@@ -553,6 +649,8 @@ export class ProcessConfigService {
       });
     }
 
+    const stepNoSet = new Set(steps.map((step) => Number(step.stepNo)));
+
     return steps.map((step) => {
       const linkedWorkstation = step.workstationId ? workstationMap.get(Number(step.workstationId)) : null;
       if (step.workstationId && !linkedWorkstation) {
@@ -561,11 +659,33 @@ export class ProcessConfigService {
       if (linkedWorkstation && step.workstationType && step.workstationType !== linkedWorkstation.type) {
         throw AppError.badRequest(`工序“${step.stepName}”的工作站类型与具体工作站不一致`);
       }
+      const outputType = step.outputType ?? 'none';
+      const outputSkuId = step.outputSkuId ?? null;
+      if (outputType === 'none' && outputSkuId) {
+        throw AppError.badRequest(`工序“${step.stepName}”未指定产出类型时，不能填写产出 SKU`);
+      }
+      if (outputType !== 'none' && !outputSkuId) {
+        throw AppError.badRequest(`工序“${step.stepName}”指定了产出类型，但缺少产出 SKU`);
+      }
+      const predecessorStepNos = [...new Set((step.predecessorStepNos ?? []).map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))];
+      for (const predecessorStepNo of predecessorStepNos) {
+        if (!stepNoSet.has(predecessorStepNo)) {
+          throw AppError.badRequest(`工序“${step.stepName}”引用了不存在的前置步骤 Step ${predecessorStepNo}`);
+        }
+        if (predecessorStepNo >= step.stepNo) {
+          throw AppError.badRequest(`工序“${step.stepName}”的前置步骤必须小于当前步骤号`);
+        }
+      }
       return {
         ...step,
         workstationType: linkedWorkstation?.type ?? step.workstationType,
         workstationId: linkedWorkstation?.id ?? step.workstationId,
         executionMode: step.executionMode ?? 'internal',
+        outputType,
+        outputSkuId,
+        predecessorStepNos,
+        routeGroupKey: step.routeGroupKey?.trim() || null,
+        routeLevel: step.routeLevel ?? null,
         guideText: step.guideText?.trim() || undefined,
         guideAttachmentUrl: step.guideAttachmentUrl?.trim() || undefined,
         guideAttachmentName: step.guideAttachmentName?.trim() || undefined,

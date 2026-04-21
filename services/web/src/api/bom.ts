@@ -7,6 +7,7 @@ import request from '@/utils/request';
 import type {
   BomHeader,
   BomDetail,
+  BomReferencedByItem,
   MaterialRequirement,
   CreateBomPayload,
 } from '@/types/models';
@@ -19,6 +20,7 @@ export const bomKeys = {
   detail: (id: number) => [...bomKeys.all, 'detail', id] as const,
   expanded: (id: number) => [...bomKeys.all, 'expanded', id] as const,
   requirements: (id: number, qty: number) => [...bomKeys.all, 'requirements', id, qty] as const,
+  referencedBy: (skuId: number) => [...bomKeys.all, 'referenced-by', skuId] as const,
   aiSuggestion: (skuId: number) => [...bomKeys.all, 'ai-suggestion', skuId] as const,
   costBreakdown: (id: number) => [...bomKeys.all, 'cost-breakdown', id] as const,
 };
@@ -64,6 +66,9 @@ export const bomApi = {
       `/api/bom/${id}/material-requirements`,
       { productionQty },
     ),
+
+  getReferencedBy: (skuId: number) =>
+    request.get<BomReferencedByItem[]>(`/api/bom/sku/${skuId}/referenced-by`),
 
   create: (payload: CreateBomPayload) =>
     request.post<{ id: number }>('/api/bom', payload),
@@ -125,6 +130,15 @@ export function useMaterialRequirements(bomId: number | null, productionQty: num
     queryKey: bomKeys.requirements(bomId!, productionQty),
     queryFn: () => bomApi.getMaterialRequirements(bomId!, productionQty),
     enabled: bomId !== null && bomId > 0 && productionQty > 0,
+  });
+}
+
+export function useBomReferencedBy(skuId: number | null) {
+  return useQuery({
+    queryKey: bomKeys.referencedBy(skuId!),
+    queryFn: () => bomApi.getReferencedBy(skuId!),
+    enabled: skuId !== null && skuId > 0,
+    staleTime: 2 * 60 * 1000,
   });
 }
 

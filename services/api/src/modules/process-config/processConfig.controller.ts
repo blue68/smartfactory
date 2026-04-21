@@ -45,6 +45,11 @@ const StepSchema = z.object({
   workstationType: z.string().max(50).optional(),
   workstationId: z.number().int().positive().optional(),
   executionMode: z.enum(['internal', 'outsource']).optional(),
+  outputType: z.enum(['semi_finished', 'final_product', 'none']).optional(),
+  outputSkuId: z.number().int().positive().nullable().optional(),
+  predecessorStepNos: z.array(z.number().int().positive()).optional(),
+  routeGroupKey: z.string().max(120).nullable().optional(),
+  routeLevel: z.number().int().positive().nullable().optional(),
   guideText: z.string().max(5000).optional(),
   guideAttachmentUrl: z.string().max(500).optional(),
   guideAttachmentName: z.string().max(255).optional(),
@@ -57,6 +62,8 @@ const StepMaterialSchema = z.object({
   lossRate: z.number().min(0).max(1).optional(),
   consumeTiming: z.enum(['start', 'complete']).optional(),
   isKeyMaterial: z.boolean().optional(),
+  specText: z.string().max(255).optional(),
+  processParams: z.record(z.string(), z.any()).nullable().optional(),
 });
 
 const StepMaterialsSchema = z.object({

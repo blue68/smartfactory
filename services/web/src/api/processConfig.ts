@@ -53,7 +53,30 @@ export interface ProcessStep {
   workstationType: string | null;
   workstationId: number | null;
   executionMode: 'internal' | 'outsource';
+  outputType: 'semi_finished' | 'final_product' | 'none';
+  outputSkuId: number | null;
+  predecessorStepNosJson: number[] | null;
+  routeGroupKey: string | null;
+  routeLevel: number | null;
   createdAt: string;
+}
+
+export interface ProcessStepMaterial {
+  id: number;
+  tenantId: number;
+  templateId: number;
+  stepNo: number;
+  inputSkuId: number;
+  usagePerUnit: string;
+  lossRate: string;
+  consumeTiming: 'start' | 'complete';
+  isKeyMaterial: boolean;
+  specText: string | null;
+  processParamsJson: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+  skuCode: string | null;
+  skuName: string | null;
 }
 
 /** getById 接口完整返回 */
@@ -94,6 +117,11 @@ export interface ProcessStepPayload {
   workstationType?: string;
   workstationId?: number;
   executionMode?: 'internal' | 'outsource';
+  outputType?: 'semi_finished' | 'final_product' | 'none';
+  outputSkuId?: number | null;
+  predecessorStepNos?: number[];
+  routeGroupKey?: string | null;
+  routeLevel?: number | null;
   guideText?: string;
   guideAttachmentUrl?: string;
   guideAttachmentName?: string;
@@ -148,6 +176,17 @@ export interface SetWagesPayload {
   unitPrice: number;
 }
 
+export interface ProcessStepMaterialPayload {
+  stepNo: number;
+  inputSkuId: number;
+  usagePerUnit: number;
+  lossRate?: number;
+  consumeTiming?: 'start' | 'complete';
+  isKeyMaterial?: boolean;
+  specText?: string;
+  processParams?: Record<string, unknown> | null;
+}
+
 // ─────────────────────────────────────────────
 // 原始请求函数
 // ─────────────────────────────────────────────
@@ -190,6 +229,12 @@ export const processConfigApi = {
       `/api/process-configs/steps/${stepId}/wages`,
       payload,
     ),
+
+  getStepMaterials: (templateId: number) =>
+    request.get<ProcessStepMaterial[]>(`/api/process-configs/templates/${templateId}/step-materials`),
+
+  setStepMaterials: (templateId: number, items: ProcessStepMaterialPayload[]) =>
+    request.put<ProcessStepMaterial[]>(`/api/process-configs/templates/${templateId}/step-materials`, { items }),
 };
 
 export async function uploadProcessGuideFile(file: File): Promise<{ id: number; url: string; originalName: string; size: number; path: string; storageDriver: 'local' | 'oss' }> {
@@ -361,6 +406,25 @@ export function useSetWages() {
     }) => processConfigApi.setWages(stepId, payload),
     onSuccess: (_data, variables) => {
       void qc.invalidateQueries({ queryKey: ['step-wages', variables.stepId] });
+    },
+  });
+}
+
+export function useProcessStepMaterials(templateId: number | null) {
+  return useQuery({
+    queryKey: ['process-step-materials', templateId],
+    queryFn: () => processConfigApi.getStepMaterials(templateId!),
+    enabled: templateId !== null,
+  });
+}
+
+export function useSetProcessStepMaterials() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ templateId, items }: { templateId: number; items: ProcessStepMaterialPayload[] }) =>
+      processConfigApi.setStepMaterials(templateId, items),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: ['process-step-materials', variables.templateId] });
     },
   });
 }

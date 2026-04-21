@@ -82,7 +82,7 @@
 .bom-tree__content {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(120px, 2fr) minmax(80px, 1.2fr) 64px 48px 72px;
+  grid-template-columns: minmax(120px, 2fr) minmax(80px, 1.2fr) 64px 48px 72px 88px;
   gap: var(--space-2);
   align-items: center;
   min-width: 0;
@@ -154,6 +154,26 @@
   color: var(--color-warning-600);
 }
 
+.bom-tree__reference-btn {
+  justify-self: end;
+  min-width: 72px;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-primary-200);
+  background: var(--bg-card);
+  color: var(--color-primary-600);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.bom-tree__reference-btn:hover {
+  border-color: var(--color-primary-400);
+  background: var(--color-primary-50);
+}
+
 /* ── 表头行 ──────────────────────────────────── */
 .bom-tree__header {
   display: flex;
@@ -172,7 +192,7 @@
 .bom-tree__header-cols {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(120px, 2fr) minmax(80px, 1.2fr) 64px 48px 72px;
+  grid-template-columns: minmax(120px, 2fr) minmax(80px, 1.2fr) 64px 48px 72px 88px;
   gap: var(--space-2);
   font-size: 11px;
   font-weight: 600;
@@ -183,7 +203,8 @@
 
 .bom-tree__header-cols span:nth-child(3),
 .bom-tree__header-cols span:nth-child(4),
-.bom-tree__header-cols span:nth-child(5) {
+.bom-tree__header-cols span:nth-child(5),
+.bom-tree__header-cols span:nth-child(6) {
   text-align: right;
 }
 
@@ -213,7 +234,7 @@
 /* ── 响应式：窄屏隐藏规格和损耗率 ───────────────── */
 @media (max-width: 560px) {
   .bom-tree__content {
-    grid-template-columns: 1fr 56px 36px;
+    grid-template-columns: 1fr 56px 36px 76px;
   }
   .bom-tree__spec,
   .bom-tree__scrap-rate {

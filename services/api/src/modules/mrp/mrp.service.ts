@@ -140,7 +140,7 @@ export class MrpService {
       // 读取物料需求记录
       const requirements = await manager.query<MaterialRequirementRow[]>(
         `SELECT mr.id, mr.production_order_id, mr.bom_snapshot_id, mr.sku_id,
-                qty_required, qty_reserved, qty_shortage, status, suggestion_id
+                mr.qty_required, mr.qty_reserved, mr.qty_shortage, mr.status, mr.suggestion_id
          FROM material_requirements mr
          INNER JOIN skus s ON s.id = mr.sku_id AND s.tenant_id = mr.tenant_id
          WHERE mr.production_order_id = ? AND mr.tenant_id = ?

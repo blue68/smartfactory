@@ -11,6 +11,7 @@ router.get('/',                          requirePermissionsOrRoles(['bom:view'],
 
 // BE-P1-002: AI 辅助 BOM 建议（必须在 /:id 参数路由之前注册，避免 Express 路由歧义）
 router.get('/ai-suggestion/:skuId',      requirePermissionsOrRoles(['bom:create'], 'boss', 'supervisor'), asyncHandler(bomController.getAiSuggestion.bind(bomController)));
+router.get('/sku/:skuId/referenced-by',  requirePermissionsOrRoles(['bom:view'], 'boss', 'supervisor', 'purchaser'), asyncHandler(bomController.getReferencedBy.bind(bomController)));
 
 router.get('/:id/expand',               requirePermissionsOrRoles(['bom:view'], 'boss', 'supervisor', 'purchaser'), asyncHandler(bomController.getExpanded.bind(bomController)));
 router.get('/:id/export',               requirePermissionsOrRoles(['bom:view'], 'boss', 'supervisor'), asyncHandler(bomController.exportBom.bind(bomController)));

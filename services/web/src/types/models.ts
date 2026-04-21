@@ -289,6 +289,16 @@ export interface BomItem {
   children: BomItem[];
 }
 
+export interface BomReferencedByItem {
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  bomHeaderId: number;
+  bomVersion: string;
+  levels: number[];
+  occurrenceCount: number;
+}
+
 export interface BomDetail extends BomHeader {
   items: BomItem[];
 }
@@ -1273,6 +1283,8 @@ export interface ProductionTaskInputMaterial {
   locationId?: number | null;
   locationCode?: string | null;
   locationName?: string | null;
+  specText?: string | null;
+  processParams?: Record<string, unknown> | null;
 }
 
 export interface ProductionTaskInputItem {
@@ -1298,6 +1310,8 @@ export interface ProductionTaskInputItem {
   locationId: number | null;
   locationCode: string | null;
   locationName: string | null;
+  specText?: string | null;
+  processParams?: Record<string, unknown> | null;
 }
 
 export interface ProductionTaskOutputItem {

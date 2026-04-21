@@ -71,6 +71,16 @@ export interface MaterialRequirement {
   unit: string;
 }
 
+export interface BomReferencedByItem {
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  bomHeaderId: number;
+  bomVersion: string;
+  levels: number[];
+  occurrenceCount: number;
+}
+
 export interface CreateBomParams {
   skuId: number;
   version?: string;
@@ -354,6 +364,140 @@ export class BomService {
         unit: info?.stock_unit ?? req.unit,
       };
     });
+  }
+
+  async getReferencedBySemiFinished(skuId: number): Promise<BomReferencedByItem[]> {
+    const [targetSku] = await AppDataSource.query<Array<{ id: number }>>(
+      'SELECT id FROM skus WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [skuId, this.tenantId],
+    );
+    if (!targetSku) {
+      throw AppError.notFound('SKU不存在', ResponseCode.SKU_NOT_FOUND);
+    }
+
+    const activeHeaders = await AppDataSource.query<Array<{
+      bom_header_id: number;
+      bom_version: string;
+      parent_sku_id: number;
+      parent_sku_code: string;
+      parent_sku_name: string;
+      category1_code: string;
+    }>>(
+      `SELECT
+         bh.id AS bom_header_id,
+         bh.version AS bom_version,
+         s.id AS parent_sku_id,
+         s.sku_code AS parent_sku_code,
+         s.name AS parent_sku_name,
+         sc1.code AS category1_code
+       FROM bom_headers bh
+       INNER JOIN skus s ON s.id = bh.sku_id
+       INNER JOIN sku_categories sc1 ON sc1.id = s.category1_id
+       WHERE bh.tenant_id = ? AND bh.status = 'active'`,
+      [this.tenantId],
+    );
+
+    const activeHeaderBySku = new Map<number, number>();
+    for (const header of activeHeaders) {
+      activeHeaderBySku.set(Number(header.parent_sku_id), Number(header.bom_header_id));
+    }
+
+    const allRows = await AppDataSource.query<Array<{
+      bom_header_id: number;
+      id: number;
+      parent_item_id: number | null;
+      component_sku_id: number;
+      sort_order: number;
+    }>>(
+      `SELECT
+         bi.bom_header_id,
+         bi.id,
+         bi.parent_item_id,
+         bi.component_sku_id,
+         bi.sort_order
+       FROM bom_items bi
+       INNER JOIN bom_headers bh ON bh.id = bi.bom_header_id AND bh.tenant_id = bi.tenant_id
+       WHERE bi.tenant_id = ? AND bh.status = 'active'
+       ORDER BY bi.bom_header_id, bi.level, bi.sort_order, bi.id`,
+      [this.tenantId],
+    );
+
+    const rowsByHeader = new Map<number, typeof allRows>();
+    const childrenByHeader = new Map<number, Map<number | null, typeof allRows>>();
+
+    for (const row of allRows) {
+      const headerId = Number(row.bom_header_id);
+      if (!rowsByHeader.has(headerId)) rowsByHeader.set(headerId, []);
+      rowsByHeader.get(headerId)!.push(row);
+    }
+
+    for (const [headerId, rows] of rowsByHeader.entries()) {
+      const grouped = new Map<number | null, typeof allRows>();
+      for (const row of rows) {
+        const parentKey = row.parent_item_id === null ? null : Number(row.parent_item_id);
+        if (!grouped.has(parentKey)) grouped.set(parentKey, []);
+        grouped.get(parentKey)!.push(row);
+      }
+      for (const siblings of grouped.values()) {
+        siblings.sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+      }
+      childrenByHeader.set(headerId, grouped);
+    }
+
+    const searchLevels = (
+      headerId: number,
+      parentItemId: number | null,
+      currentLevel: number,
+      visitedBomIds: Set<number>,
+      levels: number[],
+    ): void => {
+      const grouped = childrenByHeader.get(headerId);
+      if (!grouped) return;
+      const siblings = grouped.get(parentItemId) ?? [];
+      for (const row of siblings) {
+        if (Number(row.component_sku_id) === skuId) {
+          levels.push(currentLevel);
+        }
+        const childBomId = activeHeaderBySku.get(Number(row.component_sku_id));
+        if (childBomId && !visitedBomIds.has(childBomId)) {
+          const nextVisited = new Set(visitedBomIds);
+          nextVisited.add(childBomId);
+          searchLevels(childBomId, null, currentLevel + 1, nextVisited, levels);
+        } else {
+          searchLevels(headerId, Number(row.id), currentLevel + 1, visitedBomIds, levels);
+        }
+      }
+    };
+
+    const referencedBy: BomReferencedByItem[] = [];
+    for (const header of activeHeaders) {
+      if (header.category1_code !== 'SEMIFIN') continue;
+      if (Number(header.parent_sku_id) === skuId) continue;
+
+      const levels: number[] = [];
+      searchLevels(Number(header.bom_header_id), null, 1, new Set<number>([Number(header.bom_header_id)]), levels);
+
+      if (levels.length === 0) continue;
+
+      const uniqueLevels = Array.from(new Set(levels)).sort((a, b) => a - b);
+      referencedBy.push({
+        skuId: Number(header.parent_sku_id),
+        skuCode: header.parent_sku_code,
+        skuName: header.parent_sku_name,
+        bomHeaderId: Number(header.bom_header_id),
+        bomVersion: header.bom_version,
+        levels: uniqueLevels,
+        occurrenceCount: levels.length,
+      });
+    }
+
+    referencedBy.sort((a, b) => {
+      const levelDiff = (a.levels[0] ?? 999) - (b.levels[0] ?? 999);
+      if (levelDiff !== 0) return levelDiff;
+      return a.skuCode.localeCompare(b.skuCode, 'zh-CN');
+    });
+
+    return referencedBy;
   }
 
   /**

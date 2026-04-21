@@ -150,6 +150,8 @@ interface ProductionTask {
     qtyAvailable: string;
     shortageQty: string;
     isShortage: boolean | 0 | 1 | '0' | '1';
+    specText?: string | null;
+    processParams?: Record<string, unknown> | null;
     inventoryTxId: number | null;
     movementStatus?: string | null;
     warehouseId?: number | null;
@@ -175,6 +177,8 @@ interface ProductionTask {
     qtyAvailable: string;
     shortageQty: string;
     isShortage: boolean | 0 | 1 | '0' | '1';
+    specText?: string | null;
+    processParams?: Record<string, unknown> | null;
     status: string | null;
     operationId: number | null;
     stepName: string | null;
@@ -421,6 +425,47 @@ function formatWarehouseLocation(value: {
     return location;
   }
   return '未绑定';
+}
+
+function formatProcessParams(params?: Record<string, unknown> | null): string {
+  if (!params) return '';
+  const preferredOrder = [
+    'materialAttr',
+    'formulaText',
+    'doorWidth',
+    'areaMm2',
+    'cutWidth',
+    'cutHeight',
+    'length',
+    'width',
+    'thickness',
+  ];
+  const labelMap: Record<string, string> = {
+    materialAttr: '材料属性',
+    formulaText: '公式说明',
+    doorWidth: '门幅',
+    areaMm2: '面积平方毫米',
+    cutWidth: '裁片宽',
+    cutHeight: '裁片高',
+    length: '长度',
+    width: '宽度',
+    thickness: '厚度',
+  };
+  const orderedEntries = Object.entries(params).sort(([keyA], [keyB]) => {
+    const indexA = preferredOrder.indexOf(keyA);
+    const indexB = preferredOrder.indexOf(keyB);
+    const rankA = indexA === -1 ? preferredOrder.length : indexA;
+    const rankB = indexB === -1 ? preferredOrder.length : indexB;
+    if (rankA !== rankB) return rankA - rankB;
+    return keyA.localeCompare(keyB, 'zh-CN');
+  });
+  return orderedEntries
+    .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '')
+    .map(([key, value]) => {
+      const renderedValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+      return `${labelMap[key] ?? key}: ${renderedValue}`;
+    })
+    .join(' · ');
 }
 
 function getInputItemNumericQty(
@@ -1756,6 +1801,10 @@ function TaskDetailContent({
   const predecessors = task.dependencySummary?.predecessors ?? [];
   const inputItems = task.inputItems ?? [];
   const outputItems = task.outputItems ?? [];
+  const hasBomFallbackInputs = inputItems.some((item) => item.sourceLabel?.startsWith('BOM汇总回退'));
+  const hasStepMaterialInputs = inputItems.some(
+    (item) => item.itemType === 'material' && !item.sourceLabel?.startsWith('BOM汇总回退'),
+  );
   const inputTransactions = task.materialTransactions?.filter((item) => item.ioType === 'input') ?? [];
   const outputTransactions = task.materialTransactions?.filter((item) => item.ioType === 'output') ?? [];
   const hasProcessGuide = Boolean(task.processGuideText || task.processGuideAttachmentUrl);
@@ -1881,6 +1930,15 @@ function TaskDetailContent({
 
       <section className={styles.drawerSection}>
         <h3 className={styles.drawerSectionTitle}>任务输入 / 输出清单</h3>
+        {hasBomFallbackInputs ? (
+          <div className={`${styles.inputSourceBanner} ${styles['inputSourceBanner--fallback']}`}>
+            当前任务未维护步骤投料，以下输入项按 BOM 汇总回退展示。
+          </div>
+        ) : hasStepMaterialInputs ? (
+          <div className={`${styles.inputSourceBanner} ${styles['inputSourceBanner--step']}`}>
+            当前任务已维护步骤投料，以下输入项按当前工序的步骤投料展示。
+          </div>
+        ) : null}
         <div className={styles.ioGrid}>
           <div className={styles.taskIOPanel}>
             <div className={styles.tracePanel__title}>输入项</div>
@@ -1919,6 +1977,12 @@ function TaskDetailContent({
                         </span>
                         <span>{item.status || '—'}</span>
                       </div>
+                      {(item.specText || formatProcessParams(item.processParams)) ? (
+                        <div className={styles.taskIOItem__meta}>
+                          {item.specText ? <span>规格参数 {item.specText}</span> : null}
+                          {formatProcessParams(item.processParams) ? <span>工艺参数 {formatProcessParams(item.processParams)}</span> : null}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}

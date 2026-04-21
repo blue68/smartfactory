@@ -94,6 +94,26 @@ export class ProcessStepEntity {
   })
   executionMode: 'internal' | 'outsource';
 
+  @Column({
+    name: 'output_type',
+    type: 'enum',
+    enum: ['semi_finished', 'final_product', 'none'],
+    default: 'none',
+  })
+  outputType: 'semi_finished' | 'final_product' | 'none';
+
+  @Column({ name: 'output_sku_id', type: 'bigint', unsigned: true, nullable: true })
+  outputSkuId: number | null;
+
+  @Column({ name: 'predecessor_step_nos_json', type: 'json', nullable: true })
+  predecessorStepNosJson: number[] | null;
+
+  @Column({ name: 'route_group_key', type: 'varchar', length: 120, nullable: true })
+  routeGroupKey: string | null;
+
+  @Column({ name: 'route_level', type: 'smallint', nullable: true })
+  routeLevel: number | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime', precision: 3 })
   createdAt: Date;
 }

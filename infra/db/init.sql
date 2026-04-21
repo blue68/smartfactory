@@ -276,15 +276,20 @@ CREATE TABLE IF NOT EXISTS `inventory` (
   `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `tenant_id`      BIGINT UNSIGNED NOT NULL,
   `sku_id`         BIGINT UNSIGNED NOT NULL,
+  `warehouse_id`   BIGINT UNSIGNED DEFAULT NULL,
+  `location_id`    BIGINT UNSIGNED DEFAULT NULL,
   `qty_on_hand`    DECIMAL(16,4)   NOT NULL DEFAULT 0 COMMENT '在库数量',
   `qty_reserved`   DECIMAL(16,4)   NOT NULL DEFAULT 0 COMMENT '已预留数量',
   `qty_in_transit` DECIMAL(16,4)   NOT NULL DEFAULT 0 COMMENT '在途数量',
+  `source_ref`     VARCHAR(100)    DEFAULT NULL,
   `last_in_at`     DATETIME(3)     DEFAULT NULL,
   `last_out_at`    DATETIME(3)     DEFAULT NULL,
   `created_at`     DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   `updated_at`     DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  `updated_by`     BIGINT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_tenant_sku` (`tenant_id`, `sku_id`)
+  UNIQUE KEY `uk_tenant_sku_wh_loc` (`tenant_id`, `sku_id`, `warehouse_id`, `location_id`),
+  KEY `idx_tenant_wh_loc_sku` (`tenant_id`, `warehouse_id`, `location_id`, `sku_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存快照表';
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -745,13 +750,22 @@ CREATE TABLE IF NOT EXISTS `process_steps` (
   `guide_attachment_url`  VARCHAR(500) DEFAULT NULL COMMENT '工序操作说明附件地址',
   `guide_attachment_name` VARCHAR(255) DEFAULT NULL COMMENT '工序操作说明附件名称',
   `workstation_type` VARCHAR(50)     DEFAULT NULL,
+  `workstation_id`   BIGINT UNSIGNED DEFAULT NULL,
+  `execution_mode`   ENUM('internal','outsource') NOT NULL DEFAULT 'internal',
+  `output_type`      ENUM('semi_finished','final_product','none') NOT NULL DEFAULT 'none',
+  `output_sku_id`    BIGINT UNSIGNED DEFAULT NULL,
+  `predecessor_step_nos_json` JSON DEFAULT NULL COMMENT '前置步骤编号集合（支持并行/汇合 DAG）',
+  `route_group_key`  VARCHAR(120)    DEFAULT NULL COMMENT '工艺分支键（对应 BOM 半成品分支）',
+  `route_level`      SMALLINT        DEFAULT NULL COMMENT '工艺分支层级',
   `created_at`       DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   `updated_at`       DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   `created_by`       BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `updated_by`       BIGINT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `idx_tenant_template` (`tenant_id`, `template_id`),
-  KEY `idx_step_no` (`template_id`, `step_no`)
+  KEY `idx_step_no` (`template_id`, `step_no`),
+  KEY `idx_process_steps_route_group` (`tenant_id`, `template_id`, `route_group_key`),
+  KEY `idx_process_steps_route_level` (`tenant_id`, `template_id`, `route_level`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工序步骤表';
 
 -- ─────────────────────────────────────────────────────────────────────────────
