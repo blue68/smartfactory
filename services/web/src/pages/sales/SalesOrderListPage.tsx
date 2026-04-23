@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import Modal from '@/components/common/Modal';
 import Drawer from '@/components/common/Drawer';
@@ -239,13 +240,13 @@ interface DraftLineItem {
   skuSearch: string;
   productCode: string;
   productName: string;
-  quantity: number;
+  quantity: string;
   unit: string;
-  unitPrice: number;
+  unitPrice: string;
 }
 
 function emptyLineItem(): DraftLineItem {
-  return { skuId: '', skuSearch: '', productCode: '', productName: '', quantity: 1, unit: '件', unitPrice: 0 };
+  return { skuId: '', skuSearch: '', productCode: '', productName: '', quantity: '1', unit: '件', unitPrice: '0' };
 }
 
 function getVisibleSkuCode(sku: { skuCode: string; customerSkuCode?: string | null }): string {
@@ -263,6 +264,33 @@ function getSkuSearchLabel(sku: {
   customerSkuName?: string | null;
 }): string {
   return `${getVisibleSkuCode(sku)} · ${getVisibleSkuName(sku)}`;
+}
+
+function isIntegerDraft(value: string): boolean {
+  return /^\d*$/.test(value);
+}
+
+function isDecimalDraft(value: string): boolean {
+  return /^(?:\d+)?(?:\.\d*)?$/.test(value);
+}
+
+function toFiniteNumber(value: string | number | null | undefined): number {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value !== 'string') return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toDraftNumberString(value: string | number | null | undefined, fallback = '0'): string {
+  if (typeof value === 'string') {
+    return value.trim() ? value : fallback;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return fallback;
 }
 
 interface SearchableSkuCellSelectProps {
@@ -298,6 +326,8 @@ function SearchableSkuCellSelect({
   onSelect,
 }: SearchableSkuCellSelectProps) {
   const [open, setOpen] = useState(false);
+  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const keyword = value.trim().toLowerCase();
 
   const filteredOptions = useMemo(() => {
@@ -310,9 +340,71 @@ function SearchableSkuCellSelect({
     return list.slice(0, 12);
   }, [keyword, options]);
 
+  useEffect(() => {
+    if (!open || disabled) return undefined;
+
+    const updatePosition = () => {
+      const inputEl = inputRef.current;
+      if (!inputEl) return;
+      const rect = inputEl.getBoundingClientRect();
+      const preferredWidth = Math.max(rect.width, 420);
+      const width = Math.min(preferredWidth, Math.max(320, window.innerWidth - 16));
+      const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8));
+      const maxHeight = Math.max(180, window.innerHeight - rect.bottom - 16);
+
+      setDropdownStyle({
+        top: rect.bottom + 4,
+        left,
+        width,
+        maxHeight,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [disabled, open, filteredOptions.length]);
+
+  const dropdown = open && !disabled && dropdownStyle
+    ? createPortal(
+        <div
+          className={`${styles.skuSearchDropdown} ${styles.skuSearchDropdownPortal}`}
+          style={dropdownStyle}
+          id={inputId ? `${inputId}-listbox` : undefined}
+          role="listbox"
+          aria-label="SKU 候选列表"
+        >
+          {filteredOptions.length === 0 && (
+            <div className={styles.skuSearchEmpty}>未找到匹配 SKU</div>
+          )}
+          {filteredOptions.map((sku) => (
+            <button
+              key={sku.id}
+              type="button"
+              className={styles.skuSearchOption}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                onSelect(sku);
+                setOpen(false);
+              }}
+            >
+              <span className={styles.skuSearchOptionCode}>{getVisibleSkuCode(sku)}</span>
+              <span className={styles.skuSearchOptionName}>{getVisibleSkuName(sku)}</span>
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )
+    : null;
+
   return (
     <div className={styles.skuSearchWrap}>
       <input
+        ref={inputRef}
         id={inputId}
         className={styles.cellInput}
         type="text"
@@ -336,34 +428,7 @@ function SearchableSkuCellSelect({
           }
         }}
       />
-
-      {open && !disabled && (
-        <div
-          className={styles.skuSearchDropdown}
-          id={inputId ? `${inputId}-listbox` : undefined}
-          role="listbox"
-          aria-label="SKU 候选列表"
-        >
-          {filteredOptions.length === 0 && (
-            <div className={styles.skuSearchEmpty}>未找到匹配 SKU</div>
-          )}
-          {filteredOptions.map((sku) => (
-            <button
-              key={sku.id}
-              type="button"
-              className={styles.skuSearchOption}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                onSelect(sku);
-                setOpen(false);
-              }}
-            >
-              <span className={styles.skuSearchOptionCode}>{getVisibleSkuCode(sku)}</span>
-              <span className={styles.skuSearchOptionName}>{getVisibleSkuName(sku)}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {dropdown}
     </div>
   );
 }
@@ -419,6 +484,14 @@ interface DeliveryCapacityAssessment {
   conflictingOrders: CapacityConflictingOrder[];
   failedLineCount: number;
 }
+
+interface AssessmentLineResult {
+  inventory: Awaited<ReturnType<typeof checkInventory>> | null;
+  capacity: Awaited<ReturnType<typeof checkSalesOrderCapacity>> | null;
+  failed: boolean;
+}
+
+type AssessmentLineCacheEntry = AssessmentLineResult | Promise<AssessmentLineResult>;
 
 function isISODateString(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -477,6 +550,7 @@ function formatAuditAction(action: string | null | undefined): string {
 async function buildDeliveryCapacityAssessment(
   lines: AssessmentLineInput[],
   expectedDelivery: string,
+  cache?: Map<string, AssessmentLineCacheEntry>,
 ): Promise<DeliveryCapacityAssessment> {
   const validLines = lines.filter((line) => Number.isInteger(line.skuId) && line.skuId > 0 && line.quantity > 0);
   if (validLines.length === 0 || !isISODateString(expectedDelivery)) {
@@ -497,19 +571,36 @@ async function buildDeliveryCapacityAssessment(
 
   const lineResults = await Promise.all(
     validLines.map(async (line) => {
-      try {
-        const [inventory, capacity] = await Promise.all([
-          checkInventory(line.skuId, line.quantity),
-          checkSalesOrderCapacity({
-            skuId: line.skuId,
-            quantity: Math.max(1, Math.round(line.quantity)),
-            expectedDelivery,
-          }),
-        ]);
-        return { line, inventory, capacity, failed: false as const };
-      } catch {
-        return { line, inventory: null, capacity: null, failed: true as const };
+      const cacheKey = `${line.skuId}:${line.quantity}:${expectedDelivery}`;
+      const cachedEntry = cache?.get(cacheKey);
+      if (cachedEntry) {
+        const cachedResult = cachedEntry instanceof Promise ? await cachedEntry : cachedEntry;
+        return { line, ...cachedResult };
       }
+
+      const pendingResult: Promise<AssessmentLineResult> = Promise.all([
+        checkInventory(line.skuId, line.quantity),
+        checkSalesOrderCapacity({
+          skuId: line.skuId,
+          quantity: Math.max(1, Math.round(line.quantity)),
+          expectedDelivery,
+        }),
+      ])
+        .then(([inventory, capacity]) => ({
+          inventory,
+          capacity,
+          failed: false,
+        }))
+        .catch(() => ({
+          inventory: null,
+          capacity: null,
+          failed: true,
+        }));
+
+      cache?.set(cacheKey, pendingResult);
+      const result = await pendingResult;
+      cache?.set(cacheKey, result);
+      return { line, ...result };
     }),
   );
 
@@ -706,6 +797,7 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
   const [assessmentError, setAssessmentError] = useState('');
   const [assessment, setAssessment] = useState<DeliveryCapacityAssessment | null>(null);
   const assessmentReqRef = useRef(0);
+  const assessmentCacheRef = useRef<Map<string, AssessmentLineCacheEntry>>(new Map());
 
   const buildDraftItemsFromOrder = useCallback((order: SalesOrder): DraftLineItem[] => {
     const orderItems = order.items ?? [];
@@ -715,9 +807,9 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
       skuSearch: item.productCode ?? '',
       productCode: item.productCode ?? '',
       productName: item.productName ?? '',
-      quantity: Number(item.qtyOrdered ?? item.quantity ?? 1) || 1,
+      quantity: toDraftNumberString(item.qtyOrdered ?? item.quantity ?? 1, '1'),
       unit: item.unit ?? '件',
-      unitPrice: Number(item.unitPrice ?? 0),
+      unitPrice: toDraftNumberString(item.unitPrice ?? 0, '0'),
     }));
   }, []);
 
@@ -732,6 +824,7 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
   }, [buildDraftItemsFromOrder]);
 
   const handleReset = useCallback(() => {
+    assessmentCacheRef.current.clear();
     if (initialOrder) {
       populateFromOrder(initialOrder);
       setAssessmentLoading(false);
@@ -835,19 +928,20 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
     if (!open) return;
 
     const expectedDelivery = deliveryDate ? String(deliveryDate).slice(0, 10) : '';
-    if (!isISODateString(expectedDelivery)) {
+    const lineInputs = buildAssessmentLinesFromDraftItems(items);
+    if (!isISODateString(expectedDelivery) || lineInputs.length === 0 || submitting) {
+      assessmentReqRef.current += 1;
       setAssessmentLoading(false);
       setAssessmentError('');
       setAssessment(null);
       return;
     }
 
-    const lineInputs = buildAssessmentLinesFromDraftItems(items);
     const currentReqId = ++assessmentReqRef.current;
     const timer = window.setTimeout(() => {
       setAssessmentLoading(true);
       setAssessmentError('');
-      void buildDeliveryCapacityAssessment(lineInputs, expectedDelivery)
+      void buildDeliveryCapacityAssessment(lineInputs, expectedDelivery, assessmentCacheRef.current)
         .then((result) => {
           if (assessmentReqRef.current !== currentReqId) return;
           setAssessment(result);
@@ -866,7 +960,7 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
     return () => {
       window.clearTimeout(timer);
     };
-  }, [open, deliveryDate, items]);
+  }, [open, deliveryDate, items, submitting]);
 
   const handleSkuChange = (idx: number, rawSkuId: string) => {
     const skuId = Number(rawSkuId) || '';
@@ -886,6 +980,7 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
     if (!customerId) { setError('请选择客户'); return; }
     if (!orderDate) { setError('请选择订单日期'); return; }
     if (!deliveryDate) { setError('请选择交期'); return; }
@@ -899,7 +994,9 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
         skuId,
         productCode: item.productCode || (selectedSku ? getVisibleSkuCode(selectedSku) : '') || '',
         productName: item.productName || (selectedSku ? getVisibleSkuName(selectedSku) : '') || `SKU#${skuId}`,
+        quantity: toFiniteNumber(item.quantity),
         unit: item.unit || selectedSku?.stockUnit || '件',
+        unitPrice: toFiniteNumber(item.unitPrice),
       };
     });
 
@@ -948,9 +1045,19 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
   };
 
   const totalAmount = items.reduce(
-    (sum, it) => sum + it.quantity * it.unitPrice,
+    (sum, it) => sum + toFiniteNumber(it.quantity) * toFiniteNumber(it.unitPrice),
     0,
   );
+
+  const handleQuantityChange = (idx: number, value: string) => {
+    if (!isIntegerDraft(value)) return;
+    updateItem(idx, 'quantity', value);
+  };
+
+  const handleUnitPriceChange = (idx: number, value: string) => {
+    if (!isDecimalDraft(value)) return;
+    updateItem(idx, 'unitPrice', value);
+  };
 
   return (
     <Modal
@@ -1075,10 +1182,9 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
                         type="number"
                         min={1}
                         className={`${styles.cellInput} ${styles.cellInputNarrow}`}
+                        data-testid={`modal-line-qty-${idx}`}
                         value={item.quantity}
-                        onChange={(e) =>
-                          updateItem(idx, 'quantity', Number(e.target.value))
-                        }
+                        onChange={(e) => handleQuantityChange(idx, e.target.value)}
                       />
                     </td>
                     <td>
@@ -1094,14 +1200,13 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
                         min={0}
                         step={0.01}
                         className={`${styles.cellInput} ${styles.cellInputNarrow}`}
+                        data-testid={`modal-line-price-${idx}`}
                         value={item.unitPrice}
-                        onChange={(e) =>
-                          updateItem(idx, 'unitPrice', Number(e.target.value))
-                        }
+                        onChange={(e) => handleUnitPriceChange(idx, e.target.value)}
                       />
                     </td>
                     <td className={styles.cellAmount}>
-                      {(item.quantity * item.unitPrice).toFixed(2)}
+                      {(toFiniteNumber(item.quantity) * toFiniteNumber(item.unitPrice)).toFixed(2)}
                     </td>
                     <td>
                       <button

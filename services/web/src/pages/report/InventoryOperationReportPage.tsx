@@ -47,6 +47,17 @@ const QUADRANT_TONE: Record<Quadrant, string> = {
   light_fast: '#edfdf2',
 };
 
+const DONUT_COLORS = [
+  'var(--chart-blue)',
+  'var(--chart-orange)',
+  'var(--chart-teal)',
+  'var(--chart-purple)',
+  'var(--chart-cyan)',
+  'var(--chart-green)',
+  'var(--chart-amber)',
+  '#94a3b8',
+];
+
 export default function InventoryOperationReportPage() {
   const { setPageTitle } = useAppStore();
   const [periodDays, setPeriodDays] = useState(90);
@@ -57,25 +68,39 @@ export default function InventoryOperationReportPage() {
     setPageTitle('库存经营');
   }, [setPageTitle]);
 
-  const donutStyle = useMemo(() => {
-    const breakdown = data?.categoryValueBreakdown ?? [];
-    if (breakdown.length === 0) {
-      return { background: 'conic-gradient(#e2e8f0 0 100%)' };
-    }
-    const colors = ['#5aa4e8', '#f38b7c', '#f7c85d', '#78b7f7', '#9f8df2', '#44c4a1', '#94a3b8'];
-    let cursor = 0;
-    const segments = breakdown.slice(0, 7).map((item, idx) => {
-      const pct = Number(String(item.pct).replace('%', '')) || 0;
-      const start = cursor;
-      const end = Math.min(100, cursor + pct);
-      cursor = end;
-      return `${colors[idx % colors.length]} ${start}% ${end}%`;
+  const donutSegments = useMemo(() => {
+    const breakdown = (data?.categoryValueBreakdown ?? []).slice(0, 8);
+    const radius = 76;
+    const circumference = 2 * Math.PI * radius;
+    let cumulativePct = 0;
+
+    return breakdown.map((item, index) => {
+      const pct = Math.max(0, Math.min(100, Number(String(item.pct).replace('%', '')) || 0));
+      const segmentLength = (pct / 100) * circumference;
+      const dashOffset = circumference * (1 - cumulativePct / 100);
+      cumulativePct += pct;
+      return {
+        ...item,
+        color: DONUT_COLORS[index % DONUT_COLORS.length],
+        radius,
+        circumference,
+        segmentLength,
+        dashOffset,
+      };
     });
-    if (cursor < 100) {
-      segments.push(`#e2e8f0 ${cursor}% 100%`);
-    }
-    return { background: `conic-gradient(${segments.join(',')})` };
   }, [data?.categoryValueBreakdown]);
+
+  const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
+  const [pinnedCategory, setPinnedCategory] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pinnedCategory && !donutSegments.some((item) => item.categoryName === pinnedCategory)) {
+      setPinnedCategory(null);
+    }
+  }, [donutSegments, pinnedCategory]);
+
+  const activeCategory = pinnedCategory ?? hoveredCategory;
+  const activeSegment = donutSegments.find((item) => item.categoryName === activeCategory) ?? null;
 
   const filteredQuadrantBubble = useMemo(() => {
     const points = data?.quadrantBubble ?? [];
@@ -196,18 +221,133 @@ export default function InventoryOperationReportPage() {
             <section className={styles.panel}>
               <h3 className={styles.panelTitle}>库存价值结构</h3>
               <div className={styles.donutWrap}>
-                <div className={styles.donut} style={donutStyle}>
-                  <div className={styles.donutCenter}>
-                    <span>总价值</span>
-                    <strong>¥{Number(data?.summary.totalInventoryValue ?? 0).toLocaleString()}</strong>
+                <div className={styles.donutPanel}>
+                  <div className={styles.donut}>
+                    <svg
+                      className={styles.donutSvg}
+                      viewBox="0 0 176 176"
+                      role="img"
+                      aria-label="库存价值结构环图"
+                    >
+                      <circle
+                        className={styles.donutTrack}
+                        cx="88"
+                        cy="88"
+                        r="76"
+                        pathLength="100"
+                      />
+                      {donutSegments.length === 0 ? (
+                        <circle
+                          className={styles.donutFallback}
+                          cx="88"
+                          cy="88"
+                          r="76"
+                          pathLength="100"
+                        />
+                      ) : (
+                        donutSegments.map((item) => {
+                          const isActive = activeCategory === item.categoryName;
+                          const isDimmed = Boolean(activeCategory) && !isActive;
+                          return (
+                            <circle
+                              key={item.categoryName}
+                              className={styles.donutSegment}
+                              cx="88"
+                              cy="88"
+                              r={item.radius}
+                              stroke={item.color}
+                              strokeDasharray={`${item.segmentLength} ${item.circumference}`}
+                              strokeDashoffset={item.dashOffset}
+                              tabIndex={0}
+                              role="button"
+                              aria-label={`${item.categoryName} ${item.pct}`}
+                              aria-pressed={pinnedCategory === item.categoryName}
+                              data-active={isActive ? 'true' : 'false'}
+                              data-dimmed={isDimmed ? 'true' : 'false'}
+                              onMouseEnter={() => setHoveredCategory(item.categoryName)}
+                              onMouseLeave={() => setHoveredCategory(null)}
+                              onFocus={() => setHoveredCategory(item.categoryName)}
+                              onBlur={() => setHoveredCategory(null)}
+                              onClick={() =>
+                                setPinnedCategory((current) =>
+                                  current === item.categoryName ? null : item.categoryName,
+                                )
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  setPinnedCategory((current) =>
+                                    current === item.categoryName ? null : item.categoryName,
+                                  );
+                                }
+                              }}
+                            />
+                          );
+                        })
+                      )}
+                    </svg>
+                    <div className={styles.donutCenter}>
+                      <span>{activeSegment ? activeSegment.categoryName : '总价值'}</span>
+                      <strong>
+                        ¥
+                        {Number(
+                          activeSegment?.inventoryValue ?? data?.summary.totalInventoryValue ?? 0,
+                        ).toLocaleString()}
+                      </strong>
+                    </div>
                   </div>
+                  {activeSegment ? (
+                    <div className={styles.donutTooltip} role="tooltip">
+                      <div className={styles.donutTooltipHeader}>
+                        <span
+                          className={styles.legendSwatch}
+                          style={{ background: activeSegment.color }}
+                          aria-hidden="true"
+                        />
+                        <strong>{activeSegment.categoryName}</strong>
+                      </div>
+                      <div className={styles.donutTooltipMeta}>
+                        <span>金额占比 {activeSegment.pct}</span>
+                        <span>库存价值 ¥{Number(activeSegment.inventoryValue).toLocaleString()}</span>
+                        <span>{activeSegment.skuCount} SKU</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={styles.donutHint}>悬停分段或点击右侧图例可高亮并锁定对应品类。</div>
+                  )}
                 </div>
                 <div className={styles.legend}>
-                  {(data?.categoryValueBreakdown ?? []).slice(0, 8).map((item) => (
-                    <div key={item.categoryName} className={styles.legendItem}>
-                      <span>{item.categoryName}</span>
-                      <span>{item.pct}</span>
-                    </div>
+                  {(data?.categoryValueBreakdown ?? []).slice(0, 8).map((item, index) => (
+                    <button
+                      key={item.categoryName}
+                      type="button"
+                      className={styles.legendItem}
+                      data-active={activeCategory === item.categoryName ? 'true' : 'false'}
+                      data-dimmed={
+                        activeCategory && activeCategory !== item.categoryName ? 'true' : 'false'
+                      }
+                      onMouseEnter={() => setHoveredCategory(item.categoryName)}
+                      onMouseLeave={() => setHoveredCategory(null)}
+                      onFocus={() => setHoveredCategory(item.categoryName)}
+                      onBlur={() => setHoveredCategory(null)}
+                      onClick={() =>
+                        setPinnedCategory((current) => (current === item.categoryName ? null : item.categoryName))
+                      }
+                      aria-pressed={pinnedCategory === item.categoryName}
+                    >
+                      <div className={styles.legendMain}>
+                        <span
+                          className={styles.legendSwatch}
+                          style={{ background: DONUT_COLORS[index % DONUT_COLORS.length] }}
+                          aria-hidden="true"
+                        />
+                        <div className={styles.legendText}>
+                          <span>{item.categoryName}</span>
+                          <small>¥{Number(item.inventoryValue).toLocaleString()} · {item.skuCount} SKU</small>
+                        </div>
+                      </div>
+                      <strong>{item.pct}</strong>
+                    </button>
                   ))}
                 </div>
               </div>

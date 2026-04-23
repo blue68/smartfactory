@@ -188,6 +188,14 @@ interface DeliveryCapacityAssessment {
   failedLineCount: number;
 }
 
+interface AssessmentLineResult {
+  inventory: Awaited<ReturnType<typeof checkInventory>> | null;
+  capacity: Awaited<ReturnType<typeof checkSalesOrderCapacity>> | null;
+  failed: boolean;
+}
+
+type AssessmentLineCacheEntry = AssessmentLineResult | Promise<AssessmentLineResult>;
+
 let draftLineSequence = 0;
 
 function createDraftLineItem(): DraftLineItem {
@@ -243,6 +251,7 @@ function buildAssessmentLinesFromDraftItems(items: DraftLineItem[]): AssessmentL
 async function buildDeliveryCapacityAssessment(
   lines: AssessmentLineInput[],
   expectedDelivery: string,
+  cache?: Map<string, AssessmentLineCacheEntry>,
 ): Promise<DeliveryCapacityAssessment> {
   const validLines = lines.filter((line) => Number.isInteger(line.skuId) && line.skuId > 0 && line.quantity > 0);
   if (validLines.length === 0 || !isISODateString(expectedDelivery)) {
@@ -263,19 +272,36 @@ async function buildDeliveryCapacityAssessment(
 
   const lineResults = await Promise.all(
     validLines.map(async (line) => {
-      try {
-        const [inventory, capacity] = await Promise.all([
-          checkInventory(line.skuId, line.quantity),
-          checkSalesOrderCapacity({
-            skuId: line.skuId,
-            quantity: Math.max(1, Math.round(line.quantity)),
-            expectedDelivery,
-          }),
-        ]);
-        return { line, inventory, capacity, failed: false as const };
-      } catch {
-        return { line, inventory: null, capacity: null, failed: true as const };
+      const cacheKey = `${line.skuId}:${line.quantity}:${expectedDelivery}`;
+      const cachedEntry = cache?.get(cacheKey);
+      if (cachedEntry) {
+        const cachedResult = cachedEntry instanceof Promise ? await cachedEntry : cachedEntry;
+        return { line, ...cachedResult };
       }
+
+      const pendingResult: Promise<AssessmentLineResult> = Promise.all([
+        checkInventory(line.skuId, line.quantity),
+        checkSalesOrderCapacity({
+          skuId: line.skuId,
+          quantity: Math.max(1, Math.round(line.quantity)),
+          expectedDelivery,
+        }),
+      ])
+        .then(([inventory, capacity]) => ({
+          inventory,
+          capacity,
+          failed: false,
+        }))
+        .catch(() => ({
+          inventory: null,
+          capacity: null,
+          failed: true,
+        }));
+
+      cache?.set(cacheKey, pendingResult);
+      const result = await pendingResult;
+      cache?.set(cacheKey, result);
+      return { line, ...result };
     }),
   );
 
@@ -482,13 +508,20 @@ export default function OrderPage() {
   const [countdown, setCountdown] = useState(18);
   const [draftLabel, setDraftLabel] = useState('草稿');
   const [autoSaveText, setAutoSaveText] = useState('尚未保存');
+  const [submitAction, setSubmitAction] = useState<'draft' | 'submit' | null>(null);
 
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const assessmentReqRef = useRef(0);
+  const assessmentCacheRef = useRef<Map<string, AssessmentLineCacheEntry>>(new Map());
 
   const createMutation = useCreateSalesOrder();
   const confirmMutation = useConfirmSalesOrder();
   const urgentMutation = useUrgentAnalysis();
+  const isSubmitting =
+    submitAction !== null
+    || createMutation.isPending
+    || confirmMutation.isPending
+    || urgentMutation.isPending;
 
   useEffect(() => {
     setPageTitle('新建销售订单');
@@ -548,7 +581,8 @@ export default function OrderPage() {
 
   useEffect(() => {
     const expectedDelivery = form.deadline ? String(form.deadline).slice(0, 10) : '';
-    if (!isISODateString(expectedDelivery) || validAssessmentLines.length === 0) {
+    if (!isISODateString(expectedDelivery) || validAssessmentLines.length === 0 || isSubmitting) {
+      assessmentReqRef.current += 1;
       setAssessmentLoading(false);
       setAssessmentError('');
       setAssessment(null);
@@ -559,7 +593,7 @@ export default function OrderPage() {
     const timer = window.setTimeout(() => {
       setAssessmentLoading(true);
       setAssessmentError('');
-      void buildDeliveryCapacityAssessment(validAssessmentLines, expectedDelivery)
+      void buildDeliveryCapacityAssessment(validAssessmentLines, expectedDelivery, assessmentCacheRef.current)
         .then((result) => {
           if (assessmentReqRef.current !== currentReqId) return;
           setAssessment(result);
@@ -578,7 +612,7 @@ export default function OrderPage() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [form.deadline, validAssessmentLines]);
+  }, [form.deadline, isSubmitting, validAssessmentLines]);
 
   const resetUrgentAnalysis = () => {
     setUrgentAnalysisReady(false);
@@ -747,7 +781,9 @@ export default function OrderPage() {
   };
 
   const handleSaveDraft = () => {
+    if (isSubmitting) return;
     const saveDraft = async () => {
+      setSubmitAction('draft');
       try {
         if (!form.customer || !form.deadline || validAssessmentLines.length === 0) {
           localStorage.setItem('sales-order-draft:order-page', JSON.stringify({
@@ -771,6 +807,8 @@ export default function OrderPage() {
         navigate('/sales/order-list');
       } catch (error) {
         showToast({ type: 'error', message: (error as Error).message });
+      } finally {
+        setSubmitAction(null);
       }
     };
 
@@ -778,11 +816,14 @@ export default function OrderPage() {
   };
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
+    setSubmitAction('submit');
     let payload: ReturnType<typeof buildOrderPayload>;
     try {
       payload = buildOrderPayload();
     } catch (error) {
       showToast({ type: 'error', message: (error as Error).message });
+      setSubmitAction(null);
       return;
     }
 
@@ -816,7 +857,11 @@ export default function OrderPage() {
             showToast({ type: 'info', message: '插单影响分析完成，请查看约束检查结果' });
           }
         } else {
-          const summaryAssessment = await buildDeliveryCapacityAssessment(validAssessmentLines, form.deadline);
+          const summaryAssessment = await buildDeliveryCapacityAssessment(
+            validAssessmentLines,
+            form.deadline,
+            assessmentCacheRef.current,
+          );
           setConstraintChecks(buildConstraintChecksFromAssessment(summaryAssessment));
           setUrgentAnalysisReady(true);
           if (!summaryAssessment.inventorySufficient || !summaryAssessment.capacityAvailable || summaryAssessment.delayDays > 0) {
@@ -836,6 +881,7 @@ export default function OrderPage() {
         if (countdownRef.current) clearInterval(countdownRef.current);
         setConstraintLoading(false);
         setUrgentModalOpen(false);
+        setSubmitAction(null);
       }
       return;
     }
@@ -860,6 +906,8 @@ export default function OrderPage() {
       navigate('/sales/order-list');
     } catch (error) {
       showToast({ type: 'error', message: (error as Error).message });
+    } finally {
+      setSubmitAction(null);
     }
   };
 
@@ -875,8 +923,6 @@ export default function OrderPage() {
   };
 
   const isUrgent = form.orderType === 'urgent';
-  const isSubmitting =
-    createMutation.isPending || confirmMutation.isPending || urgentMutation.isPending;
 
   return (
     <div className={styles.page}>
@@ -1277,11 +1323,20 @@ export default function OrderPage() {
       <footer className={styles.page_footer}>
         <Button variant="ghost" size="md" onClick={handleCancel}>取消</Button>
         <div className={styles.footer_spacer} />
-        <Button variant="secondary" size="md" onClick={handleSaveDraft}>保存草稿</Button>
+        <Button
+          variant="secondary"
+          size="md"
+          onClick={handleSaveDraft}
+          loading={submitAction === 'draft'}
+          disabled={isSubmitting}
+        >
+          保存草稿
+        </Button>
         <Button
           variant={isUrgent ? 'warning' : 'primary'}
           size="lg"
-          loading={isSubmitting}
+          loading={submitAction === 'submit'}
+          disabled={isSubmitting}
           onClick={() => void handleSubmit()}
         >
           {isUrgent ? (urgentAnalysisReady ? '提交插单申请' : '发起影响评估') : '确认订单'}

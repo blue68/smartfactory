@@ -33,9 +33,12 @@ async function seedAuth(page: Page) {
 
 async function mockProcessConfigApis(page: Page) {
   const skuList = [
-    { id: 2001, skuId: 2001, skuCode: 'FG-2001', name: '功能沙发A' },
-    { id: 2002, skuId: 2002, skuCode: 'FG-2002', name: '实木餐椅B' },
-    { id: 2003, skuId: 2003, skuCode: 'FG-2003', name: '茶几C' },
+    { id: 2001, skuId: 2001, skuCode: 'FG-2001', name: '功能沙发A', category1Name: '成品' },
+    { id: 2002, skuId: 2002, skuCode: 'FG-2002', name: '实木餐椅B', category1Name: '成品' },
+    { id: 2003, skuId: 2003, skuCode: 'FG-2003', name: '茶几C', category1Name: '成品' },
+    { id: 3101, skuId: 3101, skuCode: 'SF-3101', name: '左护翼半成品', category1Name: '半成品' },
+    { id: 3102, skuId: 3102, skuCode: 'SF-3102', name: '右护翼半成品', category1Name: '半成品' },
+    { id: 3103, skuId: 3103, skuCode: 'SF-3103', name: '加宽护翼半成品', category1Name: '半成品' },
   ];
 
   const templates = [
@@ -84,6 +87,8 @@ async function mockProcessConfigApis(page: Page) {
       standardHours: string | null;
       maxHours: string | null;
       workstationType: string | null;
+      outputType?: 'semi_finished' | 'final_product' | 'none';
+      outputSkuId?: number | null;
       createdAt: string;
     }>;
   }>([
@@ -109,6 +114,8 @@ async function mockProcessConfigApis(page: Page) {
           standardHours: '1.50',
           maxHours: '2.00',
           workstationType: '开料区',
+          outputType: 'semi_finished',
+          outputSkuId: 3101,
           createdAt: '2026-03-20 09:10:00',
         },
         {
@@ -162,10 +169,51 @@ async function mockProcessConfigApis(page: Page) {
     { id: 12, name: '砂光站-A', type: '砂光区', capacity: 80, status: 'active', createdAt: '2026-03-20 08:25:00' },
     { id: 13, name: '装配站-A', type: '装配区', capacity: 60, status: 'active', createdAt: '2026-03-20 08:30:00' },
   ];
+  const wagesByStepId = new Map<number, Array<{
+    id: number;
+    stepId: number;
+    workerGrade: string;
+    unitPrice: string;
+    updatedAt: string;
+  }>>([
+    [101, [{
+      id: 1010,
+      stepId: 101,
+      workerGrade: 'skilled',
+      unitPrice: '12.5',
+      updatedAt: '2026-03-25 10:05:00',
+    }]],
+  ]);
 
   let nextTemplateId = 3;
   let nextStepId = 300;
   let nextWorkstationId = 10;
+
+  await page.route('**/api/auth/refresh', async (route) => {
+    await fulfillJson(route, { accessToken: 'playwright-token' });
+  });
+
+  await page.route(/\/api\/bom(?:\?.*)?$/, async (route) => {
+    await fulfillJson(route, []);
+  });
+
+  await page.route('**/api/bom/*/expand', async (route) => {
+    await fulfillJson(route, { items: [] });
+  });
+
+  await page.route('**/api/bom/*/material-requirements**', async (route) => {
+    await fulfillJson(route, []);
+  });
+
+  await page.route('**/api/process-configs/templates/*/step-materials', async (route) => {
+    if (route.request().method() === 'GET') {
+      await fulfillJson(route, []);
+      return;
+    }
+
+    const payload = route.request().postDataJSON() as { items?: unknown[] };
+    await fulfillJson(route, payload.items ?? []);
+  });
 
   await page.route('**/api/process-configs/workstation-types**', async (route) => {
     const method = route.request().method();
@@ -221,33 +269,56 @@ async function mockProcessConfigApis(page: Page) {
   });
 
   await page.route('**/api/process-configs/steps/*/wages', async (route) => {
+    const stepId = Number(route.request().url().split('/').at(-2));
+
     if (route.request().method() === 'GET') {
-      await fulfillJson(route, []);
+      await fulfillJson(route, wagesByStepId.get(stepId) ?? []);
       return;
     }
 
-    const stepId = Number(route.request().url().split('/').at(-2));
     const payload = route.request().postDataJSON() as { workerGrade: string; unitPrice: number };
-    await fulfillJson(route, {
+    const nextRow = {
       id: stepId * 10,
       stepId,
       workerGrade: payload.workerGrade,
       unitPrice: String(payload.unitPrice),
       updatedAt: '2026-03-25 10:05:00',
-    });
+    };
+    wagesByStepId.set(stepId, [nextRow]);
+    await fulfillJson(route, nextRow);
   });
 
   await page.route('**/api/skus**', async (route) => {
-    const keyword = new URL(route.request().url()).searchParams.get('keyword')?.trim() ?? '';
-    const list = keyword
+    const url = new URL(route.request().url());
+    const keyword = url.searchParams.get('keyword')?.trim() ?? '';
+    const pageNo = Number(url.searchParams.get('page') ?? '1') || 1;
+    const requestedPageSize = Number(url.searchParams.get('pageSize') ?? '30') || 30;
+    const skuTypes = (url.searchParams.get('skuTypes') ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    let list = keyword
       ? skuList.filter((sku) => `${sku.skuCode} ${sku.name}`.includes(keyword))
       : skuList;
 
+    if (skuTypes.length > 0) {
+      list = list.filter((sku) => {
+        if (sku.category1Name === '成品') return skuTypes.includes('finished');
+        if (sku.category1Name === '半成品') return skuTypes.includes('semi_finished');
+        return true;
+      });
+    }
+
+    const effectivePageSize = keyword === '护翼' && skuTypes.includes('semi_finished') ? 2 : requestedPageSize;
+    const pagedList = list.slice((pageNo - 1) * effectivePageSize, pageNo * effectivePageSize);
+
     await fulfillJson(route, {
-      list,
+      list: pagedList,
       total: list.length,
-      page: 1,
-      pageSize: 30,
+      page: pageNo,
+      pageSize: effectivePageSize,
+      totalPages: Math.max(Math.ceil(list.length / effectivePageSize), 1),
     });
   });
 
@@ -406,7 +477,6 @@ test.describe('工序配置页面功能测试', () => {
     await mockProcessConfigApis(page);
     await page.goto(PAGE_PATH);
     await expect(page.getByRole('heading', { name: '工序配置' })).toBeVisible();
-    await expect(page.getByText('选择一个工序模板开始编辑')).toBeVisible();
   });
 
   test('新建模板后进入编辑态', async ({ page }) => {
@@ -426,15 +496,16 @@ test.describe('工序配置页面功能测试', () => {
     ]);
 
     expect(response.ok()).toBeTruthy();
+    await page.getByLabel('工序模板列表').getByText('茶几包装模板').click();
     await expect(page.getByLabel('模板名称')).toHaveValue('茶几包装模板');
-    await expect(page.getByRole('button', { name: '添加新工序节点' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '添加工序' }).first()).toBeVisible();
   });
 
   test('可打开工种管理并新增工种', async ({ page }) => {
-    await page.getByText('实木椅标准模板').click();
+    await page.getByLabel('工序模板列表').getByText('实木椅标准模板').click();
     await expect(page.getByLabel('模板名称')).toHaveValue('实木椅标准模板');
 
-    await page.getByRole('button', { name: '编辑工序 开料' }).click();
+    await page.getByRole('button', { name: '完整编辑' }).click();
     const drawer = page.getByRole('dialog', { name: '编辑工序节点' });
     await expect(drawer).toBeVisible();
 
@@ -450,29 +521,80 @@ test.describe('工序配置页面功能测试', () => {
     await expect(page.getByRole('dialog', { name: '管理工作站' })).toHaveCount(0);
   });
 
-  test('可新增工序并保存模板', async ({ page }) => {
-    await page.getByText('实木椅标准模板').click();
+  test('可新增工序并进入编辑态', async ({ page }) => {
+    await page.getByLabel('工序模板列表').getByText('实木椅标准模板').click();
     await expect(page.getByLabel('模板名称')).toHaveValue('实木椅标准模板');
 
-    await page.getByRole('button', { name: '添加新工序节点' }).click();
-    const drawer = page.getByRole('dialog', { name: '编辑工序节点' });
-    await expect(drawer).toBeVisible();
+    await page.getByRole('button', { name: '添加工序' }).first().click();
+    const modal = page.getByRole('dialog', { name: '新增工序' });
+    await expect(modal).toBeVisible();
 
-    await drawer.locator('input[type="text"]').fill('包装');
-    await drawer.getByRole('combobox').first().selectOption('装配区');
-    await drawer.locator('input[type="number"]').nth(0).fill('1.5');
-    await drawer.locator('input[type="number"]').nth(1).fill('2');
-    await drawer.getByRole('button', { name: '关闭' }).click();
-    await expect(page.getByRole('dialog', { name: '编辑工序节点' })).toHaveCount(0);
+    await modal.getByPlaceholder('请输入工序名称').fill('包装');
+    await modal.getByRole('combobox').first().selectOption('internal');
+    await modal.getByRole('button', { name: '创建工序' }).click();
+    await expect(page.getByRole('dialog', { name: '新增工序' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: '编辑工序节点' })).toBeVisible();
+  });
 
-    const [response] = await Promise.all([
+  test('输出对象搜索会继续拉取后端后续分页的半成品 SKU', async ({ page }) => {
+    await page.getByLabel('工序模板列表').getByText('实木椅标准模板').click();
+    await expect(page.getByLabel('模板名称')).toHaveValue('实木椅标准模板');
+
+    const outputSearch = page.getByPlaceholder('搜索输出对象');
+    await outputSearch.fill('护翼');
+
+    await expect(page.getByRole('button', { name: /SF-3103 · 加宽护翼半成品/ })).toBeVisible();
+  });
+
+  test('工时配置支持录入小数中间态并在失焦后转成数值', async ({ page }) => {
+    await page.getByLabel('工序模板列表').getByText('实木椅标准模板').click();
+    await expect(page.getByLabel('模板名称')).toHaveValue('实木椅标准模板');
+
+    const standardHoursInput = page.getByText('标准工时 (h)').first().locator('xpath=following::input[1]');
+    const maxHoursInput = page.getByText('极限工时 (h)').first().locator('xpath=following::input[1]');
+
+    await standardHoursInput.fill('.23');
+    await expect(standardHoursInput).toHaveValue('.23');
+    await standardHoursInput.blur();
+    await expect(standardHoursInput).toHaveValue('0.23');
+
+    await maxHoursInput.fill('0.');
+    await expect(maxHoursInput).toHaveValue('0.');
+    await maxHoursInput.blur();
+    await expect(maxHoursInput).toHaveValue('0');
+  });
+
+  test('计件单价支持录入小数中间态并在失焦后转成数值', async ({ page }) => {
+    await page.getByLabel('工序模板列表').getByText('实木椅标准模板').click();
+    await expect(page.getByLabel('模板名称')).toHaveValue('实木椅标准模板');
+
+    const unitPriceInput = page.getByText('标准工价(元)').first().locator('xpath=following::input[1]');
+    await unitPriceInput.fill('.8');
+    await expect(unitPriceInput).toHaveValue('.8');
+    await unitPriceInput.blur();
+    await expect(unitPriceInput).toHaveValue('0.8');
+  });
+
+  test('标准工价保存后重新进入模板仍会从工价接口回填', async ({ page }) => {
+    await page.getByLabel('工序模板列表').getByText('实木椅标准模板').click();
+    await expect(page.getByLabel('模板名称')).toHaveValue('实木椅标准模板');
+
+    const unitPriceInput = page.getByText('标准工价(元)').first().locator('xpath=following::input[1]');
+    await expect(unitPriceInput).toHaveValue('12.5');
+
+    await unitPriceInput.fill('3.6');
+    await unitPriceInput.blur();
+    await expect(unitPriceInput).toHaveValue('3.6');
+
+    await Promise.all([
       page.waitForResponse((resp) =>
-        resp.url().includes('/api/process-configs/1') && resp.request().method() === 'PUT'),
-      page.getByLabel('保存模板').click(),
+        resp.url().includes('/api/process-configs/steps/101/wages') && resp.request().method() === 'PATCH'),
+      page.getByRole('button', { name: '保存模板' }).click(),
     ]);
 
-    expect(response.ok()).toBeTruthy();
-    await expect(page.getByText('包装')).toBeVisible();
-    await expect(page.getByText('已保存 ✓')).toBeVisible();
+    await page.getByLabel('工序模板列表').getByText('沙发装配模板').click();
+    await page.getByLabel('工序模板列表').getByText('实木椅标准模板').click();
+
+    await expect(page.getByText('标准工价(元)').first().locator('xpath=following::input[1]')).toHaveValue('3.6');
   });
 });

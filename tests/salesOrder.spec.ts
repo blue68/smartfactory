@@ -257,6 +257,10 @@ async function mockSalesApis(page: Page) {
   let lastShipPayload: Record<string, unknown> | null = null;
   let createdOrderSeq = 0;
   const createdOrders: MockCreatedOrder[] = [];
+  const assessmentCounters = {
+    inventoryChecks: 0,
+    capacityChecks: 0,
+  };
 
   const customerMap = new Map<number, { name: string; code: string }>([
     [11, { name: '华北客户', code: 'CUST-011' }],
@@ -646,15 +650,41 @@ async function mockSalesApis(page: Page) {
       pageSize: 200,
     });
   });
+
+  await page.route('**/api/inventory/check**', async (route) => {
+    assessmentCounters.inventoryChecks += 1;
+    await fulfillJson(route, {
+      available: 999,
+      sufficient: true,
+      stockUnit: '件',
+    });
+  });
+
+  await page.route('**/api/sales-orders/capacity-check**', async (route) => {
+    assessmentCounters.capacityChecks += 1;
+    const url = new URL(route.request().url());
+    const expectedDelivery = String(url.searchParams.get('expectedDelivery') ?? '2026-04-03');
+    await fulfillJson(route, {
+      available: true,
+      currentLoad: 20,
+      maxCapacity: 120,
+      estimatedCompletionDate: expectedDelivery,
+      conflictingOrders: [],
+    });
+  });
+
+  return assessmentCounters;
 }
 
 test.describe('销售订单管理冒烟', () => {
+  let assessmentCounters: Awaited<ReturnType<typeof mockSalesApis>>;
+
   test.beforeEach(async ({ page }) => {
     await page.addInitScript((user) => {
       window.sessionStorage.setItem('__sf_at', 'playwright-token');
       window.localStorage.setItem('sf_user', JSON.stringify(user));
     }, mockUser);
-    await mockSalesApis(page);
+    assessmentCounters = await mockSalesApis(page);
   });
 
   test('订单详情展示当前流程进度和状态操作', async ({ page }) => {
@@ -735,11 +765,11 @@ test.describe('销售订单管理冒烟', () => {
     await modal.locator('input[type="date"]').nth(1).fill('2026-03-31');
     await modal.locator('input[type="checkbox"]').setChecked(true, { force: true });
     await modal.locator('#order-modal-sku-0').fill('休闲椅');
-    await modal.getByRole('button', { name: /FG-903/ }).click();
+    await page.getByRole('button', { name: /FG-903/ }).click();
     await modal.locator('input[type="number"]').nth(0).fill('5');
     await modal.locator('input[type="number"]').nth(1).fill('700');
     await modal.locator('input[type="checkbox"]').setChecked(false, { force: true });
-    await modal.getByRole('button', { name: '创建订单' }).click();
+    await modal.getByRole('button', { name: '创建订单' }).click({ force: true });
 
     await expect(modal).toHaveCount(0);
 
@@ -762,10 +792,10 @@ test.describe('销售订单管理冒烟', () => {
     await modal.locator('input[type="date"]').nth(1).fill('2026-04-02');
     await modal.locator('input[type="checkbox"]').setChecked(true, { force: true });
     await modal.locator('#order-modal-sku-0').fill('功能沙发');
-    await modal.getByRole('button', { name: /FG-901/ }).click();
+    await page.getByRole('button', { name: /FG-901/ }).click();
     await modal.locator('input[type="number"]').nth(0).fill('8');
     await modal.locator('input[type="number"]').nth(1).fill('680');
-    await modal.getByRole('button', { name: '创建订单' }).click();
+    await modal.getByRole('button', { name: '创建订单' }).click({ force: true });
 
     await expect(modal).toHaveCount(0);
 
@@ -773,6 +803,49 @@ test.describe('销售订单管理冒烟', () => {
     await expect(row).toBeVisible();
     await expect(row.getByText('华北客户')).toBeVisible();
     await expect(row.getByText('待审批')).toBeVisible();
+  });
+
+  test('新建订单弹窗的 SKU 检索浮层可正常选中且数量输入保留编辑态', async ({ page }) => {
+    await page.goto('/sales/order-list');
+
+    await page.getByRole('button', { name: '+ 新建订单' }).click();
+
+    const modal = page.getByRole('dialog', { name: '新建销售订单' });
+    await expect(modal).toBeVisible();
+
+    await modal.locator('select').nth(0).selectOption('11');
+    await modal.locator('input[type="date"]').nth(0).fill('2026-03-24');
+    await modal.locator('input[type="date"]').nth(1).fill('2026-04-03');
+
+    const skuInput = modal.locator('#order-modal-sku-0');
+    await skuInput.fill('功能沙发');
+    await expect(page.getByRole('listbox', { name: 'SKU 候选列表' })).toBeVisible();
+    await page.getByRole('button', { name: /FG-901/ }).click();
+
+    const qtyInput = modal.getByTestId('modal-line-qty-0');
+    await qtyInput.fill('020');
+    await expect(qtyInput).toHaveValue('020');
+
+    const priceInput = modal.getByTestId('modal-line-price-0');
+    await priceInput.fill('680.50');
+    await expect(priceInput).toHaveValue('680.50');
+
+    await expect.poll(() => assessmentCounters.inventoryChecks, { timeout: 5000 }).toBe(1);
+    await expect.poll(() => assessmentCounters.capacityChecks, { timeout: 5000 }).toBe(1);
+
+    await modal.getByRole('button', { name: '+ 添加行' }).click();
+    await modal.locator('#order-modal-sku-1').fill('休闲椅');
+    await page.getByRole('button', { name: /FG-903/ }).click();
+    await modal.getByTestId('modal-line-qty-1').fill('4');
+    await modal.getByTestId('modal-line-price-1').fill('760');
+
+    await expect.poll(() => assessmentCounters.inventoryChecks, { timeout: 5000 }).toBe(2);
+    await expect.poll(() => assessmentCounters.capacityChecks, { timeout: 5000 }).toBe(2);
+
+    await modal.getByTestId('modal-line-qty-1').fill('5');
+
+    await expect.poll(() => assessmentCounters.inventoryChecks, { timeout: 5000 }).toBe(3);
+    await expect.poll(() => assessmentCounters.capacityChecks, { timeout: 5000 }).toBe(3);
   });
 
   test('新建订单页可保存草稿并回到订单列表', async ({ page }) => {
@@ -858,5 +931,29 @@ test.describe('销售订单管理冒烟', () => {
     await expect(row).toBeVisible();
     await expect(row.getByText('华南客户')).toBeVisible();
     await expect(row.getByText('待审批')).toBeVisible();
+  });
+
+  test('整单交期评估会复用未变更 SKU 的缓存结果，避免重复请求打满限流', async ({ page }) => {
+    await page.goto('/sales/orders');
+
+    await page.locator('#customer').selectOption('11');
+    await page.locator('#product-search-0').fill('功能沙发');
+    await page.getByRole('button', { name: /功能沙发A/ }).click();
+    await page.locator('#qty').fill('9');
+    await page.locator('#unitPrice').fill('680');
+    await page.getByRole('button', { name: '+ 添加SKU' }).click();
+    await page.locator('#product-search-1').fill('餐椅');
+    await page.getByRole('button', { name: /餐椅B/ }).click();
+    await page.getByTestId('line-qty-1').fill('4');
+    await page.getByTestId('line-price-1').fill('420');
+    await page.locator('#deadline').fill('2026-04-03');
+
+    await expect.poll(() => assessmentCounters.inventoryChecks, { timeout: 5000 }).toBe(2);
+    await expect.poll(() => assessmentCounters.capacityChecks, { timeout: 5000 }).toBe(2);
+
+    await page.getByTestId('line-qty-1').fill('5');
+
+    await expect.poll(() => assessmentCounters.inventoryChecks, { timeout: 5000 }).toBe(3);
+    await expect.poll(() => assessmentCounters.capacityChecks, { timeout: 5000 }).toBe(3);
   });
 });

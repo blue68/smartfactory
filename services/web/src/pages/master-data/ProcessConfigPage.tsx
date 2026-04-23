@@ -20,7 +20,7 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from 'react';
-import { useQueries } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useLocation } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import {
@@ -51,7 +51,7 @@ import {
   useUpdateProductionWorkstation,
   type WorkstationOption,
 } from '@/api/production';
-import { useSkuList } from '@/api/sku';
+import { skuApi, useSkuList } from '@/api/sku';
 import { useBomExpanded, useBomList, useMaterialRequirements } from '@/api/bom';
 import type { BomItem } from '@/types/models';
 import styles from './ProcessConfigPage.module.css';
@@ -305,6 +305,22 @@ function mapStepsToNodes(steps: ProcessStep[]): ProcessNode[] {
 
 function normalizeText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function formatDecimalDraft(value: number | null | undefined): string {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '';
+  return String(value);
+}
+
+function isDecimalDraft(value: string): boolean {
+  return /^\d*(\.\d*)?$/.test(value);
+}
+
+function commitDecimalDraft(value: string, emptyValue: number | null): number | null {
+  if (!value || value === '.') return emptyValue;
+  const normalized = value.startsWith('.') ? `0${value}` : value;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : emptyValue;
 }
 
 function getSkuDisplayName(skuCode: string | null | undefined, skuName: string | null | undefined, fallback = '未命名对象'): string {
@@ -1027,6 +1043,9 @@ function NodeDrawer({
   const [uploadingGuide, setUploadingGuide] = useState(false);
   const [selectedSkuOption, setSelectedSkuOption] = useState<MaterialSkuOption | null>(null);
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
+  const [hoursDraft, setHoursDraft] = useState('');
+  const [maxHoursDraft, setMaxHoursDraft] = useState('');
+  const [unitPriceDraft, setUnitPriceDraft] = useState('');
   const materialPickerBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 关闭时重置确认状态
@@ -1045,6 +1064,13 @@ function NodeDrawer({
       }
     };
   }, [onMaterialSkuKeywordChange, open]);
+
+  useEffect(() => {
+    if (!node) return;
+    setHoursDraft(formatDecimalDraft(node.hours));
+    setMaxHoursDraft(formatDecimalDraft(node.maxHours));
+    setUnitPriceDraft(formatDecimalDraft(node.unitPrice));
+  }, [node?._key, node?.hours, node?.maxHours, node?.unitPrice]);
 
   if (!open || !node) return null;
 
@@ -1292,11 +1318,18 @@ function NodeDrawer({
                 <label className={styles.formLabel}>标准工时 (h)</label>
                 <input
                   className={styles.formInput}
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={node.hours || ''}
-                  onChange={(e) => handleField('hours', parseFloat(e.target.value) || 0)}
+                  type="text"
+                  inputMode="decimal"
+                  value={hoursDraft}
+                  onChange={(e) => {
+                    if (!isDecimalDraft(e.target.value)) return;
+                    setHoursDraft(e.target.value);
+                  }}
+                  onBlur={() => {
+                    const nextValue = commitDecimalDraft(hoursDraft, 0) ?? 0;
+                    setHoursDraft(formatDecimalDraft(nextValue));
+                    handleField('hours', nextValue);
+                  }}
                   placeholder="0.0"
                 />
               </div>
@@ -1304,11 +1337,18 @@ function NodeDrawer({
                 <label className={styles.formLabel}>极限工时 (h)</label>
                 <input
                   className={styles.formInput}
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={node.maxHours ?? ''}
-                  onChange={(e) => handleField('maxHours', e.target.value === '' ? null : parseFloat(e.target.value) || 0)}
+                  type="text"
+                  inputMode="decimal"
+                  value={maxHoursDraft}
+                  onChange={(e) => {
+                    if (!isDecimalDraft(e.target.value)) return;
+                    setMaxHoursDraft(e.target.value);
+                  }}
+                  onBlur={() => {
+                    const nextValue = commitDecimalDraft(maxHoursDraft, null);
+                    setMaxHoursDraft(formatDecimalDraft(nextValue));
+                    handleField('maxHours', nextValue);
+                  }}
                   placeholder="0.0"
                 />
                 <div className={styles.formHelp}>留空表示无上限</div>
@@ -1717,11 +1757,18 @@ function NodeDrawer({
               <label className={styles.formLabel}>单价 (元/件)</label>
               <input
                 className={styles.formInput}
-                type="number"
-                min="0"
-                step="0.01"
-                value={node.unitPrice || ''}
-                onChange={(e) => handleField('unitPrice', parseFloat(e.target.value) || 0)}
+                type="text"
+                inputMode="decimal"
+                value={unitPriceDraft}
+                onChange={(e) => {
+                  if (!isDecimalDraft(e.target.value)) return;
+                  setUnitPriceDraft(e.target.value);
+                }}
+                onBlur={() => {
+                  const nextValue = commitDecimalDraft(unitPriceDraft, 0) ?? 0;
+                  setUnitPriceDraft(formatDecimalDraft(nextValue));
+                  handleField('unitPrice', nextValue);
+                }}
                 placeholder="0.00"
               />
             </div>
@@ -1877,11 +1924,15 @@ export default function ProcessConfigPage() {
   const [activeCanvasWorkstationKeyword, setActiveCanvasWorkstationKeyword] = useState('');
   const [activeCanvasOutputKeyword, setActiveCanvasOutputKeyword] = useState('');
   const [activeCanvasPredecessorKeyword, setActiveCanvasPredecessorKeyword] = useState('');
+  const [activeCanvasHoursDraft, setActiveCanvasHoursDraft] = useState('');
+  const [activeCanvasMaxHoursDraft, setActiveCanvasMaxHoursDraft] = useState('');
+  const [activeCanvasUnitPriceDraft, setActiveCanvasUnitPriceDraft] = useState('');
   const [addProcessPredecessorKeyword, setAddProcessPredecessorKeyword] = useState('');
   const [showLinearFlowReference, setShowLinearFlowReference] = useState(false);
   const [activeDagBranchKey, setActiveDagBranchKey] = useState<string | null>(null);
   const [showAddProcessModal, setShowAddProcessModal] = useState(false);
   const [addProcessDraft, setAddProcessDraft] = useState<AddProcessDraft | null>(null);
+  const appliedStepUnitPricesRef = useRef(new Map<number, number>());
 
   // SKU 搜索列表（供新建模板时选择）
   const { data: skuListData } = useSkuList({
@@ -1890,9 +1941,6 @@ export default function ProcessConfigPage() {
   });
   const { data: materialSkuCatalogData } = useSkuList({
     keyword: materialSkuKeyword || undefined,
-    pageSize: 200,
-  });
-  const { data: outputSkuCatalogData } = useSkuList({
     pageSize: 200,
   });
   const { data: templateBomHeaders } = useBomList(editorTemplate?.skuId || undefined);
@@ -1954,6 +2002,26 @@ export default function ProcessConfigPage() {
   const { data: stepMaterialsData } = useProcessStepMaterials(selectedId);
   const setStepMaterialsMutation = useSetProcessStepMaterials();
   const [stepMaterialDrafts, setStepMaterialDrafts] = useState<StepMaterialDraft[]>([]);
+  const stepWageQueries = useQueries({
+    queries: (detailData?.steps ?? []).map((step) => ({
+      queryKey: ['step-wages', Number(step.id)],
+      queryFn: () => processConfigApi.getWages(Number(step.id)),
+      enabled: Number(step.id) > 0,
+      staleTime: 30_000,
+    })),
+  });
+  const stepUnitPriceMap = useMemo(() => {
+    const entries = new Map<number, number>();
+    (detailData?.steps ?? []).forEach((step, index) => {
+      const wages = stepWageQueries[index]?.data ?? [];
+      const preferredWage = wages.find((item) => item.workerGrade === 'skilled') ?? wages[0];
+      if (!preferredWage) return;
+      const unitPrice = Number(preferredWage.unitPrice);
+      if (!Number.isFinite(unitPrice)) return;
+      entries.set(Number(step.stepNo), unitPrice);
+    });
+    return entries;
+  }, [detailData?.steps, stepWageQueries]);
 
   // 当详情加载完成时，同步到本地编辑器状态
   useEffect(() => {
@@ -1982,6 +2050,29 @@ export default function ProcessConfigPage() {
     setActiveCanvasKey(firstBranchedNode?._key ?? activeNodes[0]?._key ?? null);
     setShowLinearFlowReference(false);
   }, [detailData]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (stepUnitPriceMap.size === 0) return;
+    setEditorTemplate((prev) => {
+      if (!prev) return prev;
+      const previousApplied = appliedStepUnitPricesRef.current;
+      let changed = false;
+      const nodes = prev.nodes.map((node) => {
+        const unitPrice = stepUnitPriceMap.get(node.seq);
+        const previousUnitPrice = previousApplied.get(node.seq);
+        if (
+          unitPrice === undefined
+          || (node.unitPrice !== 0 && node.unitPrice !== previousUnitPrice)
+        ) {
+          return node;
+        }
+        changed = true;
+        return { ...node, unitPrice };
+      });
+      appliedStepUnitPricesRef.current = new Map(stepUnitPriceMap);
+      return changed ? { ...prev, nodes } : prev;
+    });
+  }, [stepUnitPriceMap]);
 
   useEffect(() => {
     if (selectedId === null) {
@@ -2286,6 +2377,45 @@ export default function ProcessConfigPage() {
   }, [activeCanvasKey, editorTemplate]);
   const activeCanvasNodeKey = activeCanvasNode?._key ?? null;
   const activeCanvasRouteGroupKey = activeCanvasNode?.routeGroupKey?.trim() ?? '';
+  const activeCanvasOutputKeywordNormalized = activeCanvasOutputKeyword.trim();
+  const activeCanvasOutputSkuTypes = activeCanvasNode?.outputType === 'final_product'
+    ? 'finished'
+    : activeCanvasNode?.outputType === 'semi_finished'
+      ? 'semi_finished'
+      : 'semi_finished,finished';
+
+  const { data: outputSkuCatalogData } = useQuery({
+    queryKey: ['process-config-output-sku-search', activeCanvasOutputSkuTypes, activeCanvasOutputKeywordNormalized],
+    enabled: activeCanvasNode?.outputType !== 'none',
+    queryFn: async () => {
+      const pageSize = 200;
+      const merged = new Map<number, Awaited<ReturnType<typeof skuApi.getList>>['list'][number]>();
+      let page = 1;
+      let totalPages = 1;
+
+      do {
+        const response = await skuApi.getList({
+          page,
+          pageSize,
+          keyword: activeCanvasOutputKeywordNormalized || undefined,
+          skuTypes: activeCanvasOutputSkuTypes,
+        });
+
+        response.list.forEach((item) => {
+          merged.set(Number(item.id), item);
+        });
+
+        totalPages = Math.max(
+          response.totalPages ?? Math.ceil(response.total / Math.max(response.pageSize || pageSize, 1)),
+          1,
+        );
+        page += 1;
+      } while (page <= totalPages);
+
+      return [...merged.values()];
+    },
+    staleTime: 30_000,
+  });
 
   const activeCanvasPredecessorOptions = useMemo(() => {
     if (!activeCanvasNode || !editorTemplate) return [] as ProcessNode[];
@@ -2384,7 +2514,7 @@ export default function ProcessConfigPage() {
       });
     });
 
-    (outputSkuCatalogData?.list ?? []).forEach((sku) => {
+    (outputSkuCatalogData ?? []).forEach((sku) => {
       const isFinal = sku.category1Name === '成品';
       const isSemi = sku.category1Name === '半成品';
       if (!isFinal && !isSemi) return;
@@ -2404,7 +2534,7 @@ export default function ProcessConfigPage() {
     editorTemplate?.skuId,
     editorTemplate?.skuName,
     expandedBomDetail?.items,
-    outputSkuCatalogData?.list,
+    outputSkuCatalogData,
     selectedTemplateMeta,
   ]);
   const outputSkuLabelMap = useMemo(
@@ -2426,12 +2556,12 @@ export default function ProcessConfigPage() {
     [activeCanvasNode?.outputSkuId, activeOutputObjectOptions],
   );
   const activeOutputObjectResults = useMemo(() => {
-    const keyword = activeCanvasOutputKeyword.trim().toLowerCase();
+    const keyword = activeCanvasOutputKeywordNormalized.toLowerCase();
     const items = keyword
       ? activeOutputObjectOptions.filter((item) => item.label.toLowerCase().includes(keyword))
       : activeOutputObjectOptions;
     return items.slice(0, 8);
-  }, [activeCanvasOutputKeyword, activeOutputObjectOptions]);
+  }, [activeCanvasOutputKeywordNormalized, activeOutputObjectOptions]);
 
   const activeOutputSummary = useMemo(() => {
     if (!activeCanvasNode) return '未定义';
@@ -2518,6 +2648,12 @@ export default function ProcessConfigPage() {
     setActiveCanvasOutputKeyword('');
     setActiveCanvasPredecessorKeyword('');
   }, [activeCanvasNode?._key]);
+
+  useEffect(() => {
+    setActiveCanvasHoursDraft(formatDecimalDraft(activeCanvasNode?.hours));
+    setActiveCanvasMaxHoursDraft(formatDecimalDraft(activeCanvasNode?.maxHours));
+    setActiveCanvasUnitPriceDraft(formatDecimalDraft(activeCanvasNode?.unitPrice));
+  }, [activeCanvasNode?._key, activeCanvasNode?.hours, activeCanvasNode?.maxHours, activeCanvasNode?.unitPrice]);
 
   useEffect(() => {
     if (!showAddProcessModal) {
@@ -3919,25 +4055,39 @@ export default function ProcessConfigPage() {
                         <div className={styles.routeStudioPanel__sectionDesc}>用于排产节拍、产能预估和计件工价测算。</div>
                         <div className={styles.formRow}>
                           <div className={styles.formGroup}>
-                            <label className={styles.formLabel}>极限工时(分钟)</label>
+                            <label className={styles.formLabel}>极限工时 (h)</label>
                             <input
                               className={styles.formInput}
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={activeCanvasNode.maxHours ?? ''}
-                              onChange={(e) => handleActiveNodePatch({ maxHours: e.target.value === '' ? null : Number(e.target.value) })}
+                              type="text"
+                              inputMode="decimal"
+                              value={activeCanvasMaxHoursDraft}
+                              onChange={(e) => {
+                                if (!isDecimalDraft(e.target.value)) return;
+                                setActiveCanvasMaxHoursDraft(e.target.value);
+                              }}
+                              onBlur={() => {
+                                const nextValue = commitDecimalDraft(activeCanvasMaxHoursDraft, null);
+                                setActiveCanvasMaxHoursDraft(formatDecimalDraft(nextValue));
+                                handleActiveNodePatch({ maxHours: nextValue });
+                              }}
                             />
                           </div>
                           <div className={styles.formGroup}>
-                            <label className={styles.formLabel}>标准工时(分钟)</label>
+                            <label className={styles.formLabel}>标准工时 (h)</label>
                             <input
                               className={styles.formInput}
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={activeCanvasNode.hours || ''}
-                              onChange={(e) => handleActiveNodePatch({ hours: Number(e.target.value || 0) })}
+                              type="text"
+                              inputMode="decimal"
+                              value={activeCanvasHoursDraft}
+                              onChange={(e) => {
+                                if (!isDecimalDraft(e.target.value)) return;
+                                setActiveCanvasHoursDraft(e.target.value);
+                              }}
+                              onBlur={() => {
+                                const nextValue = commitDecimalDraft(activeCanvasHoursDraft, 0) ?? 0;
+                                setActiveCanvasHoursDraft(formatDecimalDraft(nextValue));
+                                handleActiveNodePatch({ hours: nextValue });
+                              }}
                             />
                           </div>
                         </div>
@@ -3945,11 +4095,18 @@ export default function ProcessConfigPage() {
                           <label className={styles.formLabel}>标准工价(元)</label>
                           <input
                             className={styles.formInput}
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={activeCanvasNode.unitPrice || ''}
-                            onChange={(e) => handleActiveNodePatch({ unitPrice: Number(e.target.value || 0) })}
+                            type="text"
+                            inputMode="decimal"
+                            value={activeCanvasUnitPriceDraft}
+                            onChange={(e) => {
+                              if (!isDecimalDraft(e.target.value)) return;
+                              setActiveCanvasUnitPriceDraft(e.target.value);
+                            }}
+                            onBlur={() => {
+                              const nextValue = commitDecimalDraft(activeCanvasUnitPriceDraft, 0) ?? 0;
+                              setActiveCanvasUnitPriceDraft(formatDecimalDraft(nextValue));
+                              handleActiveNodePatch({ unitPrice: nextValue });
+                            }}
                           />
                         </div>
                       </div>
