@@ -1,0 +1,83 @@
+flowchart LR
+    subgraph MD["主数据输入"]
+        SKU[skus]
+        BOMH[bom_headers]
+        BOMI[bom_items]
+        SUP[suppliers]
+        CUS[customers]
+        PROC[process templates / sku-process]
+    end
+
+    subgraph Sales["销售侧交易数据"]
+        SO[sales_orders]
+        SOI[sales_order_items]
+    end
+
+    subgraph Prod["生产聚合与执行数据"]
+        JB[joint_production_batches]
+        JBO[joint_production_batch_orders]
+        JBI[joint_production_batch_items]
+        PO[production_orders]
+        OPR[production_operations]
+        SCH[production_schedules]
+        TASK[production_tasks]
+    end
+
+    subgraph Mat["物料与采购数据"]
+        MR[material_requirements]
+        PS[purchase_suggestions]
+        PORD[purchase_orders]
+        PREC[purchase_receipts]
+    end
+
+    subgraph Stock["库存与质量数据"]
+        INVT[inventory_transactions]
+        QI[quality_inspections]
+        TRACE[traceability_records]
+    end
+
+    subgraph Output["履约与分析输出"]
+        SHIP[发货 / 结算 / 对账]
+        ANALYTICS[analytics / reports]
+        NOTICE[notifications / AI proactive]
+    end
+
+    SKU --> SOI
+    CUS --> SO
+    SKU --> BOMH
+    BOMH --> BOMI
+    PROC --> PO
+    SUP --> PS
+
+    SO --> SOI
+    SOI --> JB
+    SO --> JBO
+    SOI --> JBO
+    JB --> JBI
+    SOI --> PO
+    JB --> PO
+
+    BOMI --> MR
+    PO --> MR
+    JBI --> MR
+    MR --> PS
+    PS --> PORD
+    PORD --> PREC
+    PREC --> QI
+    QI --> INVT
+
+    PO --> OPR
+    OPR --> SCH
+    SCH --> TASK
+    TASK --> TRACE
+    TASK --> INVT
+    INVT --> SHIP
+
+    SO --> SHIP
+    SHIP --> ANALYTICS
+    INVT --> ANALYTICS
+    QI --> ANALYTICS
+    TRACE --> ANALYTICS
+    MR --> NOTICE
+    SCH --> NOTICE
+    QI --> NOTICE

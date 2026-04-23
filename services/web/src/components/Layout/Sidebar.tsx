@@ -32,6 +32,14 @@ const NAV_ITEMS: NavItem[] = [
     group: '平台',
   },
   {
+    path: '/platform/design-system',
+    label: '设计系统',
+    icon: '🎛️',
+    roles: [UserRole.PLATFORM_SUPER_ADMIN],
+    group: '平台',
+    platformOnly: true,
+  },
+  {
     path: '/dashboard',
     label: '老板驾驶舱',
     icon: '📊',

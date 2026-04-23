@@ -1,4 +1,5 @@
 import { startTransition, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { ACTION_CODES } from '@/constants/accessControl';
@@ -1488,7 +1489,7 @@ function WorkCalendarModal(props: {
 }) {
   if (!props.open) return null;
 
-  return (
+  return createPortal(
     <div className={styles.modal_overlay} onClick={props.onClose}>
       <div className={`${styles.modal_panel} ${styles['modal_panel--wide']}`} onClick={(event) => event.stopPropagation()}>
         <div className={styles.modal_header}>
@@ -1572,7 +1573,8 @@ function WorkCalendarModal(props: {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

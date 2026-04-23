@@ -7,9 +7,9 @@
   position: relative;
   display: flex;
   flex-direction: row;
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  border: 1px solid rgba(217, 229, 244, 0.92);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
   transition:
@@ -37,7 +37,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-5) var(--space-5) var(--space-4);
+  padding: var(--space-5) var(--space-5) var(--space-5);
   min-width: 0;
 }
 
@@ -52,7 +52,7 @@
 .kpi_card__label {
   font-size: var(--text-body-m);
   color: var(--text-secondary);
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.5;
 }
 
@@ -64,10 +64,11 @@
   width: 40px;
   height: 40px;
   flex-shrink: 0;
-  background: color-mix(in srgb, var(--kpi-color, var(--color-primary-500)) 12%, transparent);
-  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--kpi-color, var(--color-primary-500)) 14%, white) 0%, rgba(255,255,255,0.98) 100%);
+  border-radius: 14px;
   color: var(--kpi-color, var(--color-primary-500));
   font-size: 18px;
+  border: 1px solid color-mix(in srgb, var(--kpi-color, var(--color-primary-500)) 18%, white);
 }
 
 /* ── 数值区 ── */
@@ -122,4 +123,24 @@
 /* ── 进度条区域 ── */
 .kpi_card__progress {
   margin-top: var(--space-1);
+}
+
+/* 商业化细节升级 */
+.kpi_card {
+  animation: lift-in var(--motion-slow, 360ms) var(--easing-standard, cubic-bezier(.4, 0, .2, 1)) both;
+}
+
+.kpi_card__icon {
+  background: var(--icon-surface);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 10px 22px rgba(37, 99, 235, 0.08);
+}
+
+.kpi_card:hover .kpi_card__icon {
+  transform: translateY(-1px) scale(1.02);
+}
+
+.kpi_card__value {
+  letter-spacing: -0.03em;
 }

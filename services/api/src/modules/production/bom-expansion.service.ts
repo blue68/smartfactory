@@ -134,7 +134,7 @@ export class BomExpansionService {
         );
         result.push(...subItems);
       } else {
-        if (item.business_class !== 'production_material' || item.control_mode !== 'mrp') {
+        if (item.business_class !== 'production_material') {
           continue;
         }
         // 原材料，直接加入列表

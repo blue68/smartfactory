@@ -1,0 +1,85 @@
+flowchart TB
+    subgraph Client["客户端层"]
+        WEB[Web 管理端<br/>React 18 + TypeScript + Vite]
+        MINI[微信小程序端<br/>仓库 / 工人 / 现场作业]
+        AIUI[AI 助手入口<br/>Web 对话与主动提示]
+    end
+
+    subgraph Gateway["接入与安全层"]
+        NGINX[Nginx<br/>反向代理 / 静态资源 / SSL]
+        AUTH[认证与权限<br/>JWT / Cookie / RBAC / 菜单动作权限]
+        TENANT[多租户上下文<br/>tenant_id / scope_level]
+        LIMIT[限流 / 审计 / 错误处理]
+    end
+
+    subgraph App["应用服务层（Node.js + Express + TypeScript）"]
+        SALES[销售域<br/>sales / sales-order / sales-customer / settlement]
+        PROD[生产域<br/>production / scheduler / tasks / batches]
+        MRP[MRP 与缺料域<br/>mrp / shortage]
+        PUR[采购域<br/>purchase / price / match / settlement]
+        INV[库存域<br/>inventory / stocktaking / warehouse-location]
+        MASTER[主数据域<br/>sku / bom / supplier / process-config / sku-category]
+        QC[质量与追溯域<br/>quality / incoming-inspection]
+        SYS[系统管理域<br/>access-control / departments / tenant config]
+        ANA[分析与报表域<br/>analytics / report]
+        AICORE[AI 服务编排域<br/>ai / proactive / context]
+        ASSET[耗材与资产域<br/>consumables / assets]
+        NOTIFY[通知域<br/>notification]
+        UPLOAD[上传与附件域<br/>upload]
+    end
+
+    subgraph Infra["基础设施层"]
+        MYSQL[(MySQL 8.0)]
+        REDIS[(Redis 7)]
+        BULL[BullMQ / Redis Queue]
+        FILES[本地上传目录 / MinIO]
+        WXAPI[微信生态接口]
+        LLM[AI / LLM 接口]
+    end
+
+    WEB --> NGINX
+    MINI --> NGINX
+    AIUI --> NGINX
+
+    NGINX --> AUTH
+    AUTH --> TENANT
+    TENANT --> LIMIT
+    LIMIT --> SALES
+    LIMIT --> PROD
+    LIMIT --> MRP
+    LIMIT --> PUR
+    LIMIT --> INV
+    LIMIT --> MASTER
+    LIMIT --> QC
+    LIMIT --> SYS
+    LIMIT --> ANA
+    LIMIT --> AICORE
+    LIMIT --> ASSET
+    LIMIT --> NOTIFY
+    LIMIT --> UPLOAD
+
+    SALES --> MYSQL
+    PROD --> MYSQL
+    MRP --> MYSQL
+    PUR --> MYSQL
+    INV --> MYSQL
+    MASTER --> MYSQL
+    QC --> MYSQL
+    SYS --> MYSQL
+    ANA --> MYSQL
+    ASSET --> MYSQL
+
+    SALES --> REDIS
+    PROD --> REDIS
+    MRP --> REDIS
+    NOTIFY --> REDIS
+    ANA --> REDIS
+
+    MRP --> BULL
+    NOTIFY --> BULL
+    AICORE --> BULL
+
+    UPLOAD --> FILES
+    QC --> FILES
+    NOTIFY --> WXAPI
+    AICORE --> LLM

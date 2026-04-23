@@ -662,31 +662,39 @@ export class ProductionBatchService {
     if (!header) {
       throw AppError.notFound('联合生产批次不存在', ResponseCode.NOT_FOUND);
     }
-    return AppDataSource.query(
-      `SELECT
-          mr.sku_id AS skuId,
-          s.sku_code AS skuCode,
-          s.name AS skuName,
-          s.stock_unit AS stockUnit,
-          SUM(mr.qty_required) AS qtyRequired,
-          SUM(mr.qty_reserved) AS qtyReserved,
-          SUM(mr.qty_shortage) AS qtyShortage,
-          COUNT(DISTINCT mr.production_order_id) AS affectedOrderCount,
-          GROUP_CONCAT(DISTINCT mr.production_order_id ORDER BY mr.production_order_id) AS affectedProductionOrderIds,
-          MAX(mr.suggestion_id) AS suggestionId
+    const shortageMap = await this.mrpSvc().getBatchShortageContexts(AppDataSource.manager, batchId);
+    const suggestionRows = await AppDataSource.query<Array<{ sku_id: number; suggestion_id: number | null }>>(
+      `SELECT mr.sku_id, MAX(mr.suggestion_id) AS suggestion_id
        FROM material_requirements mr
        INNER JOIN production_orders po
          ON po.id = mr.production_order_id
         AND po.tenant_id = mr.tenant_id
-       INNER JOIN skus s
-         ON s.id = mr.sku_id
-        AND s.tenant_id = mr.tenant_id
        WHERE mr.tenant_id = ?
          AND po.joint_batch_id = ?
-       GROUP BY mr.sku_id, s.sku_code, s.name, s.stock_unit
-       ORDER BY SUM(mr.qty_shortage) DESC, mr.sku_id ASC`,
+       GROUP BY mr.sku_id`,
       [this.tenantId, batchId],
     );
+    const suggestionMap = new Map(
+      suggestionRows.map((row) => [Number(row.sku_id), row.suggestion_id ? Number(row.suggestion_id) : null]),
+    );
+
+    return Array.from(shortageMap.values())
+      .map((item) => ({
+        skuId: item.skuId,
+        skuCode: item.skuCode,
+        skuName: item.skuName,
+        stockUnit: item.stockUnit,
+        qtyRequired: item.qtyRequired,
+        qtyReserved: item.qtyReserved,
+        qtyShortage: item.qtyShortage,
+        affectedOrderCount: item.affectedOrderCount,
+        affectedProductionOrderIds: item.orderIds.join(','),
+        suggestionId: suggestionMap.get(item.skuId) ?? null,
+      }))
+      .sort((a, b) => {
+        const shortageDiff = Number(b.qtyShortage) - Number(a.qtyShortage);
+        return shortageDiff !== 0 ? shortageDiff : Number(a.skuId) - Number(b.skuId);
+      });
   }
 
   async generateBatchPurchaseSuggestions(batchId: number): Promise<unknown> {

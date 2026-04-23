@@ -1,0 +1,73 @@
+flowchart TB
+    subgraph S1["系统治理层"]
+        SYS1[租户管理]
+        SYS2[菜单与功能]
+        SYS3[角色与授权]
+        SYS4[人员与部门]
+        SYS5[审计日志]
+    end
+
+    subgraph S2["业务主数据层"]
+        MD1[SKU 主数据]
+        MD2[BOM 结构]
+        MD3[供应商]
+        MD4[工艺模板 / SKU工艺]
+        MD5[库位与仓库]
+        MD6[客户主数据]
+    end
+
+    subgraph S3["交易执行层"]
+        SO[销售订单]
+        JB[联合生产批次]
+        PO[生产工单]
+        SC[排产计划]
+        TK[生产任务]
+        MRP1[MRP / 缺料]
+        PS[采购建议]
+        PU[采购订单 / 到货 / 收货]
+        INV1[库存与盘点]
+        QC1[来料质检 / 验货]
+        TR[追溯与报工]
+        ST[销售结算]
+    end
+
+    subgraph S4["决策与智能层"]
+        AN[经营分析 / 报表]
+        AI1[AI 助手]
+        AI2[主动预警]
+    end
+
+    SYS1 --> S2
+    SYS3 --> S3
+    SYS4 --> S3
+
+    MD1 --> SO
+    MD2 --> PO
+    MD3 --> PS
+    MD4 --> PO
+    MD5 --> INV1
+    MD6 --> SO
+
+    SO --> JB
+    SO --> PO
+    JB --> PO
+    PO --> SC
+    SC --> TK
+    PO --> MRP1
+    JB --> MRP1
+    MRP1 --> PS
+    PS --> PU
+    PU --> QC1
+    QC1 --> INV1
+    TK --> TR
+    TR --> INV1
+    INV1 --> ST
+
+    SO --> AN
+    PU --> AN
+    INV1 --> AN
+    TK --> AN
+    QC1 --> AI2
+    AN --> AI1
+    INV1 --> AI1
+    SO --> AI1

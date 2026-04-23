@@ -62,6 +62,18 @@
   --color-stagnant-500: #8B5CF6;
   --color-stagnant-600: #7C3AED;
 
+  /* 图表与数据可视化色板 */
+  --chart-blue:        #3B82F6;
+  --chart-blue-soft:   #93C5FD;
+  --chart-cyan:        #06B6D4;
+  --chart-teal:        #14B8A6;
+  --chart-green:       #22C55E;
+  --chart-amber:       #F59E0B;
+  --chart-orange:      #F97316;
+  --chart-red:         #EF4444;
+  --chart-purple:      #8B5CF6;
+  --chart-indigo:      #6366F1;
+
   /* ═══════════════════════════════════════════
      中性色
   ═══════════════════════════════════════════ */
@@ -80,40 +92,58 @@
   /* ═══════════════════════════════════════════
      语义别名（亮色模式）
   ═══════════════════════════════════════════ */
-  --bg-page:            #F8FAFC;
-  --bg-card:            #FFFFFF;
-  --bg-sidebar:         #1E293B;
-  --text-sidebar:       #CBD5E1;
-  --bg-sidebar-active:  #2563EB;
-  --text-primary:       #1E293B;
-  --text-secondary:     #64748B;
-  --text-disabled:      #94A3B8;
+  --bg-page:            #F3F7FC;
+  --bg-card:            rgba(255, 255, 255, 0.94);
+  --bg-card-strong:     #FFFFFF;
+  --bg-card-muted:      #F7FAFE;
+  --bg-sidebar:         linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(246, 250, 255, 0.98) 100%);
+  --bg-sidebar-active:  linear-gradient(135deg, #2E6BFF 0%, #1E88FF 52%, #1CB9D9 100%);
+  --bg-header:          rgba(255, 255, 255, 0.78);
+  --bg-header-search:   linear-gradient(180deg, rgba(255, 255, 255, 0.84) 0%, rgba(244, 248, 255, 0.88) 100%);
+  --bg-elevated:        linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.98) 100%);
+  --surface-accent-soft:#EEF5FF;
+  --surface-accent:     linear-gradient(135deg, rgba(60, 130, 246, 0.12) 0%, rgba(14, 165, 233, 0.10) 100%);
+  --surface-warm-soft:  linear-gradient(135deg, rgba(249, 115, 22, 0.10) 0%, rgba(251, 191, 36, 0.10) 100%);
+  --text-primary:       #142033;
+  --text-secondary:     #607089;
+  --text-disabled:      #9AACBF;
+  --text-sidebar:       #42536B;
   --text-on-primary:    #FFFFFF;
-  --border-default:     #E2E8F0;
-  --border-strong:      #CBD5E1;
-  --border-focus:       #3B82F6;
-  --border-muted:       #D7E3F1;
+  --border-default:     #D9E5F4;
+  --border-strong:      #C2D4EC;
+  --border-focus:       #2F6FEB;
+  --border-muted:       #E5EDF7;
+  --border-soft:        rgba(217, 229, 244, 0.78);
+  --glass-border:       rgba(255, 255, 255, 0.78);
+  --icon-surface:       linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(14, 165, 233, 0.1) 100%);
+  --icon-surface-warm:  linear-gradient(135deg, rgba(249, 115, 22, 0.14) 0%, rgba(251, 191, 36, 0.12) 100%);
 
   /* ═══════════════════════════════════════════
      表单控件
   ═══════════════════════════════════════════ */
-  --form-control-height:        2.625rem;
-  --form-control-radius:        0.75rem;
+  --form-control-height:        2.875rem;
+  --form-control-radius:        0.9375rem;
   --form-control-radius-pill:   9999px;
-  --form-control-padding-y:     0.625rem;
-  --form-control-padding-x:     0.875rem;
+  --form-control-padding-y:     0.75rem;
+  --form-control-padding-x:     0.9375rem;
   --form-control-text:          #172033;
-  --form-control-placeholder:   #93A4BD;
-  --form-control-bg:            linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 249, 255, 0.98) 100%);
-  --form-control-bg-hover:      linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(244, 248, 255, 0.99) 100%);
-  --form-control-bg-focus:      linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(242, 247, 255, 0.99) 100%);
-  --form-control-border:        #D7E3F1;
-  --form-control-border-hover:  #C3D5EE;
-  --form-control-border-focus:  rgba(96, 139, 255, 0.96);
-  --form-control-shadow:        inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 1px 2px rgba(15, 23, 42, 0.03);
-  --form-control-shadow-focus:  0 0 0 1px rgba(96, 139, 255, 0.75), 0 0 0 3px rgba(96, 139, 255, 0.08), 0 12px 24px rgba(37, 99, 235, 0.08);
-  --form-control-shadow-active: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 10px 24px rgba(37, 99, 235, 0.12);
-  --form-control-disabled-bg:   #F8FAFC;
+  --form-control-placeholder:   #9DAFCA;
+  --form-control-bg:            linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.99) 100%);
+  --form-control-bg-hover:      linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(245, 249, 255, 0.99) 100%);
+  --form-control-bg-focus:      linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(241, 247, 255, 1) 100%);
+  --form-control-border:        #D5E0EF;
+  --form-control-border-hover:  #C1D3EA;
+  --form-control-border-focus:  rgba(68, 126, 255, 0.96);
+  --form-control-shadow:        inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 6px 16px rgba(111, 142, 187, 0.06);
+  --form-control-shadow-focus:  0 0 0 1px rgba(68, 126, 255, 0.92), 0 0 0 4px rgba(68, 126, 255, 0.08), 0 18px 36px rgba(37, 99, 235, 0.10);
+  --form-control-shadow-active: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 14px 28px rgba(37, 99, 235, 0.13);
+  --form-control-disabled-bg:   #F6F8FB;
+
+  /* 动效节奏 */
+  --motion-fast:        140ms;
+  --motion-base:        220ms;
+  --motion-slow:        360ms;
+  --easing-standard:    cubic-bezier(.4, 0, .2, 1);
 
   /* ═══════════════════════════════════════════
      数字字体辅助
@@ -240,11 +270,11 @@
   --space-20: 5rem;
 
   /* 布局专属 */
-  --layout-sidebar-width:       240px;
-  --layout-sidebar-collapsed:   60px;
-  --layout-header-height:       64px;
-  --layout-page-padding:        24px;
-  --layout-card-gap:            16px;
+  --layout-sidebar-width:       248px;
+  --layout-sidebar-collapsed:   76px;
+  --layout-header-height:       72px;
+  --layout-page-padding:        28px;
+  --layout-card-gap:            18px;
   /* 小程序布局专属 */
   --layout-mini-tab-height:     56px;
   --layout-mini-header-height:  48px;
@@ -253,20 +283,22 @@
      圆角
   ═══════════════════════════════════════════ */
   --radius-sm:   4px;
-  --radius-md:   8px;
-  --radius-lg:   12px;
-  --radius-xl:   16px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   18px;
   --radius-2xl:  24px;
   --radius-full: 9999px;
 
   /* ═══════════════════════════════════════════
      阴影
   ═══════════════════════════════════════════ */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-xs: 0 2px 8px rgba(72, 97, 140, 0.05);
+  --shadow-sm: 0 8px 24px rgba(63, 91, 135, 0.08);
+  --shadow-md: 0 14px 36px rgba(63, 91, 135, 0.11);
+  --shadow-lg: 0 22px 48px rgba(52, 80, 123, 0.14);
+  --shadow-xl: 0 30px 72px rgba(34, 57, 96, 0.18);
+  --shadow-glow-primary: 0 16px 40px rgba(37, 99, 235, 0.18);
+  --shadow-glow-warm: 0 16px 40px rgba(249, 115, 22, 0.16);
 
   /* ═══════════════════════════════════════════
      动画时长
@@ -279,13 +311,14 @@
   /* ═══════════════════════════════════════════
      层叠（z-index）
   ═══════════════════════════════════════════ */
-  --z-base:     0;
-  --z-dropdown: 100;
-  --z-sticky:   200;
-  --z-overlay:  300;
-  --z-modal:    400;
-  --z-toast:    500;
-  --z-tooltip:  600;
+  --z-base:            0;
+  --z-dropdown:        100;
+  --z-sticky:          200;
+  --z-overlay:         400;
+  --z-toast:           700;
+  --z-tooltip:         800;
+  --z-modal-backdrop:  1200;
+  --z-modal:           1300;
 
   /* ═══════════════════════════════════════════
      Sprint 4: AI 调度相关色彩
@@ -318,14 +351,14 @@
 /* ── 暗色模式 ──────────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-page:        #0F172A;
-    --bg-card:        #1E293B;
-    --bg-sidebar:     #0F172A;
-    --text-primary:   #F1F5F9;
-    --text-secondary: #94A3B8;
-    --text-disabled:  #475569;
-    --border-default: #334155;
-    --border-strong:  #475569;
+    --bg-page:        #F3F7FC;
+    --bg-card:        rgba(255, 255, 255, 0.94);
+    --bg-sidebar:     linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(246, 250, 255, 0.98) 100%);
+    --text-primary:   #142033;
+    --text-secondary: #607089;
+    --text-disabled:  #9AACBF;
+    --border-default: #D9E5F4;
+    --border-strong:  #C2D4EC;
   }
 }
 

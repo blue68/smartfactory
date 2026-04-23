@@ -1061,7 +1061,7 @@
 .batchCreateLayout,
 .batchCenterLayout {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  grid-template-columns: minmax(320px, 0.82fr) minmax(0, 1.48fr);
   gap: 1rem;
 }
 
@@ -1180,12 +1180,13 @@
   overflow: auto;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
+  background: #fff;
 }
 
 .batchDetailTable {
   width: 100%;
   border-collapse: collapse;
-  min-width: 640px;
+  min-width: 1460px;
 }
 
 .batchDetailTable th,
@@ -1200,6 +1201,38 @@
   background: #f8fafc;
   color: #64748b;
   font-weight: 600;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.batchColSeq { width: 72px; }
+.batchColOrderNo { width: 172px; }
+.batchColCustomer { width: 200px; }
+.batchColSkuCode { width: 168px; }
+.batchColSkuName { width: 280px; }
+.batchColQty { width: 110px; }
+.batchColPriority { width: 92px; }
+.batchColDate { width: 138px; }
+.batchColMode { width: 162px; }
+.batchColStatus { width: 124px; }
+.batchColMergeKey { width: 220px; }
+
+.batchCellStrong {
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.batchCellMono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.batchCellNumber {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .batchEmpty,
@@ -1239,4 +1272,106 @@
   .batchCenterLayout {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---------------------------------------------------------
+   Commercial refinement overrides
+   第二层精修：销售订单管理页
+   --------------------------------------------------------- */
+
+.page {
+  gap: 1.5rem;
+  background:
+    radial-gradient(circle at top right, rgba(96, 165, 250, 0.08), transparent 28%),
+    radial-gradient(circle at top left, rgba(45, 212, 191, 0.05), transparent 24%),
+    #f6f9fd;
+}
+
+.pageHeader {
+  padding: 1.45rem 1.6rem;
+  border-radius: 1.6rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 249, 255, 0.98) 100%);
+  box-shadow: 0 20px 46px rgba(15, 23, 42, 0.08);
+}
+
+.pageTitle {
+  font-size: 1.78rem;
+  letter-spacing: -0.03em;
+}
+
+.statsRow {
+  gap: 14px;
+}
+
+.statCard,
+.tableCard,
+.batchCreateForm,
+.batchCreateSummary,
+.batchCenterSidebar,
+.batchCenterDetail,
+.batchSelectedItem,
+.batchListItem,
+.batchDetailCard {
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+.statCard,
+.tableCard,
+.batchCreateForm,
+.batchCreateSummary,
+.batchCenterSidebar,
+.batchCenterDetail {
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.05);
+}
+
+.statCard {
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 250, 255, 0.98) 100%);
+}
+
+.filterBar {
+  padding: 1rem 1.1rem;
+  border-radius: 1.15rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 250, 255, 0.98) 100%);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.04);
+}
+
+.searchInput,
+.select {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.searchInput:focus,
+.select:focus {
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.08);
+}
+
+.tableCard {
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 251, 255, 0.98) 100%);
+}
+
+.batchCreateForm,
+.batchCreateSummary,
+.batchCenterSidebar,
+.batchCenterDetail {
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.98) 100%);
+}
+
+.batchListItem {
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 250, 255, 0.98) 100%);
+}
+
+.batchListItem:hover,
+.batchListItemActive {
+  box-shadow: 0 14px 28px rgba(37, 99, 235, 0.08);
+}
+
+.batchDetailTable th {
+  background: linear-gradient(180deg, #f8fbff 0%, #f1f6ff 100%);
 }

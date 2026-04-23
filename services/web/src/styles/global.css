@@ -18,7 +18,10 @@ body {
   font-family: var(--font-family-base);
   font-size: var(--text-body-m);
   color: var(--text-primary);
-  background-color: var(--bg-page);
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.11) 0%, transparent 26%),
+    radial-gradient(circle at 82% 8%, rgba(14, 165, 233, 0.12) 0%, transparent 24%),
+    linear-gradient(180deg, #f6f9fd 0%, #edf3fb 100%);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -26,7 +29,7 @@ body {
 
 /* 焦点环（无障碍） */
 :focus-visible {
-  outline: 2px solid var(--color-primary-500);
+  outline: 2px solid rgba(47, 111, 235, 0.72);
   outline-offset: 2px;
 }
 
@@ -135,6 +138,7 @@ input, textarea, select {
   display: flex;
   height: 100vh;
   overflow: hidden;
+  background: transparent;
 }
 
 .app-layout__sidebar {
@@ -143,6 +147,8 @@ input, textarea, select {
   transition: width var(--transition-base);
   background: var(--bg-sidebar);
   overflow: hidden;
+  border-right: 1px solid var(--border-soft);
+  box-shadow: 8px 0 30px rgba(86, 116, 160, 0.06);
 }
 
 .app-layout__sidebar--collapsed {
@@ -160,9 +166,10 @@ input, textarea, select {
 .app-layout__header {
   height: var(--layout-header-height);
   flex-shrink: 0;
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border-default);
-  box-shadow: var(--shadow-xs);
+  background: var(--bg-header);
+  border-bottom: 1px solid rgba(217, 229, 244, 0.8);
+  box-shadow: 0 10px 32px rgba(78, 106, 150, 0.05);
+  backdrop-filter: blur(18px);
   z-index: var(--z-sticky);
 }
 
@@ -170,6 +177,31 @@ input, textarea, select {
   flex: 1;
   overflow-y: auto;
   padding: var(--layout-page-padding);
+  position: relative;
+  isolation: isolate;
+}
+
+.app-layout__content::before {
+  content: '';
+  position: fixed;
+  inset: calc(var(--layout-header-height) + 12px) 18px 18px calc(var(--layout-sidebar-width) + 18px);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.18) 100%);
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  pointer-events: none;
+  z-index: -2;
+}
+
+.app-layout__content::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(59, 130, 246, 0.06), transparent 22%),
+    radial-gradient(circle at 100% 18%, rgba(14, 165, 233, 0.05), transparent 18%);
+  pointer-events: none;
+  z-index: -1;
 }
 
 /* ─── 页面标题区 ─────────────────────────────── */
@@ -184,11 +216,12 @@ input, textarea, select {
 
 .page-header__title {
   font-size: var(--text-h2);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  letter-spacing: -0.02em;
 }
 
 .page-header__actions {
@@ -200,12 +233,23 @@ input, textarea, select {
 
 /* ─── 卡片 ───────────────────────────────────── */
 .card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  border: 1px solid rgba(217, 229, 244, 0.92);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
   padding: var(--space-6);
   transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.86), rgba(255,255,255,0));
+  pointer-events: none;
 }
 
 .card:hover {
@@ -245,9 +289,10 @@ input, textarea, select {
   display: flex;
   gap: var(--space-3);
   padding: var(--space-4);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xl);
   border-left: 4px solid;
   animation: fade-in 0.2s ease;
+  box-shadow: var(--shadow-xs);
 }
 .alert--info    { background: var(--color-info-50);    border-color: var(--color-info-500); }
 .alert--success { background: var(--color-success-50); border-color: var(--color-success-500); }
@@ -298,9 +343,9 @@ input, textarea, select {
 
 .toast {
   min-width: 320px; max-width: 420px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  border: 1px solid rgba(217, 229, 244, 0.94);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
   padding: var(--space-4);
   display: flex;
@@ -314,6 +359,22 @@ input, textarea, select {
 .toast--warning { border-left: 4px solid var(--color-warning-500); }
 .toast--error   { border-left: 4px solid var(--color-error-500); }
 .toast--info    { border-left: 4px solid var(--color-info-500); }
+
+main,
+section,
+article {
+  min-width: 0;
+}
+
+.page-surface,
+.filter-surface,
+.table-surface,
+.detail-surface {
+  background: var(--bg-elevated);
+  border: 1px solid rgba(217, 229, 244, 0.92);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-sm);
+}
 
 /* ─── 溯源链 Trace Chain ─────────────────────── */
 .trace-chain { display: flex; flex-direction: column; gap: 0; }
@@ -385,4 +446,20 @@ input, textarea, select {
 @keyframes slide-in-right {
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes lift-in {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

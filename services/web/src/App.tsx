@@ -57,6 +57,7 @@ import RoleGrantPage from '@/pages/system/RoleGrantPage';
 import UserRoleAssignmentPage from '@/pages/system/UserRoleAssignmentPage';
 import SystemAuditPage from '@/pages/system/SystemAuditPage';
 import PlatformHomePage from '@/pages/system/PlatformHomePage';
+import DesignSystemPage from '@/pages/system/DesignSystemPage';
 import { UserRole } from '@/types/enums';
 import { matchesRoleAccess } from '@/utils/roleAccess';
 
@@ -204,6 +205,7 @@ export default function App() {
             <Route index element={<DefaultHomeRedirect />} />
             <Route element={<RequirePlatformScope />}>
               <Route path="/platform/home" element={<PlatformHomePage />} />
+              <Route path="/platform/design-system" element={<DesignSystemPage />} />
             </Route>
             {MENU_GUARDED_ROUTES.map((route) => (
               <Route

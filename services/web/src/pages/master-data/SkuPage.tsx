@@ -1336,7 +1336,7 @@ export default function SkuPage() {
       <Drawer
         open={drawerMode === 'detail'}
         title={`SKU 详情 — ${editingSku?.skuCode ?? ''}`}
-        width={520}
+        width={760}
         onClose={closeDrawer}
         footer={
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -2323,6 +2323,11 @@ function SkuDetailContent({
   const requiresAssetAcceptance = typeof sku.requiresAssetAcceptance === 'boolean'
     ? sku.requiresAssetAcceptance
     : (sku.requiresAssetAcceptance == null ? undefined : toBooleanFlag(sku.requiresAssetAcceptance));
+  const detailNotes = [
+    { label: '主档案备注', value: sku.description },
+    { label: '损耗品档案备注', value: sku.consumableProfile?.notes ?? undefined },
+    { label: '固定资产档案备注', value: sku.assetProfile?.notes ?? undefined },
+  ].filter((item) => item.value && String(item.value).trim().length > 0);
 
   return (
     <div>
@@ -2567,10 +2572,17 @@ function SkuDetailContent({
       )}
 
       {/* 备注 */}
-      {sku.description && (
+      {detailNotes.length > 0 && (
         <div className={styles.detail_section}>
-          <div className={styles.detail_section_title}>备注</div>
-          <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{sku.description}</div>
+          <div className={styles.detail_section_title}>备注信息</div>
+          <div className={styles.detail_note_list}>
+            {detailNotes.map((item) => (
+              <div key={item.label} className={styles.detail_note_block}>
+                <div className={styles.detail_note_label}>{item.label}</div>
+                <div className={styles.detail_note_value}>{item.value}</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

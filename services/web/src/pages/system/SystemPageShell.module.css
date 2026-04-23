@@ -699,3 +699,70 @@
     min-width: 0;
   }
 }
+
+/* ─────────────────────────────────────────────
+ * Commercial refinement overrides
+ * 第三轮精修：系统管理共享壳层
+ * ───────────────────────────────────────────── */
+
+.page {
+  gap: 1.25rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82) 0%, rgba(244, 248, 255, 0.96) 100%),
+    radial-gradient(circle at 12% 10%, rgba(59, 130, 246, 0.14), transparent 32%),
+    radial-gradient(circle at 88% 4%, rgba(14, 165, 233, 0.12), transparent 26%),
+    #f4f7fc;
+}
+
+.header {
+  padding: 1.35rem 1.5rem;
+  border-radius: 1.6rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 249, 255, 0.98) 100%);
+  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.08);
+}
+
+.title {
+  font-size: 1.72rem;
+  letter-spacing: -0.03em;
+}
+
+.stats,
+.card {
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+.statCard,
+.card {
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.05);
+}
+
+.statCard,
+.card,
+.filterBar {
+  border-radius: 1.2rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 250, 255, 0.98) 100%);
+}
+
+.filterBar {
+  padding: 0.95rem 1rem;
+}
+
+.searchInput {
+  border-color: rgba(148, 163, 184, 0.22);
+  box-shadow: 0 10px 22px rgba(148, 163, 184, 0.08);
+}
+
+.searchInput:focus {
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.08);
+}
+
+.table th {
+  background: linear-gradient(180deg, #f8fbff 0%, #f2f7ff 100%);
+}
+
+.catalogCard,
+.warningBox,
+.emptyState {
+  border-radius: 1rem;
+}

@@ -6,18 +6,22 @@
   padding: var(--space-16) var(--space-8);
   text-align: center;
   gap: var(--space-3);
+  border: 1px dashed rgba(191, 210, 232, 0.92);
+  border-radius: var(--radius-2xl);
+  background: linear-gradient(180deg, rgba(255,255,255,0.82) 0%, rgba(246,250,255,0.92) 100%);
 }
 
 .empty__icon {
   font-size: 3rem;
   line-height: 1;
   margin-bottom: var(--space-2);
+  filter: saturate(1.05);
 }
 
 .empty__title {
   font-size: var(--text-body-l);
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .empty__desc {

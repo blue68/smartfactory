@@ -190,3 +190,61 @@
   .content { padding: var(--space-4); }
   .stat_grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* 商业化细节升级 */
+.page {
+  background:
+    radial-gradient(circle at top right, rgba(96, 165, 250, 0.08), transparent 26%),
+    radial-gradient(circle at top left, rgba(45, 212, 191, 0.05), transparent 18%),
+    #f6f9fd;
+}
+
+.page_title {
+  font-size: 1.72rem;
+  letter-spacing: -0.03em;
+}
+
+.content {
+  border-color: rgba(148, 163, 184, 0.16);
+  border-radius: var(--radius-2xl);
+  background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%);
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.05);
+}
+
+.tab_bar {
+  padding: 6px;
+  width: fit-content;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.82);
+}
+
+.tab_item {
+  border-radius: 999px;
+  border-bottom: none;
+}
+
+.tab_item--active {
+  background: linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.08);
+}
+
+.stat_card {
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.04);
+}
+
+.bar_track {
+  background: #e8eef8;
+}
+
+.bar_fill--blue { background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%); }
+.bar_fill--green { background: linear-gradient(90deg, #34d399 0%, #16a34a 100%); }
+.bar_fill--amber { background: linear-gradient(90deg, #fbbf24 0%, #d97706 100%); }
+.bar_fill--red { background: linear-gradient(90deg, #fb7185 0%, #dc2626 100%); }
+
+.simple_table thead th {
+  background: linear-gradient(180deg, #f8fbff 0%, #f2f7ff 100%);
+}

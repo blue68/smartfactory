@@ -19,3 +19,31 @@
 .confidence--high   { background: var(--color-success-100); color: var(--color-success-700); }
 .confidence--medium { background: var(--color-warning-100); color: var(--color-warning-700); }
 .confidence--low    { background: var(--color-error-100);   color: var(--color-error-700); }
+
+/* 商业化细节升级 */
+.confidence {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.confidence__dot {
+  width: 8px;
+  height: 8px;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.55);
+}
+
+.confidence--high {
+  background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+}
+
+.confidence--medium {
+  background: linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%);
+}
+
+.confidence--low {
+  background: linear-gradient(180deg, #fff1f2 0%, #ffe4e6 100%);
+}

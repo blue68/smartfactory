@@ -4680,3 +4680,53 @@
     flex-direction: column;
   }
 }
+
+/* ─────────────────────────────────────────────
+ * Commercial refinement overrides
+ * 第四轮精修：工艺配置页
+ * ───────────────────────────────────────────── */
+
+.page {
+  background:
+    radial-gradient(circle at top right, rgba(96, 165, 250, 0.08), transparent 26%),
+    radial-gradient(circle at top left, rgba(45, 212, 191, 0.05), transparent 18%),
+    #f6f9fd;
+}
+
+.sidebar,
+.managerCard,
+.routeStudio__hero,
+.routeStudio__toolbar,
+.routeStudio__canvas,
+.routeStudioPanel,
+.routeBoard {
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.05);
+}
+
+.sidebar,
+.managerCard,
+.routeStudio__hero,
+.routeStudio__toolbar,
+.routeStudio__canvas,
+.routeStudioPanel,
+.routeBoard {
+  background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%);
+}
+
+.searchBox__input,
+.managerToolbar__searchInput,
+.routeStudioPanel__searchInput,
+.fieldInput,
+.fieldSelect {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.searchBox__input:focus,
+.managerToolbar__searchInput:focus,
+.routeStudioPanel__searchInput:focus,
+.fieldInput:focus,
+.fieldSelect:focus {
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08);
+}

@@ -60,6 +60,7 @@
     "test:purchase-suggestion:ui:smoke": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/purchaseSuggestion.real.spec.ts --project=chromium --grep @purchase-suggestion-smoke",
     "test:purchase-suggestion:ui:regression": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/purchaseSuggestion.real.spec.ts --project=chromium --grep @purchase-suggestion-regression",
     "test:joint-production-batch:smoke": "node scripts/joint-production-batch-smoke.mjs",
+    "test:factory001:joint-batch-flow": "node scripts/factory001-joint-batch-full-flow.mjs",
     "test:stocktaking:ui": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/stocktaking.real.spec.ts --project=chromium",
     "test:stocktaking:ui:smoke": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/stocktaking.real.spec.ts --project=chromium --grep @stocktaking-smoke",
     "test:stocktaking:ui:regression": "PLAYWRIGHT_SKIP_WEBSERVER=1 npx playwright test tests/stocktaking.real.spec.ts --project=chromium --grep @stocktaking-regression",

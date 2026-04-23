@@ -40,3 +40,37 @@
   color: var(--text-secondary);
   white-space: nowrap;
 }
+
+/* 商业化细节升级 */
+.status_dot {
+  gap: calc(var(--space-1) + 2px);
+}
+
+.status_dot__dot {
+  width: 9px;
+  height: 9px;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.72);
+}
+
+.status_dot__dot--success,
+.status_dot__dot--warning,
+.status_dot__dot--danger,
+.status_dot__dot--info,
+.status_dot__dot--stagnant {
+  animation: status-dot-pulse 2.4s ease-in-out infinite;
+}
+
+.status_dot__label {
+  font-weight: 600;
+}
+
+@keyframes status-dot-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.86;
+  }
+}

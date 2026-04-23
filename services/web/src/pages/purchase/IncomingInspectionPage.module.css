@@ -636,3 +636,65 @@
     align-items: stretch;
   }
 }
+
+/* ─────────────────────────────────────────────
+ * Commercial refinement overrides
+ * 第四轮精修：来料质检页
+ * ───────────────────────────────────────────── */
+
+.page {
+  background:
+    radial-gradient(circle at top right, rgba(96, 165, 250, 0.08), transparent 28%),
+    radial-gradient(circle at top left, rgba(251, 191, 36, 0.06), transparent 22%),
+    #f6f9fd;
+}
+
+.page_header {
+  padding: 1.35rem 1.5rem;
+  border-radius: 1.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(255,250,243,0.98) 100%);
+  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.08);
+}
+
+.page_title {
+  font-size: 1.72rem;
+  letter-spacing: -0.03em;
+}
+
+.workbench_notice,
+.stat_card,
+.filter_bar,
+.table_card,
+.drawerCard,
+.rule_card {
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+.workbench_notice,
+.stat_card,
+.filter_bar,
+.table_card {
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.05);
+}
+
+.stat_card,
+.filter_bar,
+.table_card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%);
+}
+
+.filter_select,
+.filter_input,
+.form_input,
+.form_textarea {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.filter_select:focus,
+.filter_input:focus,
+.form_input:focus,
+.form_textarea:focus {
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08);
+}

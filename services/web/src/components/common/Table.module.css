@@ -1,4 +1,11 @@
-.table_wrap { width: 100%; overflow: hidden; }
+.table_wrap {
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid rgba(217, 229, 244, 0.92);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
 .table_scroll { overflow-x: auto; }
 
 .table {
@@ -9,12 +16,11 @@
 }
 
 .th {
-  background: var(--color-gray-50);
+  background: linear-gradient(180deg, #f7fafe 0%, #eef4fb 100%);
   color: var(--text-secondary);
   font-size: var(--text-label);
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-default);
   white-space: nowrap;
@@ -27,14 +33,14 @@
 .sort_icon { color: var(--text-disabled); font-size: 0.8em; }
 
 .tr { transition: background var(--transition-fast); }
-.tr:hover { background: var(--color-primary-50); }
-.tr--stripe { background: var(--color-gray-50); }
-.tr--stripe:hover { background: var(--color-primary-50); }
-.tr--expanded { background: var(--color-info-50); }
+.tr:hover { background: rgba(59, 130, 246, 0.05); }
+.tr--stripe { background: rgba(247, 250, 254, 0.72); }
+.tr--stripe:hover { background: rgba(59, 130, 246, 0.05); }
+.tr--expanded { background: rgba(14, 165, 233, 0.06); }
 
 .td {
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border-default);
+  border-bottom: 1px solid rgba(229, 237, 247, 0.9);
   color: var(--text-primary);
   height: 52px;
   vertical-align: middle;
@@ -77,21 +83,23 @@
 .pagination__btn {
   min-width: 32px; height: 32px;
   padding: 0 var(--space-2);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  border: 1px solid rgba(217, 229, 244, 0.9);
   font-size: var(--text-body-s);
   color: var(--text-secondary);
-  background: var(--bg-card);
+  background: rgba(255, 255, 255, 0.9);
   transition: all var(--transition-fast);
 }
 .pagination__btn:hover:not(:disabled) {
   border-color: var(--color-primary-400);
   color: var(--color-primary-600);
+  background: rgba(239, 246, 255, 0.92);
 }
 .pagination__btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .pagination__btn--active {
-  background: var(--color-primary-500);
-  border-color: var(--color-primary-500);
+  background: linear-gradient(135deg, #2e6bff 0%, #1e88ff 55%, #1cb9d9 100%);
+  border-color: transparent;
   color: #fff;
   font-weight: 600;
+  box-shadow: var(--shadow-glow-primary);
 }

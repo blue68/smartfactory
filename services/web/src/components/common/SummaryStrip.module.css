@@ -6,11 +6,11 @@
   display: flex;
   align-items: stretch;
   gap: var(--space-0);
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid rgba(217, 229, 244, 0.92);
+  border-radius: var(--radius-xl);
   padding: var(--space-3) var(--space-4);
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--shadow-sm);
 }
 
 .summary_strip__item {
@@ -54,7 +54,7 @@
   font-family: var(--font-family-number);
   font-variant-numeric: tabular-nums;
   font-size: var(--text-number-m);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
 }
 

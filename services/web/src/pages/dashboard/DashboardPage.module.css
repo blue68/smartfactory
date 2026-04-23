@@ -408,3 +408,140 @@
   display: flex;
   gap: var(--space-2);
 }
+
+/* ─────────────────────────────────────────────
+ * Commercial refinement overrides
+ * 第二层精修：驾驶舱页面质感升级
+ * ───────────────────────────────────────────── */
+
+.page {
+  gap: 24px;
+  padding-bottom: 16px;
+}
+
+.page_header {
+  padding: 26px 28px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at right top, rgba(59, 130, 246, 0.12), transparent 34%),
+    radial-gradient(circle at left top, rgba(45, 212, 191, 0.1), transparent 28%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(246, 250, 255, 0.98) 100%);
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.08);
+}
+
+.page_title {
+  font-size: 1.8rem;
+  letter-spacing: -0.03em;
+}
+
+.page_subtitle {
+  margin-top: 10px;
+  max-width: 780px;
+  line-height: 1.7;
+}
+
+.page_meta {
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.kpi_grid {
+  gap: 16px;
+}
+
+.card {
+  border-color: rgba(148, 163, 184, 0.16);
+  border-radius: 22px;
+  box-shadow:
+    0 18px 40px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.68);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 250, 255, 0.98) 100%);
+}
+
+.card:hover {
+  box-shadow:
+    0 22px 46px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transform: translateY(-3px);
+}
+
+.card_header {
+  margin-bottom: 18px;
+}
+
+.card_title {
+  font-size: 1.04rem;
+  letter-spacing: -0.01em;
+}
+
+.empty_state {
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f8fbff 0%, #f3f8ff 100%);
+}
+
+.progress_item {
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(248, 251, 255, 0.96) 100%);
+}
+
+.warning_item {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(249, 251, 255, 0.96) 100%);
+}
+
+.suggestion_item {
+  border-radius: 18px;
+  border-left-width: 4px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 249, 245, 0.98) 100%);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.04);
+}
+
+.suggestion_item__info,
+.suggestion_item__reason_body {
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+}
+
+/* 第六轮：图表/节奏细节 */
+.page_header,
+.card,
+.progress_item,
+.warning_item,
+.suggestion_item {
+  animation: lift-in var(--motion-slow, 360ms) var(--easing-standard, cubic-bezier(.4, 0, .2, 1)) both;
+}
+
+.page_meta_dot {
+  box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.14);
+}
+
+.progress_item_bar {
+  background: #e8eef8;
+}
+
+.bar_fill_normal {
+  background: linear-gradient(90deg, var(--chart-blue) 0%, var(--chart-cyan) 100%);
+}
+
+.bar_fill_warning {
+  background: linear-gradient(90deg, var(--chart-amber) 0%, var(--chart-orange) 100%);
+}
+
+.bar_fill_danger {
+  background: linear-gradient(90deg, #fb7185 0%, var(--chart-red) 100%);
+}
+
+.warning_dot_red,
+.warning_dot_yellow {
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.76);
+}

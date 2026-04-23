@@ -674,3 +674,86 @@
     align-items: flex-start;
   }
 }
+
+/* ─────────────────────────────────────────────
+ * Commercial refinement overrides
+ * 第二层精修：缺料指挥台
+ * ───────────────────────────────────────────── */
+
+.page {
+  gap: 24px;
+}
+
+.hero {
+  border-radius: 30px;
+  border-color: rgba(96, 165, 250, 0.16);
+  background:
+    radial-gradient(circle at left top, rgba(191, 219, 254, 0.9), transparent 34%),
+    radial-gradient(circle at right 18%, rgba(125, 211, 252, 0.22), transparent 24%),
+    linear-gradient(135deg, #f8fcff 0%, #ffffff 50%, #fdfdff 100%);
+  box-shadow: 0 22px 52px rgba(15, 23, 42, 0.08);
+}
+
+.eyebrow {
+  color: #2563eb;
+}
+
+.heroTitle {
+  font-size: 2.35rem;
+  letter-spacing: -0.04em;
+}
+
+.heroMetaItem,
+.summaryCard,
+.mainPanel,
+.sidePanel {
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.05);
+}
+
+.heroMetaItem,
+.summaryCard {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 250, 255, 0.98) 100%);
+}
+
+.heroSpotlight {
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at top right, rgba(251, 191, 36, 0.16), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 250, 244, 0.98) 100%);
+  box-shadow: 0 18px 42px rgba(180, 83, 9, 0.08);
+}
+
+.searchBox,
+.selectInput,
+.toggleField {
+  border-radius: 16px;
+  border-color: rgba(148, 163, 184, 0.18);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.searchBox:focus-within {
+  border-color: rgba(96, 165, 250, 0.38);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.08);
+}
+
+.governanceHint {
+  border-radius: 16px;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.09) 0%, rgba(236, 253, 245, 0.94) 100%);
+}
+
+.focusTab {
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.focusTab--active {
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.1) 0%, rgba(45, 212, 191, 0.08) 100%);
+  border-color: rgba(96, 165, 250, 0.42);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.08);
+}
+
+.emptyBox {
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}

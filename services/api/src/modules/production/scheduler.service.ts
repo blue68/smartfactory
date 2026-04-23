@@ -12,6 +12,7 @@ import { WorkflowEngineService } from './workflow-engine.service';
 import { syncInventoryDailySnapshotForSku } from '../inventory/daily-snapshot.util';
 import { ensureProductionWipWarehouseLocation, resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
 import { findNextWorkday, getResolvedWorkCalendarDay } from './work-calendar.util';
+import { MrpService } from '../mrp/mrp.service';
 
 // ─── 类型定义 ──────────────────────────────────────────────────
 
@@ -221,6 +222,10 @@ export class SchedulerService {
   constructor(ctx: TenantContext) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+  }
+
+  private mrpSvc(): MrpService {
+    return new MrpService({ tenantId: this.tenantId, userId: this.userId });
   }
 
   private phase1(): ProductionPhase1Service {
@@ -829,7 +834,10 @@ export class SchedulerService {
           outboundType: 'PRODUCTION_ISSUE_OUT',
           inboundType: 'PRODUCTION_ISSUE_IN',
           movementType: 'issue',
-          respectReservedOnSource: true,
+          // Warehouse stock reserved for production should remain issuable to the
+          // corresponding task flow; otherwise later-batch reservations will block
+          // higher-priority batch execution and make sequential batch production stall.
+          respectReservedOnSource: false,
           sourceRef: 'production:task:issue',
         });
 
@@ -1045,6 +1053,9 @@ export class SchedulerService {
         taskMaterialMap,
       );
       consumedSkuIds.forEach((skuId) => affectedInventorySkuIds.add(skuId));
+      for (const skuId of consumedSkuIds) {
+        await this.mrpSvc().reevaluateAfterReceipt(skuId, manager as any);
+      }
 
       await this.insertTaskOutputTransaction(manager, lockedTask, taskId, {
         completedQty: qualifiedQty.toFixed(4),
@@ -1882,9 +1893,13 @@ export class SchedulerService {
 
     await manager.query(
       `UPDATE inventory
-       SET qty_on_hand = qty_on_hand - ?, last_out_at = NOW(), updated_by = ?
+       SET qty_on_hand = qty_on_hand - ?,
+           qty_reserved = GREATEST(qty_reserved - ?, 0),
+           last_out_at = NOW(),
+           updated_by = ?
        WHERE tenant_id = ? AND sku_id = ? AND warehouse_id = ? AND location_id = ?`,
       [
+        params.qty,
         params.qty,
         this.userId,
         this.tenantId,

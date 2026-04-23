@@ -83,9 +83,20 @@ const BATCH_MODE_LABELS: Record<ProductionBatchMode, string> = {
 const BATCH_STATUS_LABELS: Record<string, string> = {
   draft: '草稿',
   confirmed: '已确认',
+  order_generated: '已生成工单',
   released: '已释放',
   cancelled: '已取消',
   closed: '已关闭',
+};
+
+const PRODUCTION_ORDER_STATUS_LABELS: Record<string, string> = {
+  pending: '待排产',
+  released: '已释放',
+  scheduled: '已排产',
+  in_progress: '生产中',
+  completed: '已完成',
+  blocked: '已阻塞',
+  cancelled: '已取消',
 };
 
 // ---------------------------------------------------------------------------
@@ -1220,6 +1231,10 @@ function formatBatchStatus(status: string): string {
   return BATCH_STATUS_LABELS[status] ?? status;
 }
 
+function formatProductionOrderStatus(status: string): string {
+  return PRODUCTION_ORDER_STATUS_LABELS[status] ?? status;
+}
+
 interface CreateBatchModalProps {
   open: boolean;
   selectedOrders: SalesOrder[];
@@ -1384,6 +1399,10 @@ function BatchCenterModal({ open, initialBatchId, onClose }: BatchCenterModalPro
   );
   const batchList = batchPage?.list ?? [];
   const { data: detail, isLoading: detailLoading } = useProductionBatchDetail(open ? activeBatchId : null);
+  const batchOrderMap = useMemo(
+    () => new Map((detail?.orders ?? []).map((order) => [order.salesOrderId, order])),
+    [detail],
+  );
   const confirmBatch = useConfirmProductionBatch();
 
   useEffect(() => {
@@ -1439,6 +1458,7 @@ function BatchCenterModal({ open, initialBatchId, onClose }: BatchCenterModalPro
               <option value="">全部状态</option>
               <option value="draft">草稿</option>
               <option value="confirmed">已确认</option>
+              <option value="order_generated">已生成工单</option>
               <option value="released">已释放</option>
               <option value="closed">已关闭</option>
             </select>
@@ -1524,25 +1544,56 @@ function BatchCenterModal({ open, initialBatchId, onClose }: BatchCenterModalPro
                 <div className={styles.batchDetailSectionTitle}>批次规划项</div>
                 <div className={styles.batchDetailTableWrap}>
                   <table className={styles.batchDetailTable}>
+                    <colgroup>
+                      <col className={styles.batchColSeq} />
+                      <col className={styles.batchColOrderNo} />
+                      <col className={styles.batchColCustomer} />
+                      <col className={styles.batchColSkuCode} />
+                      <col className={styles.batchColSkuName} />
+                      <col className={styles.batchColQty} />
+                      <col className={styles.batchColQty} />
+                      <col className={styles.batchColPriority} />
+                      <col className={styles.batchColDate} />
+                      <col className={styles.batchColMode} />
+                      <col className={styles.batchColStatus} />
+                      <col className={styles.batchColMergeKey} />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th>顺序</th>
-                        <th>订单</th>
-                        <th>SKU</th>
+                        <th>订单号</th>
+                        <th>客户</th>
+                        <th>SKU编码</th>
+                        <th>SKU名称</th>
+                        <th>待排量</th>
                         <th>计划量</th>
+                        <th>优先级</th>
+                        <th>交期</th>
+                        <th>规划模式</th>
+                        <th>状态</th>
                         <th>兼并键</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {detail.items.map((item) => (
+                      {detail.items.map((item) => {
+                        const order = batchOrderMap.get(item.salesOrderId);
+                        return (
                         <tr key={item.id}>
                           <td>{item.sequenceNo}</td>
-                          <td>{detail.orders.find((order) => order.salesOrderId === item.salesOrderId)?.salesOrderNo ?? item.salesOrderId}</td>
-                          <td>{item.skuCode} · {item.skuName}</td>
-                          <td>{item.qtyPlanned}</td>
-                          <td>{item.mergeGroupKey || '—'}</td>
+                          <td className={styles.batchCellStrong}>{order?.salesOrderNo ?? `#${item.salesOrderId}`}</td>
+                          <td>{order?.customerName ?? '—'}</td>
+                          <td className={styles.batchCellMono}>{item.skuCode}</td>
+                          <td>{item.skuName}</td>
+                          <td className={styles.batchCellNumber}>{item.qtyOpen}</td>
+                          <td className={styles.batchCellNumber}>{item.qtyPlanned}</td>
+                          <td>{item.priorityRank}</td>
+                          <td>{item.expectedDelivery || order?.expectedDelivery || '—'}</td>
+                          <td>{BATCH_MODE_LABELS[item.mode] ?? item.mode}</td>
+                          <td>{formatBatchStatus(item.status)}</td>
+                          <td className={styles.batchCellMono}>{item.mergeGroupKey || '—'}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1558,7 +1609,7 @@ function BatchCenterModal({ open, initialBatchId, onClose }: BatchCenterModalPro
                       <div key={workOrder.id} className={styles.batchDetailCard}>
                         <strong>{workOrder.workOrderNo}</strong>
                         <span>{workOrder.skuName}</span>
-                        <span>{workOrder.status}</span>
+                        <span>{formatProductionOrderStatus(workOrder.status)}</span>
                         <span>完成 {workOrder.qtyCompleted} / {workOrder.qtyPlanned}</span>
                       </div>
                     ))}

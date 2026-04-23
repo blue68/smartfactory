@@ -107,6 +107,36 @@ export interface ReevaluateResult {
   updatedRequirements: number;
 }
 
+interface BatchShortageAggregateRow {
+  sku_id: number;
+  sku_code: string;
+  sku_name: string;
+  stock_unit: string;
+  purchase_unit: string;
+  total_qty_required: string;
+  total_qty_reserved: string;
+  affected_order_count: number;
+  order_ids: string | null;
+  qty_on_hand: string;
+  inventory_qty_reserved: string;
+  qty_in_transit: string;
+}
+
+interface BatchShortageContext {
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  stockUnit: string;
+  purchaseUnit: string;
+  qtyRequired: string;
+  qtyReserved: string;
+  qtyAvailable: string;
+  qtyInTransit: string;
+  qtyShortage: string;
+  affectedOrderCount: number;
+  orderIds: number[];
+}
+
 export interface SupplyChainDashboard {
   pendingReceiptPOCount: number;
   shortageOrderCount: number;
@@ -123,6 +153,90 @@ export class MrpService {
   constructor(ctx: TenantContext) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+  }
+
+  async getBatchShortageContexts(
+    manager: Pick<EntityManager, 'query'>,
+    batchId: number,
+  ): Promise<Map<number, BatchShortageContext>> {
+    const rows = await manager.query<BatchShortageAggregateRow[]>(
+      `SELECT
+          mr.sku_id,
+          s.sku_code,
+          s.name AS sku_name,
+          s.stock_unit,
+          s.purchase_unit,
+          SUM(mr.qty_required) AS total_qty_required,
+          SUM(mr.qty_reserved) AS total_qty_reserved,
+          COUNT(DISTINCT mr.production_order_id) AS affected_order_count,
+          GROUP_CONCAT(DISTINCT mr.production_order_id ORDER BY mr.production_order_id) AS order_ids,
+          COALESCE(inv.qty_on_hand, 0) AS qty_on_hand,
+          COALESCE(inv.qty_reserved, 0) AS inventory_qty_reserved,
+          COALESCE(inv.qty_in_transit, 0) AS qty_in_transit
+       FROM material_requirements mr
+       INNER JOIN production_orders po
+         ON po.id = mr.production_order_id
+        AND po.tenant_id = mr.tenant_id
+       INNER JOIN skus s
+         ON s.id = mr.sku_id
+        AND s.tenant_id = mr.tenant_id
+       LEFT JOIN (
+         SELECT tenant_id, sku_id,
+                SUM(qty_on_hand) AS qty_on_hand,
+                SUM(qty_reserved) AS qty_reserved,
+                SUM(qty_in_transit) AS qty_in_transit
+         FROM inventory
+         WHERE tenant_id = ?
+         GROUP BY tenant_id, sku_id
+       ) inv
+         ON inv.tenant_id = mr.tenant_id
+        AND inv.sku_id = mr.sku_id
+       WHERE mr.tenant_id = ?
+         AND po.joint_batch_id = ?
+         AND po.status IN ('pending', 'scheduled', 'in_progress')
+         AND s.business_class = 'production_material'
+       GROUP BY
+         mr.sku_id, s.sku_code, s.name, s.stock_unit, s.purchase_unit,
+         inv.qty_on_hand, inv.qty_reserved, inv.qty_in_transit`,
+      [this.tenantId, this.tenantId, batchId],
+    );
+
+    const result = new Map<number, BatchShortageContext>();
+    for (const row of rows) {
+      const qtyRequired = new Decimal(row.total_qty_required ?? 0);
+      const qtyReservedByBatch = new Decimal(row.total_qty_reserved ?? 0);
+      const qtyOnHand = new Decimal(row.qty_on_hand ?? 0);
+      const qtyReservedInInventory = new Decimal(row.inventory_qty_reserved ?? 0);
+      const qtyInTransit = new Decimal(row.qty_in_transit ?? 0);
+      const qtyReservedOutsideBatch = Decimal.max(
+        qtyReservedInInventory.minus(qtyReservedByBatch),
+        new Decimal(0),
+      );
+      const qtyAvailable = Decimal.max(qtyOnHand.minus(qtyReservedOutsideBatch), new Decimal(0));
+      const qtyReserved = Decimal.min(qtyRequired, qtyAvailable);
+      const qtyShortage = Decimal.max(
+        qtyRequired.minus(qtyAvailable).minus(qtyInTransit),
+        new Decimal(0),
+      );
+
+      result.set(Number(row.sku_id), {
+        skuId: Number(row.sku_id),
+        skuCode: row.sku_code,
+        skuName: row.sku_name,
+        stockUnit: row.stock_unit,
+        purchaseUnit: row.purchase_unit,
+        qtyRequired: qtyRequired.toFixed(4),
+        qtyReserved: qtyReserved.toFixed(4),
+        qtyAvailable: qtyAvailable.toFixed(4),
+        qtyInTransit: qtyInTransit.toFixed(4),
+        qtyShortage: qtyShortage.toFixed(4),
+        affectedOrderCount: Number(row.affected_order_count ?? 0),
+        orderIds: row.order_ids
+          ? row.order_ids.split(',').map((item) => Number(item)).filter((item) => Number.isFinite(item))
+          : [],
+      });
+    }
+    return result;
   }
 
   private async findBestSupplier(
@@ -209,8 +323,7 @@ export class MrpService {
          FROM material_requirements mr
          INNER JOIN skus s ON s.id = mr.sku_id AND s.tenant_id = mr.tenant_id
          WHERE mr.production_order_id = ? AND mr.tenant_id = ?
-           AND s.business_class = 'production_material'
-           AND s.control_mode = 'mrp'`,
+           AND s.business_class = 'production_material'`,
         [productionOrderId, this.tenantId],
       );
 
@@ -226,33 +339,47 @@ export class MrpService {
         // 查询当前可用库存（qty_on_hand - qty_reserved）和在途量
         const [inv] = await manager.query<InventoryRow[]>(
           `SELECT
-             COALESCE(qty_on_hand, 0) AS qty_on_hand,
-             COALESCE(qty_reserved, 0) AS qty_reserved,
-             COALESCE(qty_in_transit, 0) AS qty_in_transit
+             COALESCE(SUM(qty_on_hand), 0) AS qty_on_hand,
+             COALESCE(SUM(qty_reserved), 0) AS qty_reserved,
+             COALESCE(SUM(qty_in_transit), 0) AS qty_in_transit
            FROM inventory
-           WHERE sku_id = ? AND tenant_id = ? LIMIT 1`,
+           WHERE sku_id = ? AND tenant_id = ?`,
           [req.sku_id, this.tenantId],
         );
 
         const qtyOnHand = new Decimal(inv?.qty_on_hand ?? 0);
         const qtyReserved = new Decimal(inv?.qty_reserved ?? 0);
         const qtyInTransit = new Decimal(inv?.qty_in_transit ?? 0);
-        const qtyAvailable = Decimal.max(qtyOnHand.minus(qtyReserved), new Decimal(0));
 
         const qtyRequired = new Decimal(req.qty_required);
-        const reservedForThisOrder = Decimal.min(
+        const rawReservedForThisOrder = Decimal.min(
           Decimal.max(new Decimal(req.qty_reserved ?? 0), new Decimal(0)),
           qtyRequired,
+        );
+        // 缺料判断不能把“本单自己占掉的预留量”再次当成不可用库存，
+        // 否则会把超额预留误判为已齐料，联合批次下尤其明显。
+        const qtyReservedByOthers = Decimal.max(
+          qtyReserved.minus(rawReservedForThisOrder),
+          new Decimal(0),
+        );
+        const qtyAvailableForThisOrder = Decimal.max(
+          qtyOnHand.minus(qtyReservedByOthers),
+          new Decimal(0),
+        );
+        const reservedForThisOrder = Decimal.min(rawReservedForThisOrder, qtyAvailableForThisOrder);
+        const additionalAvailable = Decimal.max(
+          qtyAvailableForThisOrder.minus(reservedForThisOrder),
+          new Decimal(0),
         );
         const remainingNeed = Decimal.max(qtyRequired.minus(reservedForThisOrder), new Decimal(0));
 
         // 净缺口 = 剩余需求量 - 当前可用库存 - 在途量
         const netShortage = Decimal.max(
-          remainingNeed.minus(qtyAvailable).minus(qtyInTransit),
+          remainingNeed.minus(additionalAvailable).minus(qtyInTransit),
           new Decimal(0),
         );
         const totalCovered = reservedForThisOrder.plus(
-          Decimal.min(remainingNeed, qtyAvailable.plus(qtyInTransit)),
+          Decimal.min(remainingNeed, additionalAvailable.plus(qtyInTransit)),
         );
 
         // 确定需求状态
@@ -303,7 +430,7 @@ export class MrpService {
           stockUnit: sku?.stock_unit ?? '',
           purchaseUnit: sku?.purchase_unit ?? '',
           qtyRequired: qtyRequired.toFixed(4),
-          qtyAvailable: qtyAvailable.toFixed(4),
+          qtyAvailable: qtyAvailableForThisOrder.toFixed(4),
           qtyInTransit: qtyInTransit.toFixed(4),
           qtyShortage: netShortage.toFixed(4),
           status: itemStatus,
@@ -387,7 +514,6 @@ export class MrpService {
         `po.status IN ('pending', 'scheduled', 'in_progress')`,
         `mr.status IN ('shortage', 'partial')`,
         `s.business_class = 'production_material'`,
-        `s.control_mode = 'mrp'`,
       ];
     const params: unknown[] = [this.tenantId];
 
@@ -581,18 +707,21 @@ export class MrpService {
     }
 
     const run = async (manager: EntityManager): Promise<GenerateSuggestionsResult> => {
+      const batchShortageMap = batchId
+        ? await this.getBatchShortageContexts(manager, batchId)
+        : new Map<number, BatchShortageContext>();
       // 构建查询条件
       const conds: string[] = [
         'mr.tenant_id = ?',
-        `mr.status IN ('shortage', 'partial')`,
-        `mr.qty_shortage > 0`,
         `po.status IN ('pending', 'scheduled', 'in_progress')`,
         `s.business_class = 'production_material'`,
-        `s.control_mode = 'mrp'`,
+        `s.allow_purchase = 1`,
       ];
       const params: unknown[] = [this.tenantId];
 
       if (productionOrderId) {
+        conds.push(`mr.status IN ('shortage', 'partial')`);
+        conds.push(`mr.qty_shortage > 0`);
         conds.push('mr.production_order_id = ?');
         params.push(productionOrderId);
       }
@@ -630,17 +759,21 @@ export class MrpService {
 
       const groupedDemands = new Map<number, SuggestionDemandRow[]>();
       for (const requirement of requirements) {
-        const bucket = groupedDemands.get(requirement.sku_id) ?? [];
+        const skuId = Number(requirement.sku_id);
+        const bucket = groupedDemands.get(skuId) ?? [];
         bucket.push(requirement);
-        groupedDemands.set(requirement.sku_id, bucket);
+        groupedDemands.set(skuId, bucket);
       }
 
       for (const [skuId, demands] of groupedDemands.entries()) {
         const req = demands[0];
-        const qtyShortage = demands.reduce(
-          (sum, item) => sum.plus(new Decimal(item.qty_shortage ?? 0)),
-          new Decimal(0),
-        );
+        const batchShortage = batchId ? batchShortageMap.get(skuId) : null;
+        const qtyShortage = batchShortage
+          ? new Decimal(batchShortage.qtyShortage)
+          : demands.reduce(
+            (sum, item) => sum.plus(new Decimal(item.qty_shortage ?? 0)),
+            new Decimal(0),
+          );
         if (qtyShortage.lte(0)) {
           skipped++;
           continue;
@@ -743,10 +876,15 @@ export class MrpService {
         const estimatedAmount = estimatedPrice
           ? qtyShortage.mul(new Decimal(estimatedPrice)).toFixed(2)
           : null;
-        const shortageCtx = shortageByRequirementId.get(req.id);
+        const shortageCtx = batchShortage
+          ? {
+            qtyAvailable: batchShortage.qtyAvailable,
+            qtyInTransit: batchShortage.qtyInTransit,
+          }
+          : shortageByRequirementId.get(req.id);
 
         const reason = batchId
-          ? `联合生产批次 #${batchId} 涉及 ${demands.length} 条物料需求，SKU ${req.sku_code} 汇总缺口 ${qtyShortage.toFixed(4)} ${req.stock_unit}`
+          ? `联合生产批次 #${batchId} 涉及 ${demands.length} 条物料需求，SKU ${req.sku_code} 汇总缺口 ${qtyShortage.toFixed(4)} ${req.stock_unit}，当前可用 ${shortageCtx?.qtyAvailable ?? '0.0000'}，在途 ${shortageCtx?.qtyInTransit ?? '0.0000'}`
           : `生产需求 ${demands.map((item) => item.work_order_no).slice(0, 3).join('、')} 需要补齐，SKU ${req.sku_code} 当前缺口 ${qtyShortage.toFixed(4)} ${req.stock_unit}，可用库存 ${shortageCtx?.qtyAvailable ?? '0.0000'}，在途 ${shortageCtx?.qtyInTransit ?? '0.0000'}`;
 
         // 生成建议单号
@@ -822,8 +960,7 @@ export class MrpService {
          INNER JOIN skus s ON s.id = mr.sku_id AND s.tenant_id = mr.tenant_id
          WHERE mr.sku_id = ? AND mr.tenant_id = ?
            AND po.status IN ('pending', 'scheduled', 'in_progress')
-           AND s.business_class = 'production_material'
-           AND s.control_mode = 'mrp'`,
+           AND s.business_class = 'production_material'`,
         [skuId, this.tenantId],
       );
 

@@ -995,3 +995,50 @@
   .bom_editor { grid-template-columns: 1fr; }
   .add_mat_form { grid-template-columns: 1fr; }
 }
+
+/* ─────────────────────────────────────────────
+ * Commercial refinement overrides
+ * 第四轮精修：BOM 管理页
+ * ───────────────────────────────────────────── */
+
+.page {
+  gap: var(--space-5);
+  background:
+    radial-gradient(circle at top right, rgba(96, 165, 250, 0.08), transparent 26%),
+    radial-gradient(circle at top left, rgba(45, 212, 191, 0.05), transparent 18%),
+    #f6f9fd;
+}
+
+.summary_strip,
+.table_card,
+.bom_editor,
+.wizard_card {
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.05);
+}
+
+.summary_strip,
+.table_card,
+.bom_editor,
+.wizard_card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%);
+}
+
+.search_input,
+.filter_select,
+.editor_input,
+.editor_select {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.search_input:focus,
+.filter_select:focus,
+.editor_input:focus,
+.editor_select:focus {
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08);
+}
+
+.data_table thead tr {
+  background: linear-gradient(180deg, #f8fbff 0%, #f2f7ff 100%);
+}
