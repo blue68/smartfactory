@@ -16,10 +16,11 @@ export interface ModalProps {
   cancelLabel?: string;
   confirmVariant?: 'primary' | 'danger' | 'success';
   confirmLoading?: boolean;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
   children: React.ReactNode;
   footer?: React.ReactNode;
   hideFooter?: boolean;
+  bodyOverflow?: 'auto' | 'visible';
 }
 
 export default function Modal({
@@ -35,6 +36,7 @@ export default function Modal({
   children,
   footer,
   hideFooter = false,
+  bodyOverflow = 'auto',
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -84,7 +86,13 @@ export default function Modal({
         </div>
 
         {/* 内容 */}
-        <div className={styles.modal__body}>{children}</div>
+        <div
+          className={`${styles.modal__body} ${
+            bodyOverflow === 'visible' ? styles['modal__body--visible'] : ''
+          }`}
+        >
+          {children}
+        </div>
 
         {/* 底部 */}
         {!hideFooter && (

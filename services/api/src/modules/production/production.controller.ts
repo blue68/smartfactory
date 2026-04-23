@@ -69,6 +69,7 @@ export class ProductionController {
     const q = PaginationSchema.extend({
       status: z.string().optional(),
       salesOrderId: z.coerce.number().int().positive().optional(),
+      batchId: z.coerce.number().int().positive().optional(),
     }).parse(req.query);
     const { list, total } = await this.svc(req).listProductionOrders(q);
     success(res, buildPaginated(list, total, q.page, q.pageSize));
@@ -89,7 +90,8 @@ export class ProductionController {
   async generateSchedule(req: Request, res: Response): Promise<void> {
     const date = req.query.date as string | undefined;
     const force = z.coerce.boolean().optional().parse(req.query.force);
-    const data = await this.svc(req).generateSchedule(date, Boolean(force));
+    const batchId = req.query.batchId ? z.coerce.number().int().positive().parse(req.query.batchId) : undefined;
+    const data = await this.svc(req).generateSchedule(date, Boolean(force), batchId);
     success(res, data, `排产计划已生成（${data.date}）`);
   }
 
@@ -100,8 +102,11 @@ export class ProductionController {
   }
 
   async confirmSchedule(req: Request, res: Response): Promise<void> {
-    const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(req.body.date);
-    await this.svc(req).confirmSchedule(date);
+    const body = z.object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      batchId: z.number().int().positive().optional(),
+    }).parse(req.body);
+    await this.svc(req).confirmSchedule(body.date, body.batchId);
     success(res, null, '排产计划已确认下发');
   }
 
@@ -160,6 +165,7 @@ export class ProductionController {
       keyword: z.string().max(100).optional(),
       processId: z.coerce.number().int().positive().optional(),
       workerId: z.coerce.number().int().positive().optional(),
+      batchId: z.coerce.number().int().positive().optional(),
       taskType: z.enum(['finished', 'semi_finished']).optional(),
       executionMode: z.enum(['internal', 'outsource']).optional(),
       dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -332,7 +338,10 @@ export class ProductionController {
 
   // P0-10: 任务统计
   async getTaskStats(req: Request, res: Response): Promise<void> {
-    const data = await this.svc(req).getTaskStats();
+    const q = z.object({
+      batchId: z.coerce.number().int().positive().optional(),
+    }).parse(req.query);
+    const data = await this.svc(req).getTaskStats(q.batchId);
     success(res, data);
   }
 

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   useProductionOrderDetail: vi.fn(),
   useProductionOrderComponents: vi.fn(),
   useProductionOrderOperations: vi.fn(),
+  useProductionBatchList: vi.fn(),
   useCreateFromSalesOrder: vi.fn(),
   useMaterialRequirements: vi.fn(),
   useCancelOrder: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('@/api/production', () => ({
   useProductionOrderDetail: mocks.useProductionOrderDetail,
   useProductionOrderComponents: mocks.useProductionOrderComponents,
   useProductionOrderOperations: mocks.useProductionOrderOperations,
+  useProductionBatchList: mocks.useProductionBatchList,
   useCreateFromSalesOrder: mocks.useCreateFromSalesOrder,
   useMaterialRequirements: mocks.useMaterialRequirements,
   useCancelOrder: mocks.useCancelOrder,
@@ -128,6 +130,7 @@ describe('ProductionOrderPage', () => {
     }));
 
     mocks.useMaterialRequirements.mockReturnValue({ data: [] });
+    mocks.useProductionBatchList.mockReturnValue({ data: { list: [], total: 0 } });
     mocks.useCreateFromSalesOrder.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
     mocks.useCancelOrder.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
     mocks.useShortageSummary.mockReturnValue({ data: [] });

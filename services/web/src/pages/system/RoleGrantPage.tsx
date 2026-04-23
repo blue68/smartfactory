@@ -11,6 +11,11 @@ import { useAppStore } from '@/stores/appStore';
 import type { MenuTreeNode } from '@/types/accessControl';
 import styles from './SystemPageShell.module.css';
 
+function normalizeNumericId(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function flattenMenuTree(tree: MenuTreeNode[]): MenuTreeNode[] {
   const list: MenuTreeNode[] = [];
   const walk = (nodes: MenuTreeNode[], depth = 0) => {
@@ -53,14 +58,15 @@ export default function RoleGrantPage() {
   });
   const { data: menuTree = [], isLoading: menuLoading, error: menuError } = useMenuTree();
   const menuList = useMemo(() => flattenMenuTree(menuTree), [menuTree]);
+  const roleList = roleData?.list ?? [];
 
   const filteredRoles = useMemo(() => {
     const keyword = roleKeyword.trim().toLowerCase();
-    if (!keyword) return roleData?.list ?? [];
-    return (roleData?.list ?? []).filter((role) => (
+    if (!keyword) return roleList;
+    return roleList.filter((role) => (
       role.name.toLowerCase().includes(keyword) || role.code.toLowerCase().includes(keyword)
     ));
-  }, [roleData?.list, roleKeyword]);
+  }, [roleKeyword, roleList]);
 
   const filteredMenus = useMemo(() => {
     const keyword = menuKeyword.trim().toLowerCase();
@@ -70,8 +76,8 @@ export default function RoleGrantPage() {
     ));
   }, [menuKeyword, menuList]);
 
-  const activeRole = (roleData?.list ?? []).find((item) => item.id === activeRoleId) ?? null;
-  const activeMenu = menuList.find((item) => item.id === activeMenuId) ?? null;
+  const activeRole = roleList.find((item) => normalizeNumericId(item.id) === activeRoleId) ?? null;
+  const activeMenu = menuList.find((item) => normalizeNumericId(item.id) === activeMenuId) ?? null;
   const isSystemRole = activeRole?.roleType === 'system';
 
   const {
@@ -94,8 +100,8 @@ export default function RoleGrantPage() {
       setActiveRoleId(null);
       return;
     }
-    if (activeRoleId === null || !filteredRoles.some((item) => item.id === activeRoleId)) {
-      setActiveRoleId(filteredRoles[0].id);
+    if (activeRoleId === null || !filteredRoles.some((item) => normalizeNumericId(item.id) === activeRoleId)) {
+      setActiveRoleId(normalizeNumericId(filteredRoles[0].id));
     }
   }, [activeRoleId, filteredRoles]);
 
@@ -104,8 +110,8 @@ export default function RoleGrantPage() {
       setActiveMenuId(null);
       return;
     }
-    if (activeMenuId === null || !filteredMenus.some((item) => item.id === activeMenuId)) {
-      setActiveMenuId(filteredMenus[0].id);
+    if (activeMenuId === null || !filteredMenus.some((item) => normalizeNumericId(item.id) === activeMenuId)) {
+      setActiveMenuId(normalizeNumericId(filteredMenus[0].id));
     }
   }, [activeMenuId, filteredMenus]);
 
@@ -204,8 +210,13 @@ export default function RoleGrantPage() {
                     <button
                       key={role.id}
                       type="button"
-                      className={`${styles.listItem} ${activeRoleId === role.id ? styles.listItemActive : ''}`}
-                      onClick={() => setActiveRoleId(role.id)}
+                      className={`${styles.listItem} ${activeRoleId === normalizeNumericId(role.id) ? styles.listItemActive : ''}`}
+                      onClick={() => {
+                        const nextRoleId = normalizeNumericId(role.id);
+                        if (nextRoleId !== null) {
+                          setActiveRoleId(nextRoleId);
+                        }
+                      }}
                     >
                       {role.name}（{role.code}）
                     </button>
@@ -275,12 +286,17 @@ export default function RoleGrantPage() {
                               {menuLoading && <div className={styles.hint}>加载中...</div>}
                               {!menuLoading && filteredMenus.map((menu) => {
                                 const checked = selectedMenuCodes.includes(menu.code);
+                                const normalizedMenuId = normalizeNumericId(menu.id);
                                 return (
                                   <button
                                     key={menu.id}
                                     type="button"
-                                    className={`${styles.listItem} ${activeMenuId === menu.id ? styles.listItemActive : ''}`}
-                                    onClick={() => setActiveMenuId(menu.id)}
+                                    className={`${styles.listItem} ${activeMenuId === normalizedMenuId ? styles.listItemActive : ''}`}
+                                    onClick={() => {
+                                      if (normalizedMenuId !== null) {
+                                        setActiveMenuId(normalizedMenuId);
+                                      }
+                                    }}
                                   >
                                     <div className={styles.checkBody}>
                                       <span className={styles.checkTitle}>{menu.name}</span>

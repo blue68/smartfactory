@@ -260,29 +260,31 @@
 .filterSelect,
 .perPageSelect,
 .textarea {
-  border: 1px solid var(--border);
+  border: 1px solid var(--form-control-border);
   font: inherit;
-  color: var(--text-primary);
-  background: #fff;
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   outline: none;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
 }
 
 .searchInput:focus,
 .filterSelect:focus,
 .perPageSelect:focus,
 .textarea:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  border-color: var(--form-control-border-focus);
+  background: var(--form-control-bg-focus);
+  box-shadow: var(--form-control-shadow-focus);
 }
 
 .searchInput {
   width: 100%;
-  height: 2.125rem;
-  padding: 0 0.75rem 0 2rem;
-  border-radius: 0.625rem;
+  height: var(--form-control-height);
+  padding: 0 var(--form-control-padding-x) 0 2rem;
+  border-radius: var(--form-control-radius-pill);
   font-size: 0.8125rem;
-  background: #f8fafc;
+  background: var(--form-control-bg);
 }
 
 .filterSelect,
@@ -1078,6 +1080,44 @@
 
 .panelApproveButton:hover:not(:disabled) {
   background: #15803d;
+}
+
+.sourceTraceList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.sourceTraceItem {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem;
+  border-radius: 14px;
+  border: 1px solid #dbe4ef;
+  background: #f8fafc;
+}
+
+.sourceTraceTop,
+.sourceTraceMeta,
+.sourceTraceQty {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+  align-items: center;
+}
+
+.sourceTraceTop {
+  justify-content: space-between;
+}
+
+.sourceTraceMeta,
+.sourceTraceQty {
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.sourceTraceQty {
+  color: #0f172a;
+  font-weight: 600;
 }
 
 @media (max-width: 1200px) {

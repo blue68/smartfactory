@@ -92,6 +92,28 @@
   --border-default:     #E2E8F0;
   --border-strong:      #CBD5E1;
   --border-focus:       #3B82F6;
+  --border-muted:       #D7E3F1;
+
+  /* ═══════════════════════════════════════════
+     表单控件
+  ═══════════════════════════════════════════ */
+  --form-control-height:        2.625rem;
+  --form-control-radius:        0.75rem;
+  --form-control-radius-pill:   9999px;
+  --form-control-padding-y:     0.625rem;
+  --form-control-padding-x:     0.875rem;
+  --form-control-text:          #172033;
+  --form-control-placeholder:   #93A4BD;
+  --form-control-bg:            linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 249, 255, 0.98) 100%);
+  --form-control-bg-hover:      linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(244, 248, 255, 0.99) 100%);
+  --form-control-bg-focus:      linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(242, 247, 255, 0.99) 100%);
+  --form-control-border:        #D7E3F1;
+  --form-control-border-hover:  #C3D5EE;
+  --form-control-border-focus:  rgba(96, 139, 255, 0.96);
+  --form-control-shadow:        inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 1px 2px rgba(15, 23, 42, 0.03);
+  --form-control-shadow-focus:  0 0 0 1px rgba(96, 139, 255, 0.75), 0 0 0 3px rgba(96, 139, 255, 0.08), 0 12px 24px rgba(37, 99, 235, 0.08);
+  --form-control-shadow-active: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 10px 24px rgba(37, 99, 235, 0.12);
+  --form-control-disabled-bg:   #F8FAFC;
 
   /* ═══════════════════════════════════════════
      数字字体辅助

@@ -97,36 +97,42 @@
 .searchInput {
   flex: 1;
   min-width: 200px;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--color-neutral-300, #D1D5DB);
-  border-radius: 6px;
+  height: var(--form-control-height);
+  padding: 0 var(--form-control-padding-x);
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius-pill);
   font-size: 14px;
-  color: var(--color-neutral-900, #111827);
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 
 .searchInput:focus {
-  border-color: var(--color-primary-500, #3B82F6);
-  box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+  border-color: var(--form-control-border-focus);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.98) 0%, rgba(229, 239, 255, 0.98) 100%);
+  box-shadow: var(--form-control-shadow-active);
 }
 
 .select {
-  height: 36px;
-  padding: 0 10px;
-  border: 1px solid var(--color-neutral-300, #D1D5DB);
-  border-radius: 6px;
+  height: var(--form-control-height);
+  padding: 0 calc(var(--form-control-padding-x) + 1rem) 0 var(--form-control-padding-x);
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
   font-size: 14px;
-  color: var(--color-neutral-700, #374151);
-  background: #fff;
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   cursor: pointer;
   outline: none;
   min-width: 120px;
 }
 
 .select:focus {
-  border-color: var(--color-primary-500, #3B82F6);
+  border-color: var(--form-control-border-focus);
+  background: var(--form-control-bg-focus);
+  box-shadow: var(--form-control-shadow-focus);
 }
 
 .urgentToggle {
@@ -310,22 +316,31 @@
 .formSelect,
 .formTextarea {
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--color-neutral-300,#D1D5DB);
-  border-radius: 6px;
+  padding: 0.75rem var(--form-control-padding-x);
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
   font-size: 14px;
-  color: var(--color-neutral-900,#111827);
-  background: #fff;
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
   box-sizing: border-box;
+}
+
+.formInput,
+.formSelect {
+  min-height: var(--form-control-height);
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .formInput:focus,
 .formSelect:focus,
 .formTextarea:focus {
-  border-color: var(--color-primary-500,#3B82F6);
-  box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+  border-color: var(--form-control-border-focus);
+  background: var(--form-control-bg-focus);
+  box-shadow: var(--form-control-shadow-focus);
 }
 
 /* 紧急开关 */

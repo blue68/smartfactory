@@ -9,6 +9,11 @@ import {
 import { useAppStore } from '@/stores/appStore';
 import styles from './SystemPageShell.module.css';
 
+function normalizeNumericId(value: number | string | null | undefined): number | null {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : null;
+}
+
 export default function UserRoleAssignmentPage() {
   const setPageTitle = useAppStore((s) => s.setPageTitle);
   const showToast = useAppStore((s) => s.showToast);
@@ -21,7 +26,12 @@ export default function UserRoleAssignmentPage() {
   const { data: roleData } = useRoleList({ page: 1, pageSize: 200 });
   const userList = useMemo(() => {
     const keyword = userKeyword.trim().toLowerCase();
-    const list = userData?.list ?? [];
+    const list = (userData?.list ?? [])
+      .map((user) => {
+        const id = normalizeNumericId(user.id);
+        return id === null ? null : { ...user, id };
+      })
+      .filter((user): user is NonNullable<typeof user> => user !== null);
     if (!keyword) return list;
     return list.filter((user) => (
       user.realName.toLowerCase().includes(keyword) || user.username.toLowerCase().includes(keyword)
@@ -29,7 +39,14 @@ export default function UserRoleAssignmentPage() {
   }, [userData?.list, userKeyword]);
   const roleList = useMemo(() => {
     const keyword = roleKeyword.trim().toLowerCase();
-    const list = (roleData?.list ?? []).filter((role) => role.status !== 'inactive' && role.assignable !== false && role.assignable !== 0);
+    const list = (roleData?.list ?? [])
+      .map((role) => {
+        const id = normalizeNumericId(role.id);
+        return id === null ? null : { ...role, id };
+      })
+      .filter((role): role is NonNullable<typeof role> => (
+        role !== null && role.status !== 'inactive' && role.assignable !== false && role.assignable !== 0
+      ));
     if (!keyword) return list;
     return list.filter((role) => role.name.toLowerCase().includes(keyword) || role.code.toLowerCase().includes(keyword));
   }, [roleData?.list, roleKeyword]);
@@ -67,8 +84,14 @@ export default function UserRoleAssignmentPage() {
       setEffectiveTo('');
       return;
     }
-    setSelectedRoleIds(assignments.map((item) => item.roleId));
-    setPrimaryRoleId(assignments.find((item) => item.isPrimary)?.roleId ?? assignments[0]?.roleId ?? null);
+    const normalizedRoleIds = assignments
+      .map((item) => normalizeNumericId(item.roleId))
+      .filter((roleId): roleId is number => roleId !== null);
+    const normalizedPrimaryRoleId = normalizeNumericId(
+      assignments.find((item) => item.isPrimary)?.roleId ?? assignments[0]?.roleId ?? null,
+    );
+    setSelectedRoleIds(normalizedRoleIds);
+    setPrimaryRoleId(normalizedPrimaryRoleId);
     setEffectiveFrom(assignments[0]?.effectiveFrom ? String(assignments[0].effectiveFrom).slice(0, 10) : '');
     setEffectiveTo(assignments[0]?.effectiveTo ? String(assignments[0].effectiveTo).slice(0, 10) : '');
   }, [assignments]);
@@ -99,8 +122,14 @@ export default function UserRoleAssignmentPage() {
       setEffectiveTo('');
       return;
     }
-    setSelectedRoleIds(assignments.map((item) => item.roleId));
-    setPrimaryRoleId(assignments.find((item) => item.isPrimary)?.roleId ?? assignments[0]?.roleId ?? null);
+    const normalizedRoleIds = assignments
+      .map((item) => normalizeNumericId(item.roleId))
+      .filter((roleId): roleId is number => roleId !== null);
+    const normalizedPrimaryRoleId = normalizeNumericId(
+      assignments.find((item) => item.isPrimary)?.roleId ?? assignments[0]?.roleId ?? null,
+    );
+    setSelectedRoleIds(normalizedRoleIds);
+    setPrimaryRoleId(normalizedPrimaryRoleId);
     setEffectiveFrom(assignments[0]?.effectiveFrom ? String(assignments[0].effectiveFrom).slice(0, 10) : '');
     setEffectiveTo(assignments[0]?.effectiveTo ? String(assignments[0].effectiveTo).slice(0, 10) : '');
   };
@@ -125,8 +154,8 @@ export default function UserRoleAssignmentPage() {
         userId: activeUserId,
         payload: {
           assignments: selectedRoleIds.map((roleId) => ({
-            roleId,
-            isPrimary: roleId === primaryRoleId,
+            roleId: Number(roleId),
+            isPrimary: Number(roleId) === primaryRoleId,
             effectiveFrom: effectiveFrom || null,
             effectiveTo: effectiveTo || null,
           })),
@@ -161,7 +190,7 @@ export default function UserRoleAssignmentPage() {
           <div className={styles.cardBody}>
             <div className={styles.stack}>
               <input
-                className={styles.input}
+                className={`${styles.input} ${styles.searchInput}`}
                 placeholder="搜索人员姓名/账号"
                 value={userKeyword}
                 onChange={(event) => setUserKeyword(event.target.value)}
@@ -202,7 +231,7 @@ export default function UserRoleAssignmentPage() {
                   <div className={`${styles.field} ${styles.fieldFull}`}>
                     <label className={styles.label}>角色选择</label>
                     <input
-                      className={styles.input}
+                      className={`${styles.input} ${styles.searchInput}`}
                       placeholder="搜索角色名称/编码"
                       value={roleKeyword}
                       onChange={(event) => setRoleKeyword(event.target.value)}
@@ -225,7 +254,7 @@ export default function UserRoleAssignmentPage() {
                     <select
                       className={styles.select}
                       value={primaryRoleId ?? ''}
-                      onChange={(event) => setPrimaryRoleId(Number(event.target.value))}
+                      onChange={(event) => setPrimaryRoleId(normalizeNumericId(event.target.value))}
                     >
                       <option value="">请选择主角色</option>
                       {roleList.filter((role) => selectedRoleIds.includes(role.id)).map((role) => (

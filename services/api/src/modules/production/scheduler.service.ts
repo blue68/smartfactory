@@ -55,6 +55,12 @@ interface ProductionOrderRow {
   status: 'pending' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
   sku_id: number;
   sku_name: string;
+  joint_batch_id?: number | null;
+  joint_batch_item_id?: number | null;
+  batch_no?: string | null;
+  plan_mode?: string | null;
+  merge_group_key?: string | null;
+  batch_sequence_no?: number | null;
   qty_planned: string;
   priority: number;
   planned_end: string | null;
@@ -88,6 +94,12 @@ interface WorkstationRow {
 interface ScheduledOperationRow {
   operation_id: number;
   production_order_id: number;
+  joint_batch_id?: number | null;
+  joint_batch_item_id?: number | null;
+  batch_no?: string | null;
+  plan_mode?: string | null;
+  merge_group_key?: string | null;
+  batch_sequence_no?: number | null;
   component_id: number;
   process_step_id: number;
   output_sku_id: number | null;
@@ -153,6 +165,11 @@ export interface SchedulePlan {
   schedules: Array<{
     scheduleId: number;
     productionOrderId: number;
+    batchId?: number | null;
+    batchItemId?: number | null;
+    batchNo?: string | null;
+    planMode?: string | null;
+    mergeGroupKey?: string | null;
     operationId: number | null;
     componentId: number | null;
     workOrderNo: string;
@@ -218,10 +235,10 @@ export class SchedulerService {
    * 为指定日期生成排产计划
    * @param targetDate  排产日期（YYYY-MM-DD），默认明天
    */
-  async generateSchedule(targetDate?: string, force = false): Promise<SchedulePlan> {
+  async generateSchedule(targetDate?: string, force = false, batchId?: number): Promise<SchedulePlan> {
     const date = targetDate ?? await this.getNextWorkday();
-    const cacheKey = RedisKeys.schedule(this.tenantId, date);
-    const lockKey = `lock:schedule:${this.tenantId}:${date}`;
+    const cacheKey = RedisKeys.schedule(this.tenantId, date, batchId);
+    const lockKey = `lock:schedule:${this.tenantId}:${date}:${batchId ?? 'all'}`;
     let redis: ReturnType<typeof getRedisClient> | null = null;
     let lockAcquired = false;
 
@@ -245,7 +262,7 @@ export class SchedulerService {
     }
 
     try {
-      return await this._doGenerateSchedule(date, cacheKey, redis, force);
+      return await this._doGenerateSchedule(date, cacheKey, redis, force, batchId);
     } finally {
       if (redis && lockAcquired) {
         await this.safeRedisDel(redis, lockKey, 'schedule-lock-release');
@@ -258,6 +275,7 @@ export class SchedulerService {
     cacheKey: string,
     redis: ReturnType<typeof getRedisClient> | null,
     force: boolean,
+    batchId?: number,
   ): Promise<SchedulePlan> {
     const workdayConfig = await getResolvedWorkCalendarDay(this.tenantId, date);
     if (!workdayConfig.isWorkday || workdayConfig.totalMinutes <= 0) {
@@ -276,12 +294,20 @@ export class SchedulerService {
 
     // 如果该日期已有 confirmed 排产计划，直接返回，拒绝重新生成（P0-04）
     const confirmedRows = await AppDataSource.query<Array<{ id: number }>>(
-      `SELECT id FROM production_schedules
-       WHERE tenant_id = ? AND schedule_date = ? AND status = 'confirmed' LIMIT 1`,
-      [this.tenantId, date],
+      `SELECT ps.id
+       FROM production_schedules ps
+       INNER JOIN production_orders po
+         ON po.id = ps.production_order_id
+        AND po.tenant_id = ps.tenant_id
+       WHERE ps.tenant_id = ?
+         AND ps.schedule_date = ?
+         AND ps.status = 'confirmed'
+         AND (? IS NULL OR po.joint_batch_id = ?)
+       LIMIT 1`,
+      [this.tenantId, date, batchId ?? null, batchId ?? null],
     );
     if (confirmedRows.length > 0) {
-      const confirmedPlan = await this.buildPlanFromDb(date);
+      const confirmedPlan = await this.buildPlanFromDb(date, undefined, batchId);
       await this.safeRedisSetex(redis, cacheKey, JSON.stringify(confirmedPlan), 'confirmed-schedule-cache');
       return confirmedPlan;
     }
@@ -293,7 +319,7 @@ export class SchedulerService {
     }
 
     // 1. 读取所有待排产/进行中的生产工单，确保已生成 operation 视图
-    const orders = await this.fetchPendingOrders();
+    const orders = await this.fetchPendingOrders(batchId);
     if (orders.length === 0) {
       return {
         date,
@@ -310,7 +336,7 @@ export class SchedulerService {
 
     await this.ensureOperationsReady(orders);
 
-    const operations = await this.fetchSchedulableOperations();
+    const operations = await this.fetchSchedulableOperations(batchId);
     if (operations.length === 0) {
       return {
         date,
@@ -334,6 +360,11 @@ export class SchedulerService {
     // 3. 贪心分配
     const schedules: Array<{
       productionOrderId: number;
+      batchId?: number | null;
+      batchItemId?: number | null;
+      batchNo?: string | null;
+      planMode?: string | null;
+      mergeGroupKey?: string | null;
       operationId: number;
       componentId: number;
       workOrderNo: string;
@@ -381,6 +412,11 @@ export class SchedulerService {
 
       schedules.push({
         productionOrderId: operation.production_order_id,
+        batchId: operation.joint_batch_id ?? null,
+        batchItemId: operation.joint_batch_item_id ?? null,
+        batchNo: operation.batch_no ?? null,
+        planMode: operation.plan_mode ?? null,
+        mergeGroupKey: operation.merge_group_key ?? null,
         operationId: operation.operation_id,
         componentId: operation.component_id,
         workOrderNo: operation.work_order_no,
@@ -408,7 +444,7 @@ export class SchedulerService {
     await this.persistSchedule(date, schedules);
 
     // 6. 缓存
-    const persistedPlan = await this.buildPlanFromDb(date, loadRate);
+    const persistedPlan = await this.buildPlanFromDb(date, loadRate, batchId);
     await this.safeRedisSetex(redis, cacheKey, JSON.stringify(persistedPlan), 'schedule-cache-write');
 
     return persistedPlan;
@@ -417,12 +453,21 @@ export class SchedulerService {
   /**
    * 确认排产计划（车间主管审核后下发给工人）
    */
-  async confirmSchedule(date: string): Promise<void> {
+  async confirmSchedule(date: string, batchId?: number): Promise<void> {
     await AppDataSource.query(
       `UPDATE production_schedules
        SET status = 'confirmed', updated_by = ?
-       WHERE tenant_id = ? AND schedule_date = ? AND status = 'planned'`,
-      [this.userId, this.tenantId, date],
+       WHERE tenant_id = ? AND schedule_date = ? AND status = 'planned'
+         AND (
+           ? IS NULL OR EXISTS (
+             SELECT 1
+             FROM production_orders po
+             WHERE po.id = production_schedules.production_order_id
+               AND po.tenant_id = production_schedules.tenant_id
+               AND po.joint_batch_id = ?
+           )
+         )`,
+      [this.userId, this.tenantId, date, batchId ?? null, batchId ?? null],
     );
 
     // 同步创建工人任务记录
@@ -443,14 +488,18 @@ export class SchedulerService {
                 ELSE 0
               END AS has_dependencies
        FROM production_schedules ps
+       INNER JOIN production_orders po
+         ON po.id = ps.production_order_id
+        AND po.tenant_id = ps.tenant_id
        WHERE ps.tenant_id = ? AND ps.schedule_date = ? AND ps.status = 'confirmed' AND ps.worker_id IS NOT NULL
+         AND (? IS NULL OR po.joint_batch_id = ?)
          AND NOT EXISTS (
            SELECT 1
            FROM production_tasks pt
            WHERE pt.tenant_id = ps.tenant_id
              AND pt.schedule_id = ps.id
          )`,
-      [this.tenantId, date],
+      [this.tenantId, date, batchId ?? null, batchId ?? null],
     );
 
     if (schedules.length > 0) {
@@ -541,12 +590,17 @@ export class SchedulerService {
     );
   }
 
-  private async buildPlanFromDb(date: string, capacityLoadRate?: string): Promise<SchedulePlan> {
+  private async buildPlanFromDb(date: string, capacityLoadRate?: string, batchId?: number): Promise<SchedulePlan> {
     const scheduleRows = await AppDataSource.query<Array<{
       schedule_id: number;
       schedule_status: 'planned' | 'confirmed';
       schedule_updated_at: string | null;
       production_order_id: number;
+      joint_batch_id: number | null;
+      joint_batch_item_id: number | null;
+      batch_no: string | null;
+      plan_mode: string | null;
+      merge_group_key: string | null;
       operation_id: number | null;
       component_id: number | null;
       work_order_no: string;
@@ -566,6 +620,11 @@ export class SchedulerService {
           ps.status AS schedule_status,
           DATE_FORMAT(ps.updated_at, '%Y-%m-%d %H:%i:%s') AS schedule_updated_at,
           ps.production_order_id,
+          po.joint_batch_id,
+          po.joint_batch_item_id,
+          jb.batch_no,
+          po.plan_mode,
+          po.merge_group_key,
           ps.operation_id,
           ps.component_id,
           po.work_order_no,
@@ -581,13 +640,15 @@ export class SchedulerService {
           CAST(COALESCE(pst.standard_hours, 0) * ps.planned_qty AS CHAR) AS estimated_hours
        FROM production_schedules ps
        INNER JOIN production_orders po ON po.id = ps.production_order_id
+       LEFT JOIN joint_production_batches jb ON jb.id = po.joint_batch_id AND jb.tenant_id = po.tenant_id
        LEFT JOIN process_steps pst ON pst.id = ps.process_step_id
        LEFT JOIN skus outs ON outs.id = ps.output_sku_id
        LEFT JOIN users u ON u.id = ps.worker_id
        LEFT JOIN workstations w ON w.id = ps.workstation_id
        WHERE ps.tenant_id = ? AND ps.schedule_date = ? AND ps.status IN ('planned', 'confirmed')
+         AND (? IS NULL OR po.joint_batch_id = ?)
        ORDER BY ps.id ASC`,
-      [this.tenantId, date],
+      [this.tenantId, date, batchId ?? null, batchId ?? null],
     );
 
     const resolvedCapacityLoadRate = capacityLoadRate ?? await this.calculateCapacityLoadRateForDate(date, scheduleRows);
@@ -601,6 +662,11 @@ export class SchedulerService {
       schedules: scheduleRows.map((row) => ({
         scheduleId: row.schedule_id,
         productionOrderId: row.production_order_id,
+        batchId: row.joint_batch_id,
+        batchItemId: row.joint_batch_item_id,
+        batchNo: row.batch_no,
+        planMode: row.plan_mode,
+        mergeGroupKey: row.merge_group_key,
         operationId: row.operation_id,
         componentId: row.component_id,
         workOrderNo: row.work_order_no,
@@ -2212,9 +2278,11 @@ export class SchedulerService {
    * 按综合优先级加权排序获取待排产工单
    * 权重：交期紧迫度 0.5 + 订单优先级 0.3 + 插单标记 0.2
    */
-  private async fetchPendingOrders(): Promise<ProductionOrderRow[]> {
+  private async fetchPendingOrders(batchId?: number): Promise<ProductionOrderRow[]> {
     return AppDataSource.query(
       `SELECT po.id, po.work_order_no, po.sku_id, s.name AS sku_name,
+              po.joint_batch_id, po.joint_batch_item_id, po.plan_mode, po.merge_group_key, po.batch_sequence_no,
+              jb.batch_no,
               po.status, po.qty_planned, po.priority, po.planned_end,
               so.order_no AS sales_order_no, so.expected_delivery,
               po.process_template_id,
@@ -2227,10 +2295,12 @@ export class SchedulerService {
        FROM production_orders po
        INNER JOIN skus s ON s.id = po.sku_id
        INNER JOIN sales_orders so ON so.id = po.sales_order_id
+       LEFT JOIN joint_production_batches jb ON jb.id = po.joint_batch_id AND jb.tenant_id = po.tenant_id
        WHERE po.tenant_id = ? AND po.status IN ('pending', 'scheduled', 'in_progress')
-       ORDER BY composite_score DESC
+         AND (? IS NULL OR po.joint_batch_id = ?)
+       ORDER BY COALESCE(po.batch_sequence_no, 999999) ASC, composite_score DESC
        LIMIT 100`,
-      [this.tenantId],
+      [this.tenantId, batchId ?? null, batchId ?? null],
     );
   }
 
@@ -2253,11 +2323,17 @@ export class SchedulerService {
     }
   }
 
-  private async fetchSchedulableOperations(): Promise<ScheduledOperationRow[]> {
+  private async fetchSchedulableOperations(batchId?: number): Promise<ScheduledOperationRow[]> {
     return AppDataSource.query(
       `SELECT
           op.id AS operation_id,
           op.production_order_id,
+          po.joint_batch_id,
+          po.joint_batch_item_id,
+          jb.batch_no,
+          po.plan_mode,
+          po.merge_group_key,
+          po.batch_sequence_no,
           op.component_id,
           op.process_step_id,
           op.output_sku_id,
@@ -2271,15 +2347,18 @@ export class SchedulerService {
        FROM production_operations op
        INNER JOIN production_orders po ON po.id = op.production_order_id
        INNER JOIN sales_orders so ON so.id = po.sales_order_id
+       LEFT JOIN joint_production_batches jb ON jb.id = po.joint_batch_id AND jb.tenant_id = po.tenant_id
        LEFT JOIN process_steps ps ON ps.id = op.process_step_id
        LEFT JOIN skus outs ON outs.id = op.output_sku_id
        WHERE op.tenant_id = ?
          AND po.tenant_id = ?
+         AND (? IS NULL OR po.joint_batch_id = ?)
          AND po.status IN ('pending', 'scheduled', 'in_progress')
          AND op.execution_mode = 'internal'
          AND op.status IN ('pending', 'released', 'scheduled', 'in_progress')
          AND op.completed_qty < op.planned_qty
        ORDER BY
+         COALESCE(po.batch_sequence_no, 999999) ASC,
          (
            50 * (1 - LEAST(DATEDIFF(so.expected_delivery, CURDATE()) / 30, 1)) +
            30 * (po.priority / 100) +
@@ -2287,7 +2366,7 @@ export class SchedulerService {
          ) DESC,
          COALESCE(ps.step_no, 9999) ASC,
          op.id ASC`,
-      [this.tenantId, this.tenantId],
+      [this.tenantId, this.tenantId, batchId ?? null, batchId ?? null],
     );
   }
 
@@ -2428,11 +2507,17 @@ export class SchedulerService {
 
   private async safeInvalidateScheduleCache(date: string): Promise<void> {
     try {
+      const redis = getRedisClient();
       await this.safeRedisDel(
-        getRedisClient(),
+        redis,
         RedisKeys.schedule(this.tenantId, date),
         'schedule-cache-invalidate',
       );
+      const extraKeys = await redis.keys(RedisKeys.schedulePattern(this.tenantId, date));
+      for (const key of extraKeys) {
+        if (key === RedisKeys.schedule(this.tenantId, date)) continue;
+        await this.safeRedisDel(redis, key, 'schedule-cache-invalidate-pattern');
+      }
     } catch (err) {
       console.warn(
         `[SchedulerService] Redis unavailable during schedule cache invalidation for tenant=${this.tenantId} date=${date}: ${(err as Error).message}`,

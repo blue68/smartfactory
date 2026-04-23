@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   useUpdateWorkCalendarDay: vi.fn(),
   useProductionWorkers: vi.fn(),
   useProductionWorkstations: vi.fn(),
+  useProductionBatchList: vi.fn(),
   setPageTitle: vi.fn(),
   showToast: vi.fn(),
   generateSchedule: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock('@/api/production', () => ({
     generateSchedule: mocks.generateSchedule,
   },
   productionKeys: {
-    schedule: (date: string) => ['production', 'schedule', date],
+    schedule: (params: string | { date: string; batchId?: number | null }) => ['production', 'schedule', params],
   },
   useSchedule: mocks.useSchedule,
   useScheduleHistory: mocks.useScheduleHistory,
@@ -34,6 +35,7 @@ vi.mock('@/api/production', () => ({
   useUpdateWorkCalendarDay: mocks.useUpdateWorkCalendarDay,
   useProductionWorkers: mocks.useProductionWorkers,
   useProductionWorkstations: mocks.useProductionWorkstations,
+  useProductionBatchList: mocks.useProductionBatchList,
 }));
 
 vi.mock('@/hooks/usePermission', () => ({
@@ -159,6 +161,7 @@ describe('SchedulePage', () => {
     });
     mocks.useProductionWorkers.mockReturnValue({ data: [] });
     mocks.useProductionWorkstations.mockReturnValue({ data: [] });
+    mocks.useProductionBatchList.mockReturnValue({ data: { list: [], total: 0 } });
   });
 
   it('renders risk panel and preserves output sku semantics across order and worker views', async () => {

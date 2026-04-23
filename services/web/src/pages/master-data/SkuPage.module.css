@@ -159,35 +159,37 @@
 .filter_search {
   flex: 1;
   min-width: 220px;
-  height: 38px;
-  padding: 0 12px 0 36px;
-  border: 1px solid var(--border-default, #e5e7eb);
-  border-radius: var(--radius-md, 8px);
+  height: var(--form-control-height);
+  padding: 0 var(--form-control-padding-x) 0 36px;
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius-pill);
   font-size: 13px;
-  color: var(--text-primary, #111827);
-  background: var(--bg-card, #fff);
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='8' stroke='%239ca3af' stroke-width='2'/%3E%3Cpath d='M21 21l-4.35-4.35' stroke='%239ca3af' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: 10px center;
   background-size: 16px;
 }
-.filter_search:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.filter_search:focus { border-color: var(--form-control-border-focus); background: linear-gradient(180deg, rgba(239, 246, 255, 0.98) 0%, rgba(229, 239, 255, 0.98) 100%); box-shadow: var(--form-control-shadow-active); }
 .filter_select {
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--border-default, #e5e7eb);
-  border-radius: var(--radius-md, 8px);
+  height: var(--form-control-height);
+  padding: 0 calc(var(--form-control-padding-x) + 1.25rem) 0 var(--form-control-padding-x);
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
   font-size: 13px;
-  color: var(--text-primary, #111827);
-  background: var(--bg-card, #fff);
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   outline: none;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
   min-width: 130px;
 }
-.filter_select:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.filter_select:focus { border-color: var(--form-control-border-focus); background: var(--form-control-bg-focus); box-shadow: var(--form-control-shadow-focus); }
 
 /* ── 表格外层 card ── */
 .table_card {
@@ -408,18 +410,19 @@
 }
 .required { color: #ef4444; }
 .form_input {
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--border-default, #e5e7eb);
-  border-radius: var(--radius-md, 8px);
+  height: var(--form-control-height);
+  padding: 0 var(--form-control-padding-x);
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
   font-size: 13px;
-  color: var(--text-primary, #111827);
-  background: var(--bg-card, #fff);
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   outline: none;
   width: 100%;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
-.form_input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.form_input:focus { border-color: var(--form-control-border-focus); background: var(--form-control-bg-focus); box-shadow: var(--form-control-shadow-focus); }
 .form_input:disabled {
   background: #f3f4f6;
   color: var(--text-secondary, #6b7280);
@@ -555,20 +558,21 @@
 
 /* 备注 textarea */
 .form_textarea {
-  padding: 8px 12px;
-  border: 1px solid var(--border-default, #e5e7eb);
-  border-radius: var(--radius-md, 8px);
+  padding: 0.8rem var(--form-control-padding-x);
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
   font-size: 13px;
-  color: var(--text-primary, #111827);
-  background: var(--bg-card, #fff);
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   outline: none;
   width: 100%;
   resize: vertical;
   min-height: 64px;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
   font-family: inherit;
 }
-.form_textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.form_textarea:focus { border-color: var(--form-control-border-focus); background: var(--form-control-bg-focus); box-shadow: var(--form-control-shadow-focus); }
 
 /* ── SKU 详情 Drawer ── */
 .detail_section {

@@ -817,36 +817,40 @@
   align-items: center;
 }
 .formSelect {
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--border-default, #e5e7eb);
-  border-radius: var(--radius-md, 8px);
+  height: var(--form-control-height);
+  padding: 0 calc(var(--form-control-padding-x) + 1.25rem) 0 var(--form-control-padding-x);
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
   font-size: 13px;
-  color: var(--text-primary, #111827);
-  background: var(--bg-card, #fff);
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   outline: none;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 .formSelect:focus {
-  border-color: var(--color-primary-500, #3B82F6);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--form-control-border-focus);
+  background: var(--form-control-bg-focus);
+  box-shadow: var(--form-control-shadow-focus);
 }
 .formInput {
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--border-default, #e5e7eb);
-  border-radius: var(--radius-md, 8px);
+  height: var(--form-control-height);
+  padding: 0 var(--form-control-padding-x);
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
   font-size: 13px;
-  color: var(--text-primary, #111827);
-  background: var(--bg-card, #fff);
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   outline: none;
   width: 100%;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 .formInput:focus {
-  border-color: var(--color-primary-500, #3B82F6);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--form-control-border-focus);
+  background: var(--form-control-bg-focus);
+  box-shadow: var(--form-control-shadow-focus);
 }
 .formInputError {
   border-color: var(--color-error-500, #ef4444);

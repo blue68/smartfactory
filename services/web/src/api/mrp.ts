@@ -5,6 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import request from '@/utils/request';
 import { useAppStore } from '@/stores/appStore';
+import type { PaginatedData } from '@/types/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -66,9 +67,33 @@ export interface ShortageSummaryQuery {
   page?: number;
   pageSize?: number;
   skuId?: number;
+  batchId?: number;
   warehouseId?: number;
   locationId?: number;
   onlyDefaultLocation?: boolean;
+}
+
+export interface JointProductionBatch {
+  id: number;
+  batchNo: string;
+  name?: string | null;
+  mode: 'priority_sequential' | 'compatible_merge';
+  status: 'draft' | 'confirmed' | 'order_generated' | 'cancelled' | 'closed';
+  orderCount: number;
+  itemCount: number;
+  totalPlannedQty: string;
+  confirmedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  linkedProductionOrderCount?: number;
+  [key: string]: unknown;
+}
+
+export interface JointProductionBatchQuery {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  status?: JointProductionBatch['status'];
 }
 
 export interface PurchaseSuggestionGenerated {
@@ -90,6 +115,8 @@ export interface PurchaseSuggestionGenerated {
 export interface GenerateSuggestionsPayload {
   /** 对应后端 productionOrderId（单个工单 ID，可选） */
   productionOrderId?: number;
+  /** 联合生产批次 ID，可选 */
+  batchId?: number;
   forceRegenerate?: boolean;
 }
 
@@ -132,6 +159,8 @@ export const mrpKeys = {
     [...mrpKeys.all, 'shortage-report', productionOrderId] as const,
   shortageSummary: (query?: ShortageSummaryQuery) =>
     [...mrpKeys.all, 'shortage-summary', query ?? {}] as const,
+  jointProductionBatches: (query?: JointProductionBatchQuery) =>
+    [...mrpKeys.all, 'joint-production-batches', query ?? {}] as const,
   dashboard: () => [...mrpKeys.all, 'dashboard'] as const,
 };
 
@@ -145,6 +174,12 @@ export const mrpApi = {
 
   getShortageSummary: (query?: ShortageSummaryQuery) =>
     request.get<ShortageSummary>('/api/mrp/shortage-summary', query as Record<string, unknown>),
+
+  getJointProductionBatches: (query?: JointProductionBatchQuery) =>
+    request.get<PaginatedData<JointProductionBatch>>(
+      '/api/production/batches',
+      query as Record<string, unknown>,
+    ),
 
   generateSuggestions: (data?: GenerateSuggestionsPayload) =>
     request.post<GenerateSuggestionsResult>(
@@ -175,6 +210,14 @@ export function useShortageSummary(query?: ShortageSummaryQuery) {
   return useQuery({
     queryKey: mrpKeys.shortageSummary(query),
     queryFn: () => mrpApi.getShortageSummary(query),
+  });
+}
+
+/** 获取联合生产批次列表 */
+export function useJointProductionBatches(query?: JointProductionBatchQuery) {
+  return useQuery({
+    queryKey: mrpKeys.jointProductionBatches(query),
+    queryFn: () => mrpApi.getJointProductionBatches(query),
   });
 }
 

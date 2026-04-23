@@ -11,6 +11,10 @@ import { EntityManager } from 'typeorm';
 interface MaterialRequirementRow {
   id: number;
   production_order_id: number;
+  joint_batch_id?: number | null;
+  joint_batch_item_id?: number | null;
+  sales_order_id?: number | null;
+  sales_order_item_id?: number | null;
   bom_snapshot_id: number | null;
   sku_id: number;
   qty_required: string;
@@ -39,6 +43,14 @@ interface SupplierPriceRow {
   supplier_id: number;
   supplier_name: string;
   unit_price: string;
+}
+
+interface SuggestionDemandRow extends MaterialRequirementRow {
+  work_order_no: string;
+  sku_code: string;
+  sku_name: string;
+  stock_unit: string;
+  purchase_unit: string;
 }
 
 interface ProductionOrderRow {
@@ -111,6 +123,59 @@ export class MrpService {
   constructor(ctx: TenantContext) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+  }
+
+  private async findBestSupplier(
+    manager: Pick<EntityManager, 'query'>,
+    skuId: number,
+  ): Promise<SupplierPriceRow | undefined> {
+    const [bestSupplier] = await manager.query<SupplierPriceRow[]>(
+      `SELECT sp.supplier_id, sup.name AS supplier_name, sp.price AS unit_price
+       FROM supplier_prices sp
+       INNER JOIN suppliers sup ON sup.id = sp.supplier_id AND sup.tenant_id = sp.tenant_id
+       WHERE sp.sku_id = ? AND sp.tenant_id = ?
+         AND sp.is_current = 1
+         AND (sp.expired_at IS NULL OR sp.expired_at >= CURDATE())
+         AND (sp.effective_at IS NULL OR sp.effective_at <= CURDATE())
+       ORDER BY CAST(sp.price AS DECIMAL(20,6)) ASC
+       LIMIT 1`,
+      [skuId, this.tenantId],
+    );
+    return bestSupplier;
+  }
+
+  private async replaceSuggestionSources(
+    manager: Pick<EntityManager, 'query'>,
+    suggestionId: number,
+    demands: SuggestionDemandRow[],
+    batchId?: number,
+  ): Promise<void> {
+    await manager.query(
+      `DELETE FROM purchase_suggestion_sources
+       WHERE tenant_id = ? AND suggestion_id = ?`,
+      [this.tenantId, suggestionId],
+    );
+
+    for (const demand of demands) {
+      await manager.query(
+        `INSERT INTO purchase_suggestion_sources
+           (tenant_id, suggestion_id, source_type, source_id, batch_id, production_order_id,
+            sales_order_id, sales_order_item_id, sku_id, required_qty, shortage_qty)
+         VALUES (?, ?, 'material_requirement', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          this.tenantId,
+          suggestionId,
+          demand.id,
+          batchId ?? demand.joint_batch_id ?? null,
+          demand.production_order_id,
+          demand.sales_order_id ?? null,
+          demand.sales_order_item_id ?? null,
+          demand.sku_id,
+          demand.qty_required,
+          demand.qty_shortage,
+        ],
+      );
+    }
   }
 
   /**
@@ -306,6 +371,7 @@ export class MrpService {
   async getGlobalShortageSummary(filter?: {
     status?: string;
     skuId?: number;
+    batchId?: number;
     warehouseId?: number;
     locationId?: number;
     onlyDefaultLocation?: boolean;
@@ -328,6 +394,10 @@ export class MrpService {
     if (filter?.skuId) {
       conds.push('mr.sku_id = ?');
       params.push(filter.skuId);
+    }
+    if (filter?.batchId) {
+      conds.push('po.joint_batch_id = ?');
+      params.push(filter.batchId);
     }
     if (filter?.warehouseId || filter?.locationId || filter?.onlyDefaultLocation) {
       const inventoryConds: string[] = [
@@ -482,7 +552,12 @@ export class MrpService {
   async generateSuggestions(
     productionOrderId?: number,
     outerManager?: EntityManager,
+    options?: { batchId?: number },
   ): Promise<GenerateSuggestionsResult> {
+    const batchId = options?.batchId ? Number(options.batchId) : undefined;
+    if (productionOrderId && batchId) {
+      throw AppError.badRequest('不能同时按工单和联合批次生成采购建议', ResponseCode.INVALID_PARAMS);
+    }
     let shortageByRequirementId = new Map<number, ShortageItem>();
 
     // 如果指定工单，先做缺料检测刷新数据
@@ -491,6 +566,18 @@ export class MrpService {
       shortageByRequirementId = new Map(
         detection.shortageItems.map((item) => [item.requirementId, item]),
       );
+    } else if (batchId) {
+      const manager = outerManager ?? AppDataSource.manager;
+      const batchOrders = await manager.query<Array<{ production_order_id: number }>>(
+        `SELECT DISTINCT po.id AS production_order_id
+         FROM production_orders po
+         WHERE po.tenant_id = ? AND po.joint_batch_id = ? AND po.status IN ('pending', 'scheduled', 'in_progress')`,
+        [this.tenantId, batchId],
+      );
+      for (const row of batchOrders) {
+        const detection = await this.detectShortage(Number(row.production_order_id), outerManager);
+        detection.shortageItems.forEach((item) => shortageByRequirementId.set(item.requirementId, item));
+      }
     }
 
     const run = async (manager: EntityManager): Promise<GenerateSuggestionsResult> => {
@@ -509,21 +596,19 @@ export class MrpService {
         conds.push('mr.production_order_id = ?');
         params.push(productionOrderId);
       }
+      if (batchId) {
+        conds.push('po.joint_batch_id = ?');
+        params.push(batchId);
+      }
 
       const where = conds.join(' AND ');
 
       // 查询缺料明细（关联工单信息）
-      const requirements = await manager.query<Array<
-        MaterialRequirementRow & {
-          work_order_no: string;
-          sku_code: string;
-          sku_name: string;
-          stock_unit: string;
-          purchase_unit: string;
-        }
-      >>(
+      const requirements = await manager.query<SuggestionDemandRow[]>(
         `SELECT mr.*,
                 po.work_order_no,
+                po.sales_order_id,
+                po.sales_order_item_id,
                 s.sku_code, s.name AS sku_name,
                 s.stock_unit, s.purchase_unit
          FROM material_requirements mr
@@ -543,27 +628,52 @@ export class MrpService {
       let skipped = 0;
       const suggestionIds: number[] = [];
 
-      for (const req of requirements) {
-        const qtyShortage = new Decimal(req.qty_shortage);
+      const groupedDemands = new Map<number, SuggestionDemandRow[]>();
+      for (const requirement of requirements) {
+        const bucket = groupedDemands.get(requirement.sku_id) ?? [];
+        bucket.push(requirement);
+        groupedDemands.set(requirement.sku_id, bucket);
+      }
+
+      for (const [skuId, demands] of groupedDemands.entries()) {
+        const req = demands[0];
+        const qtyShortage = demands.reduce(
+          (sum, item) => sum.plus(new Decimal(item.qty_shortage ?? 0)),
+          new Decimal(0),
+        );
         if (qtyShortage.lte(0)) {
           skipped++;
           continue;
         }
 
+        const scopedSource = batchId ? 'production_batch_shortage' : 'production_shortage';
         // 检查是否已有 pending 状态的采购建议（防重复）
-          const [existingSugg] = await manager.query<Array<{
-            id: number;
-            suggested_qty: string;
-            production_order_id: number | null;
-            suggested_supplier_id: number | null;
-            estimated_price: string | null;
-          }>>(
-          `SELECT id, suggested_qty, production_order_id, suggested_supplier_id, estimated_price
+        const [existingSugg] = await manager.query<Array<{
+          id: number;
+          suggested_qty: string;
+          production_order_id: number | null;
+          production_batch_id: number | null;
+          suggested_supplier_id: number | null;
+          estimated_price: string | null;
+        }>>(
+          `SELECT id, suggested_qty, production_order_id, production_batch_id, suggested_supplier_id, estimated_price
            FROM purchase_suggestions
            WHERE sku_id = ? AND tenant_id = ? AND status = 'pending'
-             AND source = 'production_shortage'
+             AND source = ?
+             AND ((? IS NOT NULL AND production_batch_id = ?) OR (? IS NULL AND ? IS NOT NULL AND production_order_id = ?) OR (? IS NULL AND ? IS NULL))
            LIMIT 1`,
-          [req.sku_id, this.tenantId],
+          [
+            skuId,
+            this.tenantId,
+            scopedSource,
+            batchId ?? null,
+            batchId ?? null,
+            batchId ?? null,
+            productionOrderId ?? null,
+            productionOrderId ?? null,
+            batchId ?? null,
+            productionOrderId ?? null,
+          ],
         );
 
         if (existingSugg) {
@@ -580,18 +690,7 @@ export class MrpService {
             : null;
 
           if (needsSupplierBackfill) {
-            const [bestSupplier] = await manager.query<SupplierPriceRow[]>(
-              `SELECT sp.supplier_id, sup.name AS supplier_name, sp.price AS unit_price
-               FROM supplier_prices sp
-               INNER JOIN suppliers sup ON sup.id = sp.supplier_id AND sup.tenant_id = sp.tenant_id
-               WHERE sp.sku_id = ? AND sp.tenant_id = ?
-                 AND sp.is_current = 1
-                 AND (sp.expired_at IS NULL OR sp.expired_at >= CURDATE())
-                 AND (sp.effective_at IS NULL OR sp.effective_at <= CURDATE())
-               ORDER BY CAST(sp.price AS DECIMAL(20,6)) ASC
-               LIMIT 1`,
-              [req.sku_id, this.tenantId],
-            );
+            const bestSupplier = await this.findBestSupplier(manager, skuId);
 
             suggestedSupplierId = bestSupplier?.supplier_id ?? null;
             estimatedPrice = bestSupplier?.unit_price ?? null;
@@ -622,12 +721,12 @@ export class MrpService {
             skipped++;
           }
 
-          // 更新 material_requirements.suggestion_id
+          await this.replaceSuggestionSources(manager, existingSugg.id, demands, batchId);
           await manager.query(
             `UPDATE material_requirements
              SET suggestion_id = ?, updated_at = NOW()
-             WHERE id = ? AND tenant_id = ?`,
-            [existingSugg.id, req.id, this.tenantId],
+             WHERE id IN (${demands.map(() => '?').join(',')}) AND tenant_id = ?`,
+            [existingSugg.id, ...demands.map((item) => item.id), this.tenantId],
           );
 
           if (!suggestionIds.includes(existingSugg.id)) {
@@ -637,18 +736,7 @@ export class MrpService {
         }
 
         // 无已有建议：查询最优供应商（按单价升序取最低价）
-        const [bestSupplier] = await manager.query<SupplierPriceRow[]>(
-          `SELECT sp.supplier_id, sup.name AS supplier_name, sp.price AS unit_price
-           FROM supplier_prices sp
-           INNER JOIN suppliers sup ON sup.id = sp.supplier_id AND sup.tenant_id = sp.tenant_id
-           WHERE sp.sku_id = ? AND sp.tenant_id = ?
-             AND sp.is_current = 1
-             AND (sp.expired_at IS NULL OR sp.expired_at >= CURDATE())
-             AND (sp.effective_at IS NULL OR sp.effective_at <= CURDATE())
-           ORDER BY CAST(sp.price AS DECIMAL(20,6)) ASC
-           LIMIT 1`,
-          [req.sku_id, this.tenantId],
-        );
+        const bestSupplier = await this.findBestSupplier(manager, skuId);
 
         const suggestedSupplierId = bestSupplier?.supplier_id ?? null;
         const estimatedPrice = bestSupplier?.unit_price ?? null;
@@ -657,28 +745,29 @@ export class MrpService {
           : null;
         const shortageCtx = shortageByRequirementId.get(req.id);
 
-        const reason =
-          `生产工单 ${req.work_order_no} 需要 ${new Decimal(req.qty_required).toFixed(4)} ${req.stock_unit}，` +
-          `当前可用库存 ${shortageCtx?.qtyAvailable ?? '0.0000'}，` +
-          `在途 ${shortageCtx?.qtyInTransit ?? '0.0000'}，` +
-          `缺口 ${qtyShortage.toFixed(4)}`;
+        const reason = batchId
+          ? `联合生产批次 #${batchId} 涉及 ${demands.length} 条物料需求，SKU ${req.sku_code} 汇总缺口 ${qtyShortage.toFixed(4)} ${req.stock_unit}`
+          : `生产需求 ${demands.map((item) => item.work_order_no).slice(0, 3).join('、')} 需要补齐，SKU ${req.sku_code} 当前缺口 ${qtyShortage.toFixed(4)} ${req.stock_unit}，可用库存 ${shortageCtx?.qtyAvailable ?? '0.0000'}，在途 ${shortageCtx?.qtyInTransit ?? '0.0000'}`;
 
         // 生成建议单号
         const suggestionNo = await generateNo('suggestion', this.tenantId);
 
         const insertResult = await manager.query(
           `INSERT INTO purchase_suggestions
-             (tenant_id, suggestion_no, source, production_order_id, sku_id,
+             (tenant_id, suggestion_no, source, production_order_id, production_batch_id, primary_source_type, primary_source_id, sku_id,
               suggested_supplier_id, suggested_qty, purchase_unit,
               estimated_price, estimated_amount, shortage_qty, reason,
               confidence, status, created_by, updated_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             this.tenantId,
             suggestionNo,
-            'production_shortage',
-            req.production_order_id,
-            req.sku_id,
+            scopedSource,
+            batchId ? null : req.production_order_id,
+            batchId ?? null,
+            batchId ? 'batch_item' : 'material_requirement',
+            batchId ? (req.joint_batch_item_id ?? req.id) : req.id,
+            skuId,
             suggestedSupplierId,
             qtyShortage.toFixed(4),
             req.purchase_unit,
@@ -696,13 +785,14 @@ export class MrpService {
         const newSuggestionId = Number(insertResult.insertId);
         created++;
         suggestionIds.push(newSuggestionId);
+        await this.replaceSuggestionSources(manager, newSuggestionId, demands, batchId);
 
         // 更新 material_requirements.suggestion_id
         await manager.query(
           `UPDATE material_requirements
            SET suggestion_id = ?, updated_at = NOW()
-           WHERE id = ? AND tenant_id = ?`,
-          [newSuggestionId, req.id, this.tenantId],
+           WHERE id IN (${demands.map(() => '?').join(',')}) AND tenant_id = ?`,
+          [newSuggestionId, ...demands.map((item) => item.id), this.tenantId],
         );
       }
 

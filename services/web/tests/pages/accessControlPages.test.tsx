@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import RoleConfigPage from '@/pages/system/RoleConfigPage';
 import RoleGrantPage from '@/pages/system/RoleGrantPage';
 import TenantConfigPage from '@/pages/system/TenantConfigPage';
+import UserConfigPage from '@/pages/system/UserConfigPage';
 import UserRoleAssignmentPage from '@/pages/system/UserRoleAssignmentPage';
 
 const mocks = vi.hoisted(() => ({
@@ -23,8 +24,13 @@ const mocks = vi.hoisted(() => ({
   useUpdateTenantFeatureFlags: vi.fn(),
   useUpdateTenantStatus: vi.fn(),
   useAccessUserList: vi.fn(),
+  useCreateUser: vi.fn(),
+  useUpdateUser: vi.fn(),
+  useUpdateUserStatus: vi.fn(),
+  useResetUserPassword: vi.fn(),
   useUserRoleAssignments: vi.fn(),
   useAssignUserRoles: vi.fn(),
+  useDepartmentList: vi.fn(),
   setPageTitle: vi.fn(),
   showToast: vi.fn(),
   createRoleMutateAsync: vi.fn(),
@@ -35,6 +41,10 @@ const mocks = vi.hoisted(() => ({
   updateTenantMutateAsync: vi.fn(),
   updateTenantFeatureFlagsMutateAsync: vi.fn(),
   updateTenantStatusMutateAsync: vi.fn(),
+  createUserMutateAsync: vi.fn(),
+  updateUserMutateAsync: vi.fn(),
+  updateUserStatusMutateAsync: vi.fn(),
+  resetUserPasswordMutateAsync: vi.fn(),
   assignUserRolesMutateAsync: vi.fn(),
 }));
 
@@ -54,8 +64,16 @@ vi.mock('@/api/accessControl', () => ({
   useUpdateTenantFeatureFlags: mocks.useUpdateTenantFeatureFlags,
   useUpdateTenantStatus: mocks.useUpdateTenantStatus,
   useAccessUserList: mocks.useAccessUserList,
+  useCreateUser: mocks.useCreateUser,
+  useUpdateUser: mocks.useUpdateUser,
+  useUpdateUserStatus: mocks.useUpdateUserStatus,
+  useResetUserPassword: mocks.useResetUserPassword,
   useUserRoleAssignments: mocks.useUserRoleAssignments,
   useAssignUserRoles: mocks.useAssignUserRoles,
+}));
+
+vi.mock('@/api/departments', () => ({
+  useDepartmentList: mocks.useDepartmentList,
 }));
 
 vi.mock('@/stores/appStore', () => ({
@@ -213,6 +231,9 @@ describe('Access control system pages', () => {
           tenantId: 9,
           username: 'qc_user',
           realName: '验货员',
+          departmentId: 8,
+          department: '质检部',
+          position: 'QC组长',
           status: 'active',
           roleCount: 1,
           primaryRoleName: '租户管理员',
@@ -239,6 +260,16 @@ describe('Access control system pages', () => {
     ];
 
     const emptyAssignments: never[] = [];
+    const departmentListData = {
+      list: [
+        { id: 8, tenantId: 9, code: 'QC', name: '质检部', status: 'active', sortOrder: 10 },
+        { id: 12, tenantId: 9, code: 'PRD', name: '生产部', status: 'active', sortOrder: 20 },
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 200,
+      totalPages: 1,
+    };
 
     mocks.useCreateRole.mockReturnValue({ mutateAsync: mocks.createRoleMutateAsync, isPending: false });
     mocks.useUpdateRole.mockReturnValue({ mutateAsync: mocks.updateRoleMutateAsync, isPending: false });
@@ -248,6 +279,10 @@ describe('Access control system pages', () => {
     mocks.useUpdateTenant.mockReturnValue({ mutateAsync: mocks.updateTenantMutateAsync, isPending: false });
     mocks.useUpdateTenantFeatureFlags.mockReturnValue({ mutateAsync: mocks.updateTenantFeatureFlagsMutateAsync, isPending: false });
     mocks.useUpdateTenantStatus.mockReturnValue({ mutateAsync: mocks.updateTenantStatusMutateAsync, isPending: false });
+    mocks.useCreateUser.mockReturnValue({ mutateAsync: mocks.createUserMutateAsync, isPending: false });
+    mocks.useUpdateUser.mockReturnValue({ mutateAsync: mocks.updateUserMutateAsync, isPending: false });
+    mocks.useUpdateUserStatus.mockReturnValue({ mutateAsync: mocks.updateUserStatusMutateAsync, isPending: false });
+    mocks.useResetUserPassword.mockReturnValue({ mutateAsync: mocks.resetUserPasswordMutateAsync, isPending: false });
     mocks.useAssignUserRoles.mockReturnValue({ mutateAsync: mocks.assignUserRolesMutateAsync, isPending: false });
 
     mocks.useRoleList.mockReturnValue({ data: roleListData, isLoading: false, error: null });
@@ -266,6 +301,7 @@ describe('Access control system pages', () => {
       isLoading: false,
       error: null,
     }));
+    mocks.useDepartmentList.mockReturnValue({ data: departmentListData, isLoading: false, error: null });
   });
 
   it('RoleConfigPage shows empty state when role list is empty', () => {
@@ -310,6 +346,57 @@ describe('Access control system pages', () => {
     render(<RoleGrantPage />);
 
     expect(screen.getByText('AI 助手')).toBeInTheDocument();
+  });
+
+  it('RoleGrantPage keeps menu selection stable when menu ids are strings', async () => {
+    mocks.useMenuTree.mockReturnValue({
+      data: [
+        {
+          id: '101',
+          tenantId: 0,
+          parentId: null,
+          code: 'system.role.config',
+          name: '角色配置',
+          routePath: '/system/roles',
+          children: [],
+        },
+        {
+          id: '102',
+          tenantId: 0,
+          parentId: null,
+          code: 'ai.chat',
+          name: 'AI 助手',
+          routePath: '/ai-chat',
+          children: [],
+        },
+      ],
+      isLoading: false,
+      error: null,
+    });
+    mocks.useMenuActions.mockImplementation((menuId: number | null) => ({
+      data: menuId === 102
+        ? [{
+          id: 1002,
+          tenantId: 0,
+          menuId: 102,
+          code: 'ai:chat:view',
+          name: '使用 AI 助手',
+          actionType: 'view',
+          status: 'active',
+        }]
+        : [],
+      isLoading: false,
+      error: null,
+    }));
+
+    render(<RoleGrantPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /AI 助手ai\.chat/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText('ai.chat · /ai-chat')).toBeInTheDocument();
+      expect(screen.getByText('使用 AI 助手')).toBeInTheDocument();
+    });
   });
 
   it('RoleGrantPage warns when trying to save a system preset role', async () => {
@@ -375,6 +462,31 @@ describe('Access control system pages', () => {
     expect(screen.getByText('暂无人员数据。')).toBeInTheDocument();
   });
 
+  it('UserConfigPage saves department and position when editing a user', async () => {
+    render(<UserConfigPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+    const dialog = screen.getByRole('dialog');
+    const dialogComboboxes = within(dialog).getAllByRole('combobox');
+
+    fireEvent.change(screen.getByDisplayValue('QC组长'), { target: { value: '质检主管' } });
+    fireEvent.change(dialogComboboxes[1], { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存人员' }));
+
+    await waitFor(() => {
+      expect(mocks.updateUserMutateAsync).toHaveBeenCalledWith({
+        id: 21,
+        payload: {
+          username: 'qc_user',
+          realName: '验货员',
+          departmentId: 12,
+          position: '质检主管',
+          status: 'active',
+        },
+      });
+    });
+  });
+
   it('UserRoleAssignmentPage renders assignment error state for 403 responses', () => {
     mocks.useUserRoleAssignments.mockReturnValue({
       data: [],
@@ -418,6 +530,58 @@ describe('Access control system pages', () => {
       expect(mocks.showToast).toHaveBeenCalledWith({
         type: 'warning',
         message: '生效日期不能晚于失效日期',
+      });
+    });
+  });
+
+  it('UserRoleAssignmentPage coerces string role ids before saving assignments', async () => {
+    mocks.useRoleList.mockReturnValue({
+      data: {
+        list: [
+          {
+            id: '1',
+            tenantId: 0,
+            code: 'boss',
+            name: '老板',
+            roleType: 'system',
+            status: 'active',
+            dataScopeTemplate: 'all',
+            assignable: true,
+            assignedUserCount: 3,
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 30,
+        totalPages: 1,
+      },
+      isLoading: false,
+      error: null,
+    });
+    mocks.useUserRoleAssignments.mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    });
+
+    render(<UserRoleAssignmentPage />);
+
+    fireEvent.click(screen.getByLabelText('老板'));
+    fireEvent.click(screen.getByRole('button', { name: '保存分配' }));
+
+    await waitFor(() => {
+      expect(mocks.assignUserRolesMutateAsync).toHaveBeenCalledWith({
+        userId: 21,
+        payload: {
+          assignments: [
+            {
+              roleId: 1,
+              isPrimary: true,
+              effectiveFrom: null,
+              effectiveTo: null,
+            },
+          ],
+        },
       });
     });
   });

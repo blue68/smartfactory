@@ -233,11 +233,19 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 46px;
-  padding: 0 14px;
-  border-radius: 16px;
-  border: 1px solid #dbe4f0;
-  background: #f8fafc;
+  min-height: calc(var(--form-control-height) + 0.125rem);
+  padding: 0 var(--form-control-padding-x);
+  border-radius: var(--form-control-radius-pill);
+  border: 1px solid var(--form-control-border);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.searchBox:focus-within {
+  border-color: var(--form-control-border-focus);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.98) 0%, rgba(229, 239, 255, 0.98) 100%);
+  box-shadow: var(--form-control-shadow-active);
 }
 
 .searchIcon {
@@ -251,11 +259,11 @@
   outline: 0;
   background: transparent;
   font: inherit;
-  color: #0f172a;
+  color: var(--form-control-text);
 }
 
 .searchInput::placeholder {
-  color: #94a3b8;
+  color: var(--form-control-placeholder);
 }
 
 .selectWrap {
@@ -264,13 +272,21 @@
 
 .select {
   width: 100%;
-  min-height: 46px;
-  padding: 0 14px;
-  border-radius: 16px;
-  border: 1px solid #dbe4f0;
-  background: #fff;
+  min-height: var(--form-control-height);
+  padding: 0 calc(var(--form-control-padding-x) + 1.25rem) 0 var(--form-control-padding-x);
+  border-radius: var(--form-control-radius);
+  border: 1px solid var(--form-control-border);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   font: inherit;
-  color: #0f172a;
+  color: var(--form-control-text);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.select:focus {
+  border-color: var(--form-control-border-focus);
+  background: var(--form-control-bg-focus);
+  box-shadow: var(--form-control-shadow-focus);
 }
 
 .focusTabs {
@@ -749,12 +765,21 @@
 .textarea {
   width: 100%;
   min-height: 112px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid #cbd5e1;
+  padding: 0.8rem var(--form-control-padding-x);
+  border-radius: var(--form-control-radius);
+  border: 1px solid var(--form-control-border);
   resize: vertical;
   font: inherit;
-  color: #0f172a;
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.textarea:focus {
+  border-color: var(--form-control-border-focus);
+  background: var(--form-control-bg-focus);
+  box-shadow: var(--form-control-shadow-focus);
 }
 
 .textareaMeta {

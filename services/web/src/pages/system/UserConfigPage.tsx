@@ -9,6 +9,7 @@ import {
   useUpdateUser,
   useUpdateUserStatus,
 } from '@/api/accessControl';
+import { useDepartmentList } from '@/api/departments';
 import { useAppStore } from '@/stores/appStore';
 import type { AccessUserSummary, UserMutationPayload } from '@/types/accessControl';
 import styles from './SystemPageShell.module.css';
@@ -35,6 +36,7 @@ export default function UserConfigPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AccessUserSummary | null>(null);
   const [form, setForm] = useState<UserMutationPayload>(EMPTY_FORM);
+  const departmentQuery = useDepartmentList({ page: 1, pageSize: 200, status: 'active' });
 
   const { data, isLoading, error } = useAccessUserList({
     page: 1,
@@ -52,6 +54,7 @@ export default function UserConfigPage() {
   }, [activeTab, setPageTitle]);
 
   const users = data?.list ?? [];
+  const departments = departmentQuery.data?.list ?? [];
   const activeCount = users.filter((item) => item.status === 'active').length;
 
   const resetFilters = () => {
@@ -76,6 +79,8 @@ export default function UserConfigPage() {
     setForm({
       username: user.username,
       realName: user.realName,
+      departmentId: user.departmentId ?? null,
+      position: user.position ?? '',
       status: user.status ?? 'active',
     });
     setModalOpen(true);
@@ -93,6 +98,8 @@ export default function UserConfigPage() {
           payload: {
             username: form.username.trim(),
             realName: form.realName.trim(),
+            departmentId: form.departmentId ?? null,
+            position: form.position?.trim() || null,
             status: form.status,
           },
         });
@@ -101,6 +108,8 @@ export default function UserConfigPage() {
         await createUserMutation.mutateAsync({
           username: form.username.trim(),
           realName: form.realName.trim(),
+          departmentId: form.departmentId ?? null,
+          position: form.position?.trim() || null,
           initialPassword: form.initialPassword?.trim() || '123456',
           status: form.status,
         });
@@ -285,6 +294,30 @@ export default function UserConfigPage() {
               <option value="active">启用</option>
               <option value="inactive">禁用</option>
             </select>
+          </div>
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>部门</span>
+            <select
+              className={styles.select}
+              value={form.departmentId != null ? String(form.departmentId) : ''}
+              onChange={(e) => setForm((prev) => ({ ...prev, departmentId: e.target.value ? Number(e.target.value) : null }))}
+            >
+              <option value="">未分配部门</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}（{department.code}）
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>岗位</span>
+            <input
+              className={styles.input}
+              value={form.position ?? ''}
+              placeholder="例如 采购经理 / 车间主管"
+              onChange={(e) => setForm((prev) => ({ ...prev, position: e.target.value }))}
+            />
           </div>
           {!editingUser && (
             <div className={styles.field}>

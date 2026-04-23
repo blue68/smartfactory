@@ -9,6 +9,7 @@ import {
   productionKeys,
   useAdjustSchedule,
   useConfirmSchedule,
+  useProductionBatchList,
   useProductionWorkCalendar,
   useProductionWorkers,
   useProductionWorkstations,
@@ -59,6 +60,7 @@ interface WorkerTaskItem {
   source: ScheduleItem;
   scheduleId: number;
   workOrderNo: string;
+  batchNo?: string | null;
   stepName: string;
   outputSkuName: string;
   stationName: string;
@@ -79,6 +81,7 @@ interface WorkerCard {
 interface OrderCard {
   productionOrderId: number;
   workOrderNo: string;
+  batchNo?: string | null;
   outputSkuNames: string[];
   totalHours: string;
   totalQty: string;
@@ -334,9 +337,10 @@ function buildStationRows(schedules: ScheduleItem[], loadRate: number, timeSlots
     items.forEach((item, index) => {
       if (index >= timeSlots.length) return;
       const slot = timeSlots[index];
+      const batchPrefix = item.batchNo ? `${item.batchNo} · ` : '';
       slots[slot] = {
         source: item,
-        orderLabel: item.workOrderNo,
+        orderLabel: `${batchPrefix}${item.workOrderNo}`,
         operation: item.stepName,
         outputSkuName: item.outputSkuName ?? '未配置产出',
         workerInfo: item.workerName
@@ -386,6 +390,7 @@ function buildWorkerCards(schedules: ScheduleItem[], timeSlots: string[]): Worke
           source: item,
           scheduleId: item.scheduleId,
           workOrderNo: item.workOrderNo,
+          batchNo: item.batchNo ?? null,
           stepName: item.stepName,
           outputSkuName: item.outputSkuName ?? '未配置产出',
           stationName: item.workstationName ?? '待分配工位',
@@ -418,6 +423,7 @@ function buildOrderCards(schedules: ScheduleItem[], timeSlots: string[]): OrderC
       return {
         productionOrderId,
         workOrderNo: items[0]?.workOrderNo ?? `WO-${productionOrderId}`,
+        batchNo: items[0]?.batchNo ?? null,
         outputSkuNames: [...new Set(items.map((item) => item.outputSkuName).filter(Boolean))] as string[],
         totalHours: totalHours.toFixed(1),
         totalQty: totalQty.toFixed(2),
@@ -504,8 +510,10 @@ export default function SchedulePage() {
   const today = formatInputDate(new Date());
   const initialDate = isValidDateString(searchParams.get('date')) ? searchParams.get('date')! : today;
   const focusWorkOrderNo = searchParams.get('workOrderNo') ?? searchParams.get('workOrderId') ?? '';
+  const initialBatchId = parseOptionalId(searchParams.get('batchId'));
 
   const [selectedDate, setSelectedDate] = useState(initialDate);
+  const [batchFilter, setBatchFilter] = useState<number | ''>(initialBatchId ?? '');
   const [scheduleView, setScheduleView] = useState<ScheduleView>(focusWorkOrderNo ? 'order' : 'station');
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -531,15 +539,20 @@ export default function SchedulePage() {
   }, [setPageTitle]);
 
   useEffect(() => {
-    if (searchParams.get('date') === selectedDate) return;
     const next = new URLSearchParams(searchParams);
     next.set('date', selectedDate);
+    if (batchFilter === '') {
+      next.delete('batchId');
+    } else {
+      next.set('batchId', String(batchFilter));
+    }
+    if (next.toString() === searchParams.toString()) return;
     setSearchParams(next, { replace: true });
-  }, [selectedDate, searchParams, setSearchParams]);
+  }, [batchFilter, selectedDate, searchParams, setSearchParams]);
 
   useEffect(() => {
     setManualGenerate(false);
-  }, [selectedDate]);
+  }, [batchFilter, selectedDate]);
 
   const now = new Date();
   const isBeforeAutoWindow =
@@ -548,7 +561,8 @@ export default function SchedulePage() {
     !manualGenerate;
 
   const scheduleDate = isBeforeAutoWindow ? null : selectedDate;
-  const scheduleQuery = useSchedule(scheduleDate);
+  const normalizedBatchId = batchFilter === '' ? null : Number(batchFilter);
+  const scheduleQuery = useSchedule(scheduleDate, normalizedBatchId);
   const scheduleHistoryQuery = useScheduleHistory(14, historyOpen);
   const confirmMutation = useConfirmSchedule();
   const adjustMutation = useAdjustSchedule();
@@ -556,6 +570,7 @@ export default function SchedulePage() {
   const updateCalendarMutation = useUpdateWorkCalendarDay();
   const workersQuery = useProductionWorkers();
   const workstationsQuery = useProductionWorkstations();
+  const batchQuery = useProductionBatchList({}, 1, 100);
 
   const schedules = scheduleQuery.data?.schedules ?? EMPTY_SCHEDULES;
   const loadRate = parseLoadRate(scheduleQuery.data?.summary.capacityLoadRate);
@@ -670,8 +685,11 @@ export default function SchedulePage() {
 
   const handleRegenerate = async () => {
     try {
-      const nextResult = await productionApi.generateSchedule(selectedDate, true);
-      queryClient.setQueryData(productionKeys.schedule(selectedDate), nextResult);
+      const nextResult = await productionApi.generateSchedule(selectedDate, true, normalizedBatchId ?? undefined);
+      queryClient.setQueryData(
+        productionKeys.schedule({ date: selectedDate, batchId: normalizedBatchId }),
+        nextResult,
+      );
       closeAdjustModal();
       showToast({ type: 'success', message: '已重新生成当日排产方案' });
     } catch {
@@ -703,7 +721,7 @@ export default function SchedulePage() {
         ],
       });
       queryClient.setQueryData<ScheduleResult | undefined>(
-        productionKeys.schedule(selectedDate),
+        productionKeys.schedule({ date: selectedDate, batchId: normalizedBatchId }),
         (current) =>
           patchAdjustedScheduleResult(
             current,
@@ -717,7 +735,9 @@ export default function SchedulePage() {
       closeAdjustModal();
     } catch (error) {
       if (error instanceof ApiError && error.code === ApiCode.CONFLICT) {
-        await queryClient.invalidateQueries({ queryKey: productionKeys.schedule(selectedDate) });
+        await queryClient.invalidateQueries({
+          queryKey: productionKeys.schedule({ date: selectedDate, batchId: normalizedBatchId }),
+        });
         closeAdjustModal();
         showToast({ type: 'warning', message: error.message || '排产已被他人修改，已刷新后请重试' });
         return;
@@ -744,7 +764,9 @@ export default function SchedulePage() {
       showToast({ type: 'success', message: '生产日历已更新' });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: productionKeys.workCalendar(calendarYear, calendarMonth) }),
-        queryClient.invalidateQueries({ queryKey: productionKeys.schedule(selectedDate) }),
+        queryClient.invalidateQueries({
+          queryKey: productionKeys.schedule({ date: selectedDate, batchId: normalizedBatchId }),
+        }),
       ]);
     } catch (error) {
       showToast({
@@ -756,7 +778,10 @@ export default function SchedulePage() {
 
   const handleConfirmSchedule = async () => {
     try {
-      await confirmMutation.mutateAsync(selectedDate);
+      await confirmMutation.mutateAsync({
+        date: selectedDate,
+        batchId: normalizedBatchId ?? undefined,
+      });
       showToast({
         type: 'success',
         message: `计划已下发，${confirmationStats.workerCount} 名工人将收到今日任务`,
@@ -794,7 +819,15 @@ export default function SchedulePage() {
       <div className={styles.page}>
         <PageHeader
           selectedDate={selectedDate}
+          batchFilter={batchFilter}
+          batchOptions={batchQuery.data?.list ?? []}
           onDateChange={handleDateChange}
+          onBatchChange={(value) => {
+            startTransition(() => {
+              setBatchFilter(value);
+              closeAdjustModal();
+            });
+          }}
           onJumpToday={() => handleDateChange(today)}
           onJumpNextWorkday={() => handleDateChange(getNextWorkdayFromCalendar(selectedDate, calendarQuery.data))}
           onRefresh={() => setManualGenerate(true)}
@@ -819,7 +852,15 @@ export default function SchedulePage() {
     <div className={`${styles.page} ${canAdjust ? styles['page--has-action-bar'] : ''}`}>
       <PageHeader
         selectedDate={selectedDate}
+        batchFilter={batchFilter}
+        batchOptions={batchQuery.data?.list ?? []}
         onDateChange={handleDateChange}
+        onBatchChange={(value) => {
+          startTransition(() => {
+            setBatchFilter(value);
+            closeAdjustModal();
+          });
+        }}
         onJumpToday={() => handleDateChange(today)}
         onJumpNextWorkday={() => handleDateChange(getNextWorkdayFromCalendar(selectedDate, calendarQuery.data))}
         onRefresh={() => void handleRegenerate()}
@@ -860,6 +901,7 @@ export default function SchedulePage() {
             confirmed={confirmed}
             confirmedAt={confirmedAt}
             focusWorkOrderNo={focusWorkOrderNo}
+            batchNo={normalizedBatchId ? batchQuery.data?.list?.find((batch) => batch.id === normalizedBatchId)?.batchNo ?? `#${normalizedBatchId}` : null}
           />
 
           <StatsGrid
@@ -1044,7 +1086,10 @@ function ScheduleHistoryModal(props: {
 
 function PageHeader(props: {
   selectedDate: string;
+  batchFilter: number | '';
+  batchOptions: Array<{ id: number; batchNo: string; name?: string | null }>;
   onDateChange: (value: string) => void;
+  onBatchChange: (value: number | '') => void;
   onJumpToday: () => void;
   onJumpNextWorkday: () => void;
   onRefresh: () => void;
@@ -1064,6 +1109,20 @@ function PageHeader(props: {
           <span>排产日期</span>
           <input type="date" value={props.selectedDate} onChange={(event) => props.onDateChange(event.target.value)} />
         </div>
+        <div className={styles.date_control}>
+          <span>联合批次</span>
+          <select
+            value={props.batchFilter === '' ? '' : String(props.batchFilter)}
+            onChange={(event) => props.onBatchChange(event.target.value ? Number(event.target.value) : '')}
+          >
+            <option value="">全部工单</option>
+            {props.batchOptions.map((batch) => (
+              <option key={batch.id} value={batch.id}>
+                {batch.batchNo}{batch.name ? ` · ${batch.name}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
         <Button variant="ghost" onClick={props.onJumpToday}>今天</Button>
         <Button variant="ghost" onClick={props.onJumpNextWorkday}>下一工作日</Button>
         {props.canManageCalendar && <Button variant="ghost" onClick={props.onOpenCalendar}>生产日历</Button>}
@@ -1082,6 +1141,7 @@ function StatusBar(props: {
   confirmed: boolean;
   confirmedAt: string | null;
   focusWorkOrderNo: string;
+  batchNo?: string | null;
 }) {
   return (
     <div className={styles.status_bar}>
@@ -1095,6 +1155,9 @@ function StatusBar(props: {
       </div>
       {props.focusWorkOrderNo ? (
         <Tag variant="info">当前聚焦 {props.focusWorkOrderNo}</Tag>
+      ) : null}
+      {props.batchNo ? (
+        <Tag variant="info">联合批次 {props.batchNo}</Tag>
       ) : null}
       <Tag variant={props.confirmed ? 'success' : 'warning'}>
         {props.confirmed ? `已下发${props.confirmedAt ? ` · ${props.confirmedAt}` : ''}` : '待主管确认'}
@@ -1267,6 +1330,7 @@ function OrderView(props: {
           <header className={styles.order_card_header}>
             <div>
               <strong>{card.workOrderNo}</strong>
+              {card.batchNo ? <p>联合批次 {card.batchNo}</p> : null}
               <p>{getOrderRiskLabel(card.risk)}</p>
             </div>
             <Tag variant={card.risk === 'danger' ? 'error' : card.risk === 'warning' ? 'warning' : 'success'}>
@@ -1338,6 +1402,7 @@ function WorkerView({ cards, onTaskClick }: { cards: WorkerCard[]; onTaskClick: 
                 >
                   <div>
                     <strong>{task.workOrderNo}</strong>
+                    {task.batchNo ? <span>联合批次 {task.batchNo}</span> : null}
                     <span>{task.stepName} · {task.outputSkuName}</span>
                     <span>{task.stationName}</span>
                   </div>

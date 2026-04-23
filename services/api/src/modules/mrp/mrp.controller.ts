@@ -13,6 +13,7 @@ const ProductionOrderIdParamSchema = z.object({
 const GlobalShortageSummaryQuerySchema = PaginationSchema.extend({
   status: z.string().optional(),
   skuId: z.coerce.number().int().positive().optional(),
+  batchId: z.coerce.number().int().positive().optional(),
   warehouseId: z.coerce.number().int().positive().optional(),
   locationId: z.coerce.number().int().positive().optional(),
   onlyDefaultLocation: z
@@ -23,6 +24,7 @@ const GlobalShortageSummaryQuerySchema = PaginationSchema.extend({
 
 const GenerateSuggestionsBodySchema = z.object({
   productionOrderId: z.number().int().positive('工单ID必须为正整数').optional(),
+  batchId: z.number().int().positive('联合生产批次ID必须为正整数').optional(),
 });
 
 const ReevaluateBodySchema = z.object({
@@ -55,6 +57,7 @@ export class MrpController {
     const { list, total } = await this.svc(req).getGlobalShortageSummary({
       status: q.status,
       skuId: q.skuId,
+      batchId: q.batchId,
       warehouseId: q.warehouseId,
       locationId: q.locationId,
       onlyDefaultLocation: q.onlyDefaultLocation,
@@ -70,8 +73,8 @@ export class MrpController {
    * Body: { productionOrderId?: number }
    */
   async generateSuggestions(req: Request, res: Response): Promise<void> {
-    const { productionOrderId } = GenerateSuggestionsBodySchema.parse(req.body);
-    const result = await this.svc(req).generateSuggestions(productionOrderId);
+    const { productionOrderId, batchId } = GenerateSuggestionsBodySchema.parse(req.body);
+    const result = await this.svc(req).generateSuggestions(productionOrderId, undefined, { batchId });
     success(
       res,
       result,

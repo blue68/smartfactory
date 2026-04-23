@@ -7,6 +7,7 @@ import Table from '@/components/common/Table';
 import type { Column } from '@/components/common/Table';
 import { ACTION_CODES } from '@/constants/accessControl';
 import { usePermission } from '@/hooks/usePermission';
+import { useAppStore } from '@/stores/appStore';
 import {
   useSalesOrderList,
   useSalesOrder,
@@ -25,6 +26,15 @@ import {
   checkInventory,
   checkSalesOrderCapacity,
 } from '@/api/salesOrder';
+import {
+  useProductionBatchList,
+  useProductionBatchDetail,
+  useCreateProductionBatch,
+  useConfirmProductionBatch,
+  type ProductionBatchMode,
+  type ProductionBatchStatus,
+  type ProductionBatchListItem,
+} from '@/api/production';
 import type {
   SalesOrder,
   SalesOrderItem,
@@ -64,6 +74,19 @@ const STATUS_OPTIONS: { value: SalesOrderStatus | ''; label: string }[] = [
   { value: 'completed', label: '已完成' },
   { value: 'closed', label: '已关闭' },
 ];
+
+const BATCH_MODE_LABELS: Record<ProductionBatchMode, string> = {
+  priority_sequential: '按优先级逐单生产',
+  compatible_merge: '兼容项合并生产',
+};
+
+const BATCH_STATUS_LABELS: Record<string, string> = {
+  draft: '草稿',
+  confirmed: '已确认',
+  released: '已释放',
+  cancelled: '已取消',
+  closed: '已关闭',
+};
 
 // ---------------------------------------------------------------------------
 // BD-003 permission hooks
@@ -202,6 +225,7 @@ function PendingApprovalsBanner({ count }: PendingApprovalsBannerProps) {
 
 interface DraftLineItem {
   skuId: number | '';
+  skuSearch: string;
   productCode: string;
   productName: string;
   quantity: number;
@@ -210,7 +234,7 @@ interface DraftLineItem {
 }
 
 function emptyLineItem(): DraftLineItem {
-  return { skuId: '', productCode: '', productName: '', quantity: 1, unit: '件', unitPrice: 0 };
+  return { skuId: '', skuSearch: '', productCode: '', productName: '', quantity: 1, unit: '件', unitPrice: 0 };
 }
 
 function getVisibleSkuCode(sku: { skuCode: string; customerSkuCode?: string | null }): string {
@@ -219,6 +243,118 @@ function getVisibleSkuCode(sku: { skuCode: string; customerSkuCode?: string | nu
 
 function getVisibleSkuName(sku: { name: string; customerSkuName?: string | null }): string {
   return sku.customerSkuName ?? sku.name;
+}
+
+function getSkuSearchLabel(sku: {
+  skuCode: string;
+  name: string;
+  customerSkuCode?: string | null;
+  customerSkuName?: string | null;
+}): string {
+  return `${getVisibleSkuCode(sku)} · ${getVisibleSkuName(sku)}`;
+}
+
+interface SearchableSkuCellSelectProps {
+  inputId?: string;
+  value: string;
+  options: Array<{
+    id: number;
+    skuCode: string;
+    name: string;
+    customerSkuCode?: string | null;
+    customerSkuName?: string | null;
+  }>;
+  disabled?: boolean;
+  placeholder: string;
+  onInputChange: (value: string) => void;
+  onSelect: (sku: {
+    id: number;
+    skuCode: string;
+    name: string;
+    customerSkuCode?: string | null;
+    customerSkuName?: string | null;
+    stockUnit?: string | null;
+  }) => void;
+}
+
+function SearchableSkuCellSelect({
+  inputId,
+  value,
+  options,
+  disabled = false,
+  placeholder,
+  onInputChange,
+  onSelect,
+}: SearchableSkuCellSelectProps) {
+  const [open, setOpen] = useState(false);
+  const keyword = value.trim().toLowerCase();
+
+  const filteredOptions = useMemo(() => {
+    const list = keyword
+      ? options.filter((sku) => {
+          const haystack = `${getVisibleSkuCode(sku)} ${getVisibleSkuName(sku)} ${sku.skuCode} ${sku.name}`.toLowerCase();
+          return haystack.includes(keyword);
+        })
+      : options;
+    return list.slice(0, 12);
+  }, [keyword, options]);
+
+  return (
+    <div className={styles.skuSearchWrap}>
+      <input
+        id={inputId}
+        className={styles.cellInput}
+        type="text"
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={inputId ? `${inputId}-listbox` : undefined}
+        aria-autocomplete="list"
+        autoComplete="off"
+        disabled={disabled}
+        value={value}
+        placeholder={placeholder}
+        onFocus={() => setOpen(true)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+        onChange={(event) => {
+          onInputChange(event.target.value);
+          setOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
+      />
+
+      {open && !disabled && (
+        <div
+          className={styles.skuSearchDropdown}
+          id={inputId ? `${inputId}-listbox` : undefined}
+          role="listbox"
+          aria-label="SKU 候选列表"
+        >
+          {filteredOptions.length === 0 && (
+            <div className={styles.skuSearchEmpty}>未找到匹配 SKU</div>
+          )}
+          {filteredOptions.map((sku) => (
+            <button
+              key={sku.id}
+              type="button"
+              className={styles.skuSearchOption}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                onSelect(sku);
+                setOpen(false);
+              }}
+            >
+              <span className={styles.skuSearchOptionCode}>{getVisibleSkuCode(sku)}</span>
+              <span className={styles.skuSearchOptionName}>{getVisibleSkuName(sku)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function buildAssessmentLinesFromDraftItems(items: DraftLineItem[]): AssessmentLineInput[] {
@@ -565,6 +701,7 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
     if (orderItems.length === 0) return [emptyLineItem()];
     return orderItems.map((item) => ({
       skuId: item.productId && Number(item.productId) > 0 ? Number(item.productId) : '',
+      skuSearch: item.productCode ?? '',
       productCode: item.productCode ?? '',
       productName: item.productName ?? '',
       quantity: Number(item.qtyOrdered ?? item.quantity ?? 1) || 1,
@@ -636,12 +773,14 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
 
         const nextItem = {
           ...item,
+          skuSearch: item.skuSearch || getVisibleSkuCode(selectedSku),
           productCode: item.productCode || selectedSku.skuCode,
           productName: item.productName || selectedSku.name,
           unit: item.unit || selectedSku.stockUnit || '件',
         };
 
         if (
+          nextItem.skuSearch !== item.skuSearch ||
           nextItem.productCode !== item.productCode ||
           nextItem.productName !== item.productName ||
           nextItem.unit !== item.unit
@@ -668,6 +807,7 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
       }
       return {
         ...item,
+        skuSearch: getVisibleSkuCode(selectedSku),
         productCode: getVisibleSkuCode(selectedSku),
         productName: getVisibleSkuName(selectedSku),
         unit: selectedSku.stockUnit || item.unit || '件',
@@ -725,6 +865,7 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
       next[idx] = {
         ...next[idx],
         skuId,
+        skuSearch: selectedSku ? getVisibleSkuCode(selectedSku) : '',
         productCode: selectedSku ? getVisibleSkuCode(selectedSku) : '',
         productName: selectedSku ? getVisibleSkuName(selectedSku) : '',
         unit: selectedSku?.stockUnit ?? next[idx].unit,
@@ -801,7 +942,14 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
   );
 
   return (
-    <Modal open={open} onClose={handleClose} title={isEdit ? '编辑销售订单' : '新建销售订单'} size="lg" hideFooter>
+    <Modal
+      open={open}
+      onClose={handleClose}
+      title={isEdit ? '编辑销售订单' : '新建销售订单'}
+      size="xxl"
+      hideFooter
+      bodyOverflow="visible"
+    >
       <div className={styles.formGrid}>
         <div className={styles.formGroup}>
           <label className={styles.formLabel}>客户 *</label>
@@ -866,100 +1014,108 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
         </div>
 
         <div className={styles.itemsTableWrapper}>
-          <table className={styles.itemsTable}>
-            <thead>
-              <tr>
-                <th>产品 SKU</th>
-                <th>产品名称</th>
-                <th>数量</th>
-                <th>单位</th>
-                <th>单价(元)</th>
-                <th>小计(元)</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item, idx) => (
-                <tr key={idx}>
-                  <td>
-                    <select
-                      className={styles.cellInput}
-                      value={item.skuId}
-                      onChange={(e) => handleSkuChange(idx, e.target.value)}
-                      disabled={!customerId}
-                    >
-                      <option value="">{customerId ? '请选择 SKU' : '请先选择客户'}</option>
-                      {skuOptions.map((sku) => (
-                        <option key={sku.id} value={sku.id}>
-                          {getVisibleSkuCode(sku)} · {getVisibleSkuName(sku)}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      className={styles.cellInput}
-                      value={item.productName}
-                      readOnly
-                      placeholder="选择 SKU 后自动带出"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      min={1}
-                      className={`${styles.cellInput} ${styles.cellInputNarrow}`}
-                      value={item.quantity}
-                      onChange={(e) =>
-                        updateItem(idx, 'quantity', Number(e.target.value))
-                      }
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className={`${styles.cellInput} ${styles.cellInputNarrow}`}
-                      value={item.unit}
-                      readOnly
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      className={`${styles.cellInput} ${styles.cellInputNarrow}`}
-                      value={item.unitPrice}
-                      onChange={(e) =>
-                        updateItem(idx, 'unitPrice', Number(e.target.value))
-                      }
-                    />
-                  </td>
-                  <td className={styles.cellAmount}>
-                    {(item.quantity * item.unitPrice).toFixed(2)}
-                  </td>
-                  <td>
-                    <button
-                      className={styles.removeBtn}
-                      onClick={() => removeItem(idx)}
-                      disabled={items.length === 1}
-                      title="删除行"
-                    >
-                      ×
-                    </button>
-                  </td>
+          <div className={styles.itemsTableScroll}>
+            <table className={styles.itemsTable}>
+              <thead>
+                <tr>
+                  <th>产品 SKU</th>
+                  <th>产品名称</th>
+                  <th>数量</th>
+                  <th>单位</th>
+                  <th>单价(元)</th>
+                  <th>小计(元)</th>
+                  <th>操作</th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={5} className={styles.totalLabel}>合计</td>
-                <td className={styles.totalAmount}>
-                  {totalAmount.toFixed(2)}
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
+              </thead>
+              <tbody>
+                {items.map((item, idx) => (
+                  <tr key={idx}>
+                    <td>
+                      <SearchableSkuCellSelect
+                        inputId={`order-modal-sku-${idx}`}
+                        value={item.skuSearch}
+                        options={skuOptions}
+                        disabled={!customerId}
+                        placeholder={customerId ? '搜索 SKU 编码或名称' : '请先选择客户'}
+                        onInputChange={(value) => {
+                          setItems((prev) => prev.map((line, lineIdx) => (
+                            lineIdx === idx
+                              ? {
+                                  ...line,
+                                  skuSearch: value,
+                                  ...(value.trim() ? {} : { skuId: '', productCode: '', productName: '', unit: '件' }),
+                                }
+                              : line
+                          )));
+                        }}
+                        onSelect={(sku) => handleSkuChange(idx, String(sku.id))}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className={styles.cellInput}
+                        value={item.productName}
+                        readOnly
+                        placeholder="选择 SKU 后自动带出"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min={1}
+                        className={`${styles.cellInput} ${styles.cellInputNarrow}`}
+                        value={item.quantity}
+                        onChange={(e) =>
+                          updateItem(idx, 'quantity', Number(e.target.value))
+                        }
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className={`${styles.cellInput} ${styles.cellInputNarrow}`}
+                        value={item.unit}
+                        readOnly
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        className={`${styles.cellInput} ${styles.cellInputNarrow}`}
+                        value={item.unitPrice}
+                        onChange={(e) =>
+                          updateItem(idx, 'unitPrice', Number(e.target.value))
+                        }
+                      />
+                    </td>
+                    <td className={styles.cellAmount}>
+                      {(item.quantity * item.unitPrice).toFixed(2)}
+                    </td>
+                    <td>
+                      <button
+                        className={styles.removeBtn}
+                        onClick={() => removeItem(idx)}
+                        disabled={items.length === 1}
+                        title="删除行"
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={5} className={styles.totalLabel}>合计</td>
+                  <td className={styles.totalAmount}>
+                    {totalAmount.toFixed(2)}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -1051,6 +1207,367 @@ function RejectModal({ open, onClose, onConfirm }: RejectModalProps) {
         <Button variant="danger" onClick={handleConfirm} loading={submitting}>
           确认拒绝
         </Button>
+      </div>
+    </Modal>
+  );
+}
+
+function isOrderBatchEligible(order: SalesOrder): boolean {
+  return order.status === 'confirmed' || order.status === 'in_production';
+}
+
+function formatBatchStatus(status: string): string {
+  return BATCH_STATUS_LABELS[status] ?? status;
+}
+
+interface CreateBatchModalProps {
+  open: boolean;
+  selectedOrders: SalesOrder[];
+  onClose: () => void;
+  onSuccess: (batchId: number) => void;
+}
+
+function CreateBatchModal({ open, selectedOrders, onClose, onSuccess }: CreateBatchModalProps) {
+  const [mode, setMode] = useState<ProductionBatchMode>('priority_sequential');
+  const [name, setName] = useState('');
+  const [notes, setNotes] = useState('');
+  const [error, setError] = useState('');
+  const { showToast } = useAppStore();
+  const createBatch = useCreateProductionBatch();
+
+  useEffect(() => {
+    if (!open) {
+      setMode('priority_sequential');
+      setName('');
+      setNotes('');
+      setError('');
+    }
+  }, [open]);
+
+  const handleSubmit = async () => {
+    if (selectedOrders.length === 0) {
+      setError('请先至少选择 1 个可纳入联合生产的订单');
+      return;
+    }
+    try {
+      const result = await createBatch.mutateAsync({
+        mode,
+        salesOrderIds: selectedOrders.map((order) => order.id),
+        name: name.trim() || undefined,
+        notes: notes.trim() || undefined,
+      });
+      showToast({
+        type: 'success',
+        message: `联合生产批次 ${result.batchNo} 已创建`,
+      });
+      onSuccess(result.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '创建联合生产批次失败');
+    }
+  };
+
+  const totalAmount = selectedOrders.reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="创建联合生产批次"
+      size="xxl"
+      hideFooter
+      bodyOverflow="visible"
+    >
+      <div className={styles.batchCreateLayout}>
+        <div className={styles.batchCreateForm}>
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>批次模式</label>
+            <select
+              className={styles.select}
+              value={mode}
+              onChange={(event) => setMode(event.target.value as ProductionBatchMode)}
+            >
+              {Object.entries(BATCH_MODE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>批次名称</label>
+            <input
+              className={styles.searchInput}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="可选，便于生产和采购协同识别"
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>批次说明</label>
+            <textarea
+              className={styles.textarea}
+              rows={4}
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="可填写货柜、客户承诺、并单规则等说明"
+            />
+          </div>
+
+          <div className={styles.batchModeHint}>
+            <strong>{BATCH_MODE_LABELS[mode]}</strong>
+            <span>
+              {mode === 'priority_sequential'
+                ? '系统会保留订单优先级和顺序，逐单释放到生产执行层。'
+                : '系统会按兼容的 SKU / BOM / 工艺组合归并规划项，便于联合备料和采购。'}
+            </span>
+          </div>
+        </div>
+
+        <div className={styles.batchCreateSummary}>
+          <div className={styles.batchSummaryHeader}>
+            <div>
+              <div className={styles.batchSummaryTitle}>已选订单</div>
+              <div className={styles.batchSummaryMeta}>
+                {selectedOrders.length} 个订单 · ¥{totalAmount.toFixed(2)}
+              </div>
+            </div>
+            <span className={styles.batchSummaryBadge}>待建批次</span>
+          </div>
+
+          <div className={styles.batchSelectedList}>
+            {selectedOrders.map((order) => (
+              <div key={order.id} className={styles.batchSelectedItem}>
+                <div className={styles.batchSelectedTop}>
+                  <strong>{order.orderNo}</strong>
+                  <StatusBadge status={order.status} />
+                </div>
+                <div className={styles.batchSelectedMeta}>
+                  <span>{order.customerName}</span>
+                  <span>交期 {String(order.deliveryDate).slice(0, 10)}</span>
+                  <span>{order.items?.length ?? 0} 个 SKU</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {error && <div className={styles.formError}>{error}</div>}
+
+      <div className={styles.modalFooter}>
+        <Button variant="secondary" onClick={onClose} disabled={createBatch.isPending}>
+          取消
+        </Button>
+        <Button variant="primary" onClick={handleSubmit} loading={createBatch.isPending}>
+          创建联合批次
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+interface BatchCenterModalProps {
+  open: boolean;
+  initialBatchId: number | null;
+  onClose: () => void;
+}
+
+function BatchCenterModal({ open, initialBatchId, onClose }: BatchCenterModalProps) {
+  const [keyword, setKeyword] = useState('');
+  const [status, setStatus] = useState('');
+  const [activeBatchId, setActiveBatchId] = useState<number | null>(initialBatchId);
+  const { showToast } = useAppStore();
+  const { data: batchPage, isLoading } = useProductionBatchList(
+    open ? { keyword: keyword.trim() || undefined, status: status || undefined } : {},
+    1,
+    50,
+  );
+  const batchList = batchPage?.list ?? [];
+  const { data: detail, isLoading: detailLoading } = useProductionBatchDetail(open ? activeBatchId : null);
+  const confirmBatch = useConfirmProductionBatch();
+
+  useEffect(() => {
+    if (!open) return;
+    if (initialBatchId) {
+      setActiveBatchId(initialBatchId);
+      return;
+    }
+    if (!activeBatchId && batchList.length > 0) {
+      setActiveBatchId(batchList[0]?.id ?? null);
+    }
+  }, [open, initialBatchId, activeBatchId, batchList]);
+
+  const handleConfirm = async () => {
+    if (!activeBatchId) return;
+    try {
+      const result = await confirmBatch.mutateAsync(activeBatchId);
+      showToast({
+        type: 'success',
+        message: `批次已确认，生成 ${result.createdProductionOrderIds.length} 张工单`,
+      });
+    } catch (err) {
+      showToast({
+        type: 'error',
+        message: err instanceof Error ? err.message : '批次确认失败',
+      });
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="联合生产批次中心"
+      size="xxl"
+      hideFooter
+      bodyOverflow="visible"
+    >
+      <div className={styles.batchCenterLayout}>
+        <div className={styles.batchCenterSidebar}>
+          <div className={styles.batchCenterFilters}>
+            <input
+              className={styles.searchInput}
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              placeholder="搜索批次号 / 名称"
+            />
+            <select
+              className={styles.select}
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+            >
+              <option value="">全部状态</option>
+              <option value="draft">草稿</option>
+              <option value="confirmed">已确认</option>
+              <option value="released">已释放</option>
+              <option value="closed">已关闭</option>
+            </select>
+          </div>
+
+          <div className={styles.batchList}>
+            {isLoading && <div className={styles.batchEmpty}>联合批次加载中…</div>}
+            {!isLoading && batchList.length === 0 && <div className={styles.batchEmpty}>暂无联合生产批次</div>}
+            {batchList.map((batch) => {
+              const isActive = batch.id === activeBatchId;
+              return (
+                <button
+                  key={batch.id}
+                  type="button"
+                  className={`${styles.batchListItem} ${isActive ? styles.batchListItemActive : ''}`}
+                  onClick={() => setActiveBatchId(batch.id)}
+                >
+                  <div className={styles.batchListItemTop}>
+                    <strong>{batch.batchNo}</strong>
+                    <span className={styles.batchListStatus}>{formatBatchStatus(batch.status)}</span>
+                  </div>
+                  <div className={styles.batchListItemTitle}>{batch.name || '未命名批次'}</div>
+                  <div className={styles.batchListItemMeta}>
+                    <span>{BATCH_MODE_LABELS[batch.mode as ProductionBatchMode] ?? batch.mode}</span>
+                    <span>{batch.orderCount} 单</span>
+                    <span>{batch.linkedProductionOrderCount} 张工单</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className={styles.batchCenterDetail}>
+          {!activeBatchId && <div className={styles.batchEmpty}>请选择左侧批次查看详情</div>}
+
+          {activeBatchId && detailLoading && <div className={styles.batchEmpty}>批次详情加载中…</div>}
+
+          {detail && (
+            <>
+              <div className={styles.batchDetailHeader}>
+                <div>
+                  <div className={styles.batchDetailNo}>{detail.header.batchNo}</div>
+                  <div className={styles.batchDetailTitle}>{detail.header.name || '未命名批次'}</div>
+                  <div className={styles.batchDetailMeta}>
+                    <span>{BATCH_MODE_LABELS[detail.header.mode] ?? detail.header.mode}</span>
+                    <span>{formatBatchStatus(detail.header.status)}</span>
+                    <span>{detail.header.orderCount} 单</span>
+                    <span>{detail.header.itemCount} 条规划项</span>
+                    <span>总计划量 {detail.header.totalPlannedQty}</span>
+                  </div>
+                </div>
+                {detail.header.status === 'draft' && (
+                  <Button
+                    variant="primary"
+                    onClick={handleConfirm}
+                    loading={confirmBatch.isPending}
+                  >
+                    确认批次并生成工单
+                  </Button>
+                )}
+              </div>
+
+              {detail.header.notes && (
+                <div className={styles.batchDetailNotes}>{detail.header.notes}</div>
+              )}
+
+              <div className={styles.batchDetailSection}>
+                <div className={styles.batchDetailSectionTitle}>订单范围</div>
+                <div className={styles.batchDetailGrid}>
+                  {detail.orders.map((order) => (
+                    <div key={order.id} className={styles.batchDetailCard}>
+                      <strong>{order.salesOrderNo}</strong>
+                      <span>{order.customerName}</span>
+                      <span>优先级 {order.priority}</span>
+                      <span>交期 {order.expectedDelivery || '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className={styles.batchDetailSection}>
+                <div className={styles.batchDetailSectionTitle}>批次规划项</div>
+                <div className={styles.batchDetailTableWrap}>
+                  <table className={styles.batchDetailTable}>
+                    <thead>
+                      <tr>
+                        <th>顺序</th>
+                        <th>订单</th>
+                        <th>SKU</th>
+                        <th>计划量</th>
+                        <th>兼并键</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.items.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.sequenceNo}</td>
+                          <td>{detail.orders.find((order) => order.salesOrderId === item.salesOrderId)?.salesOrderNo ?? item.salesOrderId}</td>
+                          <td>{item.skuCode} · {item.skuName}</td>
+                          <td>{item.qtyPlanned}</td>
+                          <td>{item.mergeGroupKey || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className={styles.batchDetailSection}>
+                <div className={styles.batchDetailSectionTitle}>已关联生产工单</div>
+                {detail.linkedProductionOrders.length === 0 ? (
+                  <div className={styles.batchEmptyInline}>当前批次尚未生成执行工单</div>
+                ) : (
+                  <div className={styles.batchDetailGrid}>
+                    {detail.linkedProductionOrders.map((workOrder) => (
+                      <div key={workOrder.id} className={styles.batchDetailCard}>
+                        <strong>{workOrder.workOrderNo}</strong>
+                        <span>{workOrder.skuName}</span>
+                        <span>{workOrder.status}</span>
+                        <span>完成 {workOrder.qtyCompleted} / {workOrder.qtyPlanned}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </Modal>
   );
@@ -1739,11 +2256,16 @@ export default function SalesOrderListPage() {
   const [searchInput, setSearchInput] = useState('');
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createBatchModalOpen, setCreateBatchModalOpen] = useState(false);
+  const [batchCenterOpen, setBatchCenterOpen] = useState(false);
+  const [activeBatchId, setActiveBatchId] = useState<number | null>(null);
   const [editingOrder, setEditingOrder] = useState<SalesOrder | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [selectedBatchOrderIds, setSelectedBatchOrderIds] = useState<number[]>([]);
 
   const isAdmin        = useIsAdmin();
   const canCreateOrder = useCanCreateOrder();
+  const { showToast } = useAppStore();
 
   const { data, isLoading: loading, error, refetch: refresh } = useSalesOrderList(query);
   const { data: orderStatsData } = useOrderStats();
@@ -1753,6 +2275,17 @@ export default function SalesOrderListPage() {
   const orders: SalesOrder[] = data?.list ?? [];
   const total: number = data?.total ?? 0;
   const totalPages = Math.ceil(total / (query.pageSize ?? 20));
+  const eligibleVisibleOrderIds = useMemo(
+    () => orders.filter(isOrderBatchEligible).map((order) => order.id),
+    [orders],
+  );
+  const selectedBatchOrders = useMemo(
+    () => orders.filter((order) => selectedBatchOrderIds.includes(order.id)),
+    [orders, selectedBatchOrderIds],
+  );
+  const allEligibleSelected =
+    eligibleVisibleOrderIds.length > 0 &&
+    eligibleVisibleOrderIds.every((id) => selectedBatchOrderIds.includes(id));
 
   // GAP-R08-07: debounce keyword search input by 300ms
   useEffect(() => {
@@ -1761,6 +2294,10 @@ export default function SalesOrderListPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    setSelectedBatchOrderIds((prev) => prev.filter((id) => orders.some((order) => order.id === id)));
+  }, [orders]);
 
   // Summary stats from dedicated aggregation API
   const statsTotal = orderStatsData?.total ?? data?.total ?? 0;
@@ -1786,8 +2323,49 @@ export default function SalesOrderListPage() {
     refresh();
   }, [refresh]);
 
+  const toggleBatchOrderSelection = useCallback((orderId: number) => {
+    setSelectedBatchOrderIds((prev) => (
+      prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId]
+    ));
+  }, []);
+
+  const toggleSelectAllEligibleOrders = useCallback(() => {
+    setSelectedBatchOrderIds((prev) => {
+      if (allEligibleSelected) {
+        return prev.filter((id) => !eligibleVisibleOrderIds.includes(id));
+      }
+      const merged = new Set([...prev, ...eligibleVisibleOrderIds]);
+      return [...merged];
+    });
+  }, [allEligibleSelected, eligibleVisibleOrderIds]);
+
   // Table columns
   const columns: Column<Record<string, unknown>>[] = [
+    {
+      key: 'batchSelect',
+      title: (
+        <input
+          type="checkbox"
+          aria-label="全选可建联合批次订单"
+          checked={allEligibleSelected}
+          onChange={toggleSelectAllEligibleOrders}
+          disabled={eligibleVisibleOrderIds.length === 0}
+        />
+      ),
+      render: (_, row) => {
+        const order = row as unknown as SalesOrder;
+        const eligible = isOrderBatchEligible(order);
+        return (
+          <input
+            type="checkbox"
+            aria-label={`选择订单 ${order.orderNo}`}
+            checked={selectedBatchOrderIds.includes(order.id)}
+            disabled={!eligible}
+            onChange={() => toggleBatchOrderSelection(order.id)}
+          />
+        );
+      },
+    },
     {
       key: 'orderNo',
       title: '订单号',
@@ -1849,11 +2427,29 @@ export default function SalesOrderListPage() {
       {/* Header */}
       <div className={styles.pageHeader}>
         <h1 className={styles.pageTitle}>销售订单管理</h1>
-        {canCreateOrder && (
-          <Button variant="primary" onClick={() => setCreateModalOpen(true)}>
-            + 新建订单
+        <div className={styles.pageActions}>
+          <Button variant="secondary" onClick={() => setBatchCenterOpen(true)}>
+            联合批次
           </Button>
-        )}
+          <Button
+            variant="secondary"
+            onClick={() => {
+              if (selectedBatchOrderIds.length === 0) {
+                showToast({ type: 'warning', message: '请先勾选至少 1 个已确认或生产中的订单' });
+                return;
+              }
+              setCreateBatchModalOpen(true);
+            }}
+          >
+            创建联合批次
+            {selectedBatchOrderIds.length > 0 ? ` (${selectedBatchOrderIds.length})` : ''}
+          </Button>
+          {canCreateOrder && (
+            <Button variant="primary" onClick={() => setCreateModalOpen(true)}>
+              + 新建订单
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Pending approvals banner — admin only */}
@@ -1910,6 +2506,18 @@ export default function SalesOrderListPage() {
           <option value="true">紧急</option>
           <option value="false">非紧急</option>
         </select>
+        {selectedBatchOrderIds.length > 0 && (
+          <div className={styles.batchSelectionHint}>
+            已选 {selectedBatchOrderIds.length} 个订单可建联合批次
+            <button
+              type="button"
+              className={styles.batchSelectionClear}
+              onClick={() => setSelectedBatchOrderIds([])}
+            >
+              清空
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -1957,6 +2565,28 @@ export default function SalesOrderListPage() {
         }}
         onSuccess={handleCreateSuccess}
         initialOrder={editingOrder}
+      />
+
+      <CreateBatchModal
+        open={createBatchModalOpen}
+        selectedOrders={selectedBatchOrders}
+        onClose={() => setCreateBatchModalOpen(false)}
+        onSuccess={(batchId) => {
+          setCreateBatchModalOpen(false);
+          setSelectedBatchOrderIds([]);
+          setActiveBatchId(batchId);
+          setBatchCenterOpen(true);
+          refresh();
+        }}
+      />
+
+      <BatchCenterModal
+        open={batchCenterOpen}
+        initialBatchId={activeBatchId}
+        onClose={() => {
+          setBatchCenterOpen(false);
+          setActiveBatchId(null);
+        }}
       />
 
       {/* Detail Drawer */}

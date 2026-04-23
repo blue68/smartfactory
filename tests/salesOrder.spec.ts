@@ -734,7 +734,8 @@ test.describe('销售订单管理冒烟', () => {
     await modal.locator('input[type="date"]').nth(0).fill('2026-03-24');
     await modal.locator('input[type="date"]').nth(1).fill('2026-03-31');
     await modal.locator('input[type="checkbox"]').setChecked(true, { force: true });
-    await modal.locator('select').nth(1).selectOption('903');
+    await modal.locator('#order-modal-sku-0').fill('休闲椅');
+    await modal.getByRole('button', { name: /FG-903/ }).click();
     await modal.locator('input[type="number"]').nth(0).fill('5');
     await modal.locator('input[type="number"]').nth(1).fill('700');
     await modal.locator('input[type="checkbox"]').setChecked(false, { force: true });
@@ -760,7 +761,8 @@ test.describe('销售订单管理冒烟', () => {
     await modal.locator('input[type="date"]').nth(0).fill('2026-03-24');
     await modal.locator('input[type="date"]').nth(1).fill('2026-04-02');
     await modal.locator('input[type="checkbox"]').setChecked(true, { force: true });
-    await modal.locator('select').nth(1).selectOption('901');
+    await modal.locator('#order-modal-sku-0').fill('功能沙发');
+    await modal.getByRole('button', { name: /FG-901/ }).click();
     await modal.locator('input[type="number"]').nth(0).fill('8');
     await modal.locator('input[type="number"]').nth(1).fill('680');
     await modal.getByRole('button', { name: '创建订单' }).click();
@@ -777,7 +779,8 @@ test.describe('销售订单管理冒烟', () => {
     await page.goto('/sales/orders');
 
     await page.locator('#customer').selectOption('12');
-    await page.locator('#product').selectOption('902');
+    await page.locator('#product-search-0').fill('餐椅');
+    await page.getByRole('button', { name: /餐椅B/ }).click();
     await page.locator('#qty').fill('6');
     await page.locator('#unitPrice').fill('420');
     await page.locator('#deadline').fill('2026-04-01');
@@ -795,9 +798,15 @@ test.describe('销售订单管理冒烟', () => {
     await page.goto('/sales/orders');
 
     await page.locator('#customer').selectOption('11');
-    await page.locator('#product').selectOption('901');
+    await page.locator('#product-search-0').fill('功能沙发');
+    await page.getByRole('button', { name: /功能沙发A/ }).click();
     await page.locator('#qty').fill('9');
     await page.locator('#unitPrice').fill('680');
+    await page.getByRole('button', { name: '+ 添加SKU' }).click();
+    await page.locator('#product-search-1').fill('休闲椅');
+    await page.getByRole('button', { name: /休闲椅C/ }).click();
+    await page.getByTestId('line-qty-1').fill('4');
+    await page.getByTestId('line-price-1').fill('760');
     await page.locator('#deadline').fill('2026-04-03');
     await page.locator('#notes').fill('常规订单自动确认');
     await page.getByRole('button', { name: '确认订单' }).click();
@@ -813,6 +822,7 @@ test.describe('销售订单管理冒烟', () => {
     await expect(drawer).toBeVisible();
     await expect(drawer.getByText('订单进度', { exact: true })).toBeVisible();
     await expect(drawer.getByText('已确认').first()).toBeVisible();
+    await expect(drawer.getByText('休闲椅C')).toBeVisible();
     await expect(drawer.getByRole('button', { name: '触发建工单' })).toBeVisible();
   });
 
@@ -827,7 +837,8 @@ test.describe('销售订单管理冒烟', () => {
 
     await page.locator('#customer').selectOption('13');
     await page.locator('label').filter({ hasText: '紧急插单' }).click();
-    await page.locator('#product').selectOption('903');
+    await page.locator('#product-search-0').fill('休闲椅');
+    await page.getByRole('button', { name: /休闲椅C/ }).click();
     await page.locator('#qty').fill('7');
     await page.locator('#unitPrice').fill('760');
     await page.locator('#deadline').fill('2026-03-29');

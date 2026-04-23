@@ -20,6 +20,7 @@ jest.mock('../../src/app', () => ({
 jest.mock('../../src/modules/purchase/purchaseSuggestion.controller', () => ({
   purchaseSuggestionController: {
     list: jest.fn(),
+    sources: jest.fn(),
     approve: jest.fn(),
     reject: jest.fn(),
     batchToPO: jest.fn(),
@@ -50,6 +51,7 @@ describe('purchaseSuggestion.routes wiring', () => {
 
   it('declares expected permission guards for purchase suggestion routes', () => {
     expect(getRouteGuard('/', 'get')?.requiredPermissions).toEqual(['purchase:suggestion:view']);
+    expect(getRouteGuard('/:id/sources', 'get')?.requiredPermissions).toEqual(['purchase:suggestion:view']);
     expect(getRouteGuard('/:id/approve', 'put')?.requiredPermissions).toEqual(['purchase:suggestion:approve']);
     expect(getRouteGuard('/:id/reject', 'put')?.requiredPermissions).toEqual(['purchase:suggestion:approve']);
     expect(getRouteGuard('/batch-to-po', 'post')?.requiredPermissions).toEqual(['purchase:order:create']);

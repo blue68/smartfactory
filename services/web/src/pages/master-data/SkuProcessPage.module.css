@@ -560,17 +560,20 @@
 
 .formInput {
   width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--sp-neutral-200);
-  border-radius: var(--sp-radius-sm);
+  min-height: var(--form-control-height);
+  padding: 0 var(--form-control-padding-x);
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
   font-size: 0.875rem;
-  color: var(--sp-neutral-800);
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
   box-sizing: border-box;
 }
 
-.formInput:focus { border-color: var(--sp-primary); }
+.formInput:focus { border-color: var(--form-control-border-focus); background: var(--form-control-bg-focus); box-shadow: var(--form-control-shadow-focus); }
 
 .skuPreview {
   display: flex;

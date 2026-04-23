@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { productionController } from './production.controller';
 import { productionOrderController } from './production-order.controller';
+import { productionBatchController } from './production-batch.controller';
 import { authMiddleware, requirePermissionsOrRoles } from '../../middleware/auth';
 import { asyncHandler } from '../../app';
 
@@ -44,6 +45,36 @@ router.delete('/workstations/:id',
 router.put('/schedule/:date/adjust',
   requirePermissionsOrRoles(['production:schedule:adjust'], 'supervisor', 'boss', 'admin'),
   asyncHandler(productionController.adjustSchedule.bind(productionController)),
+);
+
+// 联合生产批次
+router.get('/batches/eligible-sales-orders',
+  requirePermissionsOrRoles(['production:order:view'], 'supervisor', 'boss', 'admin'),
+  asyncHandler(productionBatchController.listEligibleSalesOrders.bind(productionBatchController)),
+);
+router.get('/batches',
+  requirePermissionsOrRoles(['production:order:view'], 'supervisor', 'boss', 'admin'),
+  asyncHandler(productionBatchController.listBatches.bind(productionBatchController)),
+);
+router.post('/batches',
+  requirePermissionsOrRoles(['production:order:create'], 'supervisor', 'boss', 'admin'),
+  asyncHandler(productionBatchController.createBatch.bind(productionBatchController)),
+);
+router.get('/batches/:id',
+  requirePermissionsOrRoles(['production:order:view'], 'supervisor', 'boss', 'admin'),
+  asyncHandler(productionBatchController.getBatchDetail.bind(productionBatchController)),
+);
+router.post('/batches/:id/confirm',
+  requirePermissionsOrRoles(['production:order:create'], 'supervisor', 'boss', 'admin'),
+  asyncHandler(productionBatchController.confirmBatch.bind(productionBatchController)),
+);
+router.get('/batches/:id/shortages',
+  requirePermissionsOrRoles(['production:shortage:view'], 'supervisor', 'boss', 'purchase', 'purchaser', 'admin'),
+  asyncHandler(productionBatchController.getBatchShortages.bind(productionBatchController)),
+);
+router.post('/batches/:id/purchase-suggestions/generate',
+  requirePermissionsOrRoles(['purchase:suggestion:generate'], 'purchase', 'purchaser', 'supervisor', 'boss', 'admin'),
+  asyncHandler(productionBatchController.generateBatchPurchaseSuggestions.bind(productionBatchController)),
 );
 
 // 生产工单

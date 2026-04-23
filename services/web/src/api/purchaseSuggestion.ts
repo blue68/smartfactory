@@ -12,6 +12,7 @@ import type { PaginatedData } from '@/types/api';
 
 export type PurchaseSuggestionSource =
   | 'production_shortage'
+  | 'production_batch_shortage'
   | 'manual'
   | 'ai_schedule'
   | 'outsource_operation';
@@ -42,10 +43,31 @@ export interface PurchaseSuggestion {
   confidence?: string | null;
   approved_by: number | null;
   approved_at: string | null;
+  production_batch_id?: number | null;
+  batchNo?: string | null;
+  affectedOrderCount?: number;
   reject_reason?: string | null;
   created_at?: string;
   work_order_no?: string | null;
   [key: string]: unknown;
+}
+
+export interface PurchaseSuggestionSourceRecord {
+  id: number;
+  sourceType: 'material_requirement' | 'production_order' | 'batch_item' | 'sales_order_item';
+  sourceId: number;
+  batchId: number | null;
+  batchNo: string | null;
+  productionOrderId: number | null;
+  workOrderNo: string | null;
+  salesOrderId: number | null;
+  salesOrderNo: string | null;
+  salesOrderItemId: number | null;
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  requiredQty: string;
+  shortageQty: string;
 }
 
 export interface ApproveSuggestionV2Payload {
@@ -67,6 +89,7 @@ export interface PurchaseSuggestionListParams {
   source?: PurchaseSuggestionSource;
   status?: PurchaseSuggestionStatus;
   skuId?: number;
+  productionBatchId?: number;
   page?: number;
   pageSize?: number;
 }
@@ -89,6 +112,8 @@ export const purchaseSuggestionKeys = {
     [...purchaseSuggestionKeys.all, 'list', params] as const,
   detail: (id: number) =>
     [...purchaseSuggestionKeys.all, 'detail', id] as const,
+  sources: (id: number) =>
+    [...purchaseSuggestionKeys.all, 'sources', id] as const,
 };
 
 // ── API Functions ──────────────────────────────────────────────────────────────
@@ -106,6 +131,9 @@ export const purchaseSuggestionApi = {
   reject: (id: number, data: RejectSuggestionPayload) =>
     request.put<null>(`/api/purchase-suggestions/${id}/reject`, data),
 
+  getSources: (id: number) =>
+    request.get<PurchaseSuggestionSourceRecord[]>(`/api/purchase-suggestions/${id}/sources`),
+
   batchToPo: (data: BatchToPoPayload) =>
     request.post<BatchToPoResult>(
       '/api/purchase-suggestions/batch-to-po',
@@ -120,6 +148,14 @@ export function usePurchaseSuggestionList(params?: PurchaseSuggestionListParams)
   return useQuery({
     queryKey: purchaseSuggestionKeys.list(params as Record<string, unknown>),
     queryFn: () => purchaseSuggestionApi.list(params),
+  });
+}
+
+export function usePurchaseSuggestionSources(id: number | null) {
+  return useQuery({
+    queryKey: purchaseSuggestionKeys.sources(id ?? 0),
+    queryFn: () => purchaseSuggestionApi.getSources(id!),
+    enabled: id !== null && id > 0,
   });
 }
 

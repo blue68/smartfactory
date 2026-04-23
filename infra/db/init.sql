@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   `username`       VARCHAR(50)     NOT NULL,
   `password_hash`  VARCHAR(255)    NOT NULL,
   `real_name`      VARCHAR(100)    NOT NULL DEFAULT '' COMMENT '姓名',
+  `department_id`  BIGINT UNSIGNED DEFAULT NULL COMMENT '所属部门ID',
+  `position`       VARCHAR(100)    DEFAULT NULL COMMENT '岗位',
   `wechat_openid`  VARCHAR(100)    DEFAULT NULL COMMENT '微信小程序 OpenID',
   `status`         ENUM('active','inactive','locked') NOT NULL DEFAULT 'active',
   `last_login_at`  DATETIME(3)     DEFAULT NULL,
@@ -107,7 +109,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_tenant_username` (`tenant_id`, `username`),
   UNIQUE KEY `uk_wechat_openid` (`wechat_openid`),
-  KEY `idx_tenant_status` (`tenant_id`, `status`)
+  KEY `idx_tenant_status` (`tenant_id`, `status`),
+  KEY `idx_tenant_department` (`tenant_id`, `department_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -570,6 +573,12 @@ CREATE TABLE IF NOT EXISTS `purchase_suggestions` (
   `id`                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `tenant_id`            BIGINT UNSIGNED NOT NULL,
   `suggestion_no`        VARCHAR(50)     NOT NULL,
+  `source`               ENUM('ai_schedule','production_shortage','manual','outsource_operation','production_batch_shortage') NOT NULL DEFAULT 'ai_schedule',
+  `production_order_id`  BIGINT UNSIGNED DEFAULT NULL,
+  `production_operation_id` BIGINT UNSIGNED DEFAULT NULL,
+  `production_batch_id`  BIGINT UNSIGNED DEFAULT NULL,
+  `primary_source_type`  ENUM('material_requirement','production_order','batch_item','sales_order_item') DEFAULT NULL,
+  `primary_source_id`    BIGINT UNSIGNED DEFAULT NULL,
   `sku_id`               BIGINT UNSIGNED NOT NULL,
   `suggested_supplier_id` BIGINT UNSIGNED DEFAULT NULL,
   `suggested_qty`        DECIMAL(16,4)   NOT NULL,
@@ -593,7 +602,8 @@ CREATE TABLE IF NOT EXISTS `purchase_suggestions` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_tenant_no` (`tenant_id`, `suggestion_no`),
   KEY `idx_tenant_sku_status` (`tenant_id`, `sku_id`, `status`),
-  KEY `idx_tenant_status_expired` (`tenant_id`, `status`, `expired_at`)
+  KEY `idx_tenant_status_expired` (`tenant_id`, `status`, `expired_at`),
+  KEY `idx_tenant_batch_status` (`tenant_id`, `production_batch_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI采购建议表';
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -792,6 +802,9 @@ CREATE TABLE IF NOT EXISTS `production_orders` (
   `tenant_id`           BIGINT UNSIGNED NOT NULL,
   `work_order_no`       VARCHAR(50)     NOT NULL,
   `sales_order_id`      BIGINT UNSIGNED NOT NULL,
+  `sales_order_item_id` BIGINT UNSIGNED DEFAULT NULL,
+  `joint_batch_id`      BIGINT UNSIGNED DEFAULT NULL,
+  `joint_batch_item_id` BIGINT UNSIGNED DEFAULT NULL,
   `sku_id`              BIGINT UNSIGNED NOT NULL,
   `bom_header_id`       BIGINT UNSIGNED NOT NULL,
   `process_template_id` BIGINT UNSIGNED NOT NULL,
@@ -799,6 +812,9 @@ CREATE TABLE IF NOT EXISTS `production_orders` (
   `qty_completed`       DECIMAL(16,4)   NOT NULL DEFAULT 0,
   `status`              ENUM('pending','scheduled','in_progress','completed','cancelled') NOT NULL DEFAULT 'pending',
   `priority`            SMALLINT        NOT NULL DEFAULT 50,
+  `batch_sequence_no`   INT             DEFAULT NULL,
+  `plan_mode`           ENUM('priority_sequential','compatible_merge') DEFAULT NULL,
+  `merge_group_key`     VARCHAR(150)    DEFAULT NULL,
   `planned_start`       DATE            DEFAULT NULL,
   `planned_end`         DATE            DEFAULT NULL,
   `actual_start`        DATETIME(3)     DEFAULT NULL,
@@ -812,8 +828,122 @@ CREATE TABLE IF NOT EXISTS `production_orders` (
   UNIQUE KEY `uk_tenant_wo_no` (`tenant_id`, `work_order_no`),
   KEY `idx_tenant_status` (`tenant_id`, `status`),
   KEY `idx_tenant_sales_order` (`tenant_id`, `sales_order_id`),
-  KEY `idx_tenant_sku` (`tenant_id`, `sku_id`)
+  KEY `idx_tenant_sku` (`tenant_id`, `sku_id`),
+  KEY `idx_tenant_batch` (`tenant_id`, `joint_batch_id`, `status`),
+  KEY `idx_tenant_batch_item` (`tenant_id`, `joint_batch_item_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='生产工单表';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 31A. 联合生产批次表 joint_production_batches
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `joint_production_batches` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id` BIGINT UNSIGNED NOT NULL,
+  `batch_no` VARCHAR(50) NOT NULL,
+  `name` VARCHAR(120) DEFAULT NULL,
+  `mode` ENUM('priority_sequential','compatible_merge') NOT NULL DEFAULT 'priority_sequential',
+  `status` ENUM('draft','confirmed','order_generated','cancelled','closed') NOT NULL DEFAULT 'draft',
+  `order_count` INT NOT NULL DEFAULT 0,
+  `item_count` INT NOT NULL DEFAULT 0,
+  `total_planned_qty` DECIMAL(16,4) NOT NULL DEFAULT 0,
+  `notes` TEXT DEFAULT NULL,
+  `confirmed_at` DATETIME(3) DEFAULT NULL,
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  `created_by` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `updated_by` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_tenant_batch_no` (`tenant_id`, `batch_no`),
+  KEY `idx_tenant_status_created` (`tenant_id`, `status`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='联合生产批次表';
+
+CREATE TABLE IF NOT EXISTS `joint_production_batch_orders` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id` BIGINT UNSIGNED NOT NULL,
+  `batch_id` BIGINT UNSIGNED NOT NULL,
+  `sales_order_id` BIGINT UNSIGNED NOT NULL,
+  `order_priority` SMALLINT NOT NULL DEFAULT 50,
+  `sequence_no` INT NOT NULL DEFAULT 1,
+  `locked_expected_delivery` DATE DEFAULT NULL,
+  `status` ENUM('bound','released','cancelled') NOT NULL DEFAULT 'bound',
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  `created_by` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `updated_by` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_tenant_batch_order` (`tenant_id`, `batch_id`, `sales_order_id`),
+  KEY `idx_tenant_batch_seq` (`tenant_id`, `batch_id`, `sequence_no`),
+  KEY `idx_tenant_order` (`tenant_id`, `sales_order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='联合生产批次订单绑定表';
+
+CREATE TABLE IF NOT EXISTS `joint_production_batch_items` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id` BIGINT UNSIGNED NOT NULL,
+  `batch_id` BIGINT UNSIGNED NOT NULL,
+  `batch_order_id` BIGINT UNSIGNED NOT NULL,
+  `sales_order_id` BIGINT UNSIGNED NOT NULL,
+  `sales_order_item_id` BIGINT UNSIGNED NOT NULL,
+  `sku_id` BIGINT UNSIGNED NOT NULL,
+  `bom_header_id` BIGINT UNSIGNED DEFAULT NULL,
+  `process_template_id` BIGINT UNSIGNED DEFAULT NULL,
+  `qty_open` DECIMAL(16,4) NOT NULL DEFAULT 0,
+  `qty_planned` DECIMAL(16,4) NOT NULL DEFAULT 0,
+  `mode` ENUM('priority_sequential','compatible_merge') NOT NULL DEFAULT 'priority_sequential',
+  `priority_rank` SMALLINT NOT NULL DEFAULT 50,
+  `sequence_no` INT NOT NULL DEFAULT 1,
+  `merge_group_key` VARCHAR(150) DEFAULT NULL,
+  `expected_delivery_snapshot` DATE DEFAULT NULL,
+  `snapshot_json` JSON DEFAULT NULL,
+  `status` ENUM('planned','released','closed','cancelled') NOT NULL DEFAULT 'planned',
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  `created_by` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `updated_by` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_batch_so_item` (`tenant_id`, `batch_id`, `sales_order_item_id`),
+  KEY `idx_batch_merge` (`tenant_id`, `batch_id`, `merge_group_key`),
+  KEY `idx_sales_item` (`tenant_id`, `sales_order_item_id`),
+  KEY `idx_sales_order` (`tenant_id`, `sales_order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='联合生产批次明细表';
+
+CREATE TABLE IF NOT EXISTS `production_order_source_allocations` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id` BIGINT UNSIGNED NOT NULL,
+  `production_order_id` BIGINT UNSIGNED NOT NULL,
+  `batch_id` BIGINT UNSIGNED DEFAULT NULL,
+  `batch_item_id` BIGINT UNSIGNED DEFAULT NULL,
+  `sales_order_id` BIGINT UNSIGNED NOT NULL,
+  `sales_order_item_id` BIGINT UNSIGNED NOT NULL,
+  `allocated_qty` DECIMAL(16,4) NOT NULL DEFAULT 0,
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `created_by` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_tenant_po_batch_item` (`tenant_id`, `production_order_id`, `batch_item_id`),
+  KEY `idx_tenant_po` (`tenant_id`, `production_order_id`),
+  KEY `idx_tenant_batch_item` (`tenant_id`, `batch_item_id`),
+  KEY `idx_tenant_so_item` (`tenant_id`, `sales_order_item_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='生产工单来源分配表';
+
+CREATE TABLE IF NOT EXISTS `purchase_suggestion_sources` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id` BIGINT UNSIGNED NOT NULL,
+  `suggestion_id` BIGINT UNSIGNED NOT NULL,
+  `source_type` ENUM('material_requirement','production_order','batch_item','sales_order_item') NOT NULL,
+  `source_id` BIGINT UNSIGNED NOT NULL,
+  `batch_id` BIGINT UNSIGNED DEFAULT NULL,
+  `production_order_id` BIGINT UNSIGNED DEFAULT NULL,
+  `sales_order_id` BIGINT UNSIGNED DEFAULT NULL,
+  `sales_order_item_id` BIGINT UNSIGNED DEFAULT NULL,
+  `sku_id` BIGINT UNSIGNED NOT NULL,
+  `required_qty` DECIMAL(16,4) NOT NULL DEFAULT 0,
+  `shortage_qty` DECIMAL(16,4) NOT NULL DEFAULT 0,
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_tenant_suggestion_source` (`tenant_id`, `suggestion_id`, `source_type`, `source_id`),
+  KEY `idx_tenant_suggestion` (`tenant_id`, `suggestion_id`),
+  KEY `idx_tenant_batch` (`tenant_id`, `batch_id`),
+  KEY `idx_tenant_po` (`tenant_id`, `production_order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='采购建议来源追溯表';
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 32. 排产计划表 production_schedules
@@ -1615,6 +1745,8 @@ CREATE TABLE IF NOT EXISTS `material_requirements` (
   `id`                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `tenant_id`           BIGINT UNSIGNED NOT NULL,
   `production_order_id` BIGINT UNSIGNED NOT NULL,
+  `joint_batch_id`      BIGINT UNSIGNED DEFAULT NULL,
+  `joint_batch_item_id` BIGINT UNSIGNED DEFAULT NULL,
   `bom_snapshot_id`     BIGINT UNSIGNED NOT NULL COMMENT '关联 BOM 快照',
   `sku_id`              BIGINT UNSIGNED NOT NULL COMMENT '原材料 SKU',
   `qty_required`        DECIMAL(16,4)   NOT NULL COMMENT 'BOM 展开所需数量（含损耗）',
@@ -1627,7 +1759,9 @@ CREATE TABLE IF NOT EXISTS `material_requirements` (
   PRIMARY KEY (`id`),
   KEY `idx_tenant_order` (`tenant_id`, `production_order_id`),
   KEY `idx_tenant_sku_status` (`tenant_id`, `sku_id`, `status`),
-  KEY `idx_bom_snapshot` (`bom_snapshot_id`)
+  KEY `idx_bom_snapshot` (`bom_snapshot_id`),
+  KEY `idx_tenant_joint_batch` (`tenant_id`, `joint_batch_id`),
+  KEY `idx_tenant_joint_batch_item` (`tenant_id`, `joint_batch_item_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='生产工单原材料需求计划表';
 
 -- ═════════════════════════════════════════════════════════════════════════════
@@ -1636,12 +1770,30 @@ CREATE TABLE IF NOT EXISTS `material_requirements` (
 
 -- S3-A1: production_orders 增加 BOM 快照和原料状态字段
 ALTER TABLE `production_orders`
+  ADD COLUMN IF NOT EXISTS `sales_order_item_id` BIGINT UNSIGNED DEFAULT NULL
+    COMMENT '关联销售订单明细行'
+    AFTER `sales_order_id`,
+  ADD COLUMN IF NOT EXISTS `joint_batch_id` BIGINT UNSIGNED DEFAULT NULL
+    COMMENT '联合生产批次ID'
+    AFTER `sales_order_item_id`,
+  ADD COLUMN IF NOT EXISTS `joint_batch_item_id` BIGINT UNSIGNED DEFAULT NULL
+    COMMENT '联合生产批次明细ID'
+    AFTER `joint_batch_id`,
   ADD COLUMN IF NOT EXISTS `bom_snapshot_id` BIGINT UNSIGNED DEFAULT NULL
     COMMENT 'BOM版本快照ID（创建工单时锁定，BD-001）'
     AFTER `bom_header_id`,
   ADD COLUMN IF NOT EXISTS `material_status` ENUM('unchecked','shortage','partial','ready') NOT NULL DEFAULT 'unchecked'
     COMMENT '原材料备料状态'
-    AFTER `status`;
+    AFTER `status`,
+  ADD COLUMN IF NOT EXISTS `batch_sequence_no` INT DEFAULT NULL
+    COMMENT '批次内顺序'
+    AFTER `priority`,
+  ADD COLUMN IF NOT EXISTS `plan_mode` ENUM('priority_sequential','compatible_merge') DEFAULT NULL
+    COMMENT '联合批次规划模式'
+    AFTER `batch_sequence_no`,
+  ADD COLUMN IF NOT EXISTS `merge_group_key` VARCHAR(150) DEFAULT NULL
+    COMMENT '兼容合批分组键'
+    AFTER `plan_mode`;
 
 -- S3-A2: production_tasks 增加 version 字段（乐观锁）和 exception/suspended 状态
 -- 注意：MySQL ALTER TABLE MODIFY COLUMN 会重建列定义，先修改 status 枚举扩展
@@ -1699,9 +1851,20 @@ ALTER TABLE `purchase_suggestions`
     AFTER `production_order_id`;
 
 ALTER TABLE `purchase_suggestions`
-  MODIFY COLUMN `source` ENUM('ai_schedule','production_shortage','manual','outsource_operation')
+  MODIFY COLUMN `source` ENUM('ai_schedule','production_shortage','manual','outsource_operation','production_batch_shortage')
   NOT NULL DEFAULT 'ai_schedule'
   COMMENT '建议来源';
+
+ALTER TABLE `purchase_suggestions`
+  ADD COLUMN IF NOT EXISTS `production_batch_id` BIGINT UNSIGNED DEFAULT NULL
+    COMMENT '联合生产批次ID'
+    AFTER `production_operation_id`,
+  ADD COLUMN IF NOT EXISTS `primary_source_type` ENUM('material_requirement','production_order','batch_item','sales_order_item') DEFAULT NULL
+    COMMENT '主来源类型'
+    AFTER `production_batch_id`,
+  ADD COLUMN IF NOT EXISTS `primary_source_id` BIGINT UNSIGNED DEFAULT NULL
+    COMMENT '主来源ID'
+    AFTER `primary_source_type`;
 
 -- S5-A3: purchase_order_items 增加外协作业关联字段
 ALTER TABLE `purchase_order_items`

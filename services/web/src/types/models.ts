@@ -1135,6 +1135,11 @@ export type WorkerTask = ProductionTask;
 export interface ProductionOrder {
   id: number;
   workOrderNo: string;
+  batchNo?: string | null;
+  jointBatchId?: number | null;
+  jointBatchItemId?: number | null;
+  planMode?: string | null;
+  mergeGroupKey?: string | null;
   skuName: string;
   salesOrderNo: string;
   qtyPlanned: string;
@@ -1179,6 +1184,11 @@ export interface CreateProductionOrderPayload {
 export interface ScheduleItem {
   scheduleId: number;
   productionOrderId: number;
+  batchId?: number | null;
+  batchItemId?: number | null;
+  batchNo?: string | null;
+  planMode?: string | null;
+  mergeGroupKey?: string | null;
   operationId?: number | null;
   componentId?: number | null;
   workOrderNo: string;

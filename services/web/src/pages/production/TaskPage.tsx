@@ -39,7 +39,7 @@ import {
   useSuspendTask,
   taskApi,
 } from '@/api/productionTask';
-import { useProductionWorkers } from '@/api/production';
+import { useProductionBatchList, useProductionWorkers } from '@/api/production';
 import { useLocationOptions, useWarehouseOptions } from '@/api/inventory';
 import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
@@ -79,6 +79,8 @@ interface ProductionTask {
   taskNo?: string;
   taskDate: string;
   orderNo: string;
+  jointBatchId?: number | null;
+  batchNo?: string | null;
   productName?: string;
   plannedFinishTime?: string;
   processStepId?: number;
@@ -594,6 +596,7 @@ export default function TaskPage() {
 
   const [processFilter, setProcessFilter] = useState('');
   const [workerFilter, setWorkerFilter] = useState('');
+  const [batchFilter, setBatchFilter] = useState('');
   const [taskTypeFilter, setTaskTypeFilter] = useState<TaskType | ''>('');
   const [executionModeFilter, setExecutionModeFilter] = useState<ExecutionMode | ''>('');
 
@@ -642,6 +645,11 @@ export default function TaskPage() {
     setPage(1);
   }, []);
 
+  const handleBatchFilterChange = useCallback((v: string) => {
+    setBatchFilter(v);
+    setPage(1);
+  }, []);
+
   const handleTaskTypeFilterChange = useCallback((v: TaskType | '') => {
     setTaskTypeFilter(v);
     setPage(1);
@@ -662,12 +670,14 @@ export default function TaskPage() {
     dateTo:   (dateTo && !dateError) ? dateTo : undefined,
     processId: processFilter ? Number(processFilter) : undefined,
     workerId: workerFilter ? Number(workerFilter) : undefined,
+    batchId: batchFilter ? Number(batchFilter) : undefined,
     taskType: taskTypeFilter || undefined,
     executionMode: executionModeFilter || undefined,
   };
 
   const { data: rawData, isLoading, isError } = useTaskList(filter);
   const { data: workerOptionsData } = useProductionWorkers();
+  const { data: batchPage } = useProductionBatchList({}, 1, 100);
 
   const taskData: TaskListResponse = (() => {
     if (!rawData) return { list: [], total: 0 };
@@ -699,7 +709,9 @@ export default function TaskPage() {
   );
 
   // ── R06-G01: 统计卡片使用独立 stats 接口 ──────────────────
-  const { data: statsData } = useTaskStats();
+  const { data: statsData } = useTaskStats({
+    batchId: batchFilter ? Number(batchFilter) : undefined,
+  });
   const stats = {
     total:      statsData?.total                    ?? taskData.total,
     inProgress: statsData?.byStatus?.in_progress    ?? 0,
@@ -1138,6 +1150,9 @@ export default function TaskPage() {
       render: (_, record) => (
         <div className={styles.orderCell}>
           <span className={styles.orderNo}>{record.orderNo || '—'}</span>
+          {record.batchNo ? (
+            <span className={styles.taskMicroLabel}>联合批次 {record.batchNo}</span>
+          ) : null}
           <span className={styles.taskMicroLabel}>{formatTaskLabel(record)}</span>
         </div>
       ),
@@ -1394,7 +1409,7 @@ export default function TaskPage() {
           <input
             className={styles.searchInput}
             type="search"
-            placeholder="搜索任务编号、订单号、工序..."
+            placeholder="搜索任务编号、工单号、联合批次、工序..."
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             aria-label="关键词搜索"
@@ -1436,6 +1451,20 @@ export default function TaskPage() {
           <option value="">全部工人</option>
           {workerOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+
+        <select
+          className={styles.select}
+          value={batchFilter}
+          onChange={(e) => handleBatchFilterChange(e.target.value)}
+          aria-label="联合批次筛选"
+        >
+          <option value="">全部联合批次</option>
+          {(batchPage?.list ?? []).map((batch) => (
+            <option key={batch.id} value={batch.id}>
+              {batch.batchNo}{batch.name ? ` · ${batch.name}` : ''}
+            </option>
           ))}
         </select>
 
@@ -1847,6 +1876,7 @@ function TaskDetailContent({
           <DetailItem label="任务日期" value={task.taskDate || '—'} />
           <DetailItem label="期望完成时间" value={formatDateTime(task.plannedFinishTime)} />
           <DetailItem label="工单号" value={task.orderNo || '—'} />
+          <DetailItem label="联合批次" value={task.batchNo ?? '—'} />
           <DetailItem label="任务编号" value={formatTaskLabel(task)} />
           <DetailItem label="所属成品" value={task.productName || task.skuName || '—'} />
           <DetailItem label="当前工序" value={task.processName || '—'} />

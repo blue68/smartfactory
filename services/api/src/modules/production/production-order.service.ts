@@ -17,13 +17,17 @@ interface SalesOrderRow {
   order_no: string;
   status: string;
   expected_delivery: string;
+  priority?: number;
+  order_type?: string;
 }
 
 interface SalesOrderItemRow {
   id: number;
+  order_id?: number;
   sku_id: number;
   sku_code: string;
   qty_ordered: string;
+  bom_header_id?: number | null;
 }
 
 interface ActiveBomRow {
@@ -121,6 +125,16 @@ export interface ListOrderFilter {
   pageSize: number;
 }
 
+interface CreateFromSalesOrderItemOptions {
+  batchId?: number | null;
+  batchItemId?: number | null;
+  batchSequenceNo?: number | null;
+  planMode?: 'priority_sequential' | 'compatible_merge' | null;
+  mergeGroupKey?: string | null;
+  priorityRank?: number | null;
+  autoGenerateSuggestions?: boolean;
+}
+
 /**
  * 生产工单服务（Sprint 3 扩展）
  * 核心职责：
@@ -199,7 +213,7 @@ export class ProductionOrderService {
       const affectedSkuIds = new Set<number>();
       // 1. 查询销售订单
       const salesOrderRows: SalesOrderRow[] = await manager.query(
-        `SELECT id, order_no, status, expected_delivery
+        `SELECT id, order_no, status, expected_delivery, priority, order_type
          FROM sales_orders
          WHERE id = ? AND tenant_id = ? LIMIT 1`,
         [salesOrderId, this.tenantId],
@@ -220,7 +234,7 @@ export class ProductionOrderService {
 
       // 2. 查询销售订单明细
       const items: SalesOrderItemRow[] = await manager.query(
-        `SELECT soi.id, soi.sku_id, s.sku_code, soi.qty_ordered
+        `SELECT soi.id, soi.order_id, soi.sku_id, s.sku_code, soi.qty_ordered, soi.bom_header_id
          FROM sales_order_items soi
          INNER JOIN skus s ON s.id = soi.sku_id
          WHERE soi.order_id = ? AND soi.tenant_id = ?
@@ -292,21 +306,22 @@ export class ProductionOrderService {
         // 3e. INSERT production_orders（含 bom_snapshot_id，material_status 初始为 unchecked）
         const orderResult = await manager.query(
           `INSERT INTO production_orders
-             (tenant_id, work_order_no, sales_order_id, sku_id, bom_header_id,
-              bom_snapshot_id, process_template_id, qty_planned, qty_completed,
-              status, material_status, priority, planned_start, planned_end,
+             (tenant_id, work_order_no, sales_order_id, sales_order_item_id, joint_batch_id, joint_batch_item_id,
+              sku_id, bom_header_id, bom_snapshot_id, process_template_id, qty_planned, qty_completed,
+              status, material_status, priority, batch_sequence_no, plan_mode, merge_group_key, planned_start, planned_end,
               notes, created_by, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending', 'unchecked', 50,
-                   NULL, ?, NULL, ?, ?)`,
+           VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 0, 'pending', 'unchecked', ?, NULL, NULL, NULL, NULL, ?, NULL, ?, ?)`,
           [
             this.tenantId,
             workOrderNo,
             salesOrderId,
+            item.id,
             item.sku_id,
             bom.id,
             snapshotId,
             template.id,
             item.qty_ordered,
+            salesOrder.priority ?? 50,
             salesOrder.expected_delivery,
             this.userId,
             this.userId,
@@ -319,9 +334,9 @@ export class ProductionOrderService {
         for (const material of expandedItems) {
           await manager.query(
             `INSERT INTO material_requirements
-               (tenant_id, production_order_id, bom_snapshot_id, sku_id,
+               (tenant_id, production_order_id, joint_batch_id, joint_batch_item_id, bom_snapshot_id, sku_id,
                 qty_required, qty_reserved, qty_shortage, status)
-             VALUES (?, ?, ?, ?, ?, 0, ?, 'shortage')`,
+             VALUES (?, ?, NULL, NULL, ?, ?, ?, 0, ?, 'shortage')`,
             [
               this.tenantId,
               productionOrderId,
@@ -472,6 +487,325 @@ export class ProductionOrderService {
     const result = await AppDataSource.transaction(run);
     await this.invalidateInventorySnapshotCaches(result.affectedSkuIds);
     return result.createdOrders;
+  }
+
+  async createFromSalesOrderItem(
+    salesOrderItemId: number,
+    options: CreateFromSalesOrderItemOptions = {},
+    outerManager?: EntityManager,
+  ): Promise<CreatedOrder> {
+    const run = async (
+      manager: EntityManager,
+    ): Promise<{ createdOrder: CreatedOrder; affectedSkuIds: number[] }> => {
+      const affectedSkuIds = new Set<number>();
+      const rows = await manager.query<Array<SalesOrderRow & SalesOrderItemRow & {
+        sales_order_id: number;
+      }>>(
+        `SELECT
+            so.id AS sales_order_id,
+            so.order_no,
+            so.status,
+            so.expected_delivery,
+            so.priority,
+            so.order_type,
+            soi.id,
+            soi.order_id,
+            soi.sku_id,
+            soi.qty_ordered,
+            soi.bom_header_id,
+            s.sku_code
+         FROM sales_order_items soi
+         INNER JOIN sales_orders so
+           ON so.id = soi.order_id
+          AND so.tenant_id = soi.tenant_id
+         INNER JOIN skus s
+           ON s.id = soi.sku_id
+         WHERE soi.id = ? AND soi.tenant_id = ?
+         LIMIT 1`,
+        [salesOrderItemId, this.tenantId],
+      );
+
+      if (rows.length === 0) {
+        throw AppError.notFound('销售订单明细不存在', ResponseCode.ORDER_NOT_FOUND);
+      }
+
+      const row = rows[0];
+      if (!['confirmed', 'in_production'].includes(row.status)) {
+        throw AppError.badRequest(
+          `销售订单状态为 "${row.status}"，无法创建工单（需为 confirmed 或 in_production）`,
+          ResponseCode.ORDER_CANNOT_MODIFY,
+        );
+      }
+
+      const existingRows = await manager.query<Array<{
+        id: number;
+        work_order_no: string;
+        qty_planned: string;
+        material_status: string;
+      }>>(
+        `SELECT id, work_order_no, qty_planned, material_status
+         FROM production_orders
+         WHERE tenant_id = ?
+           AND status <> 'cancelled'
+           AND (
+             (
+               sales_order_item_id = ?
+               AND (
+                 joint_batch_id IS NULL
+                 OR (? IS NOT NULL AND joint_batch_id = ?)
+               )
+             )
+             OR (? IS NOT NULL AND joint_batch_item_id = ?)
+           )
+         ORDER BY id ASC
+         LIMIT 1`,
+        [
+          this.tenantId,
+          salesOrderItemId,
+          options.batchId ?? null,
+          options.batchId ?? null,
+          options.batchItemId ?? null,
+          options.batchItemId ?? null,
+        ],
+      );
+
+      if (existingRows.length > 0) {
+        const existing = existingRows[0];
+        await manager.query(
+          `UPDATE production_orders
+           SET sales_order_item_id = COALESCE(sales_order_item_id, ?),
+               joint_batch_id = COALESCE(?, joint_batch_id),
+               joint_batch_item_id = COALESCE(?, joint_batch_item_id),
+               batch_sequence_no = COALESCE(?, batch_sequence_no),
+               plan_mode = COALESCE(?, plan_mode),
+               merge_group_key = COALESCE(?, merge_group_key),
+               updated_by = ?,
+               updated_at = NOW()
+           WHERE id = ? AND tenant_id = ?`,
+          [
+            salesOrderItemId,
+            options.batchId ?? null,
+            options.batchItemId ?? null,
+            options.batchSequenceNo ?? null,
+            options.planMode ?? null,
+            options.mergeGroupKey ?? null,
+            this.userId,
+            existing.id,
+            this.tenantId,
+          ],
+        );
+        await manager.query(
+          `UPDATE material_requirements
+           SET joint_batch_id = COALESCE(?, joint_batch_id),
+               joint_batch_item_id = COALESCE(?, joint_batch_item_id),
+               updated_at = NOW()
+           WHERE production_order_id = ? AND tenant_id = ?`,
+          [options.batchId ?? null, options.batchItemId ?? null, existing.id, this.tenantId],
+        );
+        return {
+          createdOrder: {
+            id: existing.id,
+            workOrderNo: existing.work_order_no,
+            skuId: row.sku_id,
+            qtyPlanned: existing.qty_planned,
+            materialStatus: existing.material_status,
+          },
+          affectedSkuIds: [],
+        };
+      }
+
+      const bomRows: ActiveBomRow[] = await manager.query(
+        `SELECT id, version FROM bom_headers
+         WHERE sku_id = ? AND tenant_id = ? AND status = 'active'
+         LIMIT 1`,
+        [row.sku_id, this.tenantId],
+      );
+      if (bomRows.length === 0) {
+        throw AppError.badRequest(
+          `SKU ${row.sku_code} 无激活 BOM 版本，无法创建工单`,
+          ResponseCode.BOM_NOT_FOUND,
+        );
+      }
+      const bom = bomRows[0];
+
+      let templateRows: ProcessTemplateRow[] = await manager.query(
+        `SELECT id FROM process_templates
+         WHERE sku_id = ? AND tenant_id = ? AND is_default = 1
+         ORDER BY id DESC
+         LIMIT 1`,
+        [row.sku_id, this.tenantId],
+      );
+      if (templateRows.length === 0) {
+        templateRows = await manager.query(
+          `SELECT id FROM process_templates
+           WHERE sku_id = ? AND tenant_id = ?
+           ORDER BY id DESC LIMIT 1`,
+          [row.sku_id, this.tenantId],
+        );
+      }
+      if (templateRows.length === 0) {
+        throw AppError.badRequest(
+          `SKU ${row.sku_code} 无工艺模板，无法创建工单`,
+          ResponseCode.INVALID_PARAMS,
+        );
+      }
+      const template = templateRows[0];
+
+      const { snapshotId, expandedItems } = await this.snapshotSvc.createSnapshot(
+        bom.id,
+        row.qty_ordered,
+        manager,
+      );
+      const workOrderNo = await generateNo('work_order', this.tenantId);
+      const priority = options.priorityRank ?? row.priority ?? 50;
+
+      const orderResult = await manager.query(
+        `INSERT INTO production_orders
+           (tenant_id, work_order_no, sales_order_id, sales_order_item_id, joint_batch_id, joint_batch_item_id,
+            sku_id, bom_header_id, bom_snapshot_id, process_template_id, qty_planned, qty_completed,
+            status, material_status, priority, batch_sequence_no, plan_mode, merge_group_key,
+            planned_start, planned_end, notes, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending', 'unchecked', ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`,
+        [
+            this.tenantId,
+            workOrderNo,
+            row.sales_order_id,
+            salesOrderItemId,
+            options.batchId ?? null,
+            options.batchItemId ?? null,
+          row.sku_id,
+          bom.id,
+          snapshotId,
+          template.id,
+          row.qty_ordered,
+          priority,
+          options.batchSequenceNo ?? null,
+          options.planMode ?? null,
+          options.mergeGroupKey ?? null,
+          row.expected_delivery,
+          this.userId,
+          this.userId,
+        ],
+      );
+      const productionOrderId = Number(orderResult.insertId);
+
+      for (const material of expandedItems) {
+        await manager.query(
+          `INSERT INTO material_requirements
+             (tenant_id, production_order_id, joint_batch_id, joint_batch_item_id, bom_snapshot_id, sku_id,
+              qty_required, qty_reserved, qty_shortage, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'shortage')`,
+          [
+            this.tenantId,
+            productionOrderId,
+            options.batchId ?? null,
+            options.batchItemId ?? null,
+            snapshotId,
+            material.skuId,
+            material.qty,
+            material.qty,
+          ],
+        );
+      }
+
+      let fulfilledCount = 0;
+      let partialCount = 0;
+      for (const material of expandedItems) {
+        const requiredQty = new Decimal(material.qty);
+        const invRows: InventoryRow[] = await manager.query(
+          `SELECT qty_on_hand, qty_reserved
+           FROM inventory
+           WHERE sku_id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
+          [material.skuId, this.tenantId],
+        );
+        const onHand = new Decimal(invRows[0]?.qty_on_hand ?? '0');
+        const reserved = new Decimal(invRows[0]?.qty_reserved ?? '0');
+        const available = onHand.minus(reserved);
+
+        if (available.gte(requiredQty)) {
+          const updateResult = await manager.query(
+            `UPDATE inventory
+             SET qty_reserved = qty_reserved + ?, updated_at = NOW()
+             WHERE sku_id = ? AND tenant_id = ?
+               AND qty_on_hand - qty_reserved >= ?`,
+            [requiredQty.toFixed(6), material.skuId, this.tenantId, requiredQty.toFixed(6)],
+          );
+          if (Number(updateResult.affectedRows) > 0) {
+            await this.syncDailySnapshot(manager, material.skuId);
+            affectedSkuIds.add(Number(material.skuId));
+            await manager.query(
+              `UPDATE material_requirements
+               SET qty_reserved = ?, qty_shortage = 0, status = 'fulfilled', updated_at = NOW()
+               WHERE production_order_id = ? AND sku_id = ? AND tenant_id = ?`,
+              [requiredQty.toFixed(6), productionOrderId, material.skuId, this.tenantId],
+            );
+            fulfilledCount++;
+          }
+        } else if (available.gt(0)) {
+          const reserveQty = available;
+          const shortageQty = requiredQty.minus(available);
+          await manager.query(
+            `UPDATE inventory
+             SET qty_reserved = qty_reserved + ?, updated_at = NOW()
+             WHERE sku_id = ? AND tenant_id = ?`,
+            [reserveQty.toFixed(6), material.skuId, this.tenantId],
+          );
+          await this.syncDailySnapshot(manager, material.skuId);
+          affectedSkuIds.add(Number(material.skuId));
+          await manager.query(
+            `UPDATE material_requirements
+             SET qty_reserved = ?, qty_shortage = ?, status = 'partial', updated_at = NOW()
+             WHERE production_order_id = ? AND sku_id = ? AND tenant_id = ?`,
+            [reserveQty.toFixed(6), shortageQty.toFixed(6), productionOrderId, material.skuId, this.tenantId],
+          );
+          partialCount++;
+        }
+      }
+
+      const materialStatus =
+        fulfilledCount === expandedItems.length
+          ? 'ready'
+          : fulfilledCount > 0 || partialCount > 0
+            ? 'partial'
+            : 'shortage';
+
+      await manager.query(
+        `UPDATE production_orders
+         SET material_status = ?, updated_by = ?, updated_at = NOW()
+         WHERE id = ? AND tenant_id = ?`,
+        [materialStatus, this.userId, productionOrderId, this.tenantId],
+      );
+      await manager.query(
+        `UPDATE sales_orders
+         SET status = 'in_production', updated_by = ?, updated_at = NOW()
+         WHERE id = ? AND tenant_id = ? AND status = 'confirmed'`,
+        [this.userId, row.sales_order_id, this.tenantId],
+      );
+      if (options.autoGenerateSuggestions !== false && materialStatus !== 'ready') {
+        await this._mrpService().generateSuggestions(productionOrderId, manager);
+      }
+
+      return {
+        createdOrder: {
+          id: productionOrderId,
+          workOrderNo,
+          skuId: row.sku_id,
+          qtyPlanned: row.qty_ordered,
+          materialStatus,
+        },
+        affectedSkuIds: Array.from(affectedSkuIds),
+      };
+    };
+
+    if (outerManager) {
+      const result = await run(outerManager);
+      this.trackInventorySnapshotSkuIds(outerManager, result.affectedSkuIds);
+      return result.createdOrder;
+    }
+
+    const result = await AppDataSource.transaction(run);
+    await this.invalidateInventorySnapshotCaches(result.affectedSkuIds);
+    return result.createdOrder;
   }
 
   // ── 工单列表 ─────────────────────────────────────────────────────────────

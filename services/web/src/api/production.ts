@@ -131,22 +131,139 @@ export interface UpdateWorkCalendarDayPayload {
   overtimeRanges?: WorkTimeRange[];
 }
 
+export type ProductionBatchMode = 'priority_sequential' | 'compatible_merge';
+export type ProductionBatchStatus = 'draft' | 'confirmed' | 'cancelled' | 'closed' | 'released';
+
+export interface EligibleSalesOrder {
+  id: number;
+  orderNo: string;
+  customerId: number;
+  customerName: string;
+  priority: number;
+  expectedDelivery: string | null;
+  openItemCount: number;
+  openQtyTotal: string;
+  status: string;
+}
+
+export interface ProductionBatchListItem {
+  id: number;
+  batchNo: string;
+  name: string | null;
+  mode: ProductionBatchMode;
+  status: ProductionBatchStatus | string;
+  orderCount: number;
+  itemCount: number;
+  totalPlannedQty: string;
+  confirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  linkedProductionOrderCount: number;
+}
+
+export interface ProductionBatchDetailOrder {
+  id: number;
+  salesOrderId: number;
+  salesOrderNo: string;
+  priority: number;
+  expectedDelivery: string | null;
+  customerName: string;
+  sequenceNo: number;
+  status: string;
+}
+
+export interface ProductionBatchDetailItem {
+  id: number;
+  salesOrderId: number;
+  salesOrderItemId: number;
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  qtyOpen: string;
+  qtyPlanned: string;
+  priorityRank: number;
+  sequenceNo: number;
+  mode: ProductionBatchMode;
+  mergeGroupKey: string | null;
+  expectedDelivery: string | null;
+  status: string;
+}
+
+export interface ProductionBatchLinkedOrder {
+  id: number;
+  workOrderNo: string;
+  salesOrderId: number;
+  salesOrderItemId: number;
+  batchItemId: number;
+  qtyPlanned: string;
+  qtyCompleted: string;
+  status: string;
+  materialStatus: string | null;
+  mergeGroupKey: string | null;
+  skuName: string;
+}
+
+export interface ProductionBatchShortage {
+  skuId: number;
+  skuCode: string;
+  skuName: string;
+  shortageQty: string;
+  requiredQty: string;
+  currentStock: string;
+  inTransitQty: string;
+}
+
+export interface ProductionBatchDetail {
+  header: {
+    id: number;
+    batchNo: string;
+    name: string | null;
+    mode: ProductionBatchMode;
+    status: ProductionBatchStatus | string;
+    orderCount: number;
+    itemCount: number;
+    totalPlannedQty: string;
+    notes: string | null;
+    confirmedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  orders: ProductionBatchDetailOrder[];
+  items: ProductionBatchDetailItem[];
+  linkedProductionOrders: ProductionBatchLinkedOrder[];
+  shortages: ProductionBatchShortage[];
+}
+
+export interface CreateProductionBatchPayload {
+  mode: ProductionBatchMode;
+  salesOrderIds: number[];
+  notes?: string;
+  name?: string;
+}
+
 // ── Query Keys ───────────────────────────────
 export const productionKeys = {
   all: ['production'] as const,
   orders: () => [...productionKeys.all, 'orders'] as const,
-  orderList: (params: { status?: ProductionOrderStatus; salesOrderId?: number }) =>
+  orderList: (params: { status?: ProductionOrderStatus; salesOrderId?: number; batchId?: number }) =>
     [...productionKeys.orders(), params] as const,
   orderDetail: (id: number) => [...productionKeys.orders(), 'detail', id] as const,
   orderComponents: (id: number) => [...productionKeys.orders(), id, 'components'] as const,
   orderOperations: (id: number) => [...productionKeys.orders(), id, 'operations'] as const,
-  schedule: (date: string) => [...productionKeys.all, 'schedule', date] as const,
+  schedule: (params: string | { date: string; batchId?: number | null }) =>
+    [...productionKeys.all, 'schedule', typeof params === 'string' ? { date: params } : params] as const,
   workCalendar: (year: number, month: number) => [...productionKeys.all, 'workCalendar', year, month] as const,
   workerTasks: (workerId: number, date: string) =>
     [...productionKeys.all, 'workerTasks', workerId, date] as const,
   // Sprint 3 追加
   materials: (id: number) => [...productionKeys.orders(), id, 'materials'] as const,
   materialCheck: (id: number) => [...productionKeys.orders(), id, 'material-check'] as const,
+  batches: () => [...productionKeys.all, 'batches'] as const,
+  batchList: (params: { status?: string; keyword?: string; page?: number; pageSize?: number }) =>
+    [...productionKeys.batches(), params] as const,
+  batchDetail: (id: number) => [...productionKeys.batches(), 'detail', id] as const,
+  eligibleSalesOrders: (params: { keyword?: string; customerId?: number; page?: number; pageSize?: number }) =>
+    [...productionKeys.batches(), 'eligible-sales-orders', params] as const,
 };
 
 // ── 原始请求函数 ─────────────────────────────
@@ -154,6 +271,7 @@ export const productionApi = {
   getOrders: (params?: {
     status?: ProductionOrderStatus;
     salesOrderId?: number;
+    batchId?: number;
     page?: number;
     pageSize?: number;
   }) =>
@@ -174,15 +292,20 @@ export const productionApi = {
   createOrder: (payload: CreateProductionOrderPayload) =>
     request.post<{ id: number; workOrderNo: string }>('/api/production/orders', payload),
 
-  generateSchedule: (date?: string, force?: boolean) =>
+  generateSchedule: (date?: string, force?: boolean, batchId?: number) =>
     request.get<ScheduleResult>(
       '/api/production/schedule/generate',
-      date || force ? { ...(date ? { date } : {}), ...(force ? { force: true } : {}) } : undefined,
+      date || force || batchId
+        ? { ...(date ? { date } : {}), ...(force ? { force: true } : {}), ...(batchId ? { batchId } : {}) }
+        : undefined,
       { timeout: config.aiRequestTimeout },
     ),
 
-  confirmSchedule: (date: string) =>
-    request.post<null>('/api/production/schedule/confirm', { date }),
+  confirmSchedule: (date: string, batchId?: number) =>
+    request.post<null>('/api/production/schedule/confirm', {
+      date,
+      ...(batchId ? { batchId } : {}),
+    }),
 
   getScheduleHistory: (params?: { limit?: number }) =>
     request.get<ScheduleHistoryEntry[]>(
@@ -240,13 +363,56 @@ export const productionApi = {
 
   cancelOrder: (orderId: number) =>
     request.put<null>(`/api/production/orders/${orderId}/cancel`),
+
+  getEligibleSalesOrders: (params?: {
+    keyword?: string;
+    customerId?: number;
+    page?: number;
+    pageSize?: number;
+  }) =>
+    request.get<PaginatedData<EligibleSalesOrder>>(
+      '/api/production/batches/eligible-sales-orders',
+      params as Record<string, unknown> | undefined,
+    ),
+
+  getBatches: (params?: {
+    status?: string;
+    keyword?: string;
+    page?: number;
+    pageSize?: number;
+  }) =>
+    request.get<PaginatedData<ProductionBatchListItem>>(
+      '/api/production/batches',
+      params as Record<string, unknown> | undefined,
+    ),
+
+  getBatchById: (id: number) =>
+    request.get<ProductionBatchDetail>(`/api/production/batches/${id}`),
+
+  createBatch: (payload: CreateProductionBatchPayload) =>
+    request.post<{
+      id: number;
+      batchNo: string;
+      mode: ProductionBatchMode;
+      status: ProductionBatchStatus | string;
+      orderCount: number;
+      itemCount: number;
+    }>('/api/production/batches', payload),
+
+  confirmBatch: (id: number) =>
+    request.post<{
+      batchId: number;
+      createdProductionOrderIds: number[];
+      skippedItemIds: number[];
+      status: string;
+    }>(`/api/production/batches/${id}/confirm`),
 };
 
 // ── React Query Hooks ────────────────────────
 
 /** 生产工单列表 */
 export function useProductionOrderList(
-  params: { status?: ProductionOrderStatus; salesOrderId?: number } = {},
+  params: { status?: ProductionOrderStatus; salesOrderId?: number; batchId?: number } = {},
   page = 1,
   pageSize = 20,
 ) {
@@ -293,10 +459,10 @@ export function useCreateProductionOrder() {
 }
 
 /** 生成排产计划（3-10s，有12小时缓存） */
-export function useSchedule(date: string | null) {
+export function useSchedule(date: string | null, batchId?: number | null) {
   return useQuery({
-    queryKey: productionKeys.schedule(date ?? 'pending'),
-    queryFn: () => productionApi.generateSchedule(date ?? undefined),
+    queryKey: productionKeys.schedule({ date: date ?? 'pending', batchId: batchId ?? null }),
+    queryFn: () => productionApi.generateSchedule(date ?? undefined, undefined, batchId ?? undefined),
     enabled: Boolean(date),
     staleTime: 1000 * 60 * 60 * 12, // 12小时缓存
   });
@@ -324,9 +490,10 @@ export function useProductionWorkCalendar(year: number, month: number, enabled =
 export function useConfirmSchedule() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: productionApi.confirmSchedule,
-    onSuccess: (_data, date) => {
-      void qc.invalidateQueries({ queryKey: productionKeys.schedule(date) });
+    mutationFn: ({ date, batchId }: { date: string; batchId?: number }) =>
+      productionApi.confirmSchedule(date, batchId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [...productionKeys.all, 'schedule'] });
       void qc.invalidateQueries({ queryKey: productionKeys.orders() });
     },
   });
@@ -339,7 +506,7 @@ export function useAdjustSchedule() {
     mutationFn: ({ date, adjustments }: { date: string; adjustments: ScheduleAdjustmentPayload[] }) =>
       productionApi.adjustSchedule(date, adjustments),
     onSuccess: (_data, { date }) => {
-      void qc.invalidateQueries({ queryKey: productionKeys.schedule(date) });
+      void qc.invalidateQueries({ queryKey: [...productionKeys.all, 'schedule'] });
     },
   });
 }
@@ -475,6 +642,59 @@ export function useCancelOrder() {
   return useMutation({
     mutationFn: (orderId: number) => productionApi.cancelOrder(orderId),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: productionKeys.orders() });
+    },
+  });
+}
+
+export function useEligibleSalesOrderList(
+  params: { keyword?: string; customerId?: number } = {},
+  page = 1,
+  pageSize = 20,
+) {
+  return useQuery({
+    queryKey: productionKeys.eligibleSalesOrders({ ...params, page, pageSize }),
+    queryFn: () => productionApi.getEligibleSalesOrders({ ...params, page, pageSize }),
+  });
+}
+
+export function useProductionBatchList(
+  params: { status?: string; keyword?: string } = {},
+  page = 1,
+  pageSize = 20,
+) {
+  return useQuery({
+    queryKey: productionKeys.batchList({ ...params, page, pageSize }),
+    queryFn: () => productionApi.getBatches({ ...params, page, pageSize }),
+  });
+}
+
+export function useProductionBatchDetail(id: number | null) {
+  return useQuery({
+    queryKey: productionKeys.batchDetail(id!),
+    queryFn: () => productionApi.getBatchById(id!),
+    enabled: id !== null && id > 0,
+  });
+}
+
+export function useCreateProductionBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: productionApi.createBatch,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: productionKeys.batches() });
+      void qc.invalidateQueries({ queryKey: productionKeys.orders() });
+    },
+  });
+}
+
+export function useConfirmProductionBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => productionApi.confirmBatch(id),
+    onSuccess: (_data, id) => {
+      void qc.invalidateQueries({ queryKey: productionKeys.batches() });
+      void qc.invalidateQueries({ queryKey: productionKeys.batchDetail(id) });
       void qc.invalidateQueries({ queryKey: productionKeys.orders() });
     },
   });

@@ -11,6 +11,10 @@ router.get('/',
   requirePermissionsOrRoles(['purchase:suggestion:view'], 'boss', 'supervisor', 'purchase', 'purchaser'),
   asyncHandler(purchaseSuggestionController.list.bind(purchaseSuggestionController)),
 );
+router.get('/:id/sources',
+  requirePermissionsOrRoles(['purchase:suggestion:view'], 'boss', 'supervisor', 'purchase', 'purchaser'),
+  asyncHandler(purchaseSuggestionController.sources.bind(purchaseSuggestionController)),
+);
 
 // 审批通过
 router.put('/:id/approve',

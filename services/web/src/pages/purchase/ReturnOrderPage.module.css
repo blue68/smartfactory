@@ -134,30 +134,34 @@
 .select,
 .formInput,
 .formTextarea {
-  border: 1px solid #cbd5e1;
-  border-radius: 12px;
-  background: #fff;
-  color: #0f172a;
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
+  color: var(--form-control-text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
 .searchInput,
 .select,
 .formInput {
-  height: 42px;
-  padding: 0 14px;
+  height: var(--form-control-height);
+  padding: 0 var(--form-control-padding-x);
 }
 
 .searchInput {
   min-width: 280px;
+  border-radius: var(--form-control-radius-pill);
 }
 
 .select {
   min-width: 160px;
+  padding-right: calc(var(--form-control-padding-x) + 1.25rem);
 }
 
 .formTextarea {
   width: 100%;
-  padding: 12px 14px;
+  padding: 0.8rem var(--form-control-padding-x);
   resize: vertical;
   min-height: 120px;
 }

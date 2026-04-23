@@ -74,8 +74,10 @@ export const RedisKeys = {
     `session:${token}`,
   aiSuggestion: (requestId: string) =>
     `ai_suggestion:${requestId}`,
-  schedule: (tenantId: number, date: string) =>
-    `schedule:${tenantId}:${date}`,
+  schedule: (tenantId: number, date: string, batchId?: number | null) =>
+    batchId ? `schedule:${tenantId}:${date}:batch:${batchId}` : `schedule:${tenantId}:${date}`,
+  schedulePattern: (tenantId: number, date: string) =>
+    `schedule:${tenantId}:${date}*`,
   alertSent: (tenantId: number, skuId: number, date: string) =>
     `alert_sent:${tenantId}:${skuId}:${date}`,
   /**

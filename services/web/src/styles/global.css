@@ -55,6 +55,75 @@ input, textarea, select {
   font-size: inherit;
 }
 
+:where(
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='image']):not([type='button']):not([type='submit']):not([type='reset']):not([type='hidden']),
+  select,
+  textarea
+) {
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
+  color: var(--form-control-text);
+  min-height: var(--form-control-height);
+  padding: var(--form-control-padding-y) var(--form-control-padding-x);
+  line-height: 1.45;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast),
+    background var(--transition-fast);
+}
+
+:where(
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='image']):not([type='button']):not([type='submit']):not([type='reset']):not([type='hidden']):hover,
+  select:hover,
+  textarea:hover
+) {
+  border-color: var(--form-control-border-hover);
+  background: var(--form-control-bg-hover);
+}
+
+:where(
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='image']):not([type='button']):not([type='submit']):not([type='reset']):not([type='hidden']):focus,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='image']):not([type='button']):not([type='submit']):not([type='reset']):not([type='hidden']):focus-visible,
+  select:focus,
+  select:focus-visible,
+  textarea:focus,
+  textarea:focus-visible
+) {
+  outline: none;
+  border-color: var(--form-control-border-focus);
+  background: var(--form-control-bg-focus);
+  box-shadow: var(--form-control-shadow-focus);
+}
+
+:where(
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='image']):not([type='button']):not([type='submit']):not([type='reset']):not([type='hidden'])::placeholder,
+  textarea::placeholder
+) {
+  color: var(--form-control-placeholder);
+}
+
+:where(select) {
+  padding-right: calc(var(--form-control-padding-x) + 1.5rem);
+}
+
+:where(textarea) {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+:where(
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='image']):not([type='button']):not([type='submit']):not([type='reset']):not([type='hidden']):disabled,
+  select:disabled,
+  textarea:disabled
+) {
+  background: var(--form-control-disabled-bg);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 /* 滚动条（Webkit） */
 ::-webkit-scrollbar        { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track  { background: transparent; }

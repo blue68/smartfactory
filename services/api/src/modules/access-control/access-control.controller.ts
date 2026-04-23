@@ -94,6 +94,8 @@ const UserSchema = z.object({
   tenantId: z.number().optional(),
   username: z.string().min(1, '账号不能为空'),
   realName: z.string().min(1, '姓名不能为空'),
+  departmentId: z.number().int().positive().nullable().optional(),
+  position: z.string().nullable().optional(),
   initialPassword: z.string().optional(),
   status: z.string().optional(),
 });

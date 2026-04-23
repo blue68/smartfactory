@@ -5,6 +5,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'rea
 import { useNavigate } from 'react-router-dom';
 import {
   useGenerateMrpSuggestions,
+  useJointProductionBatches,
   useShortageReport,
   useShortageSummary,
   useSupplyChainDashboard,
@@ -90,6 +91,7 @@ export default function ShortageBoard() {
   const setPageTitle = useAppStore((state) => state.setPageTitle);
   const [keyword, setKeyword] = useState('');
   const [focusFilter, setFocusFilter] = useState<FocusFilter>('all');
+  const [batchId, setBatchId] = useState<number | ''>('');
   const [warehouseId, setWarehouseId] = useState<number | ''>('');
   const [locationId, setLocationId] = useState<number | ''>('');
   const [onlyDefaultLocation, setOnlyDefaultLocation] = useState(false);
@@ -113,6 +115,8 @@ export default function ShortageBoard() {
     defaultWarehouse?.id,
     true,
   );
+  const { data: jointBatchPage } = useJointProductionBatches({ page: 1, pageSize: 100 });
+  const jointBatchOptions = jointBatchPage?.list ?? [];
   const defaultLocation = useMemo(
     () => defaultWarehouseLocations.find((item) => item.code === 'DEFAULT-UNKNOWN') ?? null,
     [defaultWarehouseLocations],
@@ -123,11 +127,12 @@ export default function ShortageBoard() {
     () => ({
       page: 1,
       pageSize: 200,
+      batchId: batchId === '' ? undefined : Number(batchId),
       warehouseId: warehouseId === '' ? undefined : Number(warehouseId),
       locationId: locationId === '' ? undefined : Number(locationId),
       onlyDefaultLocation: onlyDefaultLocation || undefined,
     }),
-    [locationId, onlyDefaultLocation, warehouseId],
+    [batchId, locationId, onlyDefaultLocation, warehouseId],
   );
 
   const { data: summaryData, isLoading } = useShortageSummary(shortageSummaryQuery);
@@ -401,6 +406,7 @@ export default function ShortageBoard() {
   const resetFilters = useCallback(() => {
     setKeyword('');
     setFocusFilter('all');
+    setBatchId('');
     setOnlyDefaultLocation(false);
     setWarehouseId('');
     setLocationId('');
@@ -437,9 +443,12 @@ export default function ShortageBoard() {
             <Button
               variant="primary"
               loading={generateSuggestions.isPending}
-              onClick={() => void generateSuggestions.mutateAsync({ forceRegenerate: true })}
+              onClick={() => void generateSuggestions.mutateAsync({
+                forceRegenerate: true,
+                batchId: batchId === '' ? undefined : Number(batchId),
+              })}
             >
-              一键生成采购建议
+              {batchId === '' ? '一键生成采购建议' : '按联合批次生成采购建议'}
             </Button>
             <Button variant="ghost" onClick={() => navigate('/purchase/purchase-suggestions')}>
               查看采购建议
@@ -513,6 +522,25 @@ export default function ShortageBoard() {
                 onChange={(event) => setKeyword(event.target.value)}
                 placeholder="搜索 SKU、物料名称、工单号"
               />
+            </label>
+            <label className={styles.selectField}>
+              <span>联合批次</span>
+              <select
+                className={styles.selectInput}
+                value={batchId === '' ? '' : String(batchId)}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setBatchId(next ? Number(next) : '');
+                  setSelectedOrderId(null);
+                }}
+              >
+                <option value="">全部批次</option>
+                {jointBatchOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.batchNo} · {item.name || '未命名批次'}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className={styles.selectField}>
               <span>仓库</span>
@@ -676,11 +704,16 @@ export default function ShortageBoard() {
                     loading={generateSuggestions.isPending}
                     disabled={hasPendingSuggestion}
                     onClick={() => void generateSuggestions.mutateAsync({
+                      batchId: batchId === '' ? undefined : Number(batchId),
                       productionOrderId: selectedOrderId ?? selectedRow.affectedOrderIds[0],
                       forceRegenerate: true,
                     })}
                   >
-                    {hasPendingSuggestion ? '该工单已有待处理采购建议' : '生成该工单采购建议'}
+                    {hasPendingSuggestion
+                      ? '该工单已有待处理采购建议'
+                      : batchId === ''
+                        ? '生成该工单采购建议'
+                        : '按当前批次生成采购建议'}
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => navigate('/purchase/purchase-suggestions')}>
                     打开采购建议

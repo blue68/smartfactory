@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   useSupplyChainDashboard: vi.fn(),
   useShortageReport: vi.fn(),
   useGenerateMrpSuggestions: vi.fn(),
+  useJointProductionBatches: vi.fn(),
   useWarehouseOptions: vi.fn(),
   useLocationOptions: vi.fn(),
   setPageTitle: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock('@/api/mrp', () => ({
   useSupplyChainDashboard: mocks.useSupplyChainDashboard,
   useShortageReport: mocks.useShortageReport,
   useGenerateMrpSuggestions: mocks.useGenerateMrpSuggestions,
+  useJointProductionBatches: mocks.useJointProductionBatches,
 }));
 
 vi.mock('@/api/inventory', () => ({
@@ -93,6 +95,9 @@ describe('ShortageBoard', () => {
     mocks.useGenerateMrpSuggestions.mockReturnValue({
       mutateAsync: vi.fn(),
       isPending: false,
+    });
+    mocks.useJointProductionBatches.mockReturnValue({
+      data: { list: [], total: 0, page: 1, pageSize: 100, totalPages: 0 },
     });
 
     mocks.useWarehouseOptions.mockReturnValue({

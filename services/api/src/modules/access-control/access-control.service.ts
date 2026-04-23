@@ -133,6 +133,37 @@ function toTree<T extends { id: number; parentId: number | null; children?: T[] 
   return roots;
 }
 
+function filterMenusByKeywordWithAncestors<T extends { id: number; parentId: number | null; code: string; name: string }>(
+  items: T[],
+  keyword?: string,
+): T[] {
+  const normalizedKeyword = keyword?.trim().toLowerCase();
+  if (!normalizedKeyword) {
+    return items;
+  }
+
+  const itemMap = new Map<number, T>(items.map((item) => [item.id, item]));
+  const includedIds = new Set<number>();
+
+  items.forEach((item) => {
+    const haystack = `${item.name} ${item.code}`.toLowerCase();
+    if (!haystack.includes(normalizedKeyword)) {
+      return;
+    }
+
+    let current: T | undefined = item;
+    while (current) {
+      if (includedIds.has(current.id)) {
+        break;
+      }
+      includedIds.add(current.id);
+      current = current.parentId !== null ? itemMap.get(current.parentId) : undefined;
+    }
+  });
+
+  return items.filter((item) => includedIds.has(item.id));
+}
+
 function normalizeSystemMenuRecord<T extends Record<string, unknown>>(item: T): T {
   const code = String(item.code ?? '');
   const seed = SYSTEM_MENU_SEED_BY_CODE.get(code);
@@ -176,6 +207,13 @@ function normalizeSystemActionRecord<T extends Record<string, unknown>>(item: T)
     default_enabled: item.default_enabled ?? seed.defaultEnabled,
   };
 }
+
+type MenuTreeRow = Record<string, unknown> & {
+  id: number;
+  parentId: number | null;
+  code: string;
+  name: string;
+};
 
 export class AccessControlService {
   private normalizeTenantId(value: number | string | null | undefined): number {
@@ -317,6 +355,19 @@ export class AccessControlService {
       [tableName, columnName],
     );
     return Number(row?.total ?? 0) > 0;
+  }
+
+  private async assertDepartmentExists(tenantId: number, departmentId: number | null | undefined): Promise<void> {
+    if (!departmentId) {
+      return;
+    }
+    const [department] = await AppDataSource.query<Array<{ id: number }>>(
+      'SELECT id FROM departments WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [departmentId, tenantId],
+    );
+    if (!department) {
+      throw AppError.badRequest('所选部门不存在或不属于当前租户');
+    }
   }
 
   private async getOperatorName(ctx: TenantContext): Promise<string | null> {
@@ -947,10 +998,8 @@ export class AccessControlService {
     );
     if (!(await this.tableExists('permission_menus'))) {
       const seeds = getSystemMenuSeeds();
-      const filtered = query.keyword
-        ? seeds.filter((item) => item.name.includes(query.keyword!) || item.code.includes(query.keyword!))
-        : seeds;
-      return toTree(this.filterPlatformOnlyMenus(ctx, filtered).map((item) => ({ ...item, children: [] })));
+      const filtered = filterMenusByKeywordWithAncestors(this.filterPlatformOnlyMenus(ctx, seeds), query.keyword);
+      return toTree(filtered.map((item) => ({ ...item, children: [] })));
     }
 
     const params: Array<number | string> = [tenantId];
@@ -968,15 +1017,11 @@ export class AccessControlService {
                       is_system AS isSystem
                  FROM permission_menus
                 WHERE tenant_id IN (0, ?)`;
-    if (query.keyword) {
-      sql += ' AND (name LIKE ? OR code LIKE ?)';
-      params.push(`%${query.keyword}%`, `%${query.keyword}%`);
-    }
     sql += ' ORDER BY parent_id ASC, sort_order ASC, id ASC';
 
     const rows = await AppDataSource.query<Array<Record<string, unknown>>>(sql, params);
-    const normalizedRows = rows.map((item) => normalizeSystemMenuRecord(item));
-    const filteredRows = this.filterPlatformOnlyMenus(ctx, normalizedRows);
+    const normalizedRows = rows.map((item) => normalizeSystemMenuRecord(item)) as MenuTreeRow[];
+    const filteredRows = filterMenusByKeywordWithAncestors(this.filterPlatformOnlyMenus(ctx, normalizedRows), query.keyword);
     return toTree(filteredRows.map((item) => ({ ...(item as Record<string, unknown>), children: [] })) as Array<any>);
   }
 
@@ -1340,6 +1385,8 @@ export class AccessControlService {
     const page = normalizePage(query.page);
     const pageSize = normalizePageSize(query.pageSize);
     const effectiveTenantId = this.resolveScopedTenantId(ctx, query.tenantId ?? ctx.tenantId);
+    const hasDepartmentId = await this.columnExists('users', 'department_id');
+    const hasPosition = await this.columnExists('users', 'position');
     const where: string[] = ['u.tenant_id = ?'];
     const params: Array<string | number> = [effectiveTenantId];
 
@@ -1363,6 +1410,14 @@ export class AccessControlService {
         WHERE ${where.join(' AND ')}`,
       params,
     );
+    const groupByFields = ['u.id', 'u.tenant_id', 'u.username', 'u.real_name'];
+    if (hasDepartmentId) {
+      groupByFields.push('u.department_id', 'd.name');
+    }
+    if (hasPosition) {
+      groupByFields.push('u.position');
+    }
+    groupByFields.push('u.status', 'u.updated_at');
 
     const rows = await AppDataSource.query<Array<Record<string, unknown>>>(
       `SELECT u.id,
@@ -1371,8 +1426,9 @@ export class AccessControlService {
               u.real_name AS realName,
               NULL AS phone,
               NULL AS email,
-              NULL AS department,
-              NULL AS position,
+              ${hasDepartmentId ? 'u.department_id' : 'NULL'} AS departmentId,
+              ${hasDepartmentId ? 'd.name' : 'NULL'} AS department,
+              ${hasPosition ? 'u.position' : 'NULL'} AS position,
               u.status,
               COUNT(DISTINCT ur.role_id) AS roleCount,
               MIN(r.name) AS primaryRoleName,
@@ -1380,8 +1436,9 @@ export class AccessControlService {
          FROM users u
          LEFT JOIN user_roles ur ON ur.user_id = u.id AND ur.tenant_id = u.tenant_id
          LEFT JOIN roles r ON r.id = ur.role_id AND r.tenant_id = ur.tenant_id
+         ${hasDepartmentId ? 'LEFT JOIN departments d ON d.id = u.department_id AND d.tenant_id = u.tenant_id' : ''}
         WHERE ${where.join(' AND ')}
-        GROUP BY u.id, u.tenant_id, u.username, u.real_name, u.status, u.updated_at
+        GROUP BY ${groupByFields.join(', ')}
         ORDER BY u.id DESC
         LIMIT ? OFFSET ?`,
       [...params, pageSize, (page - 1) * pageSize],
@@ -1584,6 +1641,8 @@ export class AccessControlService {
     tenantId?: number;
     username: string;
     realName: string;
+    departmentId?: number | null;
+    position?: string | null;
     initialPassword?: string;
     status?: string;
   }) {
@@ -1595,13 +1654,36 @@ export class AccessControlService {
     if (duplicate.length > 0) {
       throw new AppError('人员账号已存在', ResponseCode.ACCESS_USER_DUPLICATE, 409);
     }
+    await this.assertDepartmentExists(tenantId, payload.departmentId);
 
     const passwordHash = await bcrypt.hash(payload.initialPassword?.trim() || '123456', 10);
+    const hasDepartmentId = await this.columnExists('users', 'department_id');
+    const hasPosition = await this.columnExists('users', 'position');
+    const columns = ['tenant_id', 'username', 'password_hash', 'real_name', 'status', 'created_at', 'updated_at', 'created_by', 'updated_by'];
+    const placeholders = ['?', '?', '?', '?', '?', 'NOW(3)', 'NOW(3)', '?', '?'];
+    const values: Array<string | number | null> = [
+      tenantId,
+      payload.username,
+      passwordHash,
+      payload.realName,
+      normalizeStatus(payload.status, 'active'),
+      ctx.userId,
+      ctx.userId,
+    ];
+    if (hasDepartmentId) {
+      columns.push('department_id');
+      placeholders.push('?');
+      values.push(payload.departmentId ?? null);
+    }
+    if (hasPosition) {
+      columns.push('position');
+      placeholders.push('?');
+      values.push(payload.position?.trim() || null);
+    }
     const result = await AppDataSource.query<Array<never>>(
-      `INSERT INTO users
-         (tenant_id, username, password_hash, real_name, status, created_at, updated_at, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, NOW(3), NOW(3), ?, ?)`,
-      [tenantId, payload.username, passwordHash, payload.realName, normalizeStatus(payload.status, 'active'), ctx.userId, ctx.userId],
+      `INSERT INTO users (${columns.join(', ')})
+       VALUES (${placeholders.join(', ')})`,
+      values,
     ) as unknown as { insertId?: number };
 
     const createdUserId = Number(result.insertId ?? 0);
@@ -1611,7 +1693,14 @@ export class AccessControlService {
       targetType: 'user',
       targetId: createdUserId,
       targetCode: payload.username,
-      afterJson: { userId: createdUserId, username: payload.username, realName: payload.realName, status: normalizeStatus(payload.status, 'active') },
+      afterJson: {
+        userId: createdUserId,
+        username: payload.username,
+        realName: payload.realName,
+        departmentId: payload.departmentId ?? null,
+        position: payload.position?.trim() || null,
+        status: normalizeStatus(payload.status, 'active'),
+      },
       diffJson: { created: true },
     });
     return { id: createdUserId };
@@ -1620,6 +1709,8 @@ export class AccessControlService {
   async updateUser(ctx: TenantContext, userId: number, payload: {
     username: string;
     realName: string;
+    departmentId?: number | null;
+    position?: string | null;
     status?: string;
   }) {
     const [user] = await AppDataSource.query<Array<{ id: number; tenant_id: number }>>(
@@ -1637,16 +1728,38 @@ export class AccessControlService {
     if (duplicate.length > 0) {
       throw new AppError('人员账号已存在', ResponseCode.ACCESS_USER_DUPLICATE, 409);
     }
+    await this.assertDepartmentExists(ctx.tenantId, payload.departmentId);
+
+    const hasDepartmentId = await this.columnExists('users', 'department_id');
+    const hasPosition = await this.columnExists('users', 'position');
+    const sets = [
+      'username = ?',
+      'real_name = ?',
+      'status = ?',
+      'updated_by = ?',
+      'updated_at = NOW(3)',
+    ];
+    const params: Array<string | number | null> = [
+      payload.username,
+      payload.realName,
+      normalizeStatus(payload.status, 'active'),
+      ctx.userId,
+    ];
+    if (hasDepartmentId) {
+      sets.push('department_id = ?');
+      params.push(payload.departmentId ?? null);
+    }
+    if (hasPosition) {
+      sets.push('position = ?');
+      params.push(payload.position?.trim() || null);
+    }
+    params.push(userId, ctx.tenantId);
 
     await AppDataSource.query(
       `UPDATE users
-          SET username = ?,
-              real_name = ?,
-              status = ?,
-              updated_by = ?,
-              updated_at = NOW(3)
+          SET ${sets.join(', ')}
         WHERE id = ? AND tenant_id = ?`,
-      [payload.username, payload.realName, normalizeStatus(payload.status, 'active'), ctx.userId, userId, ctx.tenantId],
+      params,
     );
 
     await this.writeAuditLog(ctx, {
@@ -1655,8 +1768,15 @@ export class AccessControlService {
       targetType: 'user',
       targetId: userId,
       targetCode: payload.username,
-      afterJson: { userId, username: payload.username, realName: payload.realName, status: normalizeStatus(payload.status, 'active') },
-      diffJson: { updated: ['username', 'realName', 'status'] },
+      afterJson: {
+        userId,
+        username: payload.username,
+        realName: payload.realName,
+        departmentId: payload.departmentId ?? null,
+        position: payload.position?.trim() || null,
+        status: normalizeStatus(payload.status, 'active'),
+      },
+      diffJson: { updated: ['username', 'realName', 'departmentId', 'position', 'status'] },
     });
 
     return { success: true };

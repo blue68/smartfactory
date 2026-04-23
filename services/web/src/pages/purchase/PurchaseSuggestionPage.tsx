@@ -3,14 +3,17 @@
  */
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useJointProductionBatches } from '@/api/mrp';
 import {
   usePurchaseSuggestionList,
   useApprovePurchaseSuggestion,
   useRejectPurchaseSuggestion,
   useBatchToPo,
+  usePurchaseSuggestionSources,
   type PurchaseSuggestion,
   type PurchaseSuggestionSource,
   type PurchaseSuggestionStatus,
+  type PurchaseSuggestionSourceRecord,
 } from '@/api/purchaseSuggestion';
 import { useSupplierOptions } from '@/api/supplier';
 import { useAppStore } from '@/stores/appStore';
@@ -40,6 +43,9 @@ interface SuggestionRow {
   createdAt: string | null;
   approvedAt: string | null;
   confidence: string | null;
+  productionBatchId: number | null;
+  batchNo: string | null;
+  affectedOrderCount: number;
   urgency: UrgencyLevel;
 }
 
@@ -50,6 +56,7 @@ interface LinkedOrderInfo {
 
 const SOURCE_META: Record<PurchaseSuggestionSource, { label: string; tone: string }> = {
   production_shortage: { label: '生产缺料', tone: 'shortage' },
+  production_batch_shortage: { label: '联合批次缺料', tone: 'shortage' },
   ai_schedule: { label: 'AI 排产', tone: 'ai' },
   manual: { label: '手动', tone: 'manual' },
   outsource_operation: { label: '外协半成品', tone: 'outsource' },
@@ -119,7 +126,10 @@ function normalizeSuggestion(item: PurchaseSuggestion): SuggestionRow {
     createdAt: (record.createdAt ?? record.created_at ?? null) as string | null,
     approvedAt: (record.approvedAt ?? record.approved_at ?? null) as string | null,
     confidence: (record.confidence ?? null) as string | null,
-    urgency: source === 'production_shortage' ? 'urgent' : 'normal',
+    productionBatchId: Number(record.productionBatchId ?? record.production_batch_id ?? 0) || null,
+    batchNo: (record.batchNo ?? record.batch_no ?? null) as string | null,
+    affectedOrderCount: Number(record.affectedOrderCount ?? record.affected_order_count ?? 0),
+    urgency: source === 'production_shortage' || source === 'production_batch_shortage' ? 'urgent' : 'normal',
   };
 }
 
@@ -181,6 +191,7 @@ export default function PurchaseSuggestionPage() {
   const [sourceFilter, setSourceFilter] = useState<PurchaseSuggestionSource | ''>('');
   const [statusFilter, setStatusFilter] = useState<PurchaseSuggestionStatus | ''>('');
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyLevel | ''>('');
+  const [batchFilter, setBatchFilter] = useState<number | ''>('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -199,9 +210,12 @@ export default function PurchaseSuggestionPage() {
     setPageTitle('采购建议管理');
   }, [setPageTitle]);
 
+  const jointBatchQuery = useJointProductionBatches({ page: 1, pageSize: 100 });
+  const batchOptions = jointBatchQuery.data?.list ?? [];
   const listQuery = usePurchaseSuggestionList({
     source: sourceFilter || undefined,
     status: statusFilter || undefined,
+    productionBatchId: batchFilter === '' ? undefined : Number(batchFilter),
     page: 1,
     pageSize: 200,
   });
@@ -210,6 +224,7 @@ export default function PurchaseSuggestionPage() {
   const batchToPOMutation = useBatchToPo();
   const supplierOptionsQuery = useSupplierOptions();
   const deferredKeyword = useDeferredValue(keyword);
+  const suggestionSourcesQuery = usePurchaseSuggestionSources(detailId);
 
   const rows = useMemo(
     () => (listQuery.data?.list ?? []).map(normalizeSuggestion),
@@ -227,6 +242,7 @@ export default function PurchaseSuggestionPage() {
         row.skuName,
         row.supplierName,
         row.workOrderNo ?? '',
+        row.batchNo ?? '',
         row.reason,
         row.rejectReason ?? '',
       ].some((value) => value.toLowerCase().includes(kw));
@@ -290,7 +306,7 @@ export default function PurchaseSuggestionPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [keyword, sourceFilter, statusFilter, urgencyFilter, pageSize]);
+  }, [batchFilter, keyword, sourceFilter, statusFilter, urgencyFilter, pageSize]);
 
   useEffect(() => {
     if (detailId !== null && !rows.some((row) => row.id === detailId)) {
@@ -617,6 +633,7 @@ export default function PurchaseSuggestionPage() {
         >
           <option value="">全部来源</option>
           <option value="production_shortage">生产缺料</option>
+          <option value="production_batch_shortage">联合批次缺料</option>
           <option value="manual">手动</option>
           <option value="ai_schedule">AI 排产</option>
           <option value="outsource_operation">外协半成品</option>
@@ -645,6 +662,20 @@ export default function PurchaseSuggestionPage() {
           <option value="">全部紧迫度</option>
           <option value="urgent">紧急</option>
           <option value="normal">一般</option>
+        </select>
+
+        <select
+          className={styles.filterSelect}
+          value={batchFilter === '' ? '' : String(batchFilter)}
+          onChange={(e) => setBatchFilter(e.target.value ? Number(e.target.value) : '')}
+          aria-label="筛选联合生产批次"
+        >
+          <option value="">全部联合批次</option>
+          {batchOptions.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.batchNo} · {item.name || '未命名批次'}
+            </option>
+          ))}
         </select>
 
         <div className={styles.filterDivider} />
@@ -1270,6 +1301,10 @@ export default function PurchaseSuggestionPage() {
                     <div className={`${styles.infoValue} ${styles.infoMono}`}>{detailRow.workOrderNo ?? '—'}</div>
                   </div>
                   <div>
+                    <div className={styles.infoLabel}>联合批次</div>
+                    <div className={`${styles.infoValue} ${styles.infoMono}`}>{detailRow.batchNo ?? '—'}</div>
+                  </div>
+                  <div>
                     <div className={styles.infoLabel}>创建时间</div>
                     <div className={styles.infoValue}>{formatDateTime(detailRow.createdAt)}</div>
                   </div>
@@ -1294,6 +1329,9 @@ export default function PurchaseSuggestionPage() {
                 )}
                 <div className={styles.detailMetaRow}>
                   <span className={styles.batchSummaryChip}>置信度 {formatConfidence(detailRow.confidence)}</span>
+                  {detailRow.affectedOrderCount > 0 && (
+                    <span className={styles.batchSummaryChip}>影响订单 {detailRow.affectedOrderCount} 单</span>
+                  )}
                   {detailOrderLink && (
                     <span className={styles.batchSummaryChip}>采购单 {detailOrderLink.poNo}</span>
                   )}
@@ -1301,6 +1339,36 @@ export default function PurchaseSuggestionPage() {
                 {detailRow.status === 'executed' && !detailOrderLink && (
                   <div className={styles.inlineNotice}>
                     当前列表未回填采购单号；如果这是本次会话刚转出的建议，刷新后仍未出现时请到采购订单页按时间范围核对。
+                  </div>
+                )}
+              </section>
+
+              <section className={styles.infoCard}>
+                <div className={styles.infoCardTitle}>需求来源</div>
+                {suggestionSourcesQuery.isLoading ? (
+                  <div className={styles.inlineNotice}>正在加载来源明细…</div>
+                ) : (suggestionSourcesQuery.data?.length ?? 0) === 0 ? (
+                  <div className={styles.inlineNotice}>当前建议暂无可展示的来源明细。</div>
+                ) : (
+                  <div className={styles.sourceTraceList}>
+                    {suggestionSourcesQuery.data?.map((source: PurchaseSuggestionSourceRecord) => (
+                      <div key={source.id} className={styles.sourceTraceItem}>
+                        <div className={styles.sourceTraceTop}>
+                          <strong>{source.salesOrderNo || source.workOrderNo || source.batchNo || `来源 #${source.sourceId}`}</strong>
+                          <span className={styles.batchSummaryChip}>{source.sourceType}</span>
+                        </div>
+                        <div className={styles.sourceTraceMeta}>
+                          <span>{source.skuCode} · {source.skuName}</span>
+                          {source.batchNo && <span>批次 {source.batchNo}</span>}
+                          {source.workOrderNo && <span>工单 {source.workOrderNo}</span>}
+                          {source.salesOrderNo && <span>订单 {source.salesOrderNo}</span>}
+                        </div>
+                        <div className={styles.sourceTraceQty}>
+                          <span>需求 {formatQty(source.requiredQty)}</span>
+                          <span>缺口 {formatQty(source.shortageQty)}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </section>

@@ -9,6 +9,7 @@ import {
   useProductionOrderComponents,
   useProductionOrderOperations,
   useCreateFromSalesOrder,
+  useProductionBatchList,
   useMaterialRequirements,
   useCancelOrder,
   type ProductionOrderComponent,
@@ -28,6 +29,7 @@ import styles from './ProductionOrderPage.module.css';
 interface OrderRow {
   id: number;
   workOrderNo: string;
+  batchNo?: string | null;
   salesOrderNo: string;
   skuName: string;
   qtyPlanned: string;
@@ -574,6 +576,7 @@ function OperationLane({
 
 export default function ProductionOrderPage() {
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [batchFilter, setBatchFilter] = useState<number | ''>('');
   const [keyword, setKeyword]           = useState('');
   const [page, setPage]                 = useState(1);
   const [selectedId, setSelectedId]     = useState<number | null>(null);
@@ -600,10 +603,11 @@ export default function ProductionOrderPage() {
 
   // ── 列表数据 ──
   const { data: listData, isLoading } = useProductionOrderList(
-    { status: (statusFilter || undefined) as any },
+    { status: (statusFilter || undefined) as any, batchId: batchFilter === '' ? undefined : Number(batchFilter) },
     page,
     20,
   );
+  const { data: batchData } = useProductionBatchList({}, 1, 100);
   // 各状态计数用（只取 total）
   const { data: inProgressData }  = useProductionOrderList({ status: 'in_progress' as any }, 1, 1);
   const { data: pendingData }     = useProductionOrderList({ status: 'pending' as any }, 1, 1);
@@ -640,8 +644,9 @@ export default function ProductionOrderPage() {
   // 筛选后显示的条数描述
   const countLabel = useMemo(() => {
     const label = statusFilter ? STATUS_MAP[statusFilter]?.label : '全部';
-    return `共 ${total} 条${label ? `（${label}）` : ''}`;
-  }, [total, statusFilter]);
+    const batchLabel = batchFilter === '' ? '' : ` · 联合批次 ${batchData?.list?.find((batch) => batch.id === Number(batchFilter))?.batchNo ?? `#${batchFilter}`}`;
+    return `共 ${total} 条${label ? `（${label}）` : ''}${batchLabel}`;
+  }, [batchData?.list, batchFilter, total, statusFilter]);
 
   const handleCreate = useCallback(async () => {
     const orderNo = salesOrderIdInput.trim();
@@ -682,6 +687,7 @@ export default function ProductionOrderPage() {
 
     const header = [
       '工单号',
+      '联合批次',
       '销售订单号',
       '产品名称',
       '工单状态',
@@ -694,6 +700,7 @@ export default function ProductionOrderPage() {
     ];
     const rows = list.map((order) => [
       order.workOrderNo ?? '',
+      order.batchNo ?? '',
       order.salesOrderNo ?? '',
       order.skuName ?? '',
       STATUS_MAP[order.status]?.label ?? order.status ?? '',
@@ -821,6 +828,18 @@ export default function ProductionOrderPage() {
           <option value="completed">已完工</option>
           <option value="cancelled">已取消</option>
         </select>
+        <select
+          className={styles.filterSelect}
+          value={batchFilter === '' ? '' : String(batchFilter)}
+          onChange={(e) => { setBatchFilter(e.target.value ? Number(e.target.value) : ''); setPage(1); }}
+        >
+          <option value="">全部联合批次</option>
+          {(batchData?.list ?? []).map((batch) => (
+            <option key={batch.id} value={batch.id}>
+              {batch.batchNo} · {batch.name || '未命名批次'}
+            </option>
+          ))}
+        </select>
         <select className={styles.filterSelect}>
           <option>全部优先级</option>
           <option>紧急</option>
@@ -874,6 +893,12 @@ export default function ProductionOrderPage() {
                     {/* 工单号 · 关联销售单 */}
                     <div className={styles.orderCard__headerTop}>
                       <span className={styles.orderCard__id}>{order.workOrderNo}</span>
+                      {order.batchNo && (
+                        <>
+                          <span className={styles.orderCard__sep}>·</span>
+                          <span className={styles.orderCard__so}>联合批次 {order.batchNo}</span>
+                        </>
+                      )}
                       {order.salesOrderNo && (
                         <>
                           <span className={styles.orderCard__sep}>·</span>
@@ -1071,6 +1096,7 @@ export default function ProductionOrderPage() {
                 <div className={styles.drawerSection__title}>基本信息</div>
                 <dl className={styles.infoGrid}>
                   <dt>工单号</dt><dd>{detail.workOrderNo}</dd>
+                  <dt>联合批次</dt><dd>{detail.batchNo ?? '—'}</dd>
                   <dt>关联销售单</dt><dd>{detail.salesOrderNo ?? '-'}</dd>
                   <dt>产品名称</dt><dd>{detail.skuName}</dd>
                   <dt>计划数量</dt><dd>{formatDecimal(detail.qtyPlanned, 4)}</dd>

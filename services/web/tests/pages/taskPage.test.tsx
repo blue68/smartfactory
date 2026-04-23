@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   useTaskList: vi.fn(),
   useTaskDetail: vi.fn(),
   useProductionWorkers: vi.fn(),
+  useProductionBatchList: vi.fn(),
   taskApiDetail: vi.fn(),
   useTaskStats: vi.fn(),
   useStartTask: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock('@/api/productionTask', () => ({
 
 vi.mock('@/api/production', () => ({
   useProductionWorkers: mocks.useProductionWorkers,
+  useProductionBatchList: mocks.useProductionBatchList,
 }));
 
 vi.mock('@/api/inventory', () => ({
@@ -252,6 +254,7 @@ describe('TaskPage', () => {
         { id: 8, name: '李四' },
       ],
     });
+    mocks.useProductionBatchList.mockReturnValue({ data: { list: [], total: 0 } });
     mocks.useTaskDetail.mockImplementation((id: number | null) => ({
       data: id === 1 ? taskDetail : undefined,
       isLoading: false,

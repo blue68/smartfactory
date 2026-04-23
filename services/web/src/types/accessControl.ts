@@ -171,6 +171,7 @@ export interface AccessUserSummary {
   realName: string;
   phone?: string | null;
   email?: string | null;
+  departmentId?: number | null;
   department?: string | null;
   position?: string | null;
   status?: 'active' | 'inactive' | 'locked';
@@ -183,6 +184,8 @@ export interface UserMutationPayload {
   tenantId?: number;
   username: string;
   realName: string;
+  departmentId?: number | null;
+  position?: string | null;
   initialPassword?: string;
   status?: string;
 }

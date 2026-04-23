@@ -22,10 +22,18 @@ class PurchaseSuggestionController {
       status: req.query.status as string | undefined,
       source: req.query.source as string | undefined,
       skuId: req.query.skuId ? Number(req.query.skuId) : undefined,
+      productionBatchId: req.query.productionBatchId ? Number(req.query.productionBatchId) : undefined,
       page,
       pageSize,
     });
     success(res, buildPaginated(result.list, result.total, page, pageSize));
+  }
+
+  async sources(req: Request, res: Response): Promise<void> {
+    const ctx = { tenantId: req.tenantId, userId: req.userId };
+    const svc = new PurchaseSuggestionService(ctx);
+    const data = await svc.getSuggestionSources(Number(req.params.id));
+    success(res, data);
   }
 
   async approve(req: Request, res: Response): Promise<void> {

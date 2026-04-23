@@ -21,7 +21,12 @@ export class ProductionService {
 
   private async invalidateScheduleCache(date: string): Promise<void> {
     try {
-      await getRedisClient().del(RedisKeys.schedule(this.tenantId, date));
+      const redis = getRedisClient();
+      await redis.del(RedisKeys.schedule(this.tenantId, date));
+      const extraKeys = await redis.keys(RedisKeys.schedulePattern(this.tenantId, date));
+      if (extraKeys.length > 0) {
+        await redis.del(...extraKeys);
+      }
     } catch (err) {
       console.warn(
         `[ProductionService] Redis unavailable during manual schedule adjustment cache invalidation for tenant=${this.tenantId} date=${date}: ${(err as Error).message}`,
@@ -29,8 +34,8 @@ export class ProductionService {
     }
   }
 
-  async generateSchedule(date?: string, force = false) {
-    return this.scheduler.generateSchedule(date, force);
+  async generateSchedule(date?: string, force = false, batchId?: number) {
+    return this.scheduler.generateSchedule(date, force, batchId);
   }
 
   async getScheduleHistory(limit: number) {
@@ -70,8 +75,8 @@ export class ProductionService {
     }));
   }
 
-  async confirmSchedule(date: string) {
-    return this.scheduler.confirmSchedule(date);
+  async confirmSchedule(date: string, batchId?: number) {
+    return this.scheduler.confirmSchedule(date, batchId);
   }
 
   async getWorkerTasks(workerId: number, date: string) {
@@ -124,12 +129,13 @@ export class ProductionService {
   }
 
   async listProductionOrders(params: {
-    status?: string; salesOrderId?: number; page: number; pageSize: number;
+    status?: string; salesOrderId?: number; batchId?: number; page: number; pageSize: number;
   }) {
     const conds = ['po.tenant_id = ?'];
     const p: unknown[] = [this.tenantId];
     if (params.status) { conds.push('po.status = ?'); p.push(params.status); }
     if (params.salesOrderId) { conds.push('po.sales_order_id = ?'); p.push(params.salesOrderId); }
+    if (params.batchId) { conds.push('po.joint_batch_id = ?'); p.push(params.batchId); }
 
     const where = conds.join(' AND ');
     const offset = (params.page - 1) * params.pageSize;
@@ -137,11 +143,13 @@ export class ProductionService {
     const [list, countRows] = await Promise.all([
       AppDataSource.query(
         `SELECT po.*, s.name AS skuName, so.order_no AS salesOrderNo,
+                jb.batch_no AS batchNo,
                 so.expected_delivery,
                 ROUND(po.qty_completed / po.qty_planned * 100, 1) AS progressPct
          FROM production_orders po
          INNER JOIN skus s ON s.id = po.sku_id
          INNER JOIN sales_orders so ON so.id = po.sales_order_id
+         LEFT JOIN joint_production_batches jb ON jb.id = po.joint_batch_id AND jb.tenant_id = po.tenant_id
          WHERE ${where}
          ORDER BY po.priority DESC, so.expected_delivery ASC
          LIMIT ? OFFSET ?`,
@@ -168,11 +176,13 @@ export class ProductionService {
   async getProductionOrderDetail(orderId: number) {
     const [order] = await AppDataSource.query(
       `SELECT po.*, s.name AS skuName, so.order_no AS salesOrderNo,
+              jb.batch_no AS batchNo,
               so.expected_delivery, so.customer_id,
               ROUND(po.qty_completed / po.qty_planned * 100, 1) AS progressPct
        FROM production_orders po
        INNER JOIN skus s ON s.id = po.sku_id
        INNER JOIN sales_orders so ON so.id = po.sales_order_id
+       LEFT JOIN joint_production_batches jb ON jb.id = po.joint_batch_id AND jb.tenant_id = po.tenant_id
        WHERE po.id = ? AND po.tenant_id = ? LIMIT 1`,
       [orderId, this.tenantId],
     );
@@ -249,6 +259,8 @@ export class ProductionService {
                 pt.started_at AS startedAt, pt.completed_at AS completedAt,
                 pt.created_at AS createdAt, pt.updated_at AS updatedAt,
                 po.work_order_no AS orderNo, po.priority,
+                po.joint_batch_id AS jointBatchId,
+                jb.batch_no AS batchNo,
                 po.planned_end AS plannedFinishTime,
                 po.sales_order_id AS salesOrderId, po.sku_id AS skuId, po.qty_planned AS orderPlannedQty,
                 COALESCE(ps.step_name, CONCAT('STEP#', pt.process_step_id)) AS processName, ps.step_no AS stepNo,
@@ -270,6 +282,9 @@ export class ProductionService {
                 END AS taskType
          FROM production_tasks pt
          INNER JOIN production_orders po ON po.id = pt.production_order_id
+         LEFT JOIN joint_production_batches jb
+           ON jb.id = po.joint_batch_id
+          AND jb.tenant_id = po.tenant_id
          LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
          LEFT JOIN production_operations op
            ON op.id = pt.operation_id
@@ -604,6 +619,7 @@ export class ProductionService {
     page: number; pageSize: number; status?: string; keyword?: string;
     processId?: number;
     workerId?: number;
+    batchId?: number;
     taskType?: 'finished' | 'semi_finished';
     executionMode?: 'internal' | 'outsource';
     dateFrom?: string;
@@ -622,8 +638,8 @@ export class ProductionService {
       }
     }
     if (params.keyword) {
-      conds.push('(po.work_order_no LIKE ? OR COALESCE(ps.step_name, CONCAT(\'STEP#\', pt.process_step_id)) LIKE ? OR u.real_name LIKE ?)');
-      p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
+      conds.push('(po.work_order_no LIKE ? OR COALESCE(jb.batch_no, \'\') LIKE ? OR COALESCE(ps.step_name, CONCAT(\'STEP#\', pt.process_step_id)) LIKE ? OR u.real_name LIKE ?)');
+      p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
     }
     // BE-06-02: 新增筛选参数
     if (params.processId) {
@@ -633,6 +649,10 @@ export class ProductionService {
     if (params.workerId) {
       conds.push('pt.worker_id = ?');
       p.push(params.workerId);
+    }
+    if (params.batchId) {
+      conds.push('po.joint_batch_id = ?');
+      p.push(params.batchId);
     }
     if (params.taskType === 'semi_finished') {
       conds.push('COALESCE(pt.output_sku_id, ps.output_sku_id) IS NOT NULL');
@@ -704,6 +724,8 @@ export class ProductionService {
                pt.operation_id AS operationId,
                pt.output_sku_id AS outputSkuId,
                po.work_order_no AS orderNo,
+               po.joint_batch_id AS jointBatchId,
+               jb.batch_no AS batchNo,
                po.priority,
                po.planned_end AS plannedFinishTime,
                COALESCE(ps.step_name, CONCAT('STEP#', pt.process_step_id)) AS processName,
@@ -737,6 +759,9 @@ export class ProductionService {
                ) AS priorityScore
              FROM production_tasks pt
              INNER JOIN production_orders po ON po.id = pt.production_order_id
+             LEFT JOIN joint_production_batches jb
+               ON jb.id = po.joint_batch_id
+              AND jb.tenant_id = po.tenant_id
              LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
              LEFT JOIN workstations ws ON ws.id = pt.workstation_id
              LEFT JOIN users u ON u.id = pt.worker_id
@@ -792,6 +817,9 @@ export class ProductionService {
           `SELECT COUNT(*) AS total
            FROM production_tasks pt
            INNER JOIN production_orders po ON po.id = pt.production_order_id
+           LEFT JOIN joint_production_batches jb
+             ON jb.id = po.joint_batch_id
+            AND jb.tenant_id = po.tenant_id
            LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
            LEFT JOIN users u ON u.id = pt.worker_id
            WHERE ${where}`,
@@ -835,6 +863,7 @@ export class ProductionService {
     page: number; pageSize: number; status?: string; keyword?: string;
     processId?: number;
     workerId?: number;
+    batchId?: number;
     taskType?: 'finished' | 'semi_finished';
     executionMode?: 'internal' | 'outsource';
     dateFrom?: string;
@@ -884,8 +913,8 @@ export class ProductionService {
       }
     }
     if (params.keyword) {
-      conds.push('(po.work_order_no LIKE ? OR COALESCE(ps.step_name, CONCAT(\'STEP#\', pt.process_step_id)) LIKE ? OR u.real_name LIKE ?)');
-      p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
+      conds.push('(po.work_order_no LIKE ? OR COALESCE(jb.batch_no, \'\') LIKE ? OR COALESCE(ps.step_name, CONCAT(\'STEP#\', pt.process_step_id)) LIKE ? OR u.real_name LIKE ?)');
+      p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
     }
     if (params.processId) {
       conds.push('pt.process_step_id = ?');
@@ -894,6 +923,10 @@ export class ProductionService {
     if (params.workerId) {
       conds.push('pt.worker_id = ?');
       p.push(params.workerId);
+    }
+    if (params.batchId) {
+      conds.push('po.joint_batch_id = ?');
+      p.push(params.batchId);
     }
     if (params.taskType === 'semi_finished' && outputSkuExpr !== 'NULL') {
       conds.push(`${outputSkuExpr} IS NOT NULL`);
@@ -955,6 +988,8 @@ export class ProductionService {
              NULL AS operationId,
              ${outputSkuExpr} AS outputSkuId,
              po.work_order_no AS orderNo,
+             po.joint_batch_id AS jointBatchId,
+             jb.batch_no AS batchNo,
              po.priority,
              po.planned_end AS plannedFinishTime,
              COALESCE(ps.step_name, CONCAT('STEP#', pt.process_step_id)) AS processName,
@@ -975,6 +1010,9 @@ export class ProductionService {
              po.priority AS priorityScore
            FROM production_tasks pt
            INNER JOIN production_orders po ON po.id = pt.production_order_id
+           LEFT JOIN joint_production_batches jb
+             ON jb.id = po.joint_batch_id
+            AND jb.tenant_id = po.tenant_id
            LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
            LEFT JOIN production_schedules sched ON sched.id = pt.schedule_id AND sched.tenant_id = pt.tenant_id
            LEFT JOIN workstations ws ON ws.id = ${workstationRef}
@@ -991,6 +1029,9 @@ export class ProductionService {
         `SELECT COUNT(*) AS total
          FROM production_tasks pt
          INNER JOIN production_orders po ON po.id = pt.production_order_id
+         LEFT JOIN joint_production_batches jb
+           ON jb.id = po.joint_batch_id
+          AND jb.tenant_id = po.tenant_id
          LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
          LEFT JOIN users u ON u.id = pt.worker_id
          WHERE ${where}`,
@@ -1506,14 +1547,18 @@ export class ProductionService {
   }
 
   // P0-10: 任务统计 — 按状态分组全量计数
-  async getTaskStats(): Promise<{ total: number; byStatus: Record<string, number> }> {
+  async getTaskStats(batchId?: number): Promise<{ total: number; byStatus: Record<string, number> }> {
     const rows = await AppDataSource.query<Array<{ status: string; count: string }>>(
-      `SELECT CASE WHEN status = 'started' THEN 'in_progress' ELSE status END AS status,
+      `SELECT CASE WHEN pt.status = 'started' THEN 'in_progress' ELSE pt.status END AS status,
               COUNT(*) AS count
-       FROM production_tasks
-       WHERE tenant_id = ?
-       GROUP BY CASE WHEN status = 'started' THEN 'in_progress' ELSE status END`,
-      [this.tenantId],
+       FROM production_tasks pt
+       INNER JOIN production_orders po
+         ON po.id = pt.production_order_id
+        AND po.tenant_id = pt.tenant_id
+       WHERE pt.tenant_id = ?
+         AND (? IS NULL OR po.joint_batch_id = ?)
+       GROUP BY CASE WHEN pt.status = 'started' THEN 'in_progress' ELSE pt.status END`,
+      [this.tenantId, batchId ?? null, batchId ?? null],
     );
 
     const byStatus: Record<string, number> = {};

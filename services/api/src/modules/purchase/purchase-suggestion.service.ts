@@ -15,6 +15,7 @@ interface SuggestionRow {
   source: string;
   production_order_id: number | null;
   production_operation_id: number | null;
+  production_batch_id: number | null;
   sku_id: number;
   suggested_supplier_id: number | null;
   suggested_qty: string;
@@ -33,6 +34,7 @@ export interface ListSuggestionsParams {
   status?: string;
   source?: string;
   skuId?: number;
+  productionBatchId?: number;
   page: number;
   pageSize: number;
 }
@@ -111,6 +113,10 @@ export class PurchaseSuggestionService {
       conds.push('ps.sku_id = ?');
       qParams.push(params.skuId);
     }
+    if (params.productionBatchId) {
+      conds.push('ps.production_batch_id = ?');
+      qParams.push(params.productionBatchId);
+    }
 
     const where = conds.join(' AND ');
     const offset = (params.page - 1) * params.pageSize;
@@ -121,11 +127,19 @@ export class PurchaseSuggestionService {
            ps.*,
            s.sku_code, s.name AS skuName, s.stock_unit,
            sup.name AS supplierName,
-           po.work_order_no
+           po.work_order_no,
+           jb.batch_no AS batchNo,
+           COALESCE(pssAgg.affected_order_count, 0) AS affectedOrderCount
          FROM purchase_suggestions ps
          INNER JOIN skus s ON s.id = ps.sku_id AND s.tenant_id = ps.tenant_id
          LEFT JOIN suppliers sup ON sup.id = ps.suggested_supplier_id AND sup.tenant_id = ps.tenant_id
          LEFT JOIN production_orders po ON po.id = ps.production_order_id AND po.tenant_id = ps.tenant_id
+         LEFT JOIN joint_production_batches jb ON jb.id = ps.production_batch_id AND jb.tenant_id = ps.tenant_id
+         LEFT JOIN (
+           SELECT tenant_id, suggestion_id, COUNT(DISTINCT sales_order_id) AS affected_order_count
+           FROM purchase_suggestion_sources
+           GROUP BY tenant_id, suggestion_id
+         ) pssAgg ON pssAgg.suggestion_id = ps.id AND pssAgg.tenant_id = ps.tenant_id
          WHERE ${where}
          ORDER BY ps.id DESC
          LIMIT ? OFFSET ?`,
@@ -138,6 +152,46 @@ export class PurchaseSuggestionService {
     ]);
 
     return { list, total: Number(countRows[0]?.total ?? 0) };
+  }
+
+  async getSuggestionSources(id: number): Promise<unknown[]> {
+    const [suggestion] = await AppDataSource.query<Array<{ id: number }>>(
+      `SELECT id
+       FROM purchase_suggestions
+       WHERE id = ? AND tenant_id = ?
+       LIMIT 1`,
+      [id, this.tenantId],
+    );
+    if (!suggestion) {
+      throw AppError.notFound('采购建议不存在', ResponseCode.NOT_FOUND);
+    }
+
+    return AppDataSource.query(
+      `SELECT
+          pss.id,
+          pss.source_type AS sourceType,
+          pss.source_id AS sourceId,
+          pss.batch_id AS batchId,
+          jb.batch_no AS batchNo,
+          pss.production_order_id AS productionOrderId,
+          po.work_order_no AS workOrderNo,
+          pss.sales_order_id AS salesOrderId,
+          so.order_no AS salesOrderNo,
+          pss.sales_order_item_id AS salesOrderItemId,
+          pss.sku_id AS skuId,
+          s.sku_code AS skuCode,
+          s.name AS skuName,
+          pss.required_qty AS requiredQty,
+          pss.shortage_qty AS shortageQty
+       FROM purchase_suggestion_sources pss
+       LEFT JOIN joint_production_batches jb ON jb.id = pss.batch_id AND jb.tenant_id = pss.tenant_id
+       LEFT JOIN production_orders po ON po.id = pss.production_order_id AND po.tenant_id = pss.tenant_id
+       LEFT JOIN sales_orders so ON so.id = pss.sales_order_id AND so.tenant_id = pss.tenant_id
+       LEFT JOIN skus s ON s.id = pss.sku_id AND s.tenant_id = pss.tenant_id
+       WHERE pss.suggestion_id = ? AND pss.tenant_id = ?
+       ORDER BY pss.id ASC`,
+      [id, this.tenantId],
+    );
   }
 
   /**

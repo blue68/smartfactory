@@ -600,8 +600,9 @@ test.describe.serial('FACTORY001 模拟床真实全链路验证', () => {
     await page.goto(`${APP_BASE_URL}/sales/orders`);
     await expect(page.locator('#main-content').getByText('新建订单')).toBeVisible();
     await page.locator('#customer').selectOption(String(simulatedCustomerId));
-    await expect(page.locator('#product')).toBeEnabled();
-    await page.locator('#product').selectOption(String(simulatedFinishedSkuId));
+    await expect(page.locator('#product-search-0')).toBeEnabled();
+    await page.locator('#product-search-0').fill('SIMBED-FG-01');
+    await page.getByRole('button', { name: /SIMBED-FG-01/ }).click();
     await page.locator('#qty').fill('1');
     await page.locator('#unitPrice').fill('5999');
     await page.locator('#deadline').fill(SALES_DEADLINE);

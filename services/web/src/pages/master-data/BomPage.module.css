@@ -564,38 +564,41 @@
 }
 
 .form_input {
-  height: 36px;
-  border: 1.5px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 0 var(--space-3);
+  height: var(--form-control-height);
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
+  padding: 0 var(--form-control-padding-x);
   font-size: 0.875rem;
   font-family: var(--font-family-base);
-  color: var(--text-primary);
-  background: var(--bg-card);
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
 }
 
-.form_input:focus { border-color: var(--color-primary-500); }
+.form_input:focus { border-color: var(--form-control-border-focus); background: var(--form-control-bg-focus); box-shadow: var(--form-control-shadow-focus); }
 
 .form_select {
-  height: 36px;
-  border: 1.5px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 0 1.75rem 0 var(--space-3);
+  height: var(--form-control-height);
+  border: 1px solid var(--form-control-border);
+  border-radius: var(--form-control-radius);
+  padding: 0 calc(var(--form-control-padding-x) + 1.25rem) 0 var(--form-control-padding-x);
   font-size: 0.875rem;
   font-family: var(--font-family-base);
-  color: var(--text-primary);
-  background: var(--bg-card);
+  color: var(--form-control-text);
+  background: var(--form-control-bg);
+  box-shadow: var(--form-control-shadow);
   -webkit-appearance: none;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.5rem center;
   outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
 }
 
-.form_select:focus { border-color: var(--color-primary-500); }
+.form_select:focus { border-color: var(--form-control-border-focus); background: var(--form-control-bg-focus); box-shadow: var(--form-control-shadow-focus); }
 
 .add_mat_btn_group {
   display: flex;

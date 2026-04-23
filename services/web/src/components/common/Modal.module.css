@@ -26,6 +26,7 @@
 .modal--md { max-width: 560px; }
 .modal--lg { max-width: 760px; }
 .modal--xl { max-width: 960px; }
+.modal--xxl { max-width: 1320px; }
 
 .modal__header {
   display: flex;
@@ -57,6 +58,10 @@
   padding: var(--space-6);
   overflow-y: auto;
   flex: 1;
+}
+
+.modal__body--visible {
+  overflow: visible;
 }
 
 .modal__footer {

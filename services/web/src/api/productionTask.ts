@@ -25,6 +25,7 @@ export interface TaskListQuery {
   dateTo?: string;
   processId?: number;
   workerId?: number;
+  batchId?: number;
   taskType?: 'finished' | 'semi_finished';
   executionMode?: 'internal' | 'outsource';
 }
@@ -65,6 +66,8 @@ export interface ProductionTask {
   completedQty: number;
   scrapQty?: number;
   orderNo: string;
+  jointBatchId?: number | null;
+  batchNo?: string | null;
   productName?: string;
   plannedFinishTime?: string;
   processStepId?: number;
@@ -134,8 +137,8 @@ export const taskApi = {
         list: Array.isArray(result?.list) ? result.list.map(normalizeTaskStatus) : [],
       };
     }),
-  stats: () =>
-    request.get<TaskStats>('/api/production/tasks/stats'),
+  stats: (params?: { batchId?: number }) =>
+    request.get<TaskStats>('/api/production/tasks/stats', params as Record<string, unknown> | undefined),
   detail: (taskId: number) =>
     request.get<ProductionTask>(`/api/production/tasks/${taskId}`).then(normalizeTaskStatus),
   start: (taskId: number) =>
@@ -161,11 +164,11 @@ export function useTaskList(filter: TaskListQuery) {
   });
 }
 
-export function useTaskStats() {
+export function useTaskStats(filter?: { batchId?: number }) {
   return useQuery({
-    queryKey: taskKeys.stats(),
+    queryKey: [...taskKeys.stats(), filter ?? {}],
     queryFn: async () => {
-      const result = await taskApi.stats();
+      const result = await taskApi.stats(filter);
       return {
         ...result,
         byStatus: {

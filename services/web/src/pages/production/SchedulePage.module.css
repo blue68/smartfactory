@@ -62,7 +62,8 @@
   color: var(--text-secondary, #64748b);
 }
 
-.date_control input {
+.date_control input,
+.date_control select {
   min-height: 40px;
   border: 1px solid #dbe3ef;
   border-radius: 12px;
