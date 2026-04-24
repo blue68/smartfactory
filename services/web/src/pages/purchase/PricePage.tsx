@@ -468,18 +468,45 @@ function useAuthBlobUrl(url: string | undefined | null): string | null {
   const prevUrl = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!url) { setBlobUrl(null); return; }
+    if (!url) {
+      setBlobUrl(null);
+      prevUrl.current = null;
+      return;
+    }
     if (url === prevUrl.current) return;
     prevUrl.current = url;
 
+    const controller = new AbortController();
     const token = getAccessToken();
-    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.blob(); })
-      .then((blob) => setBlobUrl(URL.createObjectURL(blob)))
-      .catch(() => setBlobUrl(null));
+    let revokedUrl: string | null = null;
+    let active = true;
 
-    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setBlobUrl((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return null;
+    });
+
+    fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: controller.signal,
+    })
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.blob(); })
+      .then((blob) => {
+        if (!active) return;
+        revokedUrl = URL.createObjectURL(blob);
+        setBlobUrl(revokedUrl);
+      })
+      .catch(() => {
+        if (active) setBlobUrl(null);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+      if (revokedUrl) {
+        URL.revokeObjectURL(revokedUrl);
+      }
+    };
   }, [url]);
 
   return blobUrl;

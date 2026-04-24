@@ -295,18 +295,20 @@ export function useInventorySummary(enabled = true) {
   });
 }
 
-export function useWarehouseOptions(onlyActive = true) {
+export function useWarehouseOptions(onlyActive = true, enabled = true) {
   return useQuery({
     queryKey: [...inventoryKeys.all, 'warehouses', onlyActive] as const,
     queryFn: () => inventoryApi.getWarehouses(onlyActive),
+    enabled,
     staleTime: 60_000,
   });
 }
 
-export function useLocationOptions(warehouseId?: number, onlyActive = true) {
+export function useLocationOptions(warehouseId?: number, onlyActive = true, enabled = true) {
   return useQuery({
     queryKey: [...inventoryKeys.all, 'locations', warehouseId ?? 0, onlyActive] as const,
     queryFn: () => inventoryApi.getLocations(warehouseId, onlyActive),
+    enabled,
     staleTime: 60_000,
   });
 }

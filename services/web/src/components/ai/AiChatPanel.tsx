@@ -61,8 +61,20 @@ export default function AiChatPanel() {
   }, []);
 
   const stopTimer = useCallback(() => {
-    clearInterval(timerRef.current);
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = 0;
+    }
     setElapsed(0);
+  }, []);
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = 0;
+    }
   }, []);
 
   const cancelRequest = useCallback(() => {
@@ -160,10 +172,12 @@ export default function AiChatPanel() {
       }
 
       // 流结束，关闭光标
+      abortRef.current = null;
       setMessages((prev) =>
         prev.map((m) => m.id === aiMsgId ? { ...m, streaming: false } : m),
       );
     } catch (err: unknown) {
+      abortRef.current = null;
       setThinking(false);
       stopTimer();
       if (err instanceof Error && err.name === 'AbortError') return;

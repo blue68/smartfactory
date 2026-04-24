@@ -3,7 +3,7 @@
  * 支持：排序、分页、行展开、loading/error/empty 三态、列配置
  */
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import EmptyState from './EmptyState';
 import styles from './Table.module.css';
 
@@ -158,9 +158,8 @@ export default function Table<T extends Record<string, unknown>>({
                 const expanded = expandedKeys.has(key);
                 const expandContent = expandedRowRender?.(record);
                 return (
-                  <>
+                  <Fragment key={key}>
                     <tr
-                      key={key}
                       className={`${styles.tr} ${idx % 2 === 1 ? styles['tr--stripe'] : ''} ${rowClassName ? rowClassName(record, idx) : ''}`}
                     >
                       {expandedRowRender && (
@@ -190,7 +189,7 @@ export default function Table<T extends Record<string, unknown>>({
                       ))}
                     </tr>
                     {expanded && expandContent && (
-                      <tr key={`${key}-expand`} className={styles['tr--expanded']}>
+                      <tr className={styles['tr--expanded']}>
                         <td
                           colSpan={columns.length + 1}
                           className={`${styles.td} ${styles.td__expand}`}
@@ -199,7 +198,7 @@ export default function Table<T extends Record<string, unknown>>({
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })
             )}

@@ -127,6 +127,13 @@ interface SubmitForm {
   notes: string;
 }
 
+const DEFAULT_SUBMIT_FORM: SubmitForm = {
+  overallResult: '',
+  warehouseId: '',
+  locationId: '',
+  notes: '',
+};
+
 interface EditableInspectionDyeLotSegment {
   segmentKey: string;
   sourceItemIds: number[];
@@ -512,12 +519,7 @@ export default function IncomingInspectionPage() {
 
   // Submit conclusion state
   const [submitOpen, setSubmitOpen] = useState(false);
-  const [submitForm, setSubmitForm] = useState<SubmitForm>({
-    overallResult: '',
-    warehouseId: '',
-    locationId: '',
-    notes: '',
-  });
+  const [submitForm, setSubmitForm] = useState<SubmitForm>(DEFAULT_SUBMIT_FORM);
 
   const clearCreateQuery = useCallback(() => {
     const next = new URLSearchParams(searchParams);
@@ -720,10 +722,18 @@ export default function IncomingInspectionPage() {
     setDrawerOpen(true);
   }, []);
 
+  const closeSubmitModal = useCallback(() => {
+    setSubmitOpen(false);
+    setSubmitForm(DEFAULT_SUBMIT_FORM);
+  }, []);
+
   const closeDrawer = useCallback(() => {
     setDrawerOpen(false);
     setSelectedId(null);
-  }, []);
+    setEditableItems([]);
+    setPreviewImage(null);
+    closeSubmitModal();
+  }, [closeSubmitModal]);
 
   const handleCreate = async () => {
     if (!createForm.poId || !createForm.inspectorId || !createForm.inspectionDate) {
@@ -815,7 +825,7 @@ export default function IncomingInspectionPage() {
     }
   };
 
-  const handleSubmitConclusion = async () => {
+  const handleSubmitConclusion = useCallback(async () => {
     if (!selectedId || !submitForm.overallResult) {
       showToast({ type: 'warning', message: '请选择质检结论' });
       return;
@@ -833,12 +843,11 @@ export default function IncomingInspectionPage() {
       };
       await submitMutation.mutateAsync({ id: selectedId, data: payload });
       showToast({ type: 'success', message: '质检结论已提交' });
-      setSubmitOpen(false);
-      setSubmitForm({ overallResult: '', warehouseId: '', locationId: '', notes: '' });
+      closeSubmitModal();
     } catch (e) {
       showToast({ type: 'error', message: (e as Error).message });
     }
-  };
+  }, [closeSubmitModal, selectedId, showToast, submitForm, submitMutation]);
 
   const setEditableField = useCallback((
     id: number,
@@ -2047,10 +2056,7 @@ export default function IncomingInspectionPage() {
       <Modal
         open={submitOpen}
         title="提交质检结论"
-        onClose={() => {
-          setSubmitOpen(false);
-          setSubmitForm({ overallResult: '', warehouseId: '', locationId: '', notes: '' });
-        }}
+        onClose={closeSubmitModal}
         onConfirm={() => void handleSubmitConclusion()}
         confirmLabel="提交结论"
         confirmLoading={submitMutation.isPending}

@@ -8,7 +8,7 @@
  * - 数字值点击可弹出 Popover 展示数据来源
  */
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import styles from './StepCalculationCard.module.css';
 import PulseWaveIndicator from '@/components/PulseWaveIndicator/PulseWaveIndicator';
 
@@ -38,8 +38,20 @@ function ValueWithPopover({ value, unit, source }: ValueWithPopoverProps) {
   const [visible, setVisible] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
+
   const show = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
     setVisible(true);
   }, []);
 

@@ -62,7 +62,7 @@ const UpdateWorkstationSchema = CreateWorkstationSchema.partial();
 
 export class ProductionController {
   private svc(req: Request) {
-    return new ProductionService({ tenantId: req.tenantId, userId: req.userId });
+    return new ProductionService({ tenantId: req.tenantId, userId: req.userId, roles: req.roles });
   }
 
   async listOrders(req: Request, res: Response): Promise<void> {

@@ -146,6 +146,7 @@ export const processConfigKeys = {
   all: ['process-configs'] as const,
   lists: () => [...processConfigKeys.all, 'list'] as const,
   list: (query: ProcessConfigListQuery) => [...processConfigKeys.lists(), query] as const,
+  catalog: () => [...processConfigKeys.all, 'catalog'] as const,
   detail: (id: number) => [...processConfigKeys.all, 'detail', id] as const,
 };
 
@@ -255,6 +256,29 @@ export function useProcessConfigList(query: ProcessConfigListQuery) {
   return useQuery({
     queryKey: processConfigKeys.list(query),
     queryFn: () => processConfigApi.getList(query),
+  });
+}
+
+export function useProcessConfigCatalog(pageSize = 100) {
+  return useQuery({
+    queryKey: [...processConfigKeys.catalog(), pageSize],
+    queryFn: async () => {
+      const aggregated: ProcessTemplateListItem[] = [];
+      let page = 1;
+      let total = Number.POSITIVE_INFINITY;
+
+      while (aggregated.length < total) {
+        const result = await processConfigApi.getList({ page, pageSize });
+        aggregated.push(...result.list);
+        total = result.total ?? aggregated.length;
+        if (result.list.length < pageSize) {
+          break;
+        }
+        page += 1;
+      }
+
+      return aggregated;
+    },
   });
 }
 

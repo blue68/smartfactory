@@ -79,6 +79,7 @@ export interface ProductionTask {
   outputSkuId?: number | null;
   outputSkuName?: string | null;
   workstationName: string;
+  workerId?: number | null;
   workerName: string;
   skuCode?: string;
   skuName?: string;
@@ -200,7 +201,13 @@ export function useStartTask() {
 export function useCompleteTask() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskId, data }: { taskId: number; data: { completedQty: string; actualHours: string; notes?: string } }) =>
+    mutationFn: ({
+      taskId,
+      data,
+    }: {
+      taskId: number;
+      data: { completedQty: string; actualHours: string; notes?: string; scrapQty?: string };
+    }) =>
       taskApi.complete(taskId, data),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: taskKeys.all }); },
   });

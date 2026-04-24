@@ -903,6 +903,7 @@ function CreateDeliveryModal({
 
 export default function PurchaseDeliveryPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { can } = usePermission();
   const setPageTitle = useAppStore((state) => state.setPageTitle);
@@ -966,6 +967,19 @@ export default function PurchaseDeliveryPage() {
   const list = data?.list ?? EMPTY_DELIVERIES;
   const total = data?.total ?? 0;
   const isHydratingCreatedDelivery = Boolean(poIdFilter && selectedId && isLoading && list.length === 0);
+
+  const closeDeliveryDetail = useCallback(() => {
+    const currentDetailId = selectedId;
+    setSelectedId(null);
+    if (!currentDetailId) return;
+    window.setTimeout(() => {
+      queryClient.removeQueries({
+        queryKey: purchaseKeys.deliveryDetail(currentDetailId),
+        exact: true,
+        type: 'inactive',
+      });
+    }, 0);
+  }, [queryClient, selectedId]);
 
   const summary = useMemo(() => ({
     total: total || list.length,
@@ -1124,7 +1138,7 @@ export default function PurchaseDeliveryPage() {
 
       <DeliveryDetailDrawer
         deliveryId={selectedId}
-        onClose={() => setSelectedId(null)}
+        onClose={closeDeliveryDetail}
         onCreateInspection={setInspectionCreateTarget}
         onExecuteMatch={setMatchExecuteTarget}
       />

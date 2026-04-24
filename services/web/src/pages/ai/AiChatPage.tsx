@@ -349,6 +349,7 @@ export default function AiChatPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const countdownRef = useRef<number>(0);
+  const timeoutRef = useRef<number>(0);
 
   // ── 当前活动会话 ──
   const activeConv = conversations.find((c) => c.id === activeConvId) ?? conversations[0];
@@ -375,11 +376,15 @@ export default function AiChatPage() {
 
   // ── 倒计时（思考状态） ──
   const startCountdown = useCallback(() => {
+    if (countdownRef.current) {
+      window.clearInterval(countdownRef.current);
+    }
     setCountdown(THINKING_COUNTDOWN_INIT);
     countdownRef.current = window.setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          clearInterval(countdownRef.current);
+          window.clearInterval(countdownRef.current);
+          countdownRef.current = 0;
           return 0;
         }
         return prev - 1;
@@ -388,8 +393,26 @@ export default function AiChatPage() {
   }, []);
 
   const stopCountdown = useCallback(() => {
-    clearInterval(countdownRef.current);
+    if (countdownRef.current) {
+      window.clearInterval(countdownRef.current);
+      countdownRef.current = 0;
+    }
     setCountdown(THINKING_COUNTDOWN_INIT);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = 0;
+      }
+      if (countdownRef.current) {
+        window.clearInterval(countdownRef.current);
+        countdownRef.current = 0;
+      }
+    };
   }, []);
 
   // ── 更新当前会话消息 ──
@@ -455,7 +478,7 @@ export default function AiChatPage() {
       const aiMsgId = newMsgId();
       abortRef.current = new AbortController();
       // 客户端 30 秒超时（SEC HF-004），与服务端超时对齐
-      const timeoutId = setTimeout(() => abortRef.current?.abort(), 30_000);
+      timeoutRef.current = window.setTimeout(() => abortRef.current?.abort(), 30_000);
 
       try {
         const token = getAccessToken();
@@ -468,7 +491,10 @@ export default function AiChatPage() {
           body: JSON.stringify({ message: trimmed }),
           signal: abortRef.current.signal,
         });
-        clearTimeout(timeoutId);
+        if (timeoutRef.current) {
+          window.clearTimeout(timeoutRef.current);
+          timeoutRef.current = 0;
+        }
 
         if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
 
@@ -541,7 +567,13 @@ export default function AiChatPage() {
             };
           }),
         );
+        abortRef.current = null;
       } catch (err: unknown) {
+        if (timeoutRef.current) {
+          window.clearTimeout(timeoutRef.current);
+          timeoutRef.current = 0;
+        }
+        abortRef.current = null;
         setThinking(false);
         stopCountdown();
         if (err instanceof Error && err.name === 'AbortError') return;

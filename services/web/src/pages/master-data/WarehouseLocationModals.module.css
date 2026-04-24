@@ -1,0 +1,84 @@
+.formStack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.grid2,
+.grid3,
+.grid4 {
+  display: grid;
+  gap: 16px;
+}
+
+.grid2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.grid3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.grid4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field > span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--text-primary);
+  font-size: 14px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+}
+
+.hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.errorText {
+  color: var(--color-error-600);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .grid3,
+  .grid4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .grid2,
+  .grid3,
+  .grid4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

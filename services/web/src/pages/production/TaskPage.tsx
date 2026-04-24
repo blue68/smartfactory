@@ -1721,33 +1721,47 @@ function StatCard({ label, value, icon, iconClass, variant = 'default', active, 
 
 function useAuthBlobUrl(url: string | null) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const prevUrl = useRef<string | null>(null);
 
   useEffect(() => {
     if (!url) {
       setBlobUrl(null);
+      prevUrl.current = null;
       return;
     }
+    if (url === prevUrl.current) return;
+    prevUrl.current = url;
 
-    let revokedUrl: string | null = null;
-    let cancelled = false;
+    const controller = new AbortController();
     const token = getAccessToken();
+    let revokedUrl: string | null = null;
+    let active = true;
 
-    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    setBlobUrl((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return null;
+    });
+
+    fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: controller.signal,
+    })
       .then((r) => {
         if (!r.ok) throw new Error(String(r.status));
         return r.blob();
       })
       .then((blob) => {
-        if (cancelled) return;
+        if (!active) return;
         revokedUrl = URL.createObjectURL(blob);
         setBlobUrl(revokedUrl);
       })
       .catch(() => {
-        if (!cancelled) setBlobUrl(null);
+        if (active) setBlobUrl(null);
       });
 
     return () => {
-      cancelled = true;
+      active = false;
+      controller.abort();
       if (revokedUrl) URL.revokeObjectURL(revokedUrl);
     };
   }, [url]);

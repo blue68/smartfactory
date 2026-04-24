@@ -185,6 +185,40 @@ describe('ProductionService task state transitions', () => {
     expect(insertCall).toBeUndefined();
   });
 
+  it('worker 不能操作分配给其他工人的任务', async () => {
+    mockQuery.mockResolvedValueOnce([{ id: 15, workerId: 8, workerName: '李工' }]);
+
+    const svc = new ProductionService({ tenantId: 1, userId: 99, roles: ['worker'] });
+
+    await expect(svc.startTask(15)).rejects.toThrow('当前账号不能代报工');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('worker 不能操作未绑定工人的任务', async () => {
+    mockQuery.mockResolvedValueOnce([{ id: 16, workerId: null, workerName: null }]);
+
+    const svc = new ProductionService({ tenantId: 1, userId: 99, roles: ['worker'] });
+
+    await expect(svc.completeTask(16, {
+      completedQty: '8',
+      actualHours: 1.5,
+    })).rejects.toThrow('任务未绑定到具体工人');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('supervisor 可跳过工人绑定校验直接操作任务', async () => {
+    mockQuery.mockResolvedValueOnce([{ id: 18, operationId: null }]);
+
+    const svc = new ProductionService({ tenantId: 1, userId: 77, roles: ['supervisor'] });
+    const startSpy = jest.fn().mockResolvedValue({ success: true });
+    (svc as any).scheduler.startTask = startSpy;
+
+    await svc.startTask(18);
+
+    expect(startSpy).toHaveBeenCalledWith(18);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
   it('resolveException 会把任务恢复到 started 并清理阻塞标记', async () => {
     mockQuery
       .mockResolvedValueOnce([{ id: 12, status: 'exception' }])

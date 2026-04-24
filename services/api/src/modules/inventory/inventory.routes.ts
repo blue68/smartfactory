@@ -26,8 +26,8 @@ const csvUpload = multer({
 });
 
 router.get('/',                              requirePermissionsOrRoles(['inventory:view'], 'boss', 'supervisor', 'warehouse', 'purchaser', 'purchase'), asyncHandler(inventoryController.list.bind(inventoryController)));
-router.get('/warehouses',                    requirePermissionsOrRoles(['inventory:view'], 'boss', 'supervisor', 'warehouse', 'purchaser', 'purchase'), asyncHandler(inventoryController.listWarehouses.bind(inventoryController)));
-router.get('/locations',                     requirePermissionsOrRoles(['inventory:view'], 'boss', 'supervisor', 'warehouse', 'purchaser', 'purchase'), asyncHandler(inventoryController.listLocations.bind(inventoryController)));
+router.get('/warehouses',                    requirePermissionsOrRoles(['inventory:view'], 'boss', 'supervisor', 'warehouse', 'purchaser', 'purchase', 'qc'), asyncHandler(inventoryController.listWarehouses.bind(inventoryController)));
+router.get('/locations',                     requirePermissionsOrRoles(['inventory:view'], 'boss', 'supervisor', 'warehouse', 'purchaser', 'purchase', 'qc'), asyncHandler(inventoryController.listLocations.bind(inventoryController)));
 router.post(
   '/warehouses',
   requirePermissionsOrRoles(['warehouse:location:manage'], 'supervisor', 'boss', 'admin', 'warehouse'),

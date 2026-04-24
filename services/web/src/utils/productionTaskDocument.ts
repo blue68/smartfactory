@@ -1,6 +1,8 @@
 import QRCode from 'qrcode';
 import { exportToCSV } from './exportExcel';
 
+let activePrintWindow: Window | null = null;
+
 type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'exception' | 'suspended';
 type TaskType = 'finished' | 'semi_finished';
 
@@ -446,11 +448,24 @@ function writePrintLoadingState(targetWindow: Window): void {
 }
 
 export function openPrintWindow(): Window | null {
-  const targetWindow = window.open('', '_blank', 'width=1100,height=860');
+  if (activePrintWindow && !activePrintWindow.closed) {
+    activePrintWindow.focus();
+    writePrintLoadingState(activePrintWindow);
+    return activePrintWindow;
+  }
+  const targetWindow = window.open('', 'production-task-print', 'width=1100,height=860');
   if (!targetWindow) {
     return null;
   }
+  activePrintWindow = targetWindow;
   writePrintLoadingState(targetWindow);
+  const release = () => {
+    if (activePrintWindow === targetWindow) {
+      activePrintWindow = null;
+    }
+  };
+  targetWindow.addEventListener('beforeunload', release, { once: true });
+  targetWindow.addEventListener('pagehide', release, { once: true });
   return targetWindow;
 }
 
@@ -713,6 +728,15 @@ export async function printProductionTaskDocument(
   printWindow.document.write(html);
   printWindow.document.close();
   printWindow.focus();
+  const finalizePrintWindow = () => {
+    if (!printWindow.closed) {
+      printWindow.close();
+    }
+    if (activePrintWindow === printWindow) {
+      activePrintWindow = null;
+    }
+  };
+  printWindow.onafterprint = finalizePrintWindow;
   printWindow.onload = () => {
     printWindow.print();
   };

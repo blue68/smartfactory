@@ -2,70 +2,82 @@
  * [artifact:前端代码] — 根组件（路由配置 + 权限守卫）
  */
 
-import type { ReactElement } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { Suspense, lazy, type ReactElement } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
-import AppLayout from '@/components/Layout/AppLayout';
 import { ACTION_CODES, MENU_CODES } from '@/constants/accessControl';
-import DashboardPage from '@/pages/dashboard/DashboardPage';
-import InventoryPage from '@/pages/inventory/InventoryPage';
-import SuggestionPage from '@/pages/purchase/SuggestionPage';
-import MatchPage from '@/pages/purchase/MatchPage';
-import OrderPage from '@/pages/sales/OrderPage';
-import SchedulePage from '@/pages/production/SchedulePage';
-import SkuPage from '@/pages/master-data/SkuPage';
-import BomPage from '@/pages/master-data/BomPage';
-import TracePage from '@/pages/quality/TracePage';
-import SupplierPage from '@/pages/master-data/SupplierPage';
-import ProcessConfigPage from '@/pages/master-data/ProcessConfigPage';
-import SkuProcessPage from '@/pages/master-data/SkuProcessPage';
-import PricePage from '@/pages/purchase/PricePage';
-import AiChatPage from '@/pages/ai/AiChatPage';
-import CustomerPage from '@/pages/sales/CustomerPage';
-import SalesOrderListPage from '@/pages/sales/SalesOrderListPage';
-import TaskPage from '@/pages/production/TaskPage';
-import CategoryConfigPage from '@/pages/master-data/CategoryConfigPage';
-import WarehouseLocationPage from '@/pages/master-data/WarehouseLocationPage';
-import WageReportPage from '@/pages/report/WageReportPage';
-import MyWagePage from '@/pages/report/MyWagePage';
-import SemiFinishedModeReportPage from '@/pages/report/SemiFinishedModeReportPage';
-import InventoryOperationReportPage from '@/pages/report/InventoryOperationReportPage';
-import LoginPage from '@/pages/auth/LoginPage';
-import ProductionOrderPage from '@/pages/production/ProductionOrderPage';
-import ShortageBoard from '@/pages/production/ShortageBoard';
-import PurchaseSuggestionPage from '@/pages/purchase/PurchaseSuggestionPage';
-import PurchaseOrderPage from '@/pages/purchase/PurchaseOrderPage';
-import PurchaseDeliveryPage from '@/pages/purchase/PurchaseDeliveryPage';
-import PurchaseReceiptPage from '@/pages/purchase/PurchaseReceiptPage';
-import IncomingInspectionPage from '@/pages/purchase/IncomingInspectionPage';
-import ReturnOrderPage from '@/pages/purchase/ReturnOrderPage';
-import PurchaseSettlementPage from '@/pages/purchase/PurchaseSettlementPage';
-import ConsumableIssuePage from '@/pages/consumables/ConsumableIssuePage';
-import AssetAcceptancePage from '@/pages/assets/AssetAcceptancePage';
-import AssetLedgerPage from '@/pages/assets/AssetLedgerPage';
-import ScheduleSuggestionPage from '@/pages/schedule/ScheduleSuggestionPage';
-import NotificationPage from '@/pages/notification/NotificationPage';
-import StocktakingPage from '@/pages/stocktaking/StocktakingPage';
-import SettlementPage from '@/pages/settlement/SettlementPage';
-import AnalyticsPage from '@/pages/analytics/AnalyticsPage';
-import NotFoundPage from '@/pages/NotFoundPage';
-import TenantConfigPage from '@/pages/system/TenantConfigPage';
-import MenuFeaturePage from '@/pages/system/MenuFeaturePage';
-import RoleConfigPage from '@/pages/system/RoleConfigPage';
-import UserConfigPage from '@/pages/system/UserConfigPage';
-import RoleGrantPage from '@/pages/system/RoleGrantPage';
-import UserRoleAssignmentPage from '@/pages/system/UserRoleAssignmentPage';
-import SystemAuditPage from '@/pages/system/SystemAuditPage';
-import PlatformHomePage from '@/pages/system/PlatformHomePage';
-import DesignSystemPage from '@/pages/system/DesignSystemPage';
 import { UserRole } from '@/types/enums';
 import { matchesRoleAccess } from '@/utils/roleAccess';
+
+const AppLayout = lazy(() => import('@/components/Layout/AppLayout'));
+const DashboardPage = lazy(() => import('@/pages/dashboard/DashboardPage'));
+const InventoryPage = lazy(() => import('@/pages/inventory/InventoryPage'));
+const SuggestionPage = lazy(() => import('@/pages/purchase/SuggestionPage'));
+const MatchPage = lazy(() => import('@/pages/purchase/MatchPage'));
+const OrderPage = lazy(() => import('@/pages/sales/OrderPage'));
+const SchedulePage = lazy(() => import('@/pages/production/SchedulePage'));
+const SkuPage = lazy(() => import('@/pages/master-data/SkuPage'));
+const BomPage = lazy(() => import('@/pages/master-data/BomPage'));
+const TracePage = lazy(() => import('@/pages/quality/TracePage'));
+const SupplierPage = lazy(() => import('@/pages/master-data/SupplierPage'));
+const ProcessConfigPage = lazy(() => import('@/pages/master-data/ProcessConfigPage'));
+const SkuProcessPage = lazy(() => import('@/pages/master-data/SkuProcessPage'));
+const PricePage = lazy(() => import('@/pages/purchase/PricePage'));
+const AiChatPage = lazy(() => import('@/pages/ai/AiChatPage'));
+const CustomerPage = lazy(() => import('@/pages/sales/CustomerPage'));
+const SalesOrderListPage = lazy(() => import('@/pages/sales/SalesOrderListPage'));
+const TaskPage = lazy(() => import('@/pages/production/TaskPage'));
+const CategoryConfigPage = lazy(() => import('@/pages/master-data/CategoryConfigPage'));
+const WarehouseLocationPage = lazy(() => import('@/pages/master-data/WarehouseLocationPage'));
+const WageReportPage = lazy(() => import('@/pages/report/WageReportPage'));
+const MyWagePage = lazy(() => import('@/pages/report/MyWagePage'));
+const SemiFinishedModeReportPage = lazy(() => import('@/pages/report/SemiFinishedModeReportPage'));
+const InventoryOperationReportPage = lazy(() => import('@/pages/report/InventoryOperationReportPage'));
+const LoginPage = lazy(() => import('@/pages/auth/LoginPage'));
+const MobileOpsPage = lazy(() => import('@/pages/mobile/MobileOpsPage'));
+const ProductionOrderPage = lazy(() => import('@/pages/production/ProductionOrderPage'));
+const ShortageBoard = lazy(() => import('@/pages/production/ShortageBoard'));
+const PurchaseSuggestionPage = lazy(() => import('@/pages/purchase/PurchaseSuggestionPage'));
+const PurchaseOrderPage = lazy(() => import('@/pages/purchase/PurchaseOrderPage'));
+const PurchaseDeliveryPage = lazy(() => import('@/pages/purchase/PurchaseDeliveryPage'));
+const PurchaseReceiptPage = lazy(() => import('@/pages/purchase/PurchaseReceiptPage'));
+const IncomingInspectionPage = lazy(() => import('@/pages/purchase/IncomingInspectionPage'));
+const ReturnOrderPage = lazy(() => import('@/pages/purchase/ReturnOrderPage'));
+const PurchaseSettlementPage = lazy(() => import('@/pages/purchase/PurchaseSettlementPage'));
+const ConsumableIssuePage = lazy(() => import('@/pages/consumables/ConsumableIssuePage'));
+const AssetAcceptancePage = lazy(() => import('@/pages/assets/AssetAcceptancePage'));
+const AssetLedgerPage = lazy(() => import('@/pages/assets/AssetLedgerPage'));
+const ScheduleSuggestionPage = lazy(() => import('@/pages/schedule/ScheduleSuggestionPage'));
+const NotificationPage = lazy(() => import('@/pages/notification/NotificationPage'));
+const StocktakingPage = lazy(() => import('@/pages/stocktaking/StocktakingPage'));
+const SettlementPage = lazy(() => import('@/pages/settlement/SettlementPage'));
+const AnalyticsPage = lazy(() => import('@/pages/analytics/AnalyticsPage'));
+const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
+const TenantConfigPage = lazy(() => import('@/pages/system/TenantConfigPage'));
+const MenuFeaturePage = lazy(() => import('@/pages/system/MenuFeaturePage'));
+const RoleConfigPage = lazy(() => import('@/pages/system/RoleConfigPage'));
+const UserConfigPage = lazy(() => import('@/pages/system/UserConfigPage'));
+const RoleGrantPage = lazy(() => import('@/pages/system/RoleGrantPage'));
+const UserRoleAssignmentPage = lazy(() => import('@/pages/system/UserRoleAssignmentPage'));
+const SystemAuditPage = lazy(() => import('@/pages/system/SystemAuditPage'));
+const PlatformHomePage = lazy(() => import('@/pages/system/PlatformHomePage'));
+const DesignSystemPage = lazy(() => import('@/pages/system/DesignSystemPage'));
+
+function renderRouteElement(element: ReactElement) {
+  return (
+    <Suspense fallback={<div style={{ padding: 24, color: 'var(--text-secondary)' }}>页面加载中...</div>}>
+      {element}
+    </Suspense>
+  );
+}
 
 /** 认证守卫：未登录跳转 /login */
 function RequireAuth() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const location = useLocation();
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    const redirectPath = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to="/login" replace state={{ from: redirectPath }} />;
   }
   return <Outlet />;
 }
@@ -88,7 +100,7 @@ function DashboardRoute() {
   if (user?.scopeLevel === 'platform') {
     return <Navigate to="/platform/home" replace />;
   }
-  return <DashboardPage />;
+  return renderRouteElement(<DashboardPage />);
 }
 
 function AiChatRoute() {
@@ -96,7 +108,7 @@ function AiChatRoute() {
   if (user?.scopeLevel === 'platform') {
     return <Navigate to="/platform/home" replace />;
   }
-  return <AiChatPage />;
+  return renderRouteElement(<AiChatPage />);
 }
 
 function RequireMenuAccess({
@@ -133,6 +145,19 @@ function RequireActionAccess({
     ? permissionSnapshot.actionCodes.includes(actionCode)
     : matchesRoleAccess(user?.roles, fallbackRoles, user?.scopeLevel);
 
+  if (!hasAccess) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <Outlet />;
+}
+
+function RequireMobileOpsAccess() {
+  const user = useAuthStore((s) => s.user);
+  const hasAccess = matchesRoleAccess(
+    user?.roles,
+    [UserRole.ADMIN, UserRole.BOSS, UserRole.SUPERVISOR, UserRole.WORKER, UserRole.WAREHOUSE, UserRole.QC],
+    user?.scopeLevel,
+  );
   if (!hasAccess) {
     return <Navigate to="/dashboard" replace />;
   }
@@ -197,15 +222,27 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         {/* 公开路由 */}
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={renderRouteElement(<LoginPage />)} />
 
         {/* 受保护路由 */}
         <Route element={<RequireAuth />}>
-          <Route element={<AppLayout />}>
+          <Route element={<RequireMobileOpsAccess />}>
+            <Route path="/m" element={renderRouteElement(<MobileOpsPage />)} />
+            <Route path="/m/scan" element={renderRouteElement(<MobileOpsPage />)} />
+            <Route path="/m/tasks/:taskId" element={renderRouteElement(<MobileOpsPage />)} />
+            <Route path="/m/warehouse" element={renderRouteElement(<MobileOpsPage />)} />
+            <Route path="/m/warehouse/scan" element={renderRouteElement(<MobileOpsPage />)} />
+            <Route path="/m/warehouse/inbound" element={renderRouteElement(<MobileOpsPage />)} />
+            <Route path="/m/warehouse/stocktaking/:stocktakingId" element={renderRouteElement(<MobileOpsPage />)} />
+            <Route path="/m/qc" element={renderRouteElement(<MobileOpsPage />)} />
+            <Route path="/m/qc/inspections/:inspectionId" element={renderRouteElement(<MobileOpsPage />)} />
+            <Route path="/mobile" element={<Navigate to="/m" replace />} />
+          </Route>
+          <Route element={renderRouteElement(<AppLayout />)}>
             <Route index element={<DefaultHomeRedirect />} />
             <Route element={<RequirePlatformScope />}>
-              <Route path="/platform/home" element={<PlatformHomePage />} />
-              <Route path="/platform/design-system" element={<DesignSystemPage />} />
+              <Route path="/platform/home" element={renderRouteElement(<PlatformHomePage />)} />
+              <Route path="/platform/design-system" element={renderRouteElement(<DesignSystemPage />)} />
             </Route>
             {MENU_GUARDED_ROUTES.map((route) => (
               <Route
@@ -217,7 +254,7 @@ export default function App() {
                   />
                 )}
               >
-                <Route path={route.path} element={route.element} />
+                <Route path={route.path} element={renderRouteElement(route.element)} />
               </Route>
             ))}
             <Route
@@ -228,7 +265,7 @@ export default function App() {
                 />
               )}
             >
-              <Route path="/consumables/issues" element={<ConsumableIssuePage />} />
+              <Route path="/consumables/issues" element={renderRouteElement(<ConsumableIssuePage />)} />
             </Route>
             <Route
               element={(
@@ -238,7 +275,7 @@ export default function App() {
                 />
               )}
             >
-              <Route path="/assets/acceptance" element={<AssetAcceptancePage />} />
+              <Route path="/assets/acceptance" element={renderRouteElement(<AssetAcceptancePage />)} />
             </Route>
             <Route
               element={(
@@ -248,7 +285,7 @@ export default function App() {
                 />
               )}
             >
-              <Route path="/assets/ledger" element={<AssetLedgerPage />} />
+              <Route path="/assets/ledger" element={renderRouteElement(<AssetLedgerPage />)} />
             </Route>
             <Route element={<RequirePlatformScope />}>
               <Route
@@ -259,14 +296,14 @@ export default function App() {
                   />
                 )}
               >
-                <Route path="/system/audit-logs" element={<SystemAuditPage />} />
+                <Route path="/system/audit-logs" element={renderRouteElement(<SystemAuditPage />)} />
               </Route>
             </Route>
           </Route>
         </Route>
 
         {/* 兜底 404 */}
-        <Route path="*" element={<NotFoundPage />} />
+        <Route path="*" element={renderRouteElement(<NotFoundPage />)} />
       </Routes>
     </BrowserRouter>
   );

@@ -1145,9 +1145,21 @@ export default function PriceImportWizard({
   const [importingPhase, setImportingPhase] = useState<ImportingPhase>('idle');
   const [importingProgress, setImportingProgress] = useState(0);
   const [importingDone, setImportingDone] = useState(0);
+  const uploadTickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const importingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeRunControllerRef = useRef<AbortController | null>(null);
+
+  const isAbortError = (error: unknown): boolean =>
+    error instanceof DOMException && error.name === 'AbortError';
 
   /** 清理导入进度轮询定时器 */
+  const clearUploadTicker = useCallback(() => {
+    if (uploadTickerRef.current) {
+      clearInterval(uploadTickerRef.current);
+      uploadTickerRef.current = null;
+    }
+  }, []);
+
   const clearImportingTimer = useCallback(() => {
     if (importingTimerRef.current) {
       clearInterval(importingTimerRef.current);
@@ -1155,8 +1167,41 @@ export default function PriceImportWizard({
     }
   }, []);
 
+  const abortActiveRun = useCallback(() => {
+    activeRunControllerRef.current?.abort();
+    activeRunControllerRef.current = null;
+  }, []);
+
+  const beginAsyncRun = useCallback(() => {
+    abortActiveRun();
+    const controller = new AbortController();
+    activeRunControllerRef.current = controller;
+    return controller;
+  }, [abortActiveRun]);
+
+  const sleepWithSignal = useCallback((ms: number, signal: AbortSignal) => (
+    new Promise<void>((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      const timer = window.setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        window.clearTimeout(timer);
+        reject(new DOMException('Aborted', 'AbortError'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    })
+  ), []);
+
   // 关闭时重置全部状态
   const resetState = useCallback(() => {
+    abortActiveRun();
+    clearUploadTicker();
+    clearImportingTimer();
     setStep(1);
     setSelectedFile(null);
     setUploading(false);
@@ -1172,8 +1217,7 @@ export default function PriceImportWizard({
     setImportingPhase('idle');
     setImportingProgress(0);
     setImportingDone(0);
-    clearImportingTimer();
-  }, [clearImportingTimer]);
+  }, [abortActiveRun, clearImportingTimer, clearUploadTicker]);
 
   // 弹框关闭（非成功关闭）
   const handleClose = useCallback(() => {
@@ -1196,6 +1240,7 @@ export default function PriceImportWizard({
   // Step2 → Step3：上传并获取校验结果
   const handleUpload = useCallback(async () => {
     if (!selectedFile) return;
+    const runController = beginAsyncRun();
     setUploadError(null);
     setUploading(true);
     setUploadProgress(10);
@@ -1209,7 +1254,8 @@ export default function PriceImportWizard({
     setParseState('parsing');
 
     // 模拟进度（实际上传为同步等待）
-    const ticker = setInterval(() => {
+    clearUploadTicker();
+    uploadTickerRef.current = setInterval(() => {
       if (isLargeFile) {
         setParseProgress((prev) => Math.min(prev + 12, 85));
       }
@@ -1218,13 +1264,15 @@ export default function PriceImportWizard({
 
     try {
       const result = await priceApi.importPrices(selectedFile);
-      clearInterval(ticker);
+      if (runController.signal.aborted) return;
+      clearUploadTicker();
       setUploadProgress(100);
       setParseProgress(100);
       setUploadResult(result);
 
       // 短暂延迟让进度条视觉完成
-      await new Promise((r) => setTimeout(r, 300));
+      await sleepWithSignal(300, runController.signal);
+      if (runController.signal.aborted) return;
 
       // FE-03-05: 根据错误数量切换解析状态
       const errorCount = result.errors.length;
@@ -1237,19 +1285,27 @@ export default function PriceImportWizard({
       }
 
       // 短暂展示状态后再推进到 Step3
-      await new Promise((r) => setTimeout(r, 800));
+      await sleepWithSignal(800, runController.signal);
+      if (runController.signal.aborted) return;
       setStep(3);
     } catch (e: unknown) {
-      clearInterval(ticker);
+      clearUploadTicker();
+      if (isAbortError(e)) return;
       setUploadProgress(0);
       setParseProgress(0);
       setParseState('idle');
       const msg = e instanceof Error ? e.message : '上传失败，请检查文件格式后重试';
       setUploadError(msg);
     } finally {
-      setUploading(false);
+      clearUploadTicker();
+      if (activeRunControllerRef.current === runController) {
+        activeRunControllerRef.current = null;
+      }
+      if (!runController.signal.aborted) {
+        setUploading(false);
+      }
     }
-  }, [selectedFile]);
+  }, [beginAsyncRun, clearUploadTicker, isAbortError, selectedFile, sleepWithSignal]);
 
   /**
    * Step3 → Step4：确认导入
@@ -1264,6 +1320,7 @@ export default function PriceImportWizard({
       setStep(2);
       return;
     }
+    const runController = beginAsyncRun();
     setConfirming(true);
     setImportingPhase('running');
     setImportingProgress(0);
@@ -1283,22 +1340,30 @@ export default function PriceImportWizard({
 
     try {
       // 总延迟约 10 秒，模拟完成（若有真实接口可替换）
-      await new Promise((r) => setTimeout(r, 2000));
+      await sleepWithSignal(2000, runController.signal);
+      if (runController.signal.aborted) return;
       clearImportingTimer();
       setImportingProgress(100);
       setImportingDone(total);
-      await new Promise((r) => setTimeout(r, 600));
+      await sleepWithSignal(600, runController.signal);
+      if (runController.signal.aborted) return;
       setImportingPhase('idle');
     } catch (e: unknown) {
       clearImportingTimer();
+      if (isAbortError(e)) return;
       const msg = e instanceof Error ? e.message : '导入失败，请稍后重试';
       setUploadError(msg);
       setImportingPhase('idle');
       setStep(3);
     } finally {
-      setConfirming(false);
+      if (activeRunControllerRef.current === runController) {
+        activeRunControllerRef.current = null;
+      }
+      if (!runController.signal.aborted) {
+        setConfirming(false);
+      }
     }
-  }, [uploadResult, handleMode, clearImportingTimer]);
+  }, [beginAsyncRun, clearImportingTimer, handleMode, isAbortError, sleepWithSignal, uploadResult]);
 
   /** G14: 终止导入 */
   const handleAbortImport = useCallback(() => {
@@ -1316,8 +1381,12 @@ export default function PriceImportWizard({
 
   // 组件卸载时清理定时器
   useEffect(() => {
-    return () => clearImportingTimer();
-  }, [clearImportingTimer]);
+    return () => {
+      abortActiveRun();
+      clearUploadTicker();
+      clearImportingTimer();
+    };
+  }, [abortActiveRun, clearImportingTimer, clearUploadTicker]);
 
   // 判断 Step4 是否处于执行中阶段
   const isImporting = step === 4 && importingPhase === 'running';

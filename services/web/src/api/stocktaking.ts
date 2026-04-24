@@ -79,6 +79,11 @@ export interface StocktakingListResult {
   pageSize: number;
 }
 
+export interface StocktakingDetailResult {
+  task: StocktakingTask;
+  items: StocktakingItem[];
+}
+
 export interface CreateStocktakingPayload {
   scope: StocktakingScope;
   scopeValue?: string;
@@ -166,6 +171,7 @@ export const stocktakingKeys = {
   all: ['stocktaking'] as const,
   list: (page: number, pageSize: number) =>
     [...stocktakingKeys.all, 'list', page, pageSize] as const,
+  detail: (taskId: number) => [...stocktakingKeys.all, 'detail', taskId] as const,
   items: (taskId: number) => [...stocktakingKeys.all, 'items', taskId] as const,
 };
 
@@ -189,6 +195,14 @@ export const stocktakingApi = {
     request
       .get<ServerStocktakingTaskDetailResult>(`/api/stocktaking/${taskId}`)
       .then((result) => result.items),
+
+  getDetail: (taskId: number) =>
+    request
+      .get<ServerStocktakingTaskDetailResult>(`/api/stocktaking/${taskId}`)
+      .then((result): StocktakingDetailResult => ({
+        task: normalizeTask(result.task),
+        items: result.items,
+      })),
 
   updateItems: (taskId: number, payload: UpdateItemsPayload) =>
     request.put<UpdateItemsResult>(`/api/stocktaking/${taskId}/items`, payload.items),
@@ -229,6 +243,15 @@ export function useStocktakingItems(taskId: number | null) {
   return useQuery({
     queryKey: stocktakingKeys.items(taskId ?? 0),
     queryFn: () => stocktakingApi.getItems(taskId!),
+    enabled: taskId !== null,
+    staleTime: 15_000,
+  });
+}
+
+export function useStocktakingDetail(taskId: number | null) {
+  return useQuery({
+    queryKey: stocktakingKeys.detail(taskId ?? 0),
+    queryFn: () => stocktakingApi.getDetail(taskId!),
     enabled: taskId !== null,
     staleTime: 15_000,
   });

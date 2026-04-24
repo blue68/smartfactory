@@ -188,6 +188,15 @@ export default function SuggestionPage() {
 
   useEffect(() => { setPageTitle('AI 采购建议'); }, [setPageTitle]);
 
+  useEffect(() => {
+    return () => {
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      }
+    };
+  }, []);
+
   const { data, isLoading, error } = useSuggestionList(
     statusFilter as SuggestionStatus || undefined, 1, 50,
   );
@@ -218,6 +227,11 @@ export default function SuggestionPage() {
     setCountdown(12);
     setThinkingOpen(true);
 
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+
     let count = 12;
     let step  = 2;
     countdownRef.current = setInterval(() => {
@@ -228,7 +242,10 @@ export default function SuggestionPage() {
         setCurrentStep(step);
       }
       if (count <= 0) {
-        clearInterval(countdownRef.current!);
+        if (countdownRef.current) {
+          clearInterval(countdownRef.current);
+          countdownRef.current = null;
+        }
         setThinkingOpen(false);
         void handleGenerate();
       }
@@ -236,7 +253,10 @@ export default function SuggestionPage() {
   };
 
   const hideThinkingModal = () => {
-    if (countdownRef.current) clearInterval(countdownRef.current);
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
     setThinkingOpen(false);
   };
 

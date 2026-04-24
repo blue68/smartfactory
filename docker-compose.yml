@@ -137,7 +137,7 @@ services:
       OSS_ENDPOINT:   ${OSS_ENDPOINT:-}
       OSS_PATH_PREFIX: ${OSS_PATH_PREFIX:-smartfactory}
       # CORS
-      CORS_ORIGINS:   ${CORS_ORIGINS:-http://localhost,http://localhost:80,http://127.0.0.1,http://127.0.0.1:80}
+      CORS_ORIGINS:   ${CORS_ORIGINS:-http://localhost,http://localhost:80,http://localhost:5173,http://127.0.0.1,http://127.0.0.1:80,http://127.0.0.1:5173}
       # AI（Phase 2，暂时留空）
       AI_ENGINE_URL:  ${AI_ENGINE_URL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

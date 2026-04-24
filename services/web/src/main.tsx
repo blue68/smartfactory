@@ -2,25 +2,41 @@
  * [artifact:前端代码] — 应用入口
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import App from './App';
 import { useAuthStore } from '@/stores/authStore';
 import { useAppStore } from '@/stores/appStore';
 import { onGlobalLoading } from '@/utils/request';
 import { authApi } from '@/api/auth';
-import 'antd/dist/reset.css';
 import '@/styles/variables.css';
 import '@/styles/global.css';
+
+const isDev = import.meta.env.DEV;
+const enableReactStrictMode =
+  import.meta.env.VITE_REACT_STRICT_MODE === '1' ||
+  (
+    isDev &&
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('strictmode') === '1'
+  );
+const enableQueryDevtools =
+  isDev &&
+  (
+    typeof window !== 'undefined' &&
+    (
+      window.localStorage.getItem('sf-enable-rq-devtools') === '1' ||
+      new URLSearchParams(window.location.search).get('rqdevtools') === '1'
+    )
+  );
 
 // ── React Query 客户端配置 ──────────────────────
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 30,          // 30 秒内不重新请求
-      gcTime: 1000 * 60 * 5,         // 5 分钟后回收缓存
+      gcTime: isDev ? 1000 * 60 : 1000 * 60 * 5, // 开发态缩短缓存驻留，避免多页采样时堆积
       retry: (failureCount, error) => {
         // ApiError 的业务错误不重试，网络错误最多重试 2 次
         if (error instanceof Error && error.name === 'ApiError') return false;
@@ -61,17 +77,50 @@ onGlobalLoading((loading) => {
   useAppStore.getState().setGlobalLoading(loading);
 });
 
+function DevOnlyQueryDevtools() {
+  const [DevtoolsComponent, setDevtoolsComponent] = useState<React.ComponentType<{ initialIsOpen?: boolean; position?: 'top' | 'bottom' }> | null>(null);
+
+  useEffect(() => {
+    if (!enableQueryDevtools) return;
+
+    let active = true;
+
+    void import('@tanstack/react-query-devtools').then((mod) => {
+      if (!active) return;
+      setDevtoolsComponent(() => mod.ReactQueryDevtools);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!enableQueryDevtools || !DevtoolsComponent) {
+    return null;
+  }
+
+  return <DevtoolsComponent initialIsOpen={false} position="bottom" />;
+}
+
+function RootProviders() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <App />
+      <DevOnlyQueryDevtools />
+    </QueryClientProvider>
+  );
+}
+
 // ── 挂载应用 ──────────────────────────────────
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element not found');
 
 ReactDOM.createRoot(rootEl).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-      {import.meta.env.DEV && (
-        <ReactQueryDevtools initialIsOpen={false} position="bottom" />
-      )}
-    </QueryClientProvider>
-  </React.StrictMode>,
+  enableReactStrictMode ? (
+    <React.StrictMode>
+      <RootProviders />
+    </React.StrictMode>
+  ) : (
+    <RootProviders />
+  ),
 );

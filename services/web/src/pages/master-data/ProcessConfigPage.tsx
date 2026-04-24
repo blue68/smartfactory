@@ -25,6 +25,7 @@ import { useLocation } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import {
   useProcessConfigList,
+  useProcessConfigCatalog,
   useProcessConfigDetail,
   useCreateProcessConfig,
   useUpdateProcessConfig,
@@ -1859,12 +1860,10 @@ export default function ProcessConfigPage() {
     keyword: debouncedKeyword || undefined,
     pageSize: 100,
   });
-  const { data: templateCatalogData } = useProcessConfigList({
-    pageSize: 1000,
-  });
+  const { data: templateCatalogData } = useProcessConfigCatalog(100);
 
   const templates: ProcessTemplateListItem[] = listData?.list ?? EMPTY_PROCESS_TEMPLATES;
-  const templateCatalog: ProcessTemplateListItem[] = templateCatalogData?.list ?? EMPTY_PROCESS_TEMPLATES;
+  const templateCatalog: ProcessTemplateListItem[] = templateCatalogData ?? EMPTY_PROCESS_TEMPLATES;
 
   // ── 当前选中模板 ──
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -3449,12 +3448,19 @@ export default function ProcessConfigPage() {
                                                 ? (outputSkuLabelMap.get(node.outputSkuId) ?? `SKU#${node.outputSkuId}`)
                                                 : '无产出';
                                             return (
-                                              <button
+                                              <div
                                                 key={node._key}
-                                                type="button"
+                                                role="button"
+                                                tabIndex={0}
                                                 data-dag-node-key={node._key}
                                                 className={`${styles.routeProcessCard} ${activeCanvasNodeKey === node._key ? styles['routeProcessCard--active'] : ''} ${inheritedRef ? styles['routeProcessCard--inheritSource'] : ''}`}
                                                 onClick={() => handleCanvasNodeSelect(node._key)}
+                                                onKeyDown={(event) => {
+                                                  if (event.key === 'Enter' || event.key === ' ') {
+                                                    event.preventDefault();
+                                                    handleCanvasNodeSelect(node._key);
+                                                  }
+                                                }}
                                               >
                                           <div className={styles.routeProcessCard__main}>
                                             <div className={styles.routeProcessCard__header}>
@@ -3554,7 +3560,7 @@ export default function ProcessConfigPage() {
                                               </div>
                                             </div>
                                           </div>
-                                              </button>
+                                              </div>
                                             );
                                           })}
                                         </div>
@@ -3607,12 +3613,19 @@ export default function ProcessConfigPage() {
                                   ? (outputSkuLabelMap.get(node.outputSkuId) ?? `SKU#${node.outputSkuId}`)
                                   : '无产出';
                               return (
-                                <button
+                                <div
                                   key={node._key}
-                                  type="button"
+                                  role="button"
+                                  tabIndex={0}
                                   data-dag-node-key={node._key}
                                   className={`${styles.routeFinalCard} ${activeCanvasNodeKey === node._key ? styles['routeFinalCard--active'] : ''}`}
                                   onClick={() => handleCanvasNodeSelect(node._key)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault();
+                                      handleCanvasNodeSelect(node._key);
+                                    }
+                                  }}
                                 >
                                   <div className={styles.routeFinalCard__header}>
                                     <div className={styles.routeFinalCard__seq}>Step {node.seq}</div>
@@ -3640,7 +3653,7 @@ export default function ProcessConfigPage() {
                                     </span>
                                   </div>
                                   <div className={styles.routeFinalCard__meta}>{outputLabel}</div>
-                                </button>
+                                </div>
                               );
                             })}
                           </div>

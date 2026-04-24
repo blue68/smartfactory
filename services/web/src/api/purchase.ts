@@ -306,7 +306,7 @@ export function usePurchaseDeliveryDetail(id: number | null) {
     queryKey: purchaseKeys.deliveryDetail(id!),
     queryFn: () => purchaseApi.getDeliveryById(id!),
     enabled: id !== null && id > 0,
-    placeholderData: (previous) => previous,
+    gcTime: 30_000,
   });
 }
 

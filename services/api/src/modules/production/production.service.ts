@@ -11,11 +11,13 @@ import { loadWorkCalendarOverrides, resolveWorkCalendarDay, type WorkTimeRange }
 export class ProductionService {
   private readonly tenantId: number;
   private readonly userId: number;
+  private readonly roles: Set<string>;
   private readonly scheduler: SchedulerService;
 
   constructor(ctx: TenantContext) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
+    this.roles = new Set(ctx.roles ?? []);
     this.scheduler = new SchedulerService(ctx);
   }
 
@@ -84,6 +86,7 @@ export class ProductionService {
   }
 
   async startTask(taskId: number) {
+    await this.assertTaskOperatorAllowed(taskId);
     await this.assertTaskDependenciesReady(taskId, 'start');
     return this.scheduler.startTask(taskId);
   }
@@ -97,6 +100,7 @@ export class ProductionService {
     notes?: string;
     images?: string[];
   }) {
+    await this.assertTaskOperatorAllowed(taskId);
     await this.assertTaskDependenciesReady(taskId, 'complete');
     return this.scheduler.completeTask(taskId, params);
   }
@@ -111,6 +115,7 @@ export class ProductionService {
       notes?: string;
     }>;
   }) {
+    await this.assertTaskOperatorAllowed(taskId);
     await this.assertTaskDependenciesReady(taskId, 'start');
     return this.scheduler.issueTaskMaterials(taskId, params);
   }
@@ -125,6 +130,7 @@ export class ProductionService {
       notes?: string;
     }>;
   }) {
+    await this.assertTaskOperatorAllowed(taskId);
     return this.scheduler.returnTaskMaterials(taskId, params);
   }
 
@@ -1046,6 +1052,7 @@ export class ProductionService {
   async reportException(taskId: number, params: {
     type: string; description: string; severity: string; affectsProgress?: boolean;
   }) {
+    await this.assertTaskOperatorAllowed(taskId);
     await this.assertTaskDependenciesReady(taskId, 'exception');
     await AppDataSource.transaction(async (manager) => {
       const [task] = await manager.query<Array<{ id: number; status: string }>>(
@@ -1581,6 +1588,48 @@ export class ProductionService {
       case 'exception': return '异常';
       case 'suspended': return '已挂起';
       default: return status;
+    }
+  }
+
+  private canManageAnyTask(): boolean {
+    return ['admin', 'boss', 'supervisor'].some((role) => this.roles.has(role));
+  }
+
+  private async assertTaskOperatorAllowed(taskId: number): Promise<void> {
+    if (this.roles.size === 0 || this.canManageAnyTask()) {
+      return;
+    }
+
+    if (!this.roles.has('worker')) {
+      throw AppError.forbidden('当前账号没有生产任务操作权限');
+    }
+
+    const [task] = await AppDataSource.query<Array<{
+      id: number;
+      workerId: number | null;
+      workerName: string | null;
+    }>>(
+      `SELECT
+          pt.id,
+          pt.worker_id AS workerId,
+          u.real_name AS workerName
+       FROM production_tasks pt
+       LEFT JOIN users u ON u.id = pt.worker_id
+       WHERE pt.id = ? AND pt.tenant_id = ?
+       LIMIT 1`,
+      [taskId, this.tenantId],
+    );
+
+    if (!task) {
+      throw AppError.notFound('任务不存在', ResponseCode.NOT_FOUND);
+    }
+
+    if (task.workerId == null) {
+      throw AppError.forbidden('任务未绑定到具体工人，当前账号不能报工，请联系主管分派');
+    }
+
+    if (Number(task.workerId) !== this.userId) {
+      throw AppError.forbidden(`该任务已分配给 ${task.workerName || '其他工人'}，当前账号不能代报工`);
     }
   }
 

@@ -13,25 +13,65 @@
 }
 
 .title {
-  margin: 0 !important;
-  letter-spacing: 0.01em;
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.15;
+  color: var(--text-primary);
 }
 
 .subtitle {
-  margin-top: 6px !important;
-  margin-bottom: 0 !important;
+  margin: 8px 0 0;
   color: rgba(15, 23, 42, 0.68);
+  font-size: 14px;
 }
 
-.toolbarCard :global(.ant-card-body) {
-  padding: 14px;
+.segmented {
+  display: inline-flex;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 6px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(217, 229, 244, 0.94);
+  box-shadow: var(--shadow-xs);
 }
 
-.guideCard :global(.ant-card-body) {
+.segmentedButton,
+.segmentedActive {
+  min-width: 124px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.segmentedButton {
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.segmentedButton:hover {
+  color: var(--text-primary);
+  background: rgba(241, 245, 249, 0.9);
+}
+
+.segmentedActive {
+  color: #fff;
+  background: linear-gradient(135deg, #2e6bff 0%, #1e88ff 55%, #1cb9d9 100%);
+  box-shadow: var(--shadow-glow-primary);
+}
+
+.card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(217, 229, 244, 0.94);
+  border-radius: 20px;
+  box-shadow: var(--shadow-sm);
 }
 
 .guideList {
@@ -42,4 +82,178 @@
 .guideList ol {
   margin: 8px 0 0;
   padding-left: 18px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  justify-content: space-between;
+}
+
+.toggleGroup {
+  display: inline-flex;
+  border: 1px solid rgba(217, 229, 244, 0.94);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.toggleButton,
+.toggleActive {
+  min-width: 92px;
+  min-height: 38px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.toggleButton {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text-secondary);
+}
+
+.toggleButton:hover {
+  background: rgba(248, 250, 252, 0.96);
+}
+
+.toggleActive {
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--color-primary-700);
+}
+
+.inlineField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 240px;
+}
+
+.inlineField label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.inlineField select {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.toolbarActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardHeader h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.cardHeader p {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.importRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.filePicker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 110px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filePicker input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.fileMeta {
+  min-width: 240px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.checkboxCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.checkboxCell input {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 900px) {
+  .toolbar,
+  .cardHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbarActions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 14px;
+  }
+
+  .segmented {
+    width: 100%;
+  }
+
+  .segmentedButton,
+  .segmentedActive {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .fileMeta,
+  .inlineField {
+    min-width: 0;
+    width: 100%;
+  }
 }

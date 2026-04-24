@@ -72,6 +72,7 @@ export interface UpdateInspectionItemsPayload {
     dyeLotNo?: string;
     result: 'pass' | 'fail' | 'conditional_pass' | null;
     defectTypes?: string[];
+    defectImages?: string[];
     disposition?: 'accept' | 'return' | 'rework' | 'scrap' | null;
     notes?: string;
   }>;

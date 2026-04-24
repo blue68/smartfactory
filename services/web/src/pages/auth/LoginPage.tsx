@@ -3,7 +3,7 @@
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { authApi } from '@/api/auth';
 import { config } from '@/config';
@@ -13,7 +13,12 @@ import styles from './LoginPage.module.css';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const redirectAfterLogin =
+    typeof location.state === 'object' && location.state && 'from' in location.state && typeof location.state.from === 'string'
+      ? location.state.from
+      : '/';
 
   const [form, setForm] = useState({
     loginMode: 'tenant' as 'tenant' | 'platform',
@@ -44,7 +49,7 @@ export default function LoginPage() {
     try {
       const data = await authApi.login(form);
       setAuth(data.user, data.accessToken, data.permissionSnapshot ?? null);
-      navigate('/', { replace: true });
+      navigate(redirectAfterLogin, { replace: true });
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);
       else setError('登录失败，请检查网络连接');

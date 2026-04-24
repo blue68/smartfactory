@@ -437,12 +437,14 @@ export default function TracePage() {
 
   const issueImageSourceUrls = useMemo(() => {
     const recentIssueImages = (issueListQuery.data?.list ?? []).flatMap((issue) => issue.images ?? []);
-    const allIssueImages = (allIssuesQuery.data?.list ?? []).flatMap((issue) => issue.images ?? []);
+    const allIssueImages = allIssuesModal
+      ? (allIssuesQuery.data?.list ?? []).flatMap((issue) => issue.images ?? [])
+      : [];
     const merged = [...recentIssueImages, ...allIssueImages]
       .filter((imageUrl): imageUrl is string => typeof imageUrl === 'string' && imageUrl.trim().length > 0)
       .map((imageUrl) => resolveImageUrl(imageUrl));
     return Array.from(new Set(merged));
-  }, [allIssuesQuery.data?.list, issueListQuery.data?.list, resolveImageUrl]);
+  }, [allIssuesModal, allIssuesQuery.data?.list, issueListQuery.data?.list, resolveImageUrl]);
 
   const unresolvedIssueImageUrls = useMemo(
     () => issueImageSourceUrls.filter((url) => !issueImageBlobUrlMap[url] && !issueImageLoadFailedMap[url]),
@@ -492,6 +494,44 @@ export default function TracePage() {
       abortController.abort();
     };
   }, [unresolvedIssueImageUrls]);
+
+  useEffect(() => {
+    const activeUrlSet = new Set(issueImageSourceUrls);
+
+    setIssueImageBlobUrlMap((prev) => {
+      let changed = false;
+      const next: Record<string, string> = {};
+      Object.entries(prev).forEach(([sourceUrl, blobUrl]) => {
+        if (activeUrlSet.has(sourceUrl)) {
+          next[sourceUrl] = blobUrl;
+          return;
+        }
+        changed = true;
+        URL.revokeObjectURL(blobUrl);
+        imageBlobUrlMapRef.current.delete(sourceUrl);
+      });
+      return changed ? next : prev;
+    });
+
+    setIssueImageLoadFailedMap((prev) => {
+      let changed = false;
+      const next: Record<string, boolean> = {};
+      Object.entries(prev).forEach(([sourceUrl, failed]) => {
+        if (activeUrlSet.has(sourceUrl)) {
+          next[sourceUrl] = failed;
+          return;
+        }
+        changed = true;
+      });
+      return changed ? next : prev;
+    });
+
+    setPreviewImage((current) => {
+      if (!current) return current;
+      const resolvedUrl = resolveImageUrl(current.sourceUrl);
+      return activeUrlSet.has(resolvedUrl) ? current : null;
+    });
+  }, [issueImageSourceUrls, resolveImageUrl]);
 
   useEffect(() => () => {
     for (const blobUrl of imageBlobUrlMapRef.current.values()) {
