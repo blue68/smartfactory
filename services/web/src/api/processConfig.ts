@@ -27,7 +27,11 @@ import type { PaginatedData } from '@/types/api';
 export interface ProcessTemplateListItem {
   id: number;
   name: string;
-  skuId: number;
+  skuId: number | null;
+  baseTemplateId: number | null;
+  baseTemplateName?: string | null;
+  templateMode?: 'standard' | 'variant' | 'independent';
+  version?: string;
   skuName: string | null;
   skuCode: string | null;
   status: 'active' | 'inactive';
@@ -84,7 +88,13 @@ export interface ProcessTemplateDetail {
   template: {
     id: number;
     tenantId: number;
-    skuId: number;
+    skuId: number | null;
+    skuName?: string | null;
+    skuCode?: string | null;
+    baseTemplateId?: number | null;
+    baseTemplateName?: string | null;
+    templateMode?: 'standard' | 'variant' | 'independent';
+    version?: string;
     name: string;
     status: 'active' | 'inactive';
     createdAt: string;
@@ -131,7 +141,11 @@ export interface CreateProcessConfigPayload {
   /** 模板名称 */
   name: string;
   /** 关联 SKU ID */
-  skuId: number;
+  skuId?: number | null;
+  /** 关联的标准模板 ID */
+  baseTemplateId?: number | null;
+  /** 模板版本 */
+  version?: string;
   /** 工序步骤列表（可选） */
   steps?: ProcessStepPayload[];
 }

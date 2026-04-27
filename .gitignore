@@ -8,3 +8,4 @@ dist/
 test-results/
 services/web/dist-fresh/
 .tmp_uploads/
+.swc/

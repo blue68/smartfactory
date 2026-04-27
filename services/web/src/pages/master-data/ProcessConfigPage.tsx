@@ -30,7 +30,6 @@ import {
   useCreateProcessConfig,
   useUpdateProcessConfig,
   useDeleteProcessConfig,
-  useSetMaxHours,
   useSetWages,
   useWorkstationTypes,
   useCreateWorkstationType,
@@ -101,6 +100,11 @@ interface EditorTemplate {
   name: string;
   skuId: number;
   skuName: string;
+  skuCode: string | null;
+  baseTemplateId: number | null;
+  baseTemplateName: string | null;
+  templateMode: 'standard' | 'variant' | 'independent';
+  version: string;
   nodes: ProcessNode[];
 }
 
@@ -118,6 +122,14 @@ interface StepMaterialDraft {
   skuCode: string | null;
   skuName: string | null;
 }
+
+type BomMaterialSuggestion = {
+  skuId: number;
+  skuCode: string | null;
+  skuName: string;
+  totalQty: string | number;
+  spec: string | null;
+};
 
 interface BomRouteNode {
   skuId: number;
@@ -313,6 +325,10 @@ function formatDecimalDraft(value: number | null | undefined): string {
   return String(value);
 }
 
+function normalizeDecimalDraftInput(value: string): string {
+  return value.replace(/[。．，,]/g, '.');
+}
+
 function isDecimalDraft(value: string): boolean {
   return /^\d*(\.\d*)?$/.test(value);
 }
@@ -332,7 +348,28 @@ function getSkuDisplayName(skuCode: string | null | undefined, skuName: string |
   return fallback;
 }
 
-function mapNodesToPayload(nodes: ProcessNode[]): ProcessStepPayload[] {
+function formatSkuBadgeLabel(skuCode: string | null | undefined, skuName: string | null | undefined): string {
+  const normalizedCode = normalizeText(skuCode);
+  const normalizedName = normalizeText(skuName);
+  if (normalizedCode && normalizedName && normalizedCode !== normalizedName) {
+    return `${normalizedCode} · ${normalizedName}`;
+  }
+  return normalizedName || normalizedCode || '未关联 SKU';
+}
+
+function resolveNodeOutputSkuId(
+  node: Pick<ProcessNode, 'outputType' | 'outputSkuId'>,
+  template: Pick<EditorTemplate, 'skuId' | 'templateMode'>,
+): number | null {
+  if (node.outputType === 'none') return null;
+  if (node.outputSkuId) return node.outputSkuId;
+  if (node.outputType === 'final_product' && template.templateMode !== 'standard' && template.skuId > 0) {
+    return template.skuId;
+  }
+  return null;
+}
+
+function mapNodesToPayload(nodes: ProcessNode[], template: Pick<EditorTemplate, 'skuId' | 'templateMode'>): ProcessStepPayload[] {
   return nodes
     .filter((n) => n.status !== 'deleted')
     .map((n) => ({
@@ -343,7 +380,7 @@ function mapNodesToPayload(nodes: ProcessNode[]): ProcessStepPayload[] {
       workstationId: n.workstationId || undefined,
       executionMode: n.executionMode,
       outputType: n.outputType,
-      outputSkuId: n.outputType === 'none' ? null : (n.outputSkuId || null),
+      outputSkuId: resolveNodeOutputSkuId(n, template),
       predecessorStepNos: n.predecessorStepNos,
       routeGroupKey: normalizeText(n.routeGroupKey) || null,
       routeLevel: n.routeLevel ?? null,
@@ -432,9 +469,9 @@ function flattenBomRouteNodes(
   return items.flatMap((item) => {
     const currentTop = topAncestor ?? {
       skuId: Number(item.componentSkuId),
-      skuName: getSkuDisplayName(item.skuCode, item.componentSkuName, `SKU#${item.componentSkuId}`),
+      skuName: getSkuDisplayName(item.skuCode, item.skuName, `SKU#${item.componentSkuId}`),
     };
-    const currentSkuName = getSkuDisplayName(item.skuCode, item.componentSkuName, `SKU#${item.componentSkuId}`);
+    const currentSkuName = getSkuDisplayName(item.skuCode, item.skuName, `SKU#${item.componentSkuId}`);
     const nextPath = [...pathNames, currentSkuName];
     const current: BomRouteNode = {
       skuId: Number(item.componentSkuId),
@@ -570,13 +607,6 @@ const IconInfo = () => (
   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
     <circle cx="10" cy="10" r="8" />
     <path d="M10 9v5M10 6.5v.5" strokeLinecap="round" />
-  </svg>
-);
-
-const IconClock = () => (
-  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <circle cx="10" cy="10" r="8" />
-    <path d="M10 6v4l2.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
@@ -1001,7 +1031,7 @@ interface NodeDrawerProps {
   open: boolean;
   saving: boolean;
   stepMaterials: StepMaterialDraft[];
-  bomSuggestions: Array<{ skuId: number; skuCode: string; skuName: string; totalQty: string; spec: string | null }>;
+  bomSuggestions: BomMaterialSuggestion[];
   skuOptions: MaterialSkuOption[];
   materialSkuKeyword: string;
   workstationOptions: string[];
@@ -1075,7 +1105,7 @@ function NodeDrawer({
 
   if (!open || !node) return null;
 
-  const handleField = (field: keyof ProcessNode, value: string | number | null) => {
+  const handleField = <K extends keyof ProcessNode>(field: K, value: ProcessNode[K]) => {
     const updated: ProcessNode = { ...node, [field]: value };
     // 如果原本是 inherit 并且有修改，则标记为 modified
     if (node.status === 'inherit') {
@@ -1323,8 +1353,9 @@ function NodeDrawer({
                   inputMode="decimal"
                   value={hoursDraft}
                   onChange={(e) => {
-                    if (!isDecimalDraft(e.target.value)) return;
-                    setHoursDraft(e.target.value);
+                    const nextDraft = normalizeDecimalDraftInput(e.target.value);
+                    if (!isDecimalDraft(nextDraft)) return;
+                    setHoursDraft(nextDraft);
                   }}
                   onBlur={() => {
                     const nextValue = commitDecimalDraft(hoursDraft, 0) ?? 0;
@@ -1342,8 +1373,9 @@ function NodeDrawer({
                   inputMode="decimal"
                   value={maxHoursDraft}
                   onChange={(e) => {
-                    if (!isDecimalDraft(e.target.value)) return;
-                    setMaxHoursDraft(e.target.value);
+                    const nextDraft = normalizeDecimalDraftInput(e.target.value);
+                    if (!isDecimalDraft(nextDraft)) return;
+                    setMaxHoursDraft(nextDraft);
                   }}
                   onBlur={() => {
                     const nextValue = commitDecimalDraft(maxHoursDraft, null);
@@ -1762,8 +1794,9 @@ function NodeDrawer({
                 inputMode="decimal"
                 value={unitPriceDraft}
                 onChange={(e) => {
-                  if (!isDecimalDraft(e.target.value)) return;
-                  setUnitPriceDraft(e.target.value);
+                  const nextDraft = normalizeDecimalDraftInput(e.target.value);
+                  if (!isDecimalDraft(nextDraft)) return;
+                  setUnitPriceDraft(nextDraft);
                 }}
                 onBlur={() => {
                   const nextValue = commitDecimalDraft(unitPriceDraft, 0) ?? 0;
@@ -1917,7 +1950,10 @@ export default function ProcessConfigPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createSkuId, setCreateSkuId] = useState<number | null>(null);
+  const [createMode, setCreateMode] = useState<'standard' | 'independent' | 'variant'>('independent');
+  const [createBaseTemplateId, setCreateBaseTemplateId] = useState<number | null>(null);
   const [skuKeyword, setSkuKeyword] = useState('');
+  const [baseTemplateKeyword, setBaseTemplateKeyword] = useState('');
   const [materialSkuKeyword, setMaterialSkuKeyword] = useState('');
   const [activeMaterialSelectionId, setActiveMaterialSelectionId] = useState<number | null>(null);
   const [activeCanvasWorkstationKeyword, setActiveCanvasWorkstationKeyword] = useState('');
@@ -1996,7 +2032,6 @@ export default function ProcessConfigPage() {
   const createMutation = useCreateProcessConfig();
   const updateMutation = useUpdateProcessConfig();
   const deleteMutation = useDeleteProcessConfig();
-  const setMaxHoursMutation = useSetMaxHours();
   const setWagesMutation = useSetWages();
   const { data: stepMaterialsData } = useProcessStepMaterials(selectedId);
   const setStepMaterialsMutation = useSetProcessStepMaterials();
@@ -2026,17 +2061,31 @@ export default function ProcessConfigPage() {
   useEffect(() => {
     if (!detailData) return;
     const { template, steps } = detailData;
+    const matchedTemplateMeta = templates.find((item) => Number(item.id) === Number(template.id)) ?? null;
+    const resolvedSkuCode = template.skuCode ?? matchedTemplateMeta?.skuCode ?? null;
+    const resolvedSkuName = template.skuName ?? matchedTemplateMeta?.skuName ?? '';
+    const templateMode = template.templateMode
+      ?? (template.baseTemplateId ? 'variant' : template.skuId ? 'independent' : 'standard');
+    const templateSkuId = Number(template.skuId) || 0;
     const nodes = mapStepsToNodes(steps).map((node) => {
-      if (!node.workstationId) return node;
-      const linked = workstationRecords?.find((item) => Number(item.id) === Number(node.workstationId));
-      return linked ? { ...node, workstation: linked.type, workstationName: linked.name } : node;
+      const normalizedNode = node.outputType === 'final_product' && !node.outputSkuId && templateMode !== 'standard' && templateSkuId > 0
+        ? { ...node, outputSkuId: templateSkuId }
+        : node;
+      if (!normalizedNode.workstationId) return normalizedNode;
+      const linked = workstationRecords?.find((item) => Number(item.id) === Number(normalizedNode.workstationId));
+      return linked ? { ...normalizedNode, workstation: linked.type, workstationName: linked.name } : normalizedNode;
     });
     setEditorTemplate({
       id: Number(template.id),
       name: template.name,
       // TypeORM 对 bigint 字段运行时返回字符串，强制转 number 避免 Zod positive() 报错
-      skuId: Number(template.skuId) || 0,
-      skuName: templates.find((t) => t.id === Number(template.id))?.skuName ?? '',
+      skuId: templateSkuId,
+      skuName: getSkuDisplayName(resolvedSkuCode, resolvedSkuName, ''),
+      skuCode: resolvedSkuCode,
+      baseTemplateId: template.baseTemplateId ? Number(template.baseTemplateId) : null,
+      baseTemplateName: template.baseTemplateName ?? null,
+      templateMode,
+      version: normalizeText(template.version) || '1.0',
       nodes,
     });
     // 首次进入编辑器显示引导提示
@@ -2100,11 +2149,11 @@ export default function ProcessConfigPage() {
     () => (editingNode ? stepMaterialDrafts.filter((item) => item.stepNo === editingNode.seq) : []),
     [editingNode, stepMaterialDrafts],
   );
-  const editableBomSuggestions = useMemo(() => {
-    if (!editingNode || !bomRequirements) return [];
+  const getBomSuggestionsForStep = useCallback((stepNo: number): BomMaterialSuggestion[] => {
+    if (!bomRequirements) return [];
     const existedSkuIds = new Set(
       stepMaterialDrafts
-        .filter((item) => item.stepNo === editingNode.seq)
+        .filter((item) => item.stepNo === stepNo)
         .map((item) => Number(item.inputSkuId)),
     );
     return bomRequirements
@@ -2116,7 +2165,12 @@ export default function ProcessConfigPage() {
         totalQty: item.totalQty,
         spec: item.spec ?? null,
       }));
-  }, [editingNode, bomRequirements, stepMaterialDrafts]);
+  }, [bomRequirements, stepMaterialDrafts]);
+
+  const editableBomSuggestions = useMemo(() => {
+    if (!editingNode) return [];
+    return getBomSuggestionsForStep(editingNode.seq);
+  }, [editingNode, getBomSuggestionsForStep]);
 
   const materialSkuOptions = useMemo(() => {
     const items = materialSkuCatalogData?.list ?? [];
@@ -2136,6 +2190,26 @@ export default function ProcessConfigPage() {
     () => templates.find((item) => Number(item.id) === Number(editorTemplate?.id)) ?? null,
     [editorTemplate?.id, templates],
   );
+  const selectedTemplateSkuLabel = useMemo(
+    () => formatSkuBadgeLabel(
+      selectedTemplateMeta?.skuCode ?? editorTemplate?.skuCode,
+      selectedTemplateMeta?.skuName ?? editorTemplate?.skuName,
+    ),
+    [
+      editorTemplate?.skuCode,
+      editorTemplate?.skuName,
+      selectedTemplateMeta?.skuCode,
+      selectedTemplateMeta?.skuName,
+    ],
+  );
+  const activeTemplateMode = editorTemplate?.templateMode ?? 'independent';
+  const isStandardTemplate = activeTemplateMode === 'standard';
+  const isVariantTemplate = activeTemplateMode === 'variant';
+  const templateModeLabel = activeTemplateMode === 'standard'
+    ? '标准模板'
+    : activeTemplateMode === 'variant'
+      ? 'SKU 变体'
+      : '独立模板';
 
   const defaultTemplateBySkuId = useMemo(() => {
     const catalog = new Map<number, InheritedTemplateRef>();
@@ -2246,19 +2320,6 @@ export default function ProcessConfigPage() {
     }));
   }, [expandedBomDetail, editorTemplate]);
 
-  const bomRouteSummary = useMemo(() => {
-    const items = bomRouteLanes.flatMap((lane) => lane.items);
-    const covered = items.filter((item) => item.coveredSteps.length > 0).length;
-    return {
-      total: items.length,
-      covered,
-      uncovered: Math.max(items.length - covered, 0),
-      finalSteps: editorTemplate?.nodes.filter(
-        (node) => node.status !== 'deleted' && node.outputType === 'final_product',
-      ).length ?? 0,
-    };
-  }, [bomRouteLanes, editorTemplate]);
-
   const uncoveredBomRouteItems = useMemo(
     () => bomRouteLanes.flatMap((lane) => lane.items).filter((item) => item.coveredSteps.length === 0),
     [bomRouteLanes],
@@ -2312,21 +2373,9 @@ export default function ProcessConfigPage() {
     return dagBranchGroups.find((group) => group.key === activeDagBranchKey) ?? dagBranchGroups[0];
   }, [activeDagBranchKey, dagBranchGroups]);
 
-  const activeRouteLane = useMemo(() => {
-    if (bomRouteLanes.length === 0) return null;
-    const branchKey = activeDagBranchGroup?.key;
-    if (!branchKey || branchKey === '__unassigned__') return bomRouteLanes[0];
-    return bomRouteLanes.find((lane) => lane.skuName === branchKey) ?? bomRouteLanes[0];
-  }, [activeDagBranchGroup, bomRouteLanes]);
-
   const activeDagNodes = useMemo(
     () => activeDagBranchGroup?.nodes ?? [],
     [activeDagBranchGroup],
-  );
-
-  const activeRouteItems = useMemo(
-    () => activeRouteLane?.items ?? [],
-    [activeRouteLane],
   );
 
   const standaloneDagNodes = useMemo(
@@ -2377,6 +2426,7 @@ export default function ProcessConfigPage() {
   const activeCanvasNodeKey = activeCanvasNode?._key ?? null;
   const activeCanvasRouteGroupKey = activeCanvasNode?.routeGroupKey?.trim() ?? '';
   const activeCanvasOutputKeywordNormalized = activeCanvasOutputKeyword.trim();
+  const activeCanvasUsesStandardFinalPlaceholder = isStandardTemplate && activeCanvasNode?.outputType === 'final_product';
   const activeCanvasOutputSkuTypes = activeCanvasNode?.outputType === 'final_product'
     ? 'finished'
     : activeCanvasNode?.outputType === 'semi_finished'
@@ -2385,7 +2435,7 @@ export default function ProcessConfigPage() {
 
   const { data: outputSkuCatalogData } = useQuery({
     queryKey: ['process-config-output-sku-search', activeCanvasOutputSkuTypes, activeCanvasOutputKeywordNormalized],
-    enabled: activeCanvasNode?.outputType !== 'none',
+    enabled: activeCanvasNode?.outputType !== 'none' && !activeCanvasUsesStandardFinalPlaceholder,
     queryFn: async () => {
       const pageSize = 200;
       const merged = new Map<number, Awaited<ReturnType<typeof skuApi.getList>>['list'][number]>();
@@ -2460,22 +2510,9 @@ export default function ProcessConfigPage() {
   }, [stepMaterialDrafts]);
 
   const activeCanvasBomSuggestions = useMemo(() => {
-    if (!activeCanvasNode || !bomRequirements) return [];
-    const existedSkuIds = new Set(
-      stepMaterialDrafts
-        .filter((item) => item.stepNo === activeCanvasNode.seq)
-        .map((item) => Number(item.inputSkuId)),
-    );
-    return bomRequirements
-      .filter((item) => !existedSkuIds.has(Number(item.skuId)))
-      .map((item) => ({
-        skuId: Number(item.skuId),
-        skuCode: item.skuCode,
-        skuName: item.skuName,
-        totalQty: item.totalQty,
-        spec: item.spec ?? null,
-      }));
-  }, [activeCanvasNode, bomRequirements, stepMaterialDrafts]);
+    if (!activeCanvasNode) return [];
+    return getBomSuggestionsForStep(activeCanvasNode.seq);
+  }, [activeCanvasNode, getBomSuggestionsForStep]);
 
   const outputSkuOptions = useMemo(() => {
     const options = new Map<number, { id: number; label: string; type: 'final' | 'semi_finished' }>();
@@ -2541,14 +2578,17 @@ export default function ProcessConfigPage() {
     [outputSkuOptions],
   );
   const activeOutputObjectOptions = useMemo(
-    () => outputSkuOptions.filter((item) => (
-      activeCanvasNode?.outputType === 'final_product'
-        ? item.type === 'final'
-        : activeCanvasNode?.outputType === 'semi_finished'
-          ? item.type === 'semi_finished'
-          : false
-    )),
-    [activeCanvasNode?.outputType, outputSkuOptions],
+    () => {
+      if (activeCanvasUsesStandardFinalPlaceholder) return [];
+      return outputSkuOptions.filter((item) => (
+        activeCanvasNode?.outputType === 'final_product'
+          ? item.type === 'final'
+          : activeCanvasNode?.outputType === 'semi_finished'
+            ? item.type === 'semi_finished'
+            : false
+      ));
+    },
+    [activeCanvasNode?.outputType, activeCanvasUsesStandardFinalPlaceholder, outputSkuOptions],
   );
   const activeOutputObject = useMemo(
     () => activeOutputObjectOptions.find((item) => item.id === activeCanvasNode?.outputSkuId) ?? null,
@@ -2565,6 +2605,7 @@ export default function ProcessConfigPage() {
   const activeOutputSummary = useMemo(() => {
     if (!activeCanvasNode) return '未定义';
     if (activeCanvasNode.outputType === 'final_product') {
+      if (isStandardTemplate) return '标准模板成品占位';
       return selectedTemplateMeta?.skuCode
         ? `${selectedTemplateMeta.skuCode} · ${selectedTemplateMeta.skuName ?? editorTemplate?.skuName ?? '当前成品'}`
         : (selectedTemplateMeta?.skuName ?? editorTemplate?.skuName ?? '当前成品');
@@ -2573,7 +2614,7 @@ export default function ProcessConfigPage() {
       return outputSkuLabelMap.get(activeCanvasNode.outputSkuId) ?? `SKU#${activeCanvasNode.outputSkuId}`;
     }
     return '无产出';
-  }, [activeCanvasNode, editorTemplate?.skuName, outputSkuLabelMap, selectedTemplateMeta]);
+  }, [activeCanvasNode, editorTemplate?.skuName, isStandardTemplate, outputSkuLabelMap, selectedTemplateMeta]);
 
   const activeCanvasInheritedRef = useMemo(
     () => getInheritedTemplateRef(activeCanvasNode),
@@ -2690,11 +2731,6 @@ export default function ProcessConfigPage() {
     });
   }, [dagBranchGroups, activeCanvasNode]);
 
-  // 节点点击
-  const handleNodeClick = useCallback((key: number) => {
-    setActiveCanvasKey(key);
-  }, []);
-
   const handleCanvasNodeSelect = useCallback((key: number) => {
     const branchKey = editorTemplate?.nodes.find((node) => node._key === key)?.routeGroupKey?.trim() || '__unassigned__';
     setActiveDagBranchKey(branchKey);
@@ -2718,15 +2754,6 @@ export default function ProcessConfigPage() {
       };
     });
   }, []);
-
-  const handleCanvasDagPatch = useCallback((patch: Partial<ProcessNode>) => {
-    if (!activeCanvasNode) return;
-    handleNodeChange({
-      ...activeCanvasNode,
-      ...patch,
-      status: activeCanvasNode.status === 'inherit' ? 'modified' : activeCanvasNode.status,
-    });
-  }, [activeCanvasNode, handleNodeChange]);
 
   const handleActiveNodePatch = useCallback((patch: Partial<ProcessNode>) => {
     if (!activeCanvasNode) return;
@@ -2808,7 +2835,7 @@ export default function ProcessConfigPage() {
       const existedSkuIds = new Set(
         prev.filter((item) => item.stepNo === stepNo).map((item) => Number(item.inputSkuId)),
       );
-      const additions = editableBomSuggestions
+      const additions = getBomSuggestionsForStep(stepNo)
         .filter((item) => !existedSkuIds.has(item.skuId))
         .map((item) => ({
           stepNo,
@@ -2823,10 +2850,10 @@ export default function ProcessConfigPage() {
           processParamsError: null,
           skuCode: item.skuCode ?? null,
           skuName: item.skuName,
-        }));
+      }));
       return additions.length > 0 ? [...prev, ...additions] : prev;
     });
-  }, [editableBomSuggestions]);
+  }, [getBomSuggestionsForStep]);
 
   // 节点停用 —— 立即触发保存，确保停用操作实时持久化
   const handleNodeDelete = useCallback((key: number) => {
@@ -2926,23 +2953,6 @@ export default function ProcessConfigPage() {
     setDrawerKey(newKey);
   }, [addProcessDraft, editorTemplate]);
 
-  const handleAddBomRouteNode = useCallback((routeItem: BomRouteNode) => {
-    setEditorTemplate((prev) => {
-      if (!prev) return prev;
-      const exists = prev.nodes.some(
-        (node) => node.status !== 'deleted'
-          && node.outputType === 'semi_finished'
-          && Number(node.outputSkuId) === routeItem.skuId,
-      );
-      if (exists) return prev;
-      const nextSeq = prev.nodes.filter((node) => node.status !== 'deleted').length + 1;
-      return {
-        ...prev,
-        nodes: [...prev.nodes, createBomRouteSkeletonNode(routeItem, nextSeq)],
-      };
-    });
-  }, []);
-
   const handleImportBomRouteSkeleton = useCallback(() => {
     setEditorTemplate((prev) => {
       if (!prev || uncoveredBomRouteItems.length === 0) return prev;
@@ -2984,13 +2994,15 @@ export default function ProcessConfigPage() {
         id: tmpl.id,
         payload: {
           name: tmpl.name,
+          version: normalizeText(tmpl.version) || '1.0',
           ...(tmpl.skuId > 0 && { skuId: tmpl.skuId }),
-          steps: mapNodesToPayload(nodes),
+          steps: mapNodesToPayload(nodes, tmpl),
         },
       });
 
       // Step 2: 获取服务端最新步骤列表（获取新增节点的真实 ID + 最新 maxHours）
-      const { steps: savedSteps } = await processConfigApi.getById(tmpl.id);
+      const refreshedDetail = await processConfigApi.getById(tmpl.id);
+      const { steps: savedSteps } = refreshedDetail;
       const stepIdByNo = new Map(savedSteps.map((s) => [Number(s.stepNo), Number(s.id)]));
       const activeStepNos = new Set(
         nodes.filter((node) => node.status !== 'deleted').map((node) => node.seq),
@@ -3003,24 +3015,20 @@ export default function ProcessConfigPage() {
           .map(materialDraftToPayload),
       });
 
-      // Step 3: 并行保存 maxHours 和 unitPrice
-      const patches: Promise<unknown>[] = [];
-      for (const node of nodes) {
-        if (node.status === 'deleted') continue;
-        const stepId = stepIdByNo.get(node.seq);
-        if (!stepId) continue;
-        patches.push(setMaxHoursMutation.mutateAsync({
-          stepId,
-          maxHours: node.maxHours && node.maxHours > 0 ? node.maxHours : null,
-        }));
-        if (node.unitPrice > 0) {
-          patches.push(setWagesMutation.mutateAsync({
-            stepId,
-            payload: { workerGrade: 'skilled', unitPrice: node.unitPrice },
-          }));
+      // Step 3: 工序 PUT 已经包含 maxHours；这里只串行补齐工价，避免和模板/变体同步并发写造成 MySQL deadlock。
+      if (tmpl.templateMode !== 'variant') {
+        for (const node of nodes) {
+          if (node.status === 'deleted') continue;
+          const stepId = stepIdByNo.get(node.seq);
+          if (!stepId) continue;
+          if (node.unitPrice > 0) {
+            await setWagesMutation.mutateAsync({
+              stepId,
+              payload: { workerGrade: 'skilled', unitPrice: node.unitPrice },
+            });
+          }
         }
       }
-      await Promise.all(patches);
 
       // Step 4: 用服务端数据重新同步编辑器（回填真实 ID，刷新 maxHours），保留 unitPrice 本地值
       const unitPriceBySeq = new Map(nodes.map((n) => [n.seq, n.unitPrice]));
@@ -3029,7 +3037,21 @@ export default function ProcessConfigPage() {
         unitPrice: unitPriceBySeq.get(n.seq) ?? 0,
         workstationName: workstationRecords?.find((item) => Number(item.id) === Number(n.workstationId))?.name ?? '',
       }));
-      setEditorTemplate((prev) => prev ? { ...prev, nodes: freshNodes } : prev);
+      setEditorTemplate((prev) => prev ? {
+        ...prev,
+        skuId: Number(refreshedDetail.template.skuId ?? prev.skuId) || 0,
+        skuName: getSkuDisplayName(
+          refreshedDetail.template.skuCode ?? selectedTemplateMeta?.skuCode ?? prev.skuCode,
+          refreshedDetail.template.skuName ?? selectedTemplateMeta?.skuName ?? prev.skuName,
+          '',
+        ),
+        skuCode: refreshedDetail.template.skuCode ?? selectedTemplateMeta?.skuCode ?? prev.skuCode,
+        baseTemplateId: refreshedDetail.template.baseTemplateId ? Number(refreshedDetail.template.baseTemplateId) : prev.baseTemplateId,
+        baseTemplateName: refreshedDetail.template.baseTemplateName ?? prev.baseTemplateName,
+        templateMode: refreshedDetail.template.templateMode ?? prev.templateMode,
+        version: normalizeText(refreshedDetail.template.version) || prev.version || '1.0',
+        nodes: freshNodes,
+      } : prev);
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2200);
@@ -3061,18 +3083,33 @@ export default function ProcessConfigPage() {
     }
   };
 
+  const standardTemplateCatalog = useMemo(
+    () => templates.filter((item) => (item.templateMode ?? (item.baseTemplateId ? 'variant' : item.skuId ? 'independent' : 'standard')) === 'standard'),
+    [templates],
+  );
+  const selectedCreateBaseTemplate = useMemo(
+    () => standardTemplateCatalog.find((item) => Number(item.id) === createBaseTemplateId) ?? null,
+    [createBaseTemplateId, standardTemplateCatalog],
+  );
+
   // 新建模板
   const handleCreate = async () => {
-    if (!createName.trim() || !createSkuId) return;
+    if (!createName.trim()) return;
+    if (createMode !== 'standard' && !createSkuId) return;
+    if (createMode === 'variant' && !createBaseTemplateId) return;
     const result = await createMutation.mutateAsync({
       name: createName.trim(),
-      skuId: createSkuId,
+      skuId: createMode === 'standard' ? null : createSkuId,
+      baseTemplateId: createMode === 'variant' ? createBaseTemplateId : null,
       steps: [],
     });
     setShowCreateModal(false);
     setCreateName('');
     setCreateSkuId(null);
     setSkuKeyword('');
+    setCreateMode('independent');
+    setCreateBaseTemplateId(null);
+    setBaseTemplateKeyword('');
     setSelectedId(result.id);
   };
 
@@ -3081,10 +3118,9 @@ export default function ProcessConfigPage() {
     setEditorTemplate((prev) => prev ? { ...prev, name: val } : prev);
   };
 
-  // 计算总工时
-  const totalHours = editorTemplate?.nodes
-    .filter((n) => n.status !== 'deleted')
-    .reduce((sum, n) => sum + n.hours, 0) ?? 0;
+  const handleVersionChange = (val: string) => {
+    setEditorTemplate((prev) => prev ? { ...prev, version: val.slice(0, 20) } : prev);
+  };
 
   // 活跃节点列表（用于渲染，已停用节点仍渲染但带样式）
   const displayNodes = editorTemplate?.nodes ?? [];
@@ -3112,7 +3148,12 @@ export default function ProcessConfigPage() {
           {/* 新建 */}
           <button
             className={styles.sidebar__createBtn}
-            onClick={() => setShowCreateModal(true)}
+            onClick={() => {
+              setCreateMode('independent');
+              setCreateBaseTemplateId(null);
+              setBaseTemplateKeyword('');
+              setShowCreateModal(true);
+            }}
             aria-label="新建工序模板"
           >
             <IconPlus />
@@ -3175,7 +3216,12 @@ export default function ProcessConfigPage() {
             </p>
             <button
               className={`${styles.btn} ${styles['btn--primary']}`}
-              onClick={() => setShowCreateModal(true)}
+              onClick={() => {
+                setCreateMode('independent');
+                setCreateBaseTemplateId(null);
+                setBaseTemplateKeyword('');
+                setShowCreateModal(true);
+              }}
             >
               <IconPlus />
               新建模板
@@ -3213,15 +3259,34 @@ export default function ProcessConfigPage() {
                   onChange={(e) => handleNameChange(e.target.value)}
                   aria-label="模板名称"
                 />
-                {editorTemplate.skuName ? (
+                {editorTemplate.skuId > 0 ? (
                   <span className={styles.editorHeader__skuTag}>
-                    {editorTemplate.skuName}
+                    {selectedTemplateSkuLabel}
                   </span>
                 ) : (
                   <span className={styles.editorHeader__skuTagMissing}>
                     未关联 SKU（可在保存时绑定）
                   </span>
                 )}
+                <span className={styles.editorHeader__skuTag}>
+                  {templateModeLabel}
+                </span>
+                <label className={styles.editorHeader__versionField}>
+                  <span>版本</span>
+                  <input
+                    className={styles.editorHeader__versionInput}
+                    type="text"
+                    value={editorTemplate.version}
+                    onChange={(e) => handleVersionChange(e.target.value)}
+                    aria-label="模板版本"
+                    placeholder="例如 1.0"
+                  />
+                </label>
+                {isVariantTemplate && editorTemplate.baseTemplateName ? (
+                  <span className={styles.editorHeader__skuTag}>
+                    引用标准模板：{editorTemplate.baseTemplateName}
+                  </span>
+                ) : null}
               </div>
               <div className={styles.editorHeader__actions}>
                 <button
@@ -3259,7 +3324,9 @@ export default function ProcessConfigPage() {
                 <div className={styles.hintBar} role="status">
                   <span className={styles.hintBar__icon}><IconInfo /></span>
                   <span className={styles.hintBar__text}>
-                    点击节点卡片可编辑工序详情；末尾"+"按钮可添加新工序；编辑完成后点击"保存"提交变更。
+                    {isVariantTemplate
+                      ? '当前是 SKU 变体模板：共享工时、工位、路线和作业说明继承自标准模板，这里只维护输入输出差异。'
+                      : '点击节点卡片可编辑工序详情；末尾"+"按钮可添加新工序；编辑完成后点击"保存"提交变更。'}
                   </span>
                   <button
                     className={styles.hintBar__close}
@@ -3280,7 +3347,7 @@ export default function ProcessConfigPage() {
                         <div className={styles.routeStudio__eyebrow}>工艺路线配置</div>
                         <h3 className={styles.routeStudio__title}>{editorTemplate.name}</h3>
                         <div className={styles.routeStudio__subtitle}>
-                          产品：{editorTemplate.skuName || '未关联 SKU'} · 版本：V1.0
+                          产品：{editorTemplate.skuId > 0 ? selectedTemplateSkuLabel : '未关联 SKU'} · {templateModeLabel}{isVariantTemplate && editorTemplate.baseTemplateName ? ` · 源模板 ${editorTemplate.baseTemplateName}` : ''} · 版本：{normalizeText(editorTemplate.version) || '1.0'}
                         </div>
                         <div className={styles.routeStudio__stats}>
                           <span className={styles.routeStudio__statChip}>并行分支 {preMergeBranches.length}</span>
@@ -3313,6 +3380,7 @@ export default function ProcessConfigPage() {
                         type="button"
                         className={`${styles.btn} ${styles['btn--ghost']}`}
                         onClick={handleAddNode}
+                        disabled={isVariantTemplate}
                       >
                         <IconPlus />
                         添加工序
@@ -3321,6 +3389,7 @@ export default function ProcessConfigPage() {
                         type="button"
                         className={`${styles.btn} ${styles['btn--ghost']}`}
                         onClick={handleAddParallelRoute}
+                        disabled={isVariantTemplate}
                       >
                         <IconPlus />
                         快捷新增并行
@@ -3978,6 +4047,7 @@ export default function ProcessConfigPage() {
                             className={styles.formInput}
                             type="text"
                             value={getProcessNodeDisplayName(activeCanvasNode, outputSkuLabelMap)}
+                            disabled={isVariantTemplate}
                             onChange={(e) => handleActiveNodePatch({ name: e.target.value })}
                           />
                         </div>
@@ -4005,6 +4075,7 @@ export default function ProcessConfigPage() {
                             <select
                               className={styles.formSelect}
                               value={activeCanvasNode.executionMode}
+                              disabled={isVariantTemplate}
                               onChange={(e) => handleActiveNodePatch({ executionMode: e.target.value as 'internal' | 'outsource' })}
                             >
                               <option value="internal">厂内生产</option>
@@ -4017,6 +4088,7 @@ export default function ProcessConfigPage() {
                               className={styles.formInput}
                               type="search"
                               value={activeCanvasWorkstationKeyword}
+                              disabled={isVariantTemplate}
                               onChange={(e) => setActiveCanvasWorkstationKeyword(e.target.value)}
                               placeholder="搜索工作站名称 / 类型"
                             />
@@ -4032,6 +4104,7 @@ export default function ProcessConfigPage() {
                                     key={`station-result-${item.id}`}
                                     type="button"
                                     className={`${styles.routeStudioPanel__searchItem} ${activeCanvasWorkstation?.id === item.id ? styles['routeStudioPanel__searchItem--active'] : ''}`}
+                                    disabled={isVariantTemplate}
                                     onClick={() => {
                                       handleActiveNodePatch({
                                         workstationId: Number(item.id),
@@ -4074,9 +4147,11 @@ export default function ProcessConfigPage() {
                               type="text"
                               inputMode="decimal"
                               value={activeCanvasMaxHoursDraft}
+                              disabled={isVariantTemplate}
                               onChange={(e) => {
-                                if (!isDecimalDraft(e.target.value)) return;
-                                setActiveCanvasMaxHoursDraft(e.target.value);
+                                const nextDraft = normalizeDecimalDraftInput(e.target.value);
+                                if (!isDecimalDraft(nextDraft)) return;
+                                setActiveCanvasMaxHoursDraft(nextDraft);
                               }}
                               onBlur={() => {
                                 const nextValue = commitDecimalDraft(activeCanvasMaxHoursDraft, null);
@@ -4092,9 +4167,11 @@ export default function ProcessConfigPage() {
                               type="text"
                               inputMode="decimal"
                               value={activeCanvasHoursDraft}
+                              disabled={isVariantTemplate}
                               onChange={(e) => {
-                                if (!isDecimalDraft(e.target.value)) return;
-                                setActiveCanvasHoursDraft(e.target.value);
+                                const nextDraft = normalizeDecimalDraftInput(e.target.value);
+                                if (!isDecimalDraft(nextDraft)) return;
+                                setActiveCanvasHoursDraft(nextDraft);
                               }}
                               onBlur={() => {
                                 const nextValue = commitDecimalDraft(activeCanvasHoursDraft, 0) ?? 0;
@@ -4111,9 +4188,11 @@ export default function ProcessConfigPage() {
                             type="text"
                             inputMode="decimal"
                             value={activeCanvasUnitPriceDraft}
+                            disabled={isVariantTemplate}
                             onChange={(e) => {
-                              if (!isDecimalDraft(e.target.value)) return;
-                              setActiveCanvasUnitPriceDraft(e.target.value);
+                              const nextDraft = normalizeDecimalDraftInput(e.target.value);
+                              if (!isDecimalDraft(nextDraft)) return;
+                              setActiveCanvasUnitPriceDraft(nextDraft);
                             }}
                             onBlur={() => {
                               const nextValue = commitDecimalDraft(activeCanvasUnitPriceDraft, 0) ?? 0;
@@ -4134,6 +4213,7 @@ export default function ProcessConfigPage() {
                             <input
                               type="checkbox"
                               checked={Boolean(activeCanvasRouteGroupKey)}
+                              disabled={isVariantTemplate}
                               onChange={(e) => {
                                 if (!e.target.checked) {
                                   handleActiveNodePatch({ routeGroupKey: '', routeLevel: null });
@@ -4155,10 +4235,13 @@ export default function ProcessConfigPage() {
                             <input
                               type="checkbox"
                               checked={activeCanvasNode.outputType === 'final_product'}
+                              disabled={isVariantTemplate}
                               onChange={(e) => {
                                 handleActiveNodePatch({
                                   outputType: e.target.checked ? 'final_product' : 'semi_finished',
-                                  outputSkuId: e.target.checked ? (editorTemplate?.skuId ?? null) : activeCanvasNode.outputSkuId,
+                                  outputSkuId: e.target.checked
+                                    ? (isStandardTemplate ? null : (editorTemplate?.skuId ?? null))
+                                    : activeCanvasNode.outputSkuId,
                                 });
                               }}
                             />
@@ -4175,6 +4258,7 @@ export default function ProcessConfigPage() {
                               className={styles.formInput}
                               type="text"
                               value={activeCanvasNode.routeGroupKey}
+                              disabled={isVariantTemplate}
                               onChange={(e) => handleActiveNodePatch({ routeGroupKey: e.target.value })}
                               placeholder="如：清：Q01床头-白01"
                             />
@@ -4187,6 +4271,7 @@ export default function ProcessConfigPage() {
                               min="1"
                               step="1"
                               value={activeCanvasNode.routeLevel ?? ''}
+                              disabled={isVariantTemplate}
                               onChange={(e) => handleActiveNodePatch({ routeLevel: e.target.value === '' ? null : Number(e.target.value) })}
                             />
                           </div>
@@ -4201,6 +4286,7 @@ export default function ProcessConfigPage() {
                                 className={styles.formInput}
                                 type="search"
                                 value={activeCanvasPredecessorKeyword}
+                                disabled={isVariantTemplate}
                                 onChange={(e) => setActiveCanvasPredecessorKeyword(e.target.value)}
                                 placeholder="搜索 Step 编号 / 工序名称"
                               />
@@ -4215,6 +4301,7 @@ export default function ProcessConfigPage() {
                                       key={`pred-result-${item._key}`}
                                       type="button"
                                       className={`${styles.routeStudioPanel__searchItem} ${checked ? styles['routeStudioPanel__searchItem--active'] : ''}`}
+                                      disabled={isVariantTemplate}
                                       onClick={() => {
                                         const next = checked
                                           ? activeCanvasNode.predecessorStepNos.filter((stepNo) => stepNo !== item.seq)
@@ -4249,7 +4336,7 @@ export default function ProcessConfigPage() {
                         <div className={styles.routeStudioPanel__sectionHeader}>
                           <div className={styles.routeStudioPanel__sectionTitle}>操作步骤</div>
                           <div className={styles.routeStudioPanel__sectionActions}>
-                          <button type="button" className={styles.routeStudioPanel__smallAction} onClick={handleAddGuideLine}>+ 添加步骤</button>
+                          <button type="button" className={styles.routeStudioPanel__smallAction} onClick={handleAddGuideLine} disabled={isVariantTemplate}>+ 添加步骤</button>
                           </div>
                         </div>
                         <div className={styles.routeStudioPanel__sectionDesc}>把当前工序拆成现场可执行的子工序或作业要点，供任务页直接展示。</div>
@@ -4262,12 +4349,14 @@ export default function ProcessConfigPage() {
                                   className={styles.formInput}
                                   type="text"
                                   value={line}
+                                  disabled={isVariantTemplate}
                                   onChange={(e) => handleActiveGuideLineChange(index, e.target.value)}
                                   placeholder="请输入操作步骤说明"
                                 />
                                 <button
                                   type="button"
                                   className={styles.routeStudioPanel__stepDelete}
+                                  disabled={isVariantTemplate}
                                   onClick={() => handleRemoveGuideLine(index)}
                                 >
                                   <IconTrash />
@@ -4407,7 +4496,7 @@ export default function ProcessConfigPage() {
                                 handleActiveNodePatch({
                                   outputType: nextType,
                                   outputSkuId: nextType === 'final_product'
-                                    ? (editorTemplate?.skuId ?? activeCanvasNode.outputSkuId)
+                                    ? (isStandardTemplate ? null : (editorTemplate?.skuId ?? activeCanvasNode.outputSkuId))
                                     : nextType === 'semi_finished'
                                       ? (activeCanvasNode.outputSkuId ?? outputSkuOptions.find((item) => item.type === 'semi_finished')?.id ?? null)
                                       : null,
@@ -4425,12 +4514,14 @@ export default function ProcessConfigPage() {
                               className={styles.formInput}
                               type="search"
                               value={activeCanvasOutputKeyword}
-                              disabled={activeCanvasNode.outputType === 'none' || activeCanvasInheritedReadonly}
+                              disabled={activeCanvasNode.outputType === 'none' || activeCanvasInheritedReadonly || activeCanvasUsesStandardFinalPlaceholder}
                               onChange={(e) => setActiveCanvasOutputKeyword(e.target.value)}
-                              placeholder={activeCanvasNode.outputType === 'none' ? '过程工序无需输出对象' : '搜索输出对象'}
+                              placeholder={activeCanvasUsesStandardFinalPlaceholder ? '标准模板保存为成品占位' : activeCanvasNode.outputType === 'none' ? '过程工序无需输出对象' : '搜索输出对象'}
                             />
                             <div className={styles.formHelp}>
-                              {activeCanvasNode.outputType === 'none'
+                              {activeCanvasUsesStandardFinalPlaceholder
+                                ? '标准模板不绑定具体成品 SKU，SKU 变体会在自己的模板中维护实际产出对象。'
+                                : activeCanvasNode.outputType === 'none'
                                 ? '过程工序不需要指定输出对象。'
                                 : activeOutputObjectOptions.length > 0
                                   ? `当前可选 ${activeOutputObjectOptions.length} 个${activeCanvasNode.outputType === 'final_product' ? '成品' : '半成品'}对象。`
@@ -4460,9 +4551,9 @@ export default function ProcessConfigPage() {
                             ) : null}
                             <div className={styles.routeStudioPanel__fieldSummary}>
                               <span className={styles.routeStudioPanel__fieldChip}>
-                                当前：{activeOutputObject ? activeOutputObject.label : (activeCanvasNode.outputType === 'none' ? '无需输出对象' : '未选择')}
+                                当前：{activeOutputObject ? activeOutputObject.label : (activeCanvasUsesStandardFinalPlaceholder ? '标准模板成品占位' : activeCanvasNode.outputType === 'none' ? '无需输出对象' : '未选择')}
                               </span>
-                              {activeCanvasNode.outputType !== 'none' ? (
+                              {activeCanvasNode.outputType !== 'none' && !activeCanvasUsesStandardFinalPlaceholder ? (
                                 <span className={styles.routeStudioPanel__fieldChip}>
                                   候选：{activeOutputObjectOptions.length} 个
                                 </span>
@@ -4498,6 +4589,7 @@ export default function ProcessConfigPage() {
                           className={styles.formTextarea}
                           rows={5}
                           value={activeCanvasNode.guideText}
+                          disabled={isVariantTemplate}
                           onChange={(e) => handleActiveNodePatch({ guideText: e.target.value })}
                           placeholder="填写质量要求、补充说明或现场注意事项。"
                         />
@@ -4533,6 +4625,7 @@ export default function ProcessConfigPage() {
                                 type="button"
                                 className={`${styles.btn} ${styles['btn--ghost']}`}
                                 onClick={handleAddNode}
+                                disabled={isVariantTemplate}
                               >
                                 <IconPlus />
                                 添加工序
@@ -4541,6 +4634,7 @@ export default function ProcessConfigPage() {
                                 type="button"
                                 className={`${styles.btn} ${styles['btn--ghost']}`}
                                 onClick={handleAddParallelRoute}
+                                disabled={isVariantTemplate}
                               >
                                 <IconPlus />
                                 快捷新增并行
@@ -4906,60 +5000,172 @@ export default function ProcessConfigPage() {
               />
             </div>
 
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>
-                关联 SKU<span className={styles.formLabel__req}>*</span>
+            <div className={styles.routeStudioPanel__toggleGrid}>
+              <label className={styles.routeStudioPanel__toggleCard}>
+                <input
+                  type="radio"
+                  name="create-template-mode"
+                  checked={createMode === 'standard'}
+                  onChange={() => {
+                    setCreateMode('standard');
+                    setCreateSkuId(null);
+                    setSkuKeyword('');
+                    setCreateBaseTemplateId(null);
+                    setBaseTemplateKeyword('');
+                  }}
+                />
+                <span>
+                  <strong>标准模板</strong>
+                  <small>沉淀共享工时、路线和工位，不直接绑定 SKU。</small>
+                </span>
               </label>
-              {/* SKU 搜索下拉 */}
-              <input
-                className={styles.formInput}
-                type="search"
-                value={skuKeyword}
-                onChange={(e) => {
-                  setSkuKeyword(e.target.value);
-                  setCreateSkuId(null); // 重新输入时清空已选
-                }}
-                placeholder="输入 SKU 名称或编码搜索..."
-              />
-              {skuKeyword && (
-                <div className={styles.skuDropdown}>
-                  {(skuListData?.list ?? []).length === 0 ? (
-                    <div className={styles.skuDropdown__empty}>未找到匹配 SKU</div>
-                  ) : (
-                    (skuListData?.list ?? []).map((sku) => (
-                      <div
-                        key={sku.id}
-                        className={`${styles.skuDropdown__item} ${createSkuId === sku.id ? styles['skuDropdown__item--selected'] : ''}`}
-                        onClick={() => {
-                          setCreateSkuId(Number(sku.id));
-                          setSkuKeyword(`${sku.skuCode} · ${sku.name}`);
-                        }}
-                      >
-                        <span className={styles.skuDropdown__code}>{sku.skuCode}</span>
-                        <span className={styles.skuDropdown__name}>{sku.name}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-              {createSkuId && (
-                <div className={styles.formHelp} style={{ color: 'var(--pc-success)' }}>
-                  已选择 SKU ID: {createSkuId}
-                </div>
-              )}
+              <label className={styles.routeStudioPanel__toggleCard}>
+                <input
+                  type="radio"
+                  name="create-template-mode"
+                  checked={createMode === 'independent'}
+                  onChange={() => {
+                    setCreateMode('independent');
+                    setCreateBaseTemplateId(null);
+                    setBaseTemplateKeyword('');
+                  }}
+                />
+                <span>
+                  <strong>独立 SKU 模板</strong>
+                  <small>为单个 SKU 维护完整工艺，不继承标准模板。</small>
+                </span>
+              </label>
+              <label className={styles.routeStudioPanel__toggleCard}>
+                <input
+                  type="radio"
+                  name="create-template-mode"
+                  checked={createMode === 'variant'}
+                  onChange={() => setCreateMode('variant')}
+                />
+                <span>
+                  <strong>SKU 变体模板</strong>
+                  <small>继承标准模板的共享配置，仅维护当前 SKU 的输入输出差异。</small>
+                </span>
+              </label>
             </div>
+
+            {createMode === 'variant' ? (
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>
+                  选择标准模板<span className={styles.formLabel__req}>*</span>
+                </label>
+                <input
+                  className={styles.formInput}
+                  type="search"
+                  value={baseTemplateKeyword}
+                  onChange={(e) => {
+                    setBaseTemplateKeyword(e.target.value);
+                    setCreateBaseTemplateId(null);
+                  }}
+                  placeholder="输入标准模板名称搜索..."
+                />
+                {baseTemplateKeyword && (
+                  <div className={styles.skuDropdown}>
+                    {standardTemplateCatalog.filter((item) => item.name.includes(baseTemplateKeyword)).length === 0 ? (
+                      <div className={styles.skuDropdown__empty}>未找到匹配的标准模板</div>
+                    ) : (
+                      standardTemplateCatalog
+                        .filter((item) => item.name.includes(baseTemplateKeyword))
+                        .map((template) => (
+                          <div
+                            key={template.id}
+                            className={`${styles.skuDropdown__item} ${createBaseTemplateId === template.id ? styles['skuDropdown__item--selected'] : ''}`}
+                            onClick={() => {
+                              setCreateBaseTemplateId(Number(template.id));
+                              setBaseTemplateKeyword(template.name);
+                            }}
+                          >
+                            <span className={styles.skuDropdown__code}>STD</span>
+                            <span className={styles.skuDropdown__name}>{template.name}</span>
+                          </div>
+                        ))
+                    )}
+                  </div>
+                )}
+                {selectedCreateBaseTemplate ? (
+                  <div className={styles.formHelp} style={{ color: 'var(--pc-success)' }}>
+                    已选择标准模板：{selectedCreateBaseTemplate.name}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {createMode !== 'standard' ? (
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>
+                  关联 SKU<span className={styles.formLabel__req}>*</span>
+                </label>
+                <input
+                  className={styles.formInput}
+                  type="search"
+                  value={skuKeyword}
+                  onChange={(e) => {
+                    setSkuKeyword(e.target.value);
+                    setCreateSkuId(null);
+                  }}
+                  placeholder="输入 SKU 名称或编码搜索..."
+                />
+                {skuKeyword && (
+                  <div className={styles.skuDropdown}>
+                    {(skuListData?.list ?? []).length === 0 ? (
+                      <div className={styles.skuDropdown__empty}>未找到匹配 SKU</div>
+                    ) : (
+                      (skuListData?.list ?? []).map((sku) => (
+                        <div
+                          key={sku.id}
+                          className={`${styles.skuDropdown__item} ${createSkuId === sku.id ? styles['skuDropdown__item--selected'] : ''}`}
+                          onClick={() => {
+                            setCreateSkuId(Number(sku.id));
+                            setSkuKeyword(`${sku.skuCode} · ${sku.name}`);
+                          }}
+                        >
+                          <span className={styles.skuDropdown__code}>{sku.skuCode}</span>
+                          <span className={styles.skuDropdown__name}>{sku.name}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+                {createSkuId ? (
+                  <div className={styles.formHelp} style={{ color: 'var(--pc-success)' }}>
+                    已选择 SKU ID: {createSkuId}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className={styles.formHelp}>
+                标准模板不绑定 SKU，可被多个 SKU 变体复用。
+              </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', paddingTop: '0.25rem' }}>
               <button
                 className={`${styles.btn} ${styles['btn--ghost']}`}
-                onClick={() => { setShowCreateModal(false); setSkuKeyword(''); setCreateSkuId(null); }}
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setSkuKeyword('');
+                  setCreateSkuId(null);
+                  setCreateMode('independent');
+                  setCreateBaseTemplateId(null);
+                  setBaseTemplateKeyword('');
+                }}
               >
                 取消
               </button>
               <button
                 className={`${styles.btn} ${styles['btn--primary']}`}
                 onClick={handleCreate}
-                disabled={!createName.trim() || !createSkuId || createMutation.isPending}
+                disabled={
+                  !createName.trim()
+                  || (createMode !== 'standard' && !createSkuId)
+                  || (createMode === 'variant' && !createBaseTemplateId)
+                  || createMutation.isPending
+                }
               >
                 {createMutation.isPending ? <span className={styles.btn__spinner} /> : <IconPlus />}
                 创建

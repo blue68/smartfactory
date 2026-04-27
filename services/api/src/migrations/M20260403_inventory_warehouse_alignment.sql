@@ -183,6 +183,66 @@ SET it.warehouse_id = w.id,
 WHERE it.warehouse_id IS NULL
    OR it.location_id IS NULL;
 
+UPDATE `inventory` existing
+INNER JOIN (
+  SELECT
+    existing.id AS target_id,
+    SUM(legacy.qty_on_hand) AS merge_qty_on_hand,
+    SUM(legacy.qty_reserved) AS merge_qty_reserved,
+    SUM(legacy.qty_in_transit) AS merge_qty_in_transit,
+    MAX(legacy.last_in_at) AS merge_last_in_at,
+    MAX(legacy.last_out_at) AS merge_last_out_at
+  FROM `inventory` legacy
+  INNER JOIN `warehouses` dw
+    ON dw.tenant_id = legacy.tenant_id
+   AND dw.code = 'DEFAULT'
+  INNER JOIN `locations` dl
+    ON dl.tenant_id = legacy.tenant_id
+   AND dl.warehouse_id = dw.id
+   AND dl.code = 'DEFAULT-UNKNOWN'
+  INNER JOIN `inventory` existing
+    ON existing.tenant_id = legacy.tenant_id
+   AND existing.sku_id = legacy.sku_id
+   AND existing.warehouse_id = dw.id
+   AND existing.location_id = dl.id
+  WHERE (legacy.warehouse_id IS NULL OR legacy.location_id IS NULL)
+    AND legacy.id <> existing.id
+  GROUP BY existing.id
+) merged
+  ON merged.target_id = existing.id
+SET existing.qty_on_hand = existing.qty_on_hand + merged.merge_qty_on_hand,
+    existing.qty_reserved = existing.qty_reserved + merged.merge_qty_reserved,
+    existing.qty_in_transit = existing.qty_in_transit + merged.merge_qty_in_transit,
+    existing.last_in_at = CASE
+      WHEN existing.last_in_at IS NULL THEN merged.merge_last_in_at
+      WHEN merged.merge_last_in_at IS NULL THEN existing.last_in_at
+      ELSE GREATEST(existing.last_in_at, merged.merge_last_in_at)
+    END,
+    existing.last_out_at = CASE
+      WHEN existing.last_out_at IS NULL THEN merged.merge_last_out_at
+      WHEN merged.merge_last_out_at IS NULL THEN existing.last_out_at
+      ELSE GREATEST(existing.last_out_at, merged.merge_last_out_at)
+    END,
+    existing.source_ref = COALESCE(existing.source_ref, 'migration:default-location'),
+    existing.updated_by = COALESCE(existing.updated_by, 0);
+
+DELETE legacy
+FROM `inventory` legacy
+INNER JOIN `warehouses` dw
+  ON dw.tenant_id = legacy.tenant_id
+ AND dw.code = 'DEFAULT'
+INNER JOIN `locations` dl
+  ON dl.tenant_id = legacy.tenant_id
+ AND dl.warehouse_id = dw.id
+ AND dl.code = 'DEFAULT-UNKNOWN'
+INNER JOIN `inventory` existing
+  ON existing.tenant_id = legacy.tenant_id
+ AND existing.sku_id = legacy.sku_id
+ AND existing.warehouse_id = dw.id
+ AND existing.location_id = dl.id
+WHERE (legacy.warehouse_id IS NULL OR legacy.location_id IS NULL)
+  AND legacy.id <> existing.id;
+
 UPDATE `inventory` inv
 INNER JOIN `warehouses` dw
   ON dw.tenant_id = inv.tenant_id

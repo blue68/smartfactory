@@ -24,20 +24,14 @@ export default defineAppConfig({
       {
         pagePath: 'pages/worker-task/index',
         text: '我的任务',
-        iconPath: 'assets/icons/task.png',
-        selectedIconPath: 'assets/icons/task-active.png',
       },
       {
         pagePath: 'pages/warehouse-inbound/index',
         text: '仓库入库',
-        iconPath: 'assets/icons/warehouse.png',
-        selectedIconPath: 'assets/icons/warehouse-active.png',
       },
       {
         pagePath: 'pages/qc-inspect/index',
         text: 'QC检验',
-        iconPath: 'assets/icons/qc.png',
-        selectedIconPath: 'assets/icons/qc-active.png',
       },
     ],
   },

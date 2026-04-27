@@ -72,7 +72,9 @@ const StepMaterialsSchema = z.object({
 
 const CreateSchema = z.object({
   name: z.string().min(1).max(200),
-  skuId: z.number().int().positive(),
+  skuId: z.number().int().positive().nullable().optional(),
+  baseTemplateId: z.number().int().positive().nullable().optional(),
+  version: z.string().trim().min(1).max(20).optional(),
   steps: z.array(StepSchema).optional(),
 });
 

@@ -23,6 +23,7 @@ class App extends Component {
 
   render() {
     // this.props.children 是当前激活的页面组件，由 Taro 自动注入
+    // @ts-expect-error Taro 运行时会注入 children，React.Component 默认 props 类型未声明该字段。
     return this.props.children
   }
 }

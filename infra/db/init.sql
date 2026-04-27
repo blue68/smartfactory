@@ -734,7 +734,8 @@ CREATE TABLE IF NOT EXISTS `order_constraint_checks` (
 CREATE TABLE IF NOT EXISTS `process_templates` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `tenant_id`  BIGINT UNSIGNED NOT NULL,
-  `sku_id`     BIGINT UNSIGNED NOT NULL COMMENT '对应成品SKU',
+  `sku_id`     BIGINT UNSIGNED DEFAULT NULL COMMENT '对应成品SKU（标准模板可为空）',
+  `base_template_id` BIGINT UNSIGNED DEFAULT NULL COMMENT '关联的标准模板 ID',
   `name`       VARCHAR(200)    NOT NULL,
   `status`     ENUM('active','inactive') NOT NULL DEFAULT 'active',
   `created_at` DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -742,7 +743,8 @@ CREATE TABLE IF NOT EXISTS `process_templates` (
   `created_by` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `updated_by` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
-  KEY `idx_tenant_sku` (`tenant_id`, `sku_id`)
+  KEY `idx_tenant_sku` (`tenant_id`, `sku_id`),
+  KEY `idx_tenant_base_template` (`tenant_id`, `base_template_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工序模板表';
 
 -- ─────────────────────────────────────────────────────────────────────────────

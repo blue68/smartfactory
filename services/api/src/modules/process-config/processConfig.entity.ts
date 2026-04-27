@@ -5,6 +5,7 @@ import {
 
 @Entity('process_templates')
 @Index(['tenantId', 'skuId'])
+@Index(['tenantId', 'baseTemplateId'])
 export class ProcessTemplateEntity {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
@@ -12,8 +13,11 @@ export class ProcessTemplateEntity {
   @Column({ name: 'tenant_id', type: 'bigint', unsigned: true })
   tenantId: number;
 
-  @Column({ name: 'sku_id', type: 'bigint', unsigned: true })
-  skuId: number;
+  @Column({ name: 'sku_id', type: 'bigint', unsigned: true, nullable: true })
+  skuId: number | null;
+
+  @Column({ name: 'base_template_id', type: 'bigint', unsigned: true, nullable: true })
+  baseTemplateId!: number | null;
 
   @Column({ length: 200 })
   name: string;

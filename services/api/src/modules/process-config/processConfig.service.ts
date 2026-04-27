@@ -15,23 +15,35 @@ export interface ProcessConfigListFilter {
 
 export interface CreateProcessConfigParams {
   name: string;
-  skuId: number;
-  steps?: Array<{
-    stepNo: number;
-    stepName: string;
-    standardHours?: number;
-    workstationType?: string;
-    workstationId?: number;
-    executionMode?: 'internal' | 'outsource';
-    outputType?: 'semi_finished' | 'final_product' | 'none';
-    outputSkuId?: number | null;
-    predecessorStepNos?: number[];
-    routeGroupKey?: string | null;
-    routeLevel?: number | null;
-    guideText?: string;
-    guideAttachmentUrl?: string;
-    guideAttachmentName?: string;
-  }>;
+  skuId?: number | null;
+  baseTemplateId?: number | null;
+  version?: string;
+  steps?: ProcessStepInput[];
+}
+
+interface ProcessStepInput {
+  stepNo: number;
+  stepName: string;
+  standardHours?: number;
+  maxHours?: number | null;
+  workstationType?: string;
+  workstationId?: number;
+  executionMode?: 'internal' | 'outsource';
+  outputType?: 'semi_finished' | 'final_product' | 'none';
+  outputSkuId?: number | null;
+  predecessorStepNos?: number[];
+  routeGroupKey?: string | null;
+  routeLevel?: number | null;
+  guideText?: string;
+  guideAttachmentUrl?: string;
+  guideAttachmentName?: string;
+}
+
+interface ProcessTemplateView extends ProcessTemplateEntity {
+  templateMode: 'standard' | 'variant' | 'independent';
+  baseTemplateName: string | null;
+  skuName: string | null;
+  skuCode: string | null;
 }
 
 interface StepMaterialInput {
@@ -76,12 +88,16 @@ export class ProcessConfigService {
     const qb = AppDataSource.getRepository(ProcessTemplateEntity)
       .createQueryBuilder('t')
       .leftJoin('skus', 'k', 'k.id = t.sku_id')
+      .leftJoin('process_templates', 'bt', 'bt.id = t.base_template_id AND bt.tenant_id = t.tenant_id')
       .select([
         't.id AS id',
         't.name AS name',
         't.sku_id AS skuId',
+        't.base_template_id AS baseTemplateId',
+        't.version AS version',
         'k.name AS skuName',
         'k.sku_code AS skuCode',
+        'bt.name AS baseTemplateName',
         't.status AS status',
         't.is_default AS isDefault',
         't.created_at AS createdAt',
@@ -90,32 +106,76 @@ export class ProcessConfigService {
       .where('t.tenant_id = :tenantId', { tenantId: this.tenantId });
 
     if (filter.keyword) {
-      qb.andWhere('(t.name LIKE :kw OR k.name LIKE :kw)', { kw: `%${filter.keyword}%` });
+      qb.andWhere('(t.name LIKE :kw OR k.name LIKE :kw OR bt.name LIKE :kw)', { kw: `%${filter.keyword}%` });
+    }
+
+    if (filter.type === 'standard') {
+      qb.andWhere('t.sku_id IS NULL');
+    } else if (filter.type === 'variant') {
+      qb.andWhere('t.base_template_id IS NOT NULL');
+    } else if (filter.type === 'independent') {
+      qb.andWhere('t.sku_id IS NOT NULL AND t.base_template_id IS NULL');
     }
 
     const total = await qb.getCount();
-    const list = await qb
+    const rows = await qb
       .orderBy('t.created_at', 'DESC')
       .offset((filter.page - 1) * filter.pageSize)
       .limit(filter.pageSize)
       .getRawMany();
 
+    const list = rows.map((row) => {
+      const skuId = row.skuId !== null && row.skuId !== undefined ? Number(row.skuId) : null;
+      const baseTemplateId = row.baseTemplateId !== null && row.baseTemplateId !== undefined
+        ? Number(row.baseTemplateId)
+        : null;
+      return {
+        ...row,
+        skuId,
+        baseTemplateId,
+        isDefault: Boolean(Number(row.isDefault)),
+        templateMode: this.resolveTemplateMode({ skuId, baseTemplateId }),
+      };
+    });
+
     return [list, total];
   }
 
-  async getById(id: number): Promise<{ template: ProcessTemplateEntity; steps: ProcessStepEntity[] }> {
-    const templateRepo = AppDataSource.getRepository(ProcessTemplateEntity);
-    const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
+  async getById(id: number): Promise<{ template: ProcessTemplateView; steps: ProcessStepEntity[] }> {
+    const template = await this.requireTemplateEntity(id);
+    const baseTemplate = template.baseTemplateId
+      ? await AppDataSource.getRepository(ProcessTemplateEntity).findOne({
+        where: { id: template.baseTemplateId, tenantId: this.tenantId },
+      })
+      : null;
+    const skuMeta = template.skuId
+      ? await AppDataSource
+        .createQueryBuilder()
+        .select([
+          'sku.name AS skuName',
+          'sku.sku_code AS skuCode',
+        ])
+        .from('skus', 'sku')
+        .where('sku.id = :skuId', { skuId: template.skuId })
+        .andWhere('sku.tenant_id = :tenantId', { tenantId: this.tenantId })
+        .getRawOne<{ skuName: string | null; skuCode: string | null }>()
+      : null;
 
-    const template = await templateRepo.findOne({ where: { id, tenantId: this.tenantId } });
-    if (!template) throw AppError.notFound('工序模板不存在');
-
-    const steps = await stepRepo.find({
+    const steps = await AppDataSource.getRepository(ProcessStepEntity).find({
       where: { templateId: id, tenantId: this.tenantId },
       order: { stepNo: 'ASC' },
     });
 
-    return { template, steps };
+    return {
+      template: {
+        ...template,
+        templateMode: this.resolveTemplateMode(template),
+        baseTemplateName: baseTemplate?.name ?? null,
+        skuName: skuMeta?.skuName ?? null,
+        skuCode: skuMeta?.skuCode ?? null,
+      },
+      steps,
+    };
   }
 
   async getStepMaterials(templateId: number): Promise<ProcessStepMaterialView[]> {
@@ -230,94 +290,107 @@ export class ProcessConfigService {
 
   async create(params: CreateProcessConfigParams): Promise<ProcessTemplateEntity> {
     const templateRepo = AppDataSource.getRepository(ProcessTemplateEntity);
-    const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
+    const baseTemplate = params.baseTemplateId
+      ? await this.requireStandardBaseTemplate(params.baseTemplateId)
+      : null;
+    const nextSkuId = params.skuId ?? null;
+
+    if (baseTemplate && !nextSkuId) {
+      throw AppError.badRequest('引用标准模板创建 SKU 工艺时，必须选择关联 SKU');
+    }
 
     const template = templateRepo.create({
       tenantId: this.tenantId,
-      skuId: params.skuId,
+      skuId: nextSkuId,
+      baseTemplateId: baseTemplate?.id ?? null,
       name: params.name,
       status: 'active',
+      templateType: baseTemplate || nextSkuId ? 'custom' : 'standard',
+      version: this.normalizeVersion(params.version),
       createdBy: this.userId,
       updatedBy: this.userId,
     });
     const saved = await templateRepo.save(template);
 
-    if (params.steps?.length) {
-      const normalizedSteps = await this.normalizeSteps(params.steps);
-      const stepEntities = normalizedSteps.map((s) =>
-        stepRepo.create({
-          tenantId: this.tenantId,
-          templateId: saved.id,
-          stepNo: s.stepNo,
-          stepName: s.stepName,
-          standardHours: s.standardHours?.toString() ?? null,
-          workstationType: s.workstationType ?? null,
-          workstationId: s.workstationId ?? null,
-          executionMode: s.executionMode ?? 'internal',
-          outputType: s.outputType ?? 'none',
-          outputSkuId: s.outputSkuId ?? null,
-          predecessorStepNosJson: s.predecessorStepNos ?? null,
-          routeGroupKey: s.routeGroupKey ?? null,
-          routeLevel: s.routeLevel ?? null,
-          guideText: s.guideText ?? null,
-          guideAttachmentUrl: s.guideAttachmentUrl ?? null,
-          guideAttachmentName: s.guideAttachmentName ?? null,
-        }),
-      );
-      await stepRepo.save(stepEntities);
+    if (baseTemplate) {
+      const baseSteps = await this.getTemplateSteps(baseTemplate.id);
+      const normalizedSteps = params.steps?.length
+        ? this.mergeVariantSteps(baseSteps, await this.normalizeSteps(params.steps))
+        : this.buildNormalizedStepsFromEntities(baseSteps);
+      await AppDataSource.transaction(async (manager) => {
+        await this.replaceTemplateSteps(manager, saved.id, normalizedSteps);
+        await this.syncTemplateWagesFromBase(manager, baseTemplate.id, saved.id);
+      });
+    } else if (params.steps?.length) {
+      const normalizedSteps = await this.normalizeSteps(params.steps, { allowUnboundFinalOutput: !nextSkuId });
+      await AppDataSource.transaction(async (manager) => {
+        await this.replaceTemplateSteps(manager, saved.id, normalizedSteps);
+      });
     }
 
     return saved;
   }
 
   async update(id: number, params: Partial<CreateProcessConfigParams>): Promise<ProcessTemplateEntity> {
-    const { template } = await this.getById(id);
+    const template = await this.requireTemplateEntity(id);
     const templateRepo = AppDataSource.getRepository(ProcessTemplateEntity);
-    const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
+    const currentBaseTemplateId = template.baseTemplateId ?? null;
+    const nextBaseTemplateId = params.baseTemplateId !== undefined ? (params.baseTemplateId ?? null) : currentBaseTemplateId;
+    const nextSkuId = params.skuId !== undefined ? (params.skuId ?? null) : template.skuId;
+    const baseTemplate = nextBaseTemplateId
+      ? await this.requireStandardBaseTemplate(nextBaseTemplateId, id)
+      : null;
 
+    if (baseTemplate && !nextSkuId) {
+      throw AppError.badRequest('引用标准模板的 SKU 工艺必须绑定具体 SKU');
+    }
     if (params.name !== undefined) template.name = params.name;
-    if (params.skuId !== undefined) template.skuId = params.skuId;
+    if (params.skuId !== undefined) template.skuId = nextSkuId;
+    if (params.baseTemplateId !== undefined) template.baseTemplateId = nextBaseTemplateId;
+    if (params.version !== undefined) template.version = this.normalizeVersion(params.version);
+    template.templateType = baseTemplate || nextSkuId ? 'custom' : 'standard';
     template.updatedBy = this.userId;
 
     const saved = await templateRepo.save(template);
 
-    if (params.steps) {
-      // 删除旧步骤，重建
-      await stepRepo.delete({ templateId: id, tenantId: this.tenantId });
-      const normalizedSteps = await this.normalizeSteps(params.steps);
-      const stepEntities = normalizedSteps.map((s) =>
-        stepRepo.create({
-          tenantId: this.tenantId,
-          templateId: id,
-          stepNo: s.stepNo,
-          stepName: s.stepName,
-          standardHours: s.standardHours?.toString() ?? null,
-          workstationType: s.workstationType ?? null,
-          workstationId: s.workstationId ?? null,
-          executionMode: s.executionMode ?? 'internal',
-          outputType: s.outputType ?? 'none',
-          outputSkuId: s.outputSkuId ?? null,
-          predecessorStepNosJson: s.predecessorStepNos ?? null,
-          routeGroupKey: s.routeGroupKey ?? null,
-          routeLevel: s.routeLevel ?? null,
-          guideText: s.guideText ?? null,
-          guideAttachmentUrl: s.guideAttachmentUrl ?? null,
-          guideAttachmentName: s.guideAttachmentName ?? null,
-        }),
-      );
-      await stepRepo.save(stepEntities);
+    if (baseTemplate) {
+      if (params.steps) {
+        const normalizedSteps = this.mergeVariantSteps(
+          await this.getTemplateSteps(baseTemplate.id),
+          await this.normalizeSteps(params.steps),
+        );
+        await AppDataSource.transaction(async (manager) => {
+          await this.replaceTemplateSteps(manager, id, normalizedSteps);
+          await this.syncTemplateWagesFromBase(manager, baseTemplate.id, id);
+        });
+      } else if (params.baseTemplateId !== undefined) {
+        await this.syncVariantTemplateFromBase(id, baseTemplate.id);
+      }
+    } else if (params.steps) {
+      const normalizedSteps = await this.normalizeSteps(params.steps, { allowUnboundFinalOutput: !nextSkuId });
+      await AppDataSource.transaction(async (manager) => {
+        await this.replaceTemplateSteps(manager, id, normalizedSteps);
+      });
+      await this.syncDerivedTemplatesFromBase(id);
     }
 
     return saved;
   }
 
   async remove(id: number): Promise<void> {
-    await this.getById(id);
     const templateRepo = AppDataSource.getRepository(ProcessTemplateEntity);
-    const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
+    const template = await this.requireTemplateEntity(id);
+    const derivedCount = await templateRepo.count({
+      where: { tenantId: this.tenantId, baseTemplateId: template.id },
+    });
+    if (derivedCount > 0) {
+      throw new AppError('请先解除或删除引用该标准模板的 SKU 工艺，再删除当前模板', ResponseCode.CONFLICT, 409);
+    }
 
-    await stepRepo.delete({ templateId: id, tenantId: this.tenantId });
-    await templateRepo.delete({ id });
+    await AppDataSource.transaction(async (manager) => {
+      await this.deleteTemplateArtifacts(manager, id);
+      await manager.delete(ProcessTemplateEntity, { id, tenantId: this.tenantId });
+    });
   }
 
   // ─── R-05: 极限工时 ──────────────────────────────────────────────────────
@@ -330,9 +403,14 @@ export class ProcessConfigService {
     const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
     const step = await stepRepo.findOne({ where: { id: stepId, tenantId: this.tenantId } });
     if (!step) throw AppError.notFound('工序步骤不存在');
+    const template = await this.requireTemplateEntity(Number(step.templateId));
+    if (template.baseTemplateId) {
+      throw AppError.badRequest('引用标准模板的 SKU 工艺不能单独修改共享工时，请到标准模板中维护');
+    }
 
     step.maxHours = maxHours !== null ? maxHours.toString() : null;
     await stepRepo.save(step);
+    await this.syncDerivedTemplatesFromBase(Number(step.templateId));
 
     return { stepId: step.id, maxHours: step.maxHours };
   }
@@ -365,6 +443,10 @@ export class ProcessConfigService {
     const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
     const step = await stepRepo.findOne({ where: { id: stepId, tenantId: this.tenantId } });
     if (!step) throw AppError.notFound('工序步骤不存在');
+    const template = await this.requireTemplateEntity(Number(step.templateId));
+    if (template.baseTemplateId) {
+      throw AppError.badRequest('引用标准模板的 SKU 工艺不能单独修改共享工价，请到标准模板中维护');
+    }
 
     const wageRepo = AppDataSource.getRepository(ProcessWageEntity);
 
@@ -387,7 +469,9 @@ export class ProcessConfigService {
       });
     }
 
-    return wageRepo.save(wage);
+    const saved = await wageRepo.save(wage);
+    await this.syncDerivedTemplatesFromBase(Number(step.templateId));
+    return saved;
   }
 
   // ─── BE-05-03: 批量工价设置 ──────────────────────────────────────────────
@@ -403,6 +487,10 @@ export class ProcessConfigService {
     const stepRepo = AppDataSource.getRepository(ProcessStepEntity);
     const step = await stepRepo.findOne({ where: { id: stepId, tenantId: this.tenantId } });
     if (!step) throw AppError.notFound('工序步骤不存在');
+    const template = await this.requireTemplateEntity(Number(step.templateId));
+    if (template.baseTemplateId) {
+      throw AppError.badRequest('引用标准模板的 SKU 工艺不能单独修改共享工价，请到标准模板中维护');
+    }
 
     const wageRepo = AppDataSource.getRepository(ProcessWageEntity);
     const results: ProcessWageEntity[] = [];
@@ -432,6 +520,7 @@ export class ProcessConfigService {
       }
     });
 
+    await this.syncDerivedTemplatesFromBase(Number(step.templateId));
     return results;
   }
 
@@ -554,6 +643,9 @@ export class ProcessConfigService {
     const templateRepo = AppDataSource.getRepository(ProcessTemplateEntity);
     const tmpl = await templateRepo.findOne({ where: { id, tenantId: this.tenantId } });
     if (!tmpl) throw new AppError('工序模板不存在', ResponseCode.NOT_FOUND, 404);
+    if (!tmpl.skuId) {
+      throw AppError.badRequest('标准模板不能直接设为默认，请先创建绑定 SKU 的工艺模板');
+    }
 
     await AppDataSource.transaction(async (manager) => {
       // 清除同 SKU 下所有默认标记
@@ -611,24 +703,259 @@ export class ProcessConfigService {
     await this.wtRepo.remove(entity);
   }
 
-  private async normalizeSteps(
-    steps: Array<{
+  private resolveTemplateMode(template: { skuId: number | null; baseTemplateId: number | null }): 'standard' | 'variant' | 'independent' {
+    if (template.baseTemplateId) return 'variant';
+    if (template.skuId) return 'independent';
+    return 'standard';
+  }
+
+  private normalizeVersion(version?: string | null): string {
+    const normalized = typeof version === 'string' ? version.trim() : '';
+    return normalized || '1.0';
+  }
+
+  private async requireTemplateEntity(id: number): Promise<ProcessTemplateEntity> {
+    const template = await AppDataSource.getRepository(ProcessTemplateEntity).findOne({
+      where: { id, tenantId: this.tenantId },
+    });
+    if (!template) throw AppError.notFound('工序模板不存在');
+    return template;
+  }
+
+  private async requireStandardBaseTemplate(baseTemplateId: number, excludeTemplateId?: number): Promise<ProcessTemplateEntity> {
+    const template = await this.requireTemplateEntity(baseTemplateId);
+    if (excludeTemplateId && Number(template.id) === Number(excludeTemplateId)) {
+      throw AppError.badRequest('工序模板不能引用自身作为标准模板');
+    }
+    if (template.baseTemplateId) {
+      throw AppError.badRequest('当前模板本身已是变体模板，不能继续作为标准模板被引用');
+    }
+    if (template.skuId) {
+      throw AppError.badRequest('只有未绑定 SKU 的标准模板才能作为共享模板被引用');
+    }
+    return template;
+  }
+
+  private async getTemplateSteps(templateId: number): Promise<ProcessStepEntity[]> {
+    return AppDataSource.getRepository(ProcessStepEntity).find({
+      where: { tenantId: this.tenantId, templateId },
+      order: { stepNo: 'ASC' },
+    });
+  }
+
+  private buildNormalizedStepsFromEntities(steps: ProcessStepEntity[]): ProcessStepInput[] {
+    return steps.map((step) => ({
+      stepNo: Number(step.stepNo),
+      stepName: step.stepName,
+      standardHours: step.standardHours !== null ? Number(step.standardHours) : undefined,
+      maxHours: step.maxHours !== null ? Number(step.maxHours) : null,
+      workstationType: step.workstationType ?? undefined,
+      workstationId: step.workstationId ?? undefined,
+      executionMode: step.executionMode ?? 'internal',
+      outputType: step.outputType ?? 'none',
+      outputSkuId: step.outputType === 'none' ? null : (step.outputSkuId ?? null),
+      predecessorStepNos: Array.isArray(step.predecessorStepNosJson)
+        ? step.predecessorStepNosJson.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
+        : [],
+      routeGroupKey: step.routeGroupKey ?? null,
+      routeLevel: step.routeLevel ?? null,
+      guideText: step.guideText ?? undefined,
+      guideAttachmentUrl: step.guideAttachmentUrl ?? undefined,
+      guideAttachmentName: step.guideAttachmentName ?? undefined,
+    }));
+  }
+
+  private mergeVariantSteps(baseSteps: ProcessStepEntity[], overrides: ProcessStepInput[]): ProcessStepInput[] {
+    const baseByStepNo = new Map(baseSteps.map((step) => [Number(step.stepNo), step]));
+    const overrideByStepNo = new Map(overrides.map((step) => [Number(step.stepNo), step]));
+    if (baseByStepNo.size !== overrideByStepNo.size) {
+      throw AppError.badRequest('SKU 变体模板必须与标准模板保持相同的工序数量和编号');
+    }
+
+    return baseSteps.map((baseStep) => {
+      const override = overrideByStepNo.get(Number(baseStep.stepNo));
+      if (!override) {
+        throw AppError.badRequest(`SKU 变体模板缺少 Step ${baseStep.stepNo} 的输出配置`);
+      }
+      return {
+        stepNo: Number(baseStep.stepNo),
+        stepName: baseStep.stepName,
+        standardHours: baseStep.standardHours !== null ? Number(baseStep.standardHours) : undefined,
+        maxHours: baseStep.maxHours !== null ? Number(baseStep.maxHours) : null,
+        workstationType: baseStep.workstationType ?? undefined,
+        workstationId: baseStep.workstationId ?? undefined,
+        executionMode: baseStep.executionMode ?? 'internal',
+        outputType: override.outputType ?? (baseStep.outputType ?? 'none'),
+        outputSkuId: (override.outputType ?? baseStep.outputType ?? 'none') === 'none'
+          ? null
+          : (override.outputSkuId ?? baseStep.outputSkuId ?? null),
+        predecessorStepNos: Array.isArray(baseStep.predecessorStepNosJson)
+          ? baseStep.predecessorStepNosJson.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
+          : [],
+        routeGroupKey: baseStep.routeGroupKey ?? null,
+        routeLevel: baseStep.routeLevel ?? null,
+        guideText: baseStep.guideText ?? undefined,
+        guideAttachmentUrl: baseStep.guideAttachmentUrl ?? undefined,
+        guideAttachmentName: baseStep.guideAttachmentName ?? undefined,
+      };
+    });
+  }
+
+  private async replaceTemplateSteps(manager: any, templateId: number, steps: ProcessStepInput[]): Promise<ProcessStepEntity[]> {
+    const existingSteps = await manager.find(ProcessStepEntity, {
+      where: { tenantId: this.tenantId, templateId },
+      order: { stepNo: 'ASC' },
+    });
+    const existingStepIds = existingSteps.map((step: ProcessStepEntity) => Number(step.id)).filter((id: number) => id > 0);
+    if (existingStepIds.length > 0) {
+      const placeholders = existingStepIds.map(() => '?').join(', ');
+      await manager.query(
+        `DELETE FROM process_wages WHERE tenant_id = ? AND step_id IN (${placeholders})`,
+        [this.tenantId, ...existingStepIds],
+      );
+    }
+
+    await manager.delete(ProcessStepEntity, { tenantId: this.tenantId, templateId });
+
+    if (steps.length === 0) {
+      await manager.delete(ProcessStepMaterialEntity, { tenantId: this.tenantId, templateId });
+      return [];
+    }
+
+    const entities = steps.map((step) => manager.create(ProcessStepEntity, {
+      tenantId: this.tenantId,
+      templateId,
+      stepNo: step.stepNo,
+      stepName: step.stepName,
+      standardHours: step.standardHours?.toString() ?? null,
+      maxHours: step.maxHours !== undefined && step.maxHours !== null ? step.maxHours.toString() : null,
+      workstationType: step.workstationType ?? null,
+      workstationId: step.workstationId ?? null,
+      executionMode: step.executionMode ?? 'internal',
+      outputType: step.outputType ?? 'none',
+      outputSkuId: step.outputType === 'none' ? null : (step.outputSkuId ?? null),
+      predecessorStepNosJson: step.predecessorStepNos ?? null,
+      routeGroupKey: step.routeGroupKey ?? null,
+      routeLevel: step.routeLevel ?? null,
+      guideText: step.guideText ?? null,
+      guideAttachmentUrl: step.guideAttachmentUrl ?? null,
+      guideAttachmentName: step.guideAttachmentName ?? null,
+      createdBy: this.userId,
+      updatedBy: this.userId,
+    }));
+    const savedSteps = await manager.save(ProcessStepEntity, entities);
+
+    const validStepNos = steps.map((step) => Number(step.stepNo));
+    const placeholders = validStepNos.map(() => '?').join(', ');
+    await manager.query(
+      `DELETE FROM process_step_materials
+       WHERE tenant_id = ? AND template_id = ? AND step_no NOT IN (${placeholders})`,
+      [this.tenantId, templateId, ...validStepNos],
+    );
+
+    return savedSteps;
+  }
+
+  private async deleteTemplateArtifacts(manager: any, templateId: number): Promise<void> {
+    const steps = await manager.find(ProcessStepEntity, {
+      where: { tenantId: this.tenantId, templateId },
+    });
+    const stepIds = steps.map((step: ProcessStepEntity) => Number(step.id)).filter((id: number) => id > 0);
+    if (stepIds.length > 0) {
+      const placeholders = stepIds.map(() => '?').join(', ');
+      await manager.query(
+        `DELETE FROM process_wages WHERE tenant_id = ? AND step_id IN (${placeholders})`,
+        [this.tenantId, ...stepIds],
+      );
+    }
+    await manager.delete(ProcessStepMaterialEntity, { tenantId: this.tenantId, templateId });
+    await manager.delete(ProcessStepEntity, { tenantId: this.tenantId, templateId });
+  }
+
+  private async syncTemplateWagesFromBase(manager: any, baseTemplateId: number, targetTemplateId: number): Promise<void> {
+    const rows = await manager.query(
+      `SELECT ps.step_no AS stepNo, pw.worker_grade AS workerGrade, pw.unit_price AS unitPrice
+       FROM process_wages pw
+       INNER JOIN process_steps ps ON ps.id = pw.step_id
+       WHERE pw.tenant_id = ? AND ps.tenant_id = ? AND ps.template_id = ?`,
+      [this.tenantId, this.tenantId, baseTemplateId],
+    ) as Array<{
       stepNo: number;
-      stepName: string;
-      standardHours?: number;
-      workstationType?: string;
-      workstationId?: number;
-      executionMode?: 'internal' | 'outsource';
-      outputType?: 'semi_finished' | 'final_product' | 'none';
-      outputSkuId?: number | null;
-      predecessorStepNos?: number[];
-      routeGroupKey?: string | null;
-      routeLevel?: number | null;
-      guideText?: string;
-      guideAttachmentUrl?: string;
-      guideAttachmentName?: string;
-    }>,
-  ) {
+      workerGrade: 'skilled' | 'apprentice';
+      unitPrice: string;
+    }>;
+
+    const targetSteps = await manager.find(ProcessStepEntity, {
+      where: { tenantId: this.tenantId, templateId: targetTemplateId },
+      order: { stepNo: 'ASC' },
+    }) as ProcessStepEntity[];
+    const targetStepByNo = new Map(targetSteps.map((step: ProcessStepEntity) => [Number(step.stepNo), step]));
+
+    const wages: ProcessWageEntity[] = rows
+      .map((row) => {
+        const targetStep = targetStepByNo.get(Number(row.stepNo));
+        if (!targetStep) return null;
+        return manager.create(ProcessWageEntity, {
+          tenantId: this.tenantId,
+          stepId: Number(targetStep.id),
+          workerGrade: row.workerGrade,
+          unitPrice: row.unitPrice,
+          createdBy: this.userId,
+          updatedBy: this.userId,
+        });
+      })
+      .filter((item): item is ProcessWageEntity => Boolean(item));
+
+    if (wages.length > 0) {
+      await manager.save(ProcessWageEntity, wages);
+    }
+  }
+
+  private async syncVariantTemplateFromBase(templateId: number, baseTemplateId: number): Promise<void> {
+    await AppDataSource.transaction(async (manager) => {
+      const baseSteps = await manager.find(ProcessStepEntity, {
+        where: { tenantId: this.tenantId, templateId: baseTemplateId },
+        order: { stepNo: 'ASC' },
+      });
+      const existingVariantSteps = await manager.find(ProcessStepEntity, {
+        where: { tenantId: this.tenantId, templateId },
+        order: { stepNo: 'ASC' },
+      });
+      const outputOverrideByStepNo = new Map(existingVariantSteps.map((step: ProcessStepEntity) => [
+        Number(step.stepNo),
+        { outputType: step.outputType, outputSkuId: step.outputSkuId },
+      ]));
+
+      const merged = baseSteps.map((baseStep: ProcessStepEntity) => {
+        const outputOverride = outputOverrideByStepNo.get(Number(baseStep.stepNo));
+        return {
+          ...this.buildNormalizedStepsFromEntities([baseStep])[0],
+          outputType: outputOverride?.outputType ?? (baseStep.outputType ?? 'none'),
+          outputSkuId: (outputOverride?.outputType ?? baseStep.outputType ?? 'none') === 'none'
+            ? null
+            : (outputOverride?.outputSkuId ?? baseStep.outputSkuId ?? null),
+        } satisfies ProcessStepInput;
+      });
+
+      await this.replaceTemplateSteps(manager, templateId, merged);
+      await this.syncTemplateWagesFromBase(manager, baseTemplateId, templateId);
+    });
+  }
+
+  private async syncDerivedTemplatesFromBase(baseTemplateId: number): Promise<void> {
+    const variants = await AppDataSource.getRepository(ProcessTemplateEntity).find({
+      where: { tenantId: this.tenantId, baseTemplateId },
+      order: { id: 'ASC' },
+    });
+    for (const variant of variants) {
+      await this.syncVariantTemplateFromBase(Number(variant.id), baseTemplateId);
+    }
+  }
+
+  private async normalizeSteps(
+    steps: ProcessStepInput[],
+    options: { allowUnboundFinalOutput?: boolean } = {},
+  ): Promise<ProcessStepInput[]> {
     const workstationIds = [...new Set(
       steps
         .map((item) => item.workstationId)
@@ -664,7 +991,7 @@ export class ProcessConfigService {
       if (outputType === 'none' && outputSkuId) {
         throw AppError.badRequest(`工序“${step.stepName}”未指定产出类型时，不能填写产出 SKU`);
       }
-      if (outputType !== 'none' && !outputSkuId) {
+      if (outputType !== 'none' && !outputSkuId && !(options.allowUnboundFinalOutput && outputType === 'final_product')) {
         throw AppError.badRequest(`工序“${step.stepName}”指定了产出类型，但缺少产出 SKU`);
       }
       const predecessorStepNos = [...new Set((step.predecessorStepNos ?? []).map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))];

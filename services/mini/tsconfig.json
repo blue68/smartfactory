@@ -1,11 +1,12 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "module": "CommonJS",
+    "module": "ESNext",
     "lib": ["ES2017", "dom"],
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "strict": true,
+    "skipLibCheck": true,
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,

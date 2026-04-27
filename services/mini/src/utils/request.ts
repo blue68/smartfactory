@@ -15,7 +15,7 @@ import Taro from '@tarojs/taro'
 // ─────────────────────────────────────────────
 // 全局配置
 // ─────────────────────────────────────────────
-const BASE_URL = 'https://api.smartfactory.com'  // 生产环境，可通过环境变量替换
+const BASE_URL = process.env.TARO_APP_API_BASE_URL || 'http://localhost:3000'
 const TIMEOUT = 15_000
 const TOKEN_KEY = 'sf_access_token'
 
@@ -66,7 +66,7 @@ export function clearToken(): void {
 // ─────────────────────────────────────────────
 interface RequestOptions {
   url: string
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   data?: unknown
   timeout?: number
 }
@@ -148,6 +148,10 @@ async function put<T>(url: string, body?: unknown): Promise<T> {
   return rawRequest<T>({ url, method: 'PUT', data: body })
 }
 
+async function patch<T>(url: string, body?: unknown): Promise<T> {
+  return rawRequest<T>({ url, method: 'PATCH', data: body })
+}
+
 /** 库存出入库专用：自动处理 4003 锁冲突重试 */
 async function postWithLockRetry<T>(url: string, body?: unknown): Promise<T> {
   return withLockRetry(() => post<T>(url, body))
@@ -177,5 +181,5 @@ async function upload(localPath: string, name = 'file'): Promise<{ url: string }
   return parsed.data
 }
 
-export const request = { get, post, put, postWithLockRetry, upload }
+export const request = { get, post, put, patch, postWithLockRetry, upload }
 export default request

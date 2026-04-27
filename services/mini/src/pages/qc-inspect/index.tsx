@@ -1,264 +1,341 @@
-/**
- * [artifact:前端代码] — T214 QC 检验页
- * 功能：选择待检工单 → 填写检验结果 → 拍照上传 → 提交
- */
-
-import { useState, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Taro, { useDidShow } from '@tarojs/taro'
-import { View, Text, Input, Textarea, Picker, Image } from '@tarojs/components'
+import { Button, Image, Input, Picker, Text, Textarea, View } from '@tarojs/components'
+import {
+  incomingInspectionApi,
+  IncomingInspection,
+  IncomingInspectionItem,
+  inventoryApi,
+  LocationOption,
+  WarehouseOption,
+} from '../../utils/api'
 import request from '../../utils/request'
 import './index.css'
 
-interface WorkOrder {
-  id: number
-  workOrderNo: string
-  skuName: string
-  qtyCompleted: number
-  unit: string
+const RESULT_OPTIONS = [
+  { value: 'pass', label: '合格' },
+  { value: 'conditional_pass', label: '让步接收' },
+  { value: 'fail', label: '不合格' },
+] as const
+
+const DISPOSITION_OPTIONS = [
+  { value: 'accept', label: '接收入库' },
+  { value: 'rework', label: '返工复检' },
+  { value: 'return', label: '整批退货' },
+  { value: 'scrap', label: '报废隔离' },
+] as const
+
+type ResultValue = typeof RESULT_OPTIONS[number]['value']
+type DispositionValue = typeof DISPOSITION_OPTIONS[number]['value']
+
+interface ItemDraft {
+  id?: number
+  label: string
+  qtyDelivered: string
+  qtySampled: string
+  qtyPassed: string
+  qtyFailed: string
+  acceptedStockQty: string
+  dyeLotNo: string
+  result: ResultValue | ''
+  disposition: DispositionValue | ''
+  notes: string
+  defectImages: string[]
 }
 
-const RESULT_OPTIONS = ['合格', '不合格', '返工']
-const RESULT_MAP: Record<string, string> = { '合格': 'pass', '不合格': 'fail', '返工': 'rework' }
+function asText(value: unknown): string {
+  if (value == null) return ''
+  return String(value)
+}
 
-const DEFECT_TYPES = ['尺寸偏差', '色差', '缝线问题', '面料瑕疵', '功能缺陷', '包装破损', '其他']
+function asNumberString(value: unknown, fallback = '0'): string {
+  if (value == null || value === '') return fallback
+  const num = Number(value)
+  return Number.isFinite(num) ? `${num}` : String(value)
+}
+
+function clampDecimal(value: string): string {
+  return value.replace(/[^\d.]/g, '')
+}
+
+function buildDrafts(items: IncomingInspectionItem[] | undefined): ItemDraft[] {
+  return (items ?? []).map((item, index) => ({
+    id: item.id,
+    label: `${item.skuCode || ''} ${item.skuName || item.name || ''}`.trim() || `明细 ${index + 1}`,
+    qtyDelivered: asNumberString(item.qtyDelivered),
+    qtySampled: asNumberString(item.qtySampled),
+    qtyPassed: asNumberString(item.qtyPassed),
+    qtyFailed: asNumberString(item.qtyFailed),
+    acceptedStockQty: asNumberString(item.acceptedStockQty ?? item.qtyPassed),
+    dyeLotNo: asText(item.dyeLotNo),
+    result: (item.result as ResultValue) || '',
+    disposition: (item.disposition as DispositionValue) || '',
+    notes: asText(item.notes),
+    defectImages: Array.isArray(item.defectImages) ? item.defectImages.filter(Boolean) : [],
+  }))
+}
 
 export default function QcInspectPage() {
-  const [orders, setOrders] = useState<WorkOrder[]>([])
-  const [orderIdx, setOrderIdx] = useState<number>(-1)
-  const [resultIdx, setResultIdx] = useState<number>(-1)
-  const [defectTypes, setDefectTypes] = useState<boolean[]>(new Array(DEFECT_TYPES.length).fill(false))
-  const [defectQty, setDefectQty] = useState('')
-  const [remark, setRemark] = useState('')
-  const [images, setImages] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
+  const [inspections, setInspections] = useState<IncomingInspection[]>([])
+  const [inspectionIdx, setInspectionIdx] = useState(-1)
+  const [detail, setDetail] = useState<IncomingInspection | null>(null)
+  const [drafts, setDrafts] = useState<ItemDraft[]>([])
+  const [activeItemIdx, setActiveItemIdx] = useState(0)
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([])
+  const [locations, setLocations] = useState<LocationOption[]>([])
+  const [warehouseIdx, setWarehouseIdx] = useState(-1)
+  const [locationIdx, setLocationIdx] = useState(-1)
+  const [overallResultIdx, setOverallResultIdx] = useState(0)
+  const [notes, setNotes] = useState('')
+  const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
-  const fetchOrders = useCallback(async () => {
+  const inspectionRange = useMemo(
+    () => inspections.map((item) => `${item.inspectionNo || item.id} · ${item.supplierName || item.purchaseOrderNo || '来料质检'}`),
+    [inspections],
+  )
+  const activeDraft = drafts[activeItemIdx]
+  const selectedWarehouse = warehouseIdx >= 0 ? warehouses[warehouseIdx] : null
+  const selectedLocation = locationIdx >= 0 ? locations[locationIdx] : null
+
+  const loadInspections = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await request.get<{ list: WorkOrder[] }>('/api/production/orders', {
-        status: 'in_progress',
-        pageSize: 50,
-      })
-      setOrders(res.list ?? [])
-    } catch {
-      Taro.showToast({ title: '加载工单失败', icon: 'none' })
+      const res = await incomingInspectionApi.list({ page: 1, pageSize: 50 })
+      setInspections(res.list ?? [])
+      if (!detail && res.list?.[0]) {
+        await selectInspectionById(res.list[0].id)
+        setInspectionIdx(0)
+      }
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '加载质检单失败', icon: 'none' })
     } finally {
       setLoading(false)
     }
+  }, [detail])
+
+  const loadWarehouses = useCallback(async () => {
+    try {
+      const res = await inventoryApi.warehouses()
+      setWarehouses(res)
+    } catch {
+      Taro.showToast({ title: '加载仓库失败', icon: 'none' })
+    }
   }, [])
 
-  useDidShow(() => { fetchOrders() })
+  useDidShow(() => {
+    void loadInspections()
+    void loadWarehouses()
+  })
 
-  // ── 不良类型多选 ──
-  const toggleDefect = (idx: number) => {
-    setDefectTypes((prev) => {
-      const next = [...prev]
-      next[idx] = !next[idx]
-      return next
+  useEffect(() => {
+    if (!selectedWarehouse) {
+      setLocations([])
+      setLocationIdx(-1)
+      return
+    }
+    void inventoryApi.locations(selectedWarehouse.id).then(setLocations).catch(() => {
+      setLocations([])
+      Taro.showToast({ title: '加载库位失败', icon: 'none' })
     })
+  }, [selectedWarehouse])
+
+  async function selectInspectionById(id: number) {
+    const loaded = await incomingInspectionApi.detail(id)
+    setDetail(loaded)
+    setDrafts(buildDrafts(loaded.items))
+    setActiveItemIdx(0)
+    setNotes(asText((loaded as IncomingInspection & { notes?: string }).notes))
+    const overallIndex = RESULT_OPTIONS.findIndex((item) => item.value === loaded.overallResult)
+    setOverallResultIdx(overallIndex >= 0 ? overallIndex : 0)
   }
 
-  // ── 拍照/选择图片 ──
-  const handleChooseImage = async () => {
+  const handleSelectInspection = async (idx: number) => {
+    const selected = inspections[idx]
+    if (!selected) return
+    setLoading(true)
     try {
-      const res = await Taro.chooseImage({
-        count: 3 - images.length,
-        sizeType: ['compressed'],
-        sourceType: ['camera', 'album'],
-      })
-      // 上传图片
+      setInspectionIdx(idx)
+      await selectInspectionById(selected.id)
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '加载详情失败', icon: 'none' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateDraft = (patch: Partial<ItemDraft>) => {
+    setDrafts((current) => current.map((item, index) => (index === activeItemIdx ? { ...item, ...patch } : item)))
+  }
+
+  const setDraftResult = (idx: number) => updateDraft({ result: RESULT_OPTIONS[idx]?.value ?? '' })
+
+  const setDraftDisposition = (idx: number) => updateDraft({ disposition: DISPOSITION_OPTIONS[idx]?.value ?? '' })
+
+  const uploadImages = async () => {
+    if (!activeDraft) return
+    const remaining = 3 - activeDraft.defectImages.length
+    if (remaining <= 0) {
+      Taro.showToast({ title: '每条明细最多 3 张图片', icon: 'none' })
+      return
+    }
+    try {
+      const picked = await Taro.chooseImage({ count: remaining, sizeType: ['compressed'], sourceType: ['camera', 'album'] })
       const uploaded: string[] = []
-      for (const path of res.tempFilePaths) {
-        try {
-          const result = await request.upload(path)
-          uploaded.push(result.url)
-        } catch {
-          Taro.showToast({ title: '图片上传失败', icon: 'none' })
-        }
+      for (const filePath of picked.tempFilePaths) {
+        const result = await request.upload(filePath)
+        uploaded.push(result.url)
       }
-      setImages((prev) => [...prev, ...uploaded].slice(0, 3))
-    } catch {
-      // 用户取消选择
+      updateDraft({ defectImages: [...activeDraft.defectImages, ...uploaded] })
+    } catch (error) {
+      if (error instanceof Error) Taro.showToast({ title: error.message, icon: 'none' })
     }
   }
 
-  const removeImage = (idx: number) => {
-    setImages((prev) => prev.filter((_, i) => i !== idx))
+  const removeImage = (url: string) => {
+    if (!activeDraft) return
+    updateDraft({ defectImages: activeDraft.defectImages.filter((item) => item !== url) })
   }
 
-  // ── 表单校验 ──
-  const validate = (): boolean => {
-    if (orderIdx < 0) {
-      Taro.showToast({ title: '请选择待检工单', icon: 'none' })
-      return false
-    }
-    if (resultIdx < 0) {
-      Taro.showToast({ title: '请选择检验结果', icon: 'none' })
-      return false
-    }
-    const result = RESULT_OPTIONS[resultIdx]
-    if (result !== '合格') {
-      const hasDefect = defectTypes.some(Boolean)
-      if (!hasDefect) {
-        Taro.showToast({ title: '请选择不良类型', icon: 'none' })
-        return false
-      }
-      const qty = parseFloat(defectQty)
-      if (!defectQty || isNaN(qty) || qty <= 0) {
-        Taro.showToast({ title: '请输入不良数量', icon: 'none' })
-        return false
-      }
-    }
-    return true
+  const validateDrafts = () => {
+    if (!detail) throw new Error('请先选择质检单')
+    if (!drafts.length) throw new Error('当前质检单没有明细')
+    const missing = drafts.find((item) => !item.result || !item.disposition)
+    if (missing) throw new Error('请为每条明细选择结果和处置方式')
   }
 
-  // ── 提交检验 ──
-  const handleSubmit = async () => {
-    if (!validate()) return
-    const order = orders[orderIdx]
-    const result = RESULT_MAP[RESULT_OPTIONS[resultIdx]]
-    const selectedDefects = DEFECT_TYPES.filter((_, i) => defectTypes[i])
+  const saveItems = async () => {
+    validateDrafts()
+    if (!detail) return
+    await incomingInspectionApi.updateItems(detail.id, drafts.map((item) => ({
+      id: item.id,
+      qtyDelivered: item.qtyDelivered,
+      qtysampled: item.qtySampled,
+      qtyPassed: item.qtyPassed,
+      qtyFailed: item.qtyFailed,
+      acceptedStockQty: item.acceptedStockQty,
+      dyeLotNo: item.dyeLotNo || undefined,
+      result: item.result,
+      defectImages: item.defectImages,
+      disposition: item.disposition,
+      notes: item.notes || undefined,
+    })))
+  }
 
+  const handleSave = async () => {
     setSubmitting(true)
     try {
-      await request.post('/api/quality/inspections', {
-        productionOrderId: order.id,
-        result,
-        issueTypes: selectedDefects,
-        defectQty: result !== 'pass' ? parseFloat(defectQty) : 0,
-        remark: remark || undefined,
-        imageUrls: images.length > 0 ? images : undefined,
-      })
-      Taro.showToast({ title: '检验提交成功', icon: 'success' })
-      // 重置
-      setOrderIdx(-1)
-      setResultIdx(-1)
-      setDefectTypes(new Array(DEFECT_TYPES.length).fill(false))
-      setDefectQty('')
-      setRemark('')
-      setImages([])
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '提交失败'
-      Taro.showToast({ title: msg, icon: 'none' })
+      await saveItems()
+      Taro.showToast({ title: '明细已保存', icon: 'success' })
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '保存失败', icon: 'none' })
     } finally {
       setSubmitting(false)
     }
   }
 
-  const showDefectFields = resultIdx >= 0 && RESULT_OPTIONS[resultIdx] !== '合格'
+  const handleSubmit = async () => {
+    setSubmitting(true)
+    try {
+      await saveItems()
+      if (!detail || !selectedWarehouse || !selectedLocation) throw new Error('请选择放行仓库和库位')
+      await incomingInspectionApi.submit(detail.id, {
+        overallResult: RESULT_OPTIONS[overallResultIdx].value,
+        warehouseId: selectedWarehouse.id,
+        locationId: selectedLocation.id,
+        notes: notes.trim() || undefined,
+      })
+      Taro.showToast({ title: '质检已提交', icon: 'success' })
+      await selectInspectionById(detail.id)
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '提交失败', icon: 'none' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
     <View className='page'>
-      <View className='page__title'>QC 检验</View>
+      <View className='hero'>
+        <View>
+          <Text className='eyebrow'>来料验货</Text>
+          <View className='page__title'>来料质检任务</View>
+        </View>
+        <Text className='count-pill'>{inspections.length} 单</Text>
+      </View>
 
-      {loading ? (
-        <View className='loading-hint'>加载中...</View>
-      ) : (
-        <View className='form'>
-          {/* 选择工单 */}
-          <View className='form__group'>
-            <Text className='form__label'>待检工单 *</Text>
-            <Picker
-              mode='selector'
-              range={orders.map((o) => `${o.workOrderNo} - ${o.skuName}`)}
-              value={orderIdx}
-              onChange={(e) => setOrderIdx(Number(e.detail.value))}
-            >
-              <View className='form__picker'>
-                {orderIdx >= 0
-                  ? `${orders[orderIdx].workOrderNo} - ${orders[orderIdx].skuName}`
-                  : '请选择工单'}
-              </View>
+      <View className='section'>
+        <Text className='section-title'>选择质检单</Text>
+        <Picker mode='selector' range={inspectionRange} value={Math.max(inspectionIdx, 0)} onChange={(event) => void handleSelectInspection(Number(event.detail.value))}>
+          <View className='picker-box'>{detail ? `${detail.inspectionNo || detail.id} · ${detail.supplierName || '供应商'}` : '请选择质检单'}</View>
+        </Picker>
+        <Button className='primary-button' loading={loading} onClick={() => void loadInspections()}>刷新质检列表</Button>
+      </View>
+
+      {detail && activeDraft ? (
+        <>
+          <View className='info-grid'>
+            <View className='info-card'><Text>质检单</Text><Text>{detail.inspectionNo || detail.id}</Text></View>
+            <View className='info-card'><Text>采购单</Text><Text>{detail.purchaseOrderNo || '-'}</Text></View>
+            <View className='info-card'><Text>状态</Text><Text>{detail.status}</Text></View>
+          </View>
+
+          <View className='section'>
+            <Text className='section-title'>抽检明细</Text>
+            <Picker mode='selector' range={drafts.map((item) => item.label)} value={activeItemIdx} onChange={(event) => setActiveItemIdx(Number(event.detail.value))}>
+              <View className='picker-box'>{activeDraft.label}</View>
             </Picker>
-          </View>
-
-          {/* 检验结果 */}
-          <View className='form__group'>
-            <Text className='form__label'>检验结果 *</Text>
-            <Picker
-              mode='selector'
-              range={RESULT_OPTIONS}
-              value={resultIdx}
-              onChange={(e) => setResultIdx(Number(e.detail.value))}
-            >
-              <View className='form__picker'>
-                {resultIdx >= 0 ? RESULT_OPTIONS[resultIdx] : '请选择结果'}
-              </View>
+            <View className='form-grid'>
+              <Input className='input' type='digit' value={activeDraft.qtyDelivered} placeholder='送货数' onInput={(event) => updateDraft({ qtyDelivered: clampDecimal(event.detail.value) })} />
+              <Input className='input' type='digit' value={activeDraft.qtySampled} placeholder='抽检数' onInput={(event) => updateDraft({ qtySampled: clampDecimal(event.detail.value) })} />
+              <Input className='input' type='digit' value={activeDraft.qtyPassed} placeholder='合格数' onInput={(event) => updateDraft({ qtyPassed: clampDecimal(event.detail.value) })} />
+              <Input className='input' type='digit' value={activeDraft.qtyFailed} placeholder='不良数' onInput={(event) => updateDraft({ qtyFailed: clampDecimal(event.detail.value) })} />
+              <Input className='input' type='digit' value={activeDraft.acceptedStockQty} placeholder='接收入库数' onInput={(event) => updateDraft({ acceptedStockQty: clampDecimal(event.detail.value) })} />
+              <Input className='input' value={activeDraft.dyeLotNo} placeholder='缸号/批号，可选' onInput={(event) => updateDraft({ dyeLotNo: event.detail.value })} />
+            </View>
+            <Picker mode='selector' range={RESULT_OPTIONS.map((item) => item.label)} value={Math.max(RESULT_OPTIONS.findIndex((item) => item.value === activeDraft.result), 0)} onChange={(event) => setDraftResult(Number(event.detail.value))}>
+              <View className='picker-box'>结果：{RESULT_OPTIONS.find((item) => item.value === activeDraft.result)?.label || '请选择'}</View>
             </Picker>
-          </View>
+            <Picker mode='selector' range={DISPOSITION_OPTIONS.map((item) => item.label)} value={Math.max(DISPOSITION_OPTIONS.findIndex((item) => item.value === activeDraft.disposition), 0)} onChange={(event) => setDraftDisposition(Number(event.detail.value))}>
+              <View className='picker-box'>处置：{DISPOSITION_OPTIONS.find((item) => item.value === activeDraft.disposition)?.label || '请选择'}</View>
+            </Picker>
+            <Textarea className='textarea' value={activeDraft.notes} placeholder='明细备注，可选' maxlength={300} onInput={(event) => updateDraft({ notes: event.detail.value })} />
 
-          {/* 不良类型（多选） — 仅不合格/返工时显示 */}
-          {showDefectFields && (
-            <>
-              <View className='form__group'>
-                <Text className='form__label'>不良类型 *（可多选）</Text>
-                <View className='defect-tags'>
-                  {DEFECT_TYPES.map((dt, i) => (
-                    <View
-                      key={dt}
-                      className={`defect-tag ${defectTypes[i] ? 'defect-tag--active' : ''}`}
-                      onClick={() => toggleDefect(i)}
-                    >
-                      {dt}
-                    </View>
-                  ))}
-                </View>
-              </View>
-
-              <View className='form__group'>
-                <Text className='form__label'>不良数量 *</Text>
-                <Input
-                  className='form__input'
-                  type='digit'
-                  placeholder='请输入不良品数量'
-                  value={defectQty}
-                  onInput={(e) => setDefectQty(e.detail.value)}
-                />
-              </View>
-            </>
-          )}
-
-          {/* 备注 */}
-          <View className='form__group'>
-            <Text className='form__label'>备注</Text>
-            <Textarea
-              className='form__textarea'
-              placeholder='检验说明（选填）'
-              value={remark}
-              onInput={(e) => setRemark(e.detail.value)}
-              maxlength={300}
-            />
-          </View>
-
-          {/* 图片上传 */}
-          <View className='form__group'>
-            <Text className='form__label'>现场照片（最多3张）</Text>
-            <View className='image-list'>
-              {images.map((url, i) => (
-                <View key={url} className='image-item'>
-                  <Image className='image-item__img' src={url} mode='aspectFill' />
-                  <View className='image-item__remove' onClick={() => removeImage(i)}>✕</View>
+            <View className='image-row'>
+              {activeDraft.defectImages.map((url) => (
+                <View key={url} className='image-item' onClick={() => removeImage(url)}>
+                  <Image className='image' src={url} mode='aspectFill' />
+                  <Text className='image-remove'>移除</Text>
                 </View>
               ))}
-              {images.length < 3 && (
-                <View className='image-add' onClick={handleChooseImage}>
-                  <Text className='image-add__icon'>+</Text>
-                  <Text className='image-add__text'>拍照</Text>
-                </View>
-              )}
+              <View className='image-add' onClick={() => void uploadImages()}>
+                <Text>+</Text>
+                <Text>留证图</Text>
+              </View>
             </View>
           </View>
-        </View>
-      )}
 
-      {/* 提交按钮 */}
-      <View
-        className={`btn-submit ${submitting ? 'btn-submit--disabled' : ''}`}
-        onClick={submitting ? undefined : handleSubmit}
-      >
-        {submitting ? '提交中...' : '提交检验'}
-      </View>
+          <View className='section release-section'>
+            <Text className='section-title'>放行入库</Text>
+            <Picker mode='selector' range={RESULT_OPTIONS.map((item) => item.label)} value={overallResultIdx} onChange={(event) => setOverallResultIdx(Number(event.detail.value))}>
+              <View className='picker-box'>总结果：{RESULT_OPTIONS[overallResultIdx].label}</View>
+            </Picker>
+            <Picker mode='selector' range={warehouses.map((item) => item.name)} value={Math.max(warehouseIdx, 0)} onChange={(event) => setWarehouseIdx(Number(event.detail.value))}>
+              <View className='picker-box'>{selectedWarehouse?.name || '请选择仓库'}</View>
+            </Picker>
+            <Picker mode='selector' range={locations.map((item) => `${item.code || ''} ${item.name}`.trim())} value={Math.max(locationIdx, 0)} onChange={(event) => setLocationIdx(Number(event.detail.value))}>
+              <View className='picker-box'>{selectedLocation ? `${selectedLocation.code || ''} ${selectedLocation.name}`.trim() : '请选择库位'}</View>
+            </Picker>
+            <Textarea className='textarea' value={notes} placeholder='质检备注，可选' maxlength={500} onInput={(event) => setNotes(event.detail.value)} />
+            <View className='action-row'>
+              <Button className='secondary-button' loading={submitting} onClick={() => void handleSave()}>保存明细</Button>
+              <Button className='success-button' loading={submitting} onClick={() => void handleSubmit()}>提交结论</Button>
+            </View>
+          </View>
+        </>
+      ) : (
+        <View className='empty-hint'>{loading ? '加载中...' : '暂无待处理质检明细'}</View>
+      )}
     </View>
   )
 }
