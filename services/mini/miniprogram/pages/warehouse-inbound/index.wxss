@@ -1,21 +1,377 @@
-.delivery-hint {
-  margin-top: 14rpx;
-  padding: 14rpx 18rpx;
-  border-radius: 18rpx;
-  color: #0a7f4d;
-  background: #e8f7ef;
-  font-size: 24rpx;
+.page {
+  padding-bottom: 150rpx;
+}
+
+.stock-nav {
+  display: flex;
+  align-items: center;
+  height: 76rpx;
+  margin: -12rpx -6rpx 18rpx;
+}
+
+.stock-nav__back,
+.stock-nav__right {
+  width: 80rpx;
+  color: #64748b;
+  font-size: 48rpx;
+}
+
+.stock-nav__title {
+  flex: 1;
+  text-align: center;
+  color: #1e293b;
+  font-size: 34rpx;
+  font-weight: 800;
+}
+
+.scan-zone {
+  padding: 30rpx;
+  border-radius: 30rpx;
+  background: #fff;
+  box-shadow: 0 10rpx 30rpx rgba(15, 23, 42, .08);
+}
+
+.scan-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  width: 100%;
+  height: 156rpx;
+  line-height: 156rpx;
+  border-radius: 26rpx;
+  color: #fff;
+  background: #2563eb;
+  font-size: 34rpx;
+  font-weight: 800;
+}
+
+.scan-btn__icon {
+  font-size: 48rpx;
+}
+
+.scan-search {
+  margin-top: 22rpx;
+}
+
+.scan-input,
+.scan-query {
+  height: 88rpx;
+  line-height: 88rpx;
+  border-radius: 20rpx;
+}
+
+.scan-input {
+  padding: 0 22rpx;
+  border: 2rpx solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.scan-query {
+  min-width: 130rpx;
+  color: #2563eb;
+  background: #eff6ff;
+  font-weight: 800;
+}
+
+.stock-brief {
+  display: flex;
+  gap: 18rpx;
+  margin: 22rpx 0;
+}
+
+.stock-brief view {
+  flex: 1;
+  padding: 18rpx 22rpx;
+  border-radius: 22rpx;
+  background: #fff;
+}
+
+.stock-brief__label,
+.stock-brief__value {
+  display: block;
+}
+
+.stock-brief__label {
+  color: #94a3b8;
+  font-size: 22rpx;
+}
+
+.stock-brief__value {
+  margin-top: 4rpx;
+  color: #1e293b;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.card {
+  margin-top: 22rpx;
+  overflow: hidden;
+  border-radius: 28rpx;
+  background: #fff;
+  box-shadow: 0 10rpx 28rpx rgba(15, 23, 42, .08);
+}
+
+.card__header {
+  padding: 22rpx 26rpx;
+  border-bottom: 2rpx solid #e2e8f0;
+}
+
+.card__body {
+  padding: 26rpx;
+}
+
+.field-label {
+  color: #475569;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.req {
+  color: #ef4444;
+}
+
+.stock-picker {
+  min-height: 88rpx;
+  line-height: 88rpx;
+  padding: 0 22rpx;
+  border: 2rpx solid #e2e8f0;
+  border-radius: 20rpx;
+  color: #1e293b;
+  background: #f8fafc;
+  font-size: 28rpx;
 }
 
 .sku-card {
-  border: 2rpx solid #dce9ff;
-  background: #f7fbff;
+  position: relative;
+  margin-top: 18rpx;
+  padding: 24rpx;
+  border: 4rpx solid #bfdbfe;
+  border-radius: 24rpx;
+  background: #eff6ff;
 }
 
-.sku-name,
-.sku-unit {
+.sku-card__change {
+  position: absolute;
+  right: 18rpx;
+  top: 18rpx;
+  min-width: 96rpx;
+  height: 56rpx;
+  line-height: 56rpx;
+  color: #2563eb;
+  background: #fff;
+  font-size: 24rpx;
+}
+
+.sku-name {
   display: block;
   margin-top: 8rpx;
-  color: #77859a;
+  padding-right: 110rpx;
+  color: #64748b;
+  font-size: 26rpx;
+}
+
+.sku-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 18rpx;
+}
+
+.tag--dye {
+  color: #ea580c;
+  background: #fff7ed;
+}
+
+.tag--info {
+  color: #0284c7;
+  background: #e0f2fe;
+}
+
+.tag--neutral {
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.delivery-hint {
+  margin-bottom: 16rpx;
+  padding: 14rpx 18rpx;
+  border-radius: 18rpx;
+  color: #0a7f4d;
+  background: #dcfce7;
   font-size: 24rpx;
+}
+
+.qty-row {
+  display: flex;
+  gap: 18rpx;
+  align-items: center;
+}
+
+.qty-input {
+  flex: 1;
+  height: 104rpx;
+  border: 4rpx solid #e2e8f0;
+  border-radius: 22rpx;
+  text-align: center;
+  color: #0f172a;
+  background: #fff;
+  font-size: 48rpx;
+  font-weight: 800;
+}
+
+.unit-chip {
+  min-width: 110rpx;
+  height: 104rpx;
+  line-height: 104rpx;
+  border: 4rpx solid #e2e8f0;
+  border-radius: 22rpx;
+  text-align: center;
+  color: #334155;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.dye-card {
+  margin-top: 22rpx;
+  padding: 28rpx;
+  border: 3rpx dashed #fed7aa;
+  border-radius: 28rpx;
+  background: #fff7ed;
+}
+
+.dye-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.dye-card__icon {
+  font-size: 38rpx;
+}
+
+.dye-card__title {
+  flex: 1;
+  color: #1e293b;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.dye-card__req {
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+  color: #ea580c;
+  background: #ffedd5;
+  font-size: 22rpx;
+}
+
+.dye-input {
+  height: 88rpx;
+  margin-top: 20rpx;
+  padding: 0 22rpx;
+  border: 2rpx solid #fed7aa;
+  border-radius: 20rpx;
+  background: #fff;
+}
+
+.dye-hint {
+  display: block;
+  margin-top: 14rpx;
+  color: #b45309;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.stock-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9;
+  display: flex;
+  gap: 16rpx;
+  padding: 18rpx 24rpx 26rpx;
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 -10rpx 28rpx rgba(15, 23, 42, .08);
+}
+
+.stock-clear,
+.confirm-btn {
+  height: 96rpx;
+  line-height: 96rpx;
+  border-radius: 28rpx;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.stock-clear {
+  width: 180rpx;
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.confirm-btn {
+  flex: 1;
+  color: #fff;
+  background: #16a34a;
+}
+
+.success-layer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx;
+  color: #fff;
+  background: rgba(15, 23, 42, .92);
+}
+
+.success-icon {
+  font-size: 92rpx;
+}
+
+.success-title {
+  margin-top: 18rpx;
+  font-size: 42rpx;
+  font-weight: 800;
+}
+
+.success-card {
+  width: 100%;
+  margin-top: 34rpx;
+  padding: 26rpx;
+  border-radius: 24rpx;
+  color: #1e293b;
+  background: #fff;
+}
+
+.srow {
+  display: flex;
+  justify-content: space-between;
+  gap: 24rpx;
+  padding: 16rpx 0;
+  border-bottom: 2rpx solid #f1f5f9;
+  font-size: 26rpx;
+}
+
+.srow__big {
+  color: #16a34a;
+  font-size: 34rpx;
+  font-weight: 800;
+}
+
+.success-next {
+  width: 100%;
+  height: 96rpx;
+  line-height: 96rpx;
+  margin-top: 34rpx;
+  color: #fff;
+  background: #2563eb;
+  font-weight: 800;
 }

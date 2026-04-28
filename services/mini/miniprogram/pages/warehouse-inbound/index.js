@@ -50,7 +50,11 @@ Page({
     loading: false,
     loadError: '',
     lastRefreshAt: '',
-    submitting: false
+    submitting: false,
+    successVisible: false,
+    successQtyLabel: '',
+    successSkuLabel: '',
+    successDyeLot: ''
   },
 
   onLoad: function () {
@@ -195,7 +199,7 @@ Page({
     ui.confirmAction('清空表单', '确认清空当前物料、数量和批次信息？').then(function (ok) {
       if (!ok) return
       self.setSkuSelection([], 0)
-      self.setData({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '' })
+      self.setData({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '', successVisible: false })
     })
   },
 
@@ -224,6 +228,12 @@ Page({
         transactionType: 'purchase_in'
       }).then(function () {
         ui.showSuccess('上架入库成功')
+        self.setData({
+          successVisible: true,
+          successQtyLabel: '+' + qty + ' ' + (sku.stockUnit || sku.purchaseUnit || sku.unit || '件'),
+          successSkuLabel: ui.formatSku(sku),
+          successDyeLot: self.data.dyeLotNo.trim() || '未填写'
+        })
         self.setSkuSelection([], 0)
         self.setData({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '' })
       }).catch(function (error) {
@@ -232,5 +242,9 @@ Page({
         self.setData({ submitting: false })
       })
     })
+  },
+
+  closeSuccess: function () {
+    this.setData({ successVisible: false })
   }
 })

@@ -61,6 +61,11 @@ Page({
     activeDispositionIdx: 0,
     activeDispositionLabel: '',
     completedItemCount: 0,
+    pendingCount: 0,
+    progressPercent: 0,
+    unitOrderLabel: '请选择质检单',
+    unitPurchaseLabel: '待加载',
+    unitProductLabel: '来料质检任务',
     warehouses: [],
     warehouseRange: [],
     warehouseIdx: 0,
@@ -91,8 +96,21 @@ Page({
     var active = drafts[idx] || null
     var resultIdx = active ? RESULT_OPTIONS.findIndex(function (item) { return item.value === active.result }) : -1
     var dispositionIdx = active ? DISPOSITION_OPTIONS.findIndex(function (item) { return item.value === active.disposition }) : -1
+    var draftCards = drafts.map(function (item, index) {
+      var state = item.result === 'fail' ? 'fail' : (item.result ? 'pass' : 'pending')
+      return {
+        index: index,
+        label: item.label,
+        desc: '抽检 ' + (item.qtySampled || 0) + ' / 送货 ' + (item.qtyDelivered || 0),
+        state: state,
+        badge: state === 'pass' ? '合格' : (state === 'fail' ? '不合格' : '待检'),
+        marker: state === 'pass' ? '✓' : (state === 'fail' ? '×' : String(index + 1)),
+        active: index === idx
+      }
+    })
     return {
       draftRange: drafts.map(function (item) { return item.label }),
+      draftCards: draftCards,
       activeItemIdx: idx || 0,
       activeDraft: active,
       hasActiveDraft: Boolean(active),
@@ -100,7 +118,9 @@ Page({
       activeResultLabel: resultIdx >= 0 ? RESULT_OPTIONS[resultIdx].label : '',
       activeDispositionIdx: dispositionIdx >= 0 ? dispositionIdx : 0,
       activeDispositionLabel: dispositionIdx >= 0 ? DISPOSITION_OPTIONS[dispositionIdx].label : '',
-      completedItemCount: drafts.filter(function (item) { return item.result && item.disposition }).length
+      completedItemCount: drafts.filter(function (item) { return item.result && item.disposition }).length,
+      pendingCount: drafts.length - drafts.filter(function (item) { return item.result && item.disposition }).length,
+      progressPercent: drafts.length ? Math.round(drafts.filter(function (item) { return item.result && item.disposition }).length * 100 / drafts.length) : 0
     }
   },
 
@@ -121,7 +141,13 @@ Page({
         lastRefreshAt: ui.nowTimeLabel()
       })
       if (!list.length) {
-        self.setData({ detail: null, inspectionLabel: '' })
+        self.setData({
+          detail: null,
+          inspectionLabel: '',
+          unitOrderLabel: '请选择质检单',
+          unitPurchaseLabel: '待加载',
+          unitProductLabel: '来料质检任务'
+        })
         self.setDrafts([], 0)
         return null
       }
@@ -145,7 +171,10 @@ Page({
       self.setData({
         detail: detail,
         notes: asText(detail.notes),
-        overallResultIdx: Math.max(0, RESULT_OPTIONS.findIndex(function (option) { return option.value === detail.overallResult }))
+        overallResultIdx: Math.max(0, RESULT_OPTIONS.findIndex(function (option) { return option.value === detail.overallResult })),
+        unitOrderLabel: detail.inspectionNo || String(detail.id),
+        unitPurchaseLabel: detail.purchaseOrderNo || '-',
+        unitProductLabel: detail.supplierName || '来料质检'
       })
       self.setDrafts(buildDrafts(detail.items), 0)
     })
@@ -207,7 +236,10 @@ Page({
   },
 
   handleActiveItemChange: function (event) {
-    this.setDrafts(this.data.drafts, Number(event.detail.value) || 0)
+    var rawIdx = event && event.currentTarget && event.currentTarget.dataset && event.currentTarget.dataset.index !== undefined
+      ? event.currentTarget.dataset.index
+      : event.detail.value
+    this.setDrafts(this.data.drafts, Number(rawIdx) || 0)
   },
 
   updateActiveDraft: function (patch) {
@@ -237,6 +269,29 @@ Page({
   handleDraftDispositionChange: function (event) {
     var idx = Number(event.detail.value) || 0
     this.updateActiveDraft({ disposition: DISPOSITION_OPTIONS[idx].value })
+  },
+
+  markDraftPass: function (event) {
+    var idx = Number(event.currentTarget.dataset.index) || 0
+    var drafts = this.data.drafts.slice()
+    var current = Object.assign({}, drafts[idx] || {})
+    current.result = 'pass'
+    current.disposition = current.disposition || 'accept'
+    current.qtyFailed = current.qtyFailed || '0'
+    if (!current.qtyPassed || current.qtyPassed === '0') current.qtyPassed = current.qtySampled || current.qtyDelivered || '0'
+    if (!current.acceptedStockQty || current.acceptedStockQty === '0') current.acceptedStockQty = current.qtyPassed
+    drafts[idx] = current
+    this.setDrafts(drafts, idx)
+  },
+
+  markDraftFail: function (event) {
+    var idx = Number(event.currentTarget.dataset.index) || 0
+    var drafts = this.data.drafts.slice()
+    var current = Object.assign({}, drafts[idx] || {})
+    current.result = 'fail'
+    current.disposition = current.disposition || 'return'
+    drafts[idx] = current
+    this.setDrafts(drafts, idx)
   },
 
   handleOverallResultChange: function (event) {

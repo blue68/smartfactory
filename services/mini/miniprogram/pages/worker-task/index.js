@@ -94,6 +94,22 @@ Page({
       if (selectedTask && task.id === selectedTask.id) selectedTaskIdx = index
       return (task.taskNo || task.workOrderNo || task.productionOrderNo || task.id) + ' · ' + titleOf(task)
     })
+    var taskCards = tasks.map(function (task, index) {
+      var priority = task.status === 'exception' ? 'urgent' : (index < 2 ? 'high' : 'normal')
+      var priorityLabel = priority === 'urgent' ? '紧急' : (priority === 'high' ? '高' : '普通')
+      return {
+        id: task.id,
+        priority: priority,
+        priorityLabel: priorityLabel,
+        title: titleOf(task),
+        sku: skuOf(task),
+        orderNo: task.workOrderNo || task.productionOrderNo || task.taskNo || ('#' + task.id),
+        qty: (task.completedQty || 0) + '/' + (task.plannedQty || '-') + ' ' + (task.unit || ''),
+        status: task.status,
+        statusLabel: STATUS_LABELS[task.status] || task.status || '待处理',
+        active: Boolean(selectedTask && task.id === selectedTask.id)
+      }
+    })
     var inputMaterialViews = (selectedTask && selectedTask.inputMaterials ? selectedTask.inputMaterials : []).map(function (item, index) {
       return {
         key: String(item.skuId || item.skuCode || index),
@@ -103,6 +119,7 @@ Page({
     })
     return {
       taskRange: taskRange,
+      taskCards: taskCards,
       selectedTaskIdx: selectedTaskIdx,
       selectedTaskLabel: selectedTask ? ((selectedTask.taskNo || selectedTask.id) + ' · ' + titleOf(selectedTask)) : '',
       taskTitle: titleOf(selectedTask),
@@ -192,7 +209,10 @@ Page({
 
   handleTaskChange: function (event) {
     var self = this
-    var idx = Number(event.detail.value) || 0
+    var rawIdx = event && event.currentTarget && event.currentTarget.dataset && event.currentTarget.dataset.index !== undefined
+      ? event.currentTarget.dataset.index
+      : event.detail.value
+    var idx = Number(rawIdx) || 0
     var task = this.data.tasks[idx]
     if (!task) return
     this.setData({ loading: true })

@@ -1,25 +1,29 @@
 <view class="page">
-  <view class="hero">
-    <view>
-      <text class="eyebrow">物料库存上架</text>
-      <view class="page-title">来料入库上架</view>
-      <text class="hero-subtitle">{{lastRefreshAt ? '仓库同步 ' + lastRefreshAt : '扫码或搜索后完成上架'}}</text>
-    </view>
-    <button class="scan-button" bindtap="handleScan">扫码</button>
+  <view class="stock-nav">
+    <text class="stock-nav__back">‹</text>
+    <text class="stock-nav__title">采购入库</text>
+    <text class="stock-nav__right"></text>
   </view>
 
-  <view class="metric-row">
-    <view class="metric-card">
-      <text class="metric-value">{{skuOptions.length}}</text>
-      <text class="metric-label">候选物料</text>
+  <view class="scan-zone">
+    <button class="scan-btn" bindtap="handleScan">
+      <text class="scan-btn__icon">📷</text>
+      <text>扫描物料条码</text>
+    </button>
+    <view class="inline-row scan-search">
+      <input class="scan-input flex" value="{{keyword}}" placeholder="或输入 SKU / 名称手动搜索" bindinput="handleKeywordInput" />
+      <button class="scan-query" loading="{{loading}}" disabled="{{loading}}" bindtap="searchSku">查询</button>
     </view>
-    <view class="metric-card">
-      <text class="metric-value">{{warehouses.length}}</text>
-      <text class="metric-label">可用仓库</text>
+  </view>
+
+  <view class="stock-brief">
+    <view>
+      <text class="stock-brief__label">仓库同步</text>
+      <text class="stock-brief__value">{{lastRefreshAt || '待同步'}}</text>
     </view>
-    <view class="metric-card">
-      <text class="metric-value">{{locations.length}}</text>
-      <text class="metric-label">当前库位</text>
+    <view>
+      <text class="stock-brief__label">候选物料</text>
+      <text class="stock-brief__value">{{skuOptions.length}}</text>
     </view>
   </view>
 
@@ -29,41 +33,80 @@
     <button class="alert-action" bindtap="loadWarehouses">重试</button>
   </view>
 
-  <view class="section">
-    <text class="section-title">物料检索</text>
-    <view class="inline-row">
-      <input class="input flex" value="{{keyword}}" placeholder="SKU 编码 / 名称 / 条码" bindinput="handleKeywordInput" />
-      <button class="primary-small" loading="{{loading}}" disabled="{{loading}}" bindtap="searchSku">查询</button>
+  <view class="card">
+    <view class="card__header">
+      <text class="field-label">物料信息</text>
     </view>
-    <text class="field-help">扫码失败时可直接输入 SKU 编码或名称查询。</text>
+    <view class="card__body">
     <picker mode="selector" range="{{skuRange}}" value="{{skuIdx}}" bindchange="handleSkuChange">
-      <view class="picker-box">{{selectedSkuLabel || '请选择物料'}}</view>
+      <view class="stock-picker">{{selectedSkuLabel || '请选择候选物料'}}</view>
     </picker>
     <view wx:if="{{selectedSkuLabel}}" class="sku-card">
+      <button class="sku-card__change" bindtap="resetForm">更换</button>
       <text class="sku-code">{{selectedSkuCode}}</text>
       <text class="sku-name">{{selectedSkuName}}</text>
-      <text class="sku-unit">默认单位：{{selectedSkuUnit}}</text>
+      <view class="sku-tags">
+        <text class="tag tag--dye">缸号批次</text>
+        <text class="tag tag--info">单位 {{selectedSkuUnit}}</text>
+        <text class="tag tag--neutral">安全库存可查</text>
+      </view>
+    </view>
     </view>
   </view>
 
-  <view class="section">
-    <text class="section-title">上架信息</text>
-    <view wx:if="{{deliveryNo}}" class="delivery-hint">已识别送货单：{{deliveryNo}}</view>
-    <input class="input" type="digit" value="{{qty}}" placeholder="入库数量" bindinput="handleQtyInput" />
-    <view class="quick-row">
-      <view wx:for="{{quickQty}}" wx:key="item" class="quick-chip" data-value="{{item}}" bindtap="addQuickQty">+{{item}}</view>
+  <view class="card">
+    <view class="card__header">
+      <text class="field-label">入库数量 <text class="req">*</text></text>
     </view>
-    <input class="input" value="{{dyeLotNo}}" placeholder="缸号/批次，可选" bindinput="handleDyeLotInput" />
-    <picker mode="selector" range="{{warehouseRange}}" value="{{warehouseIdx}}" bindchange="handleWarehouseChange">
-      <view class="picker-box">{{selectedWarehouseLabel || '请选择仓库'}}</view>
-    </picker>
-    <picker mode="selector" range="{{locationRange}}" value="{{locationIdx}}" bindchange="handleLocationChange">
-      <view class="picker-box">{{selectedLocationLabel || '请选择库位'}}</view>
-    </picker>
-    <text class="field-help">提交前会二次确认，确认后生成库存入库流水。</text>
-    <view class="action-row">
-      <button class="secondary-button flex" disabled="{{submitting}}" bindtap="resetForm">清空</button>
-      <button class="submit-button flex" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">确认上架</button>
+    <view class="card__body">
+      <view wx:if="{{deliveryNo}}" class="delivery-hint">已识别送货单：{{deliveryNo}}</view>
+      <view class="qty-row">
+        <input class="qty-input" type="digit" value="{{qty}}" placeholder="0" bindinput="handleQtyInput" />
+        <view class="unit-chip">{{selectedSkuUnit}}</view>
+      </view>
+      <view class="quick-row">
+        <view wx:for="{{quickQty}}" wx:key="item" class="quick-chip" data-value="{{item}}" bindtap="addQuickQty">+{{item}}</view>
+      </view>
     </view>
+  </view>
+
+  <view class="dye-card">
+    <view class="dye-card__head">
+      <text class="dye-card__icon">🎨</text>
+      <text class="dye-card__title">缸号 / 染色批次</text>
+      <text class="dye-card__req">建议填写</text>
+    </view>
+    <input class="dye-input" value="{{dyeLotNo}}" placeholder="例如 DY-2026-001" bindinput="handleDyeLotInput" />
+    <text class="dye-hint">同一订单面料建议保持同一缸号，避免色差追溯困难。</text>
+  </view>
+
+  <view class="card">
+    <view class="card__header">
+      <text class="field-label">上架库位 <text class="req">*</text></text>
+    </view>
+    <view class="card__body">
+      <picker mode="selector" range="{{warehouseRange}}" value="{{warehouseIdx}}" bindchange="handleWarehouseChange">
+        <view class="stock-picker">{{selectedWarehouseLabel || '请选择仓库'}}</view>
+      </picker>
+      <picker mode="selector" range="{{locationRange}}" value="{{locationIdx}}" bindchange="handleLocationChange">
+        <view class="stock-picker">{{selectedLocationLabel || '请选择库位'}}</view>
+      </picker>
+    </view>
+  </view>
+
+  <view class="stock-footer">
+    <button class="stock-clear" disabled="{{submitting}}" bindtap="resetForm">清空</button>
+    <button class="confirm-btn" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">确认入库</button>
+  </view>
+
+  <view wx:if="{{successVisible}}" class="success-layer">
+    <view class="success-icon">✅</view>
+    <view class="success-title">入库成功</view>
+    <view class="success-card">
+      <view class="srow"><text>物料</text><text>{{successSkuLabel}}</text></view>
+      <view class="srow"><text>入库数量</text><text class="srow__big">{{successQtyLabel}}</text></view>
+      <view class="srow"><text>缸号批次</text><text>{{successDyeLot}}</text></view>
+    </view>
+    <button class="success-next" bindtap="closeSuccess">继续入库</button>
   </view>
 </view>

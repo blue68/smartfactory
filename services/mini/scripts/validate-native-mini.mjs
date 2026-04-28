@@ -66,6 +66,9 @@ for (const file of files) {
   if (/@tarojs|Taro|React|react-dom/.test(text)) fail(`Taro/React reference found in ${file}`)
   if (/\bprocess\b/.test(text)) fail(`process reference found in ${file}`)
   if (extname(file) === '.wxss' && /(^|\n)\s*\*/.test(text)) fail(`unsupported global selector found in ${file}`)
+  if (extname(file) === '.wxss' && /:(first-child|last-child)|\binset\s*:/.test(text)) {
+    fail(`unsupported wxss selector/property found in ${file}`)
+  }
   if (extname(file) === '.json') JSON.parse(text)
   if (extname(file) === '.js') {
     const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' })

@@ -1,26 +1,27 @@
 <view class="page">
-  <view class="hero">
-    <view>
-      <text class="eyebrow">来料验货</text>
-      <view class="page-title">来料质检任务</view>
-      <text class="hero-subtitle">{{lastRefreshAt ? '最后同步 ' + lastRefreshAt : '逐项抽检后再提交结论'}}</text>
-    </view>
-    <text class="count-pill">{{inspections.length}} 单</text>
+  <view class="qc-nav">
+    <text class="qc-nav__back">‹</text>
+    <text class="qc-nav__title">质检巡检</text>
+    <text class="qc-nav__step">{{pendingCount}} / {{drafts.length}} 待检</text>
   </view>
 
-  <view class="metric-row">
-    <view class="metric-card">
-      <text class="metric-value">{{inspections.length}}</text>
-      <text class="metric-label">质检单</text>
+  <view class="unit-bar">
+    <view>
+      <text class="unit-bar__order">{{unitOrderLabel}} · {{unitPurchaseLabel}}</text>
+      <view class="unit-bar__product">{{unitProductLabel}}</view>
+      <view class="unit-bar__tags">
+        <text>最后同步 {{lastRefreshAt || '--:--'}}</text>
+        <text>{{resultLabels[overallResultIdx]}}</text>
+      </view>
     </view>
-    <view class="metric-card">
-      <text class="metric-value">{{drafts.length}}</text>
-      <text class="metric-label">当前明细</text>
+    <view class="unit-bar__progress">
+      <text class="unit-bar__progress-num">{{completedItemCount}}</text>
+      <text class="unit-bar__progress-label">已判定</text>
     </view>
-    <view class="metric-card">
-      <text class="metric-value">{{completedItemCount}}/{{drafts.length}}</text>
-      <text class="metric-label">已判定</text>
-    </view>
+  </view>
+
+  <view class="progress-track">
+    <view class="progress-track__fill" style="width: {{progressPercent}}%;"></view>
   </view>
 
   <view wx:if="{{loadError}}" class="alert-card">
@@ -29,35 +30,35 @@
     <button class="alert-action" bindtap="loadInspections">重试</button>
   </view>
 
-  <view class="section">
-    <text class="section-title">选择质检单</text>
+  <view class="qc-card">
+    <text class="qc-label">选择质检单</text>
     <picker mode="selector" range="{{inspectionRange}}" value="{{inspectionIdx}}" bindchange="handleInspectionChange">
-      <view class="picker-box">{{inspectionLabel || '请选择质检单'}}</view>
+      <view class="qc-picker">{{inspectionLabel || '请选择质检单'}}</view>
     </picker>
-    <text class="field-help">每条明细必须选择结果和处置方式后才能提交。</text>
-    <button class="primary-button" loading="{{loading}}" disabled="{{loading}}" bindtap="loadInspections">刷新质检列表</button>
+    <button class="qc-refresh" loading="{{loading}}" disabled="{{loading}}" bindtap="loadInspections">刷新质检列表</button>
   </view>
 
   <block wx:if="{{hasActiveDraft}}">
-    <view class="info-row">
-      <view class="info-card">
-        <text class="info-label">质检单</text>
-        <text class="info-value">{{detail.inspectionNo || detail.id}}</text>
+    <view class="section-label">逐件检验</view>
+    <view wx:for="{{draftCards}}" wx:key="index" class="inspect-card inspect-card--{{item.state}} {{item.active ? 'inspect-card--active' : ''}}">
+      <view class="inspect-card__header" data-index="{{index}}" bindtap="handleActiveItemChange">
+        <view class="inspect-card__num">{{item.marker}}</view>
+        <view class="inspect-card__info">
+          <text class="inspect-card__name">{{item.label}}</text>
+          <text class="inspect-card__desc">{{item.desc}}</text>
+        </view>
+        <text class="inspect-card__status status--{{item.state}}">{{item.badge}}</text>
       </view>
-      <view class="info-card">
-        <text class="info-label">采购单</text>
-        <text class="info-value">{{detail.purchaseOrderNo || '-'}}</text>
-      </view>
-      <view class="info-card">
-        <text class="info-label">状态</text>
-        <text class="info-value">{{detail.status}}</text>
+      <view class="inspect-btns">
+        <button class="inspect-btn inspect-btn--pass {{item.state === 'pass' ? 'inspect-btn--pass-active' : ''}}" data-index="{{index}}" bindtap="markDraftPass">✓ 合格</button>
+        <button class="inspect-btn inspect-btn--fail {{item.state === 'fail' ? 'inspect-btn--fail-active' : ''}}" data-index="{{index}}" bindtap="markDraftFail">× 不合格</button>
       </view>
     </view>
 
-    <view class="section">
-      <text class="section-title">抽检明细</text>
+    <view class="defect-form">
+      <view class="defect-form__title">当前明细补充信息</view>
       <picker mode="selector" range="{{draftRange}}" value="{{activeItemIdx}}" bindchange="handleActiveItemChange">
-        <view class="picker-box">{{activeDraft.label}}</view>
+        <view class="qc-picker">{{activeDraft.label}}</view>
       </picker>
       <input class="input" type="digit" value="{{activeDraft.qtyDelivered}}" placeholder="送货数" data-field="qtyDelivered" bindinput="handleDraftInput" />
       <input class="input" type="digit" value="{{activeDraft.qtySampled}}" placeholder="抽检数" data-field="qtySampled" bindinput="handleDraftInput" />
@@ -66,10 +67,10 @@
       <input class="input" type="digit" value="{{activeDraft.acceptedStockQty}}" placeholder="接收入库数" data-field="acceptedStockQty" bindinput="handleDraftInput" />
       <input class="input" value="{{activeDraft.dyeLotNo}}" placeholder="缸号/批号，可选" data-field="dyeLotNo" bindinput="handleDraftTextInput" />
       <picker mode="selector" range="{{resultLabels}}" value="{{activeResultIdx}}" bindchange="handleDraftResultChange">
-        <view class="picker-box">结果：{{activeResultLabel || '请选择'}}</view>
+        <view class="qc-picker">结果：{{activeResultLabel || '请选择'}}</view>
       </picker>
       <picker mode="selector" range="{{dispositionLabels}}" value="{{activeDispositionIdx}}" bindchange="handleDraftDispositionChange">
-        <view class="picker-box">处置：{{activeDispositionLabel || '请选择'}}</view>
+        <view class="qc-picker">处置：{{activeDispositionLabel || '请选择'}}</view>
       </picker>
       <textarea class="textarea" value="{{activeDraft.notes}}" placeholder="明细备注，可选" maxlength="300" data-field="notes" bindinput="handleDraftTextInput" />
       <text class="field-help">抽检数必须覆盖合格数和不良数，留证图最多 3 张。</text>
@@ -85,21 +86,30 @@
       </view>
     </view>
 
-    <view class="section release-section">
+    <view class="summary-card">
+      <view class="summary-card__title">检验汇总</view>
+      <view class="summary-stats">
+        <view><text class="summary-stats__num">{{drafts.length}}</text><text class="summary-stats__label">总数</text></view>
+        <view><text class="summary-stats__num">{{completedItemCount}}</text><text class="summary-stats__label">已判定</text></view>
+        <view><text class="summary-stats__num">{{pendingCount}}</text><text class="summary-stats__label">待检</text></view>
+      </view>
+    </view>
+
+    <view class="release-panel">
       <text class="section-title">放行入库</text>
       <picker mode="selector" range="{{resultLabels}}" value="{{overallResultIdx}}" bindchange="handleOverallResultChange">
-        <view class="picker-box">总结果：{{resultLabels[overallResultIdx]}}</view>
+        <view class="qc-picker">总结果：{{resultLabels[overallResultIdx]}}</view>
       </picker>
       <picker mode="selector" range="{{warehouseRange}}" value="{{warehouseIdx}}" bindchange="handleWarehouseChange">
-        <view class="picker-box">{{selectedWarehouseLabel || '请选择仓库'}}</view>
+        <view class="qc-picker">{{selectedWarehouseLabel || '请选择仓库'}}</view>
       </picker>
       <picker mode="selector" range="{{locationRange}}" value="{{locationIdx}}" bindchange="handleLocationChange">
-        <view class="picker-box">{{selectedLocationLabel || '请选择库位'}}</view>
+        <view class="qc-picker">{{selectedLocationLabel || '请选择库位'}}</view>
       </picker>
       <textarea class="textarea" value="{{notes}}" placeholder="质检备注，可选" maxlength="500" bindinput="handleNotesInput" />
       <view class="action-row">
-        <button class="secondary-button flex" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSave">保存明细</button>
-        <button class="success-button flex" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">提交结论</button>
+        <button class="qc-outline flex" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSave">保存明细</button>
+        <button class="qc-submit flex" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">提交报告</button>
       </view>
     </view>
   </block>
