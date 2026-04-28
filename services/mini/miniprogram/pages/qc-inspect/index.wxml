@@ -2,7 +2,7 @@
   <view class="qc-nav">
     <text class="qc-nav__back">‹</text>
     <text class="qc-nav__title">质检巡检</text>
-    <text class="qc-nav__step">{{pendingCount}} / {{drafts.length}} 待检</text>
+    <text class="qc-nav__step">{{pendingCount}} / {{draftCountLabel}} 待检</text>
   </view>
 
   <view class="unit-bar">
@@ -10,8 +10,8 @@
       <text class="unit-bar__order">{{unitOrderLabel}} · {{unitPurchaseLabel}}</text>
       <view class="unit-bar__product">{{unitProductLabel}}</view>
       <view class="unit-bar__tags">
-        <text>最后同步 {{lastRefreshAt || '--:--'}}</text>
-        <text>{{resultLabels[overallResultIdx]}}</text>
+        <text>最后同步 {{syncLabel}}</text>
+        <text>{{overallResultLabel}}</text>
       </view>
     </view>
     <view class="unit-bar__progress">
@@ -21,7 +21,7 @@
   </view>
 
   <view class="progress-track">
-    <view class="progress-track__fill" style="width: {{progressPercent}}%;"></view>
+    <view class="progress-track__fill" style="{{progressStyle}}"></view>
   </view>
 
   <view wx:if="{{loadError}}" class="alert-card">
@@ -33,14 +33,14 @@
   <view class="qc-card">
     <text class="qc-label">选择质检单</text>
     <picker mode="selector" range="{{inspectionRange}}" value="{{inspectionIdx}}" bindchange="handleInspectionChange">
-      <view class="qc-picker">{{inspectionLabel || '请选择质检单'}}</view>
+      <view class="qc-picker">{{inspectionPickerLabel}}</view>
     </picker>
     <button class="qc-refresh" loading="{{loading}}" disabled="{{loading}}" bindtap="loadInspections">刷新质检列表</button>
   </view>
 
   <block wx:if="{{hasActiveDraft}}">
     <view class="section-label">逐件检验</view>
-    <view wx:for="{{draftCards}}" wx:key="index" class="inspect-card inspect-card--{{item.state}} {{item.active ? 'inspect-card--active' : ''}}">
+    <view wx:for="{{draftCards}}" wx:key="index" class="{{item.cardClass}}">
       <view class="inspect-card__header" data-index="{{index}}" bindtap="handleActiveItemChange">
         <view class="inspect-card__num">{{item.marker}}</view>
         <view class="inspect-card__info">
@@ -50,8 +50,8 @@
         <text class="inspect-card__status status--{{item.state}}">{{item.badge}}</text>
       </view>
       <view class="inspect-btns">
-        <button class="inspect-btn inspect-btn--pass {{item.state === 'pass' ? 'inspect-btn--pass-active' : ''}}" data-index="{{index}}" bindtap="markDraftPass">✓ 合格</button>
-        <button class="inspect-btn inspect-btn--fail {{item.state === 'fail' ? 'inspect-btn--fail-active' : ''}}" data-index="{{index}}" bindtap="markDraftFail">× 不合格</button>
+        <button class="{{item.passButtonClass}}" data-index="{{index}}" bindtap="markDraftPass">✓ 合格</button>
+        <button class="{{item.failButtonClass}}" data-index="{{index}}" bindtap="markDraftFail">× 不合格</button>
       </view>
     </view>
 
@@ -67,10 +67,10 @@
       <input class="input" type="digit" value="{{activeDraft.acceptedStockQty}}" placeholder="接收入库数" data-field="acceptedStockQty" bindinput="handleDraftInput" />
       <input class="input" value="{{activeDraft.dyeLotNo}}" placeholder="缸号/批号，可选" data-field="dyeLotNo" bindinput="handleDraftTextInput" />
       <picker mode="selector" range="{{resultLabels}}" value="{{activeResultIdx}}" bindchange="handleDraftResultChange">
-        <view class="qc-picker">结果：{{activeResultLabel || '请选择'}}</view>
+        <view class="qc-picker">结果：{{activeResultPickerLabel}}</view>
       </picker>
       <picker mode="selector" range="{{dispositionLabels}}" value="{{activeDispositionIdx}}" bindchange="handleDraftDispositionChange">
-        <view class="qc-picker">处置：{{activeDispositionLabel || '请选择'}}</view>
+        <view class="qc-picker">处置：{{activeDispositionPickerLabel}}</view>
       </picker>
       <textarea class="textarea" value="{{activeDraft.notes}}" placeholder="明细备注，可选" maxlength="300" data-field="notes" bindinput="handleDraftTextInput" />
       <text class="field-help">抽检数必须覆盖合格数和不良数，留证图最多 3 张。</text>
@@ -81,7 +81,7 @@
         </view>
         <view class="image-add" bindtap="uploadImages">
           <text>+</text>
-          <text>{{uploading ? '上传中' : '留证图'}}</text>
+          <text>{{uploadText}}</text>
         </view>
       </view>
     </view>
@@ -89,7 +89,7 @@
     <view class="summary-card">
       <view class="summary-card__title">检验汇总</view>
       <view class="summary-stats">
-        <view><text class="summary-stats__num">{{drafts.length}}</text><text class="summary-stats__label">总数</text></view>
+        <view><text class="summary-stats__num">{{draftCountLabel}}</text><text class="summary-stats__label">总数</text></view>
         <view><text class="summary-stats__num">{{completedItemCount}}</text><text class="summary-stats__label">已判定</text></view>
         <view><text class="summary-stats__num">{{pendingCount}}</text><text class="summary-stats__label">待检</text></view>
       </view>
@@ -98,13 +98,13 @@
     <view class="release-panel">
       <text class="section-title">放行入库</text>
       <picker mode="selector" range="{{resultLabels}}" value="{{overallResultIdx}}" bindchange="handleOverallResultChange">
-        <view class="qc-picker">总结果：{{resultLabels[overallResultIdx]}}</view>
+        <view class="qc-picker">总结果：{{overallResultLabel}}</view>
       </picker>
       <picker mode="selector" range="{{warehouseRange}}" value="{{warehouseIdx}}" bindchange="handleWarehouseChange">
-        <view class="qc-picker">{{selectedWarehouseLabel || '请选择仓库'}}</view>
+        <view class="qc-picker">{{warehousePickerLabel}}</view>
       </picker>
       <picker mode="selector" range="{{locationRange}}" value="{{locationIdx}}" bindchange="handleLocationChange">
-        <view class="qc-picker">{{selectedLocationLabel || '请选择库位'}}</view>
+        <view class="qc-picker">{{locationPickerLabel}}</view>
       </picker>
       <textarea class="textarea" value="{{notes}}" placeholder="质检备注，可选" maxlength="500" bindinput="handleNotesInput" />
       <view class="action-row">
@@ -115,7 +115,7 @@
   </block>
 
   <view wx:else class="empty-card">
-    <text>{{loading ? '质检数据加载中...' : '暂无待处理质检明细'}}</text>
-    <button wx:if="{{!loading}}" class="empty-action" bindtap="loadInspections">重新同步</button>
+    <text>{{emptyText}}</text>
+    <button wx:if="{{showRetry}}" class="empty-action" bindtap="loadInspections">重新同步</button>
   </view>
 </view>

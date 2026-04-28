@@ -19,11 +19,11 @@
   <view class="stock-brief">
     <view>
       <text class="stock-brief__label">仓库同步</text>
-      <text class="stock-brief__value">{{lastRefreshAt || '待同步'}}</text>
+      <text class="stock-brief__value">{{syncLabel}}</text>
     </view>
     <view>
       <text class="stock-brief__label">候选物料</text>
-      <text class="stock-brief__value">{{skuOptions.length}}</text>
+      <text class="stock-brief__value">{{skuCandidateCount}}</text>
     </view>
   </view>
 
@@ -39,7 +39,7 @@
     </view>
     <view class="card__body">
     <picker mode="selector" range="{{skuRange}}" value="{{skuIdx}}" bindchange="handleSkuChange">
-      <view class="stock-picker">{{selectedSkuLabel || '请选择候选物料'}}</view>
+      <view class="stock-picker">{{skuPickerLabel}}</view>
     </picker>
     <view wx:if="{{selectedSkuLabel}}" class="sku-card">
       <button class="sku-card__change" bindtap="resetForm">更换</button>
@@ -56,7 +56,7 @@
 
   <view class="card">
     <view class="card__header">
-      <text class="field-label">入库数量 <text class="req">*</text></text>
+      <text class="field-label">入库数量</text><text class="req">*</text>
     </view>
     <view class="card__body">
       <view wx:if="{{deliveryNo}}" class="delivery-hint">已识别送货单：{{deliveryNo}}</view>
@@ -82,14 +82,14 @@
 
   <view class="card">
     <view class="card__header">
-      <text class="field-label">上架库位 <text class="req">*</text></text>
+      <text class="field-label">上架库位</text><text class="req">*</text>
     </view>
     <view class="card__body">
       <picker mode="selector" range="{{warehouseRange}}" value="{{warehouseIdx}}" bindchange="handleWarehouseChange">
-        <view class="stock-picker">{{selectedWarehouseLabel || '请选择仓库'}}</view>
+        <view class="stock-picker">{{warehousePickerLabel}}</view>
       </picker>
       <picker mode="selector" range="{{locationRange}}" value="{{locationIdx}}" bindchange="handleLocationChange">
-        <view class="stock-picker">{{selectedLocationLabel || '请选择库位'}}</view>
+        <view class="stock-picker">{{locationPickerLabel}}</view>
       </picker>
     </view>
   </view>

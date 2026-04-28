@@ -50,6 +50,7 @@ Page({
     inspectionRange: [],
     inspectionIdx: 0,
     inspectionLabel: '',
+    inspectionPickerLabel: '请选择质检单',
     detail: null,
     drafts: [],
     draftRange: [],
@@ -58,11 +59,19 @@ Page({
     hasActiveDraft: false,
     activeResultIdx: 0,
     activeResultLabel: '',
+    activeResultPickerLabel: '请选择',
     activeDispositionIdx: 0,
     activeDispositionLabel: '',
+    activeDispositionPickerLabel: '请选择',
     completedItemCount: 0,
     pendingCount: 0,
     progressPercent: 0,
+    progressStyle: 'width: 0%;',
+    draftCountLabel: '0',
+    syncLabel: '--:--',
+    uploadText: '留证图',
+    emptyText: '质检数据加载中...',
+    showRetry: false,
     unitOrderLabel: '请选择质检单',
     unitPurchaseLabel: '待加载',
     unitProductLabel: '来料质检任务',
@@ -70,11 +79,14 @@ Page({
     warehouseRange: [],
     warehouseIdx: 0,
     selectedWarehouseLabel: '',
+    warehousePickerLabel: '请选择仓库',
     locations: [],
     locationRange: [],
     locationIdx: 0,
     selectedLocationLabel: '',
+    locationPickerLabel: '请选择库位',
     overallResultIdx: 0,
+    overallResultLabel: '合格',
     notes: '',
     loading: false,
     uploading: false,
@@ -98,8 +110,12 @@ Page({
     var dispositionIdx = active ? DISPOSITION_OPTIONS.findIndex(function (item) { return item.value === active.disposition }) : -1
     var draftCards = drafts.map(function (item, index) {
       var state = item.result === 'fail' ? 'fail' : (item.result ? 'pass' : 'pending')
+      var activeClass = index === idx ? ' inspect-card--active' : ''
       return {
         index: index,
+        cardClass: 'inspect-card inspect-card--' + state + activeClass,
+        passButtonClass: 'inspect-btn inspect-btn--pass' + (state === 'pass' ? ' inspect-btn--pass-active' : ''),
+        failButtonClass: 'inspect-btn inspect-btn--fail' + (state === 'fail' ? ' inspect-btn--fail-active' : ''),
         label: item.label,
         desc: '抽检 ' + (item.qtySampled || 0) + ' / 送货 ' + (item.qtyDelivered || 0),
         state: state,
@@ -116,11 +132,15 @@ Page({
       hasActiveDraft: Boolean(active),
       activeResultIdx: resultIdx >= 0 ? resultIdx : 0,
       activeResultLabel: resultIdx >= 0 ? RESULT_OPTIONS[resultIdx].label : '',
+      activeResultPickerLabel: resultIdx >= 0 ? RESULT_OPTIONS[resultIdx].label : '请选择',
       activeDispositionIdx: dispositionIdx >= 0 ? dispositionIdx : 0,
       activeDispositionLabel: dispositionIdx >= 0 ? DISPOSITION_OPTIONS[dispositionIdx].label : '',
+      activeDispositionPickerLabel: dispositionIdx >= 0 ? DISPOSITION_OPTIONS[dispositionIdx].label : '请选择',
       completedItemCount: drafts.filter(function (item) { return item.result && item.disposition }).length,
       pendingCount: drafts.length - drafts.filter(function (item) { return item.result && item.disposition }).length,
-      progressPercent: drafts.length ? Math.round(drafts.filter(function (item) { return item.result && item.disposition }).length * 100 / drafts.length) : 0
+      progressPercent: drafts.length ? Math.round(drafts.filter(function (item) { return item.result && item.disposition }).length * 100 / drafts.length) : 0,
+      progressStyle: 'width: ' + (drafts.length ? Math.round(drafts.filter(function (item) { return item.result && item.disposition }).length * 100 / drafts.length) : 0) + '%;',
+      draftCountLabel: String(drafts.length)
     }
   },
 
@@ -138,12 +158,14 @@ Page({
         inspectionRange: list.map(function (item) {
           return (item.inspectionNo || item.id) + ' · ' + (item.supplierName || item.purchaseOrderNo || '来料质检')
         }),
-        lastRefreshAt: ui.nowTimeLabel()
+        lastRefreshAt: ui.nowTimeLabel(),
+        syncLabel: ui.nowTimeLabel()
       })
       if (!list.length) {
         self.setData({
           detail: null,
           inspectionLabel: '',
+          inspectionPickerLabel: '请选择质检单',
           unitOrderLabel: '请选择质检单',
           unitPurchaseLabel: '待加载',
           unitProductLabel: '来料质检任务'
@@ -157,7 +179,7 @@ Page({
       self.setData({ loadError: ui.getErrorMessage(error, '加载质检单失败') })
       ui.showError(error, '加载质检单失败')
     }).finally(function () {
-      self.setData({ loading: false })
+      self.setData({ loading: false, showRetry: true, emptyText: '暂无待处理质检明细' })
       ui.stopPullDownRefresh()
     })
   },
@@ -166,12 +188,13 @@ Page({
     var self = this
     var item = this.data.inspections[idx]
     if (!item) return Promise.resolve()
-    this.setData({ inspectionIdx: idx, inspectionLabel: this.data.inspectionRange[idx] || '' })
+    this.setData({ inspectionIdx: idx, inspectionLabel: this.data.inspectionRange[idx] || '', inspectionPickerLabel: this.data.inspectionRange[idx] || '请选择质检单' })
     return api.incomingInspectionApi.detail(item.id).then(function (detail) {
       self.setData({
         detail: detail,
         notes: asText(detail.notes),
         overallResultIdx: Math.max(0, RESULT_OPTIONS.findIndex(function (option) { return option.value === detail.overallResult })),
+        overallResultLabel: RESULT_OPTIONS[Math.max(0, RESULT_OPTIONS.findIndex(function (option) { return option.value === detail.overallResult }))].label,
         unitOrderLabel: detail.inspectionNo || String(detail.id),
         unitPurchaseLabel: detail.purchaseOrderNo || '-',
         unitProductLabel: detail.supplierName || '来料质检'
@@ -198,7 +221,8 @@ Page({
         warehouses: list,
         warehouseRange: list.map(function (item) { return item.name }),
         warehouseIdx: list.length ? 0 : 0,
-        selectedWarehouseLabel: list.length ? list[0].name : ''
+        selectedWarehouseLabel: list.length ? list[0].name : '',
+        warehousePickerLabel: list.length ? list[0].name : '请选择仓库'
       })
       if (list.length) self.loadLocations(list[0].id)
     }).catch(function (error) {
@@ -214,10 +238,11 @@ Page({
         locations: list,
         locationRange: list.map(function (item) { return [item.code, item.name].filter(Boolean).join(' ') }),
         locationIdx: list.length ? 0 : 0,
-        selectedLocationLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : ''
+        selectedLocationLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : '',
+        locationPickerLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : '请选择库位'
       })
     }).catch(function (error) {
-      self.setData({ locations: [], locationRange: [], selectedLocationLabel: '' })
+      self.setData({ locations: [], locationRange: [], selectedLocationLabel: '', locationPickerLabel: '请选择库位' })
       ui.showError(error, '加载库位失败')
     })
   },
@@ -225,14 +250,15 @@ Page({
   handleWarehouseChange: function (event) {
     var idx = Number(event.detail.value) || 0
     var warehouse = this.data.warehouses[idx]
-    this.setData({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '' })
+    this.setData({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '', warehousePickerLabel: warehouse ? warehouse.name : '请选择仓库' })
     if (warehouse) this.loadLocations(warehouse.id)
   },
 
   handleLocationChange: function (event) {
     var idx = Number(event.detail.value) || 0
     var location = this.data.locations[idx]
-    this.setData({ locationIdx: idx, selectedLocationLabel: location ? [location.code, location.name].filter(Boolean).join(' ') : '' })
+    var label = location ? [location.code, location.name].filter(Boolean).join(' ') : ''
+    this.setData({ locationIdx: idx, selectedLocationLabel: label, locationPickerLabel: label || '请选择库位' })
   },
 
   handleActiveItemChange: function (event) {
@@ -295,7 +321,8 @@ Page({
   },
 
   handleOverallResultChange: function (event) {
-    this.setData({ overallResultIdx: Number(event.detail.value) || 0 })
+    var idx = Number(event.detail.value) || 0
+    this.setData({ overallResultIdx: idx, overallResultLabel: RESULT_OPTIONS[idx].label })
   },
 
   handleNotesInput: function (event) {
@@ -311,7 +338,7 @@ Page({
       wx.showToast({ title: '每条明细最多 3 张图片', icon: 'none' })
       return
     }
-    this.setData({ uploading: true })
+    this.setData({ uploading: true, uploadText: '上传中' })
     wx.chooseImage({
       count: remaining,
       sizeType: ['compressed'],
@@ -333,11 +360,11 @@ Page({
         }).catch(function (error) {
           ui.showError(error, '图片上传失败')
         }).finally(function () {
-          self.setData({ uploading: false })
+          self.setData({ uploading: false, uploadText: '留证图' })
         })
       },
       fail: function (error) {
-        self.setData({ uploading: false })
+        self.setData({ uploading: false, uploadText: '留证图' })
         if (error && error.errMsg && error.errMsg.indexOf('cancel') >= 0) return
         ui.showError(error, '选择图片失败')
       }

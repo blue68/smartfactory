@@ -44,25 +44,35 @@ Page({
     selectedTask: null,
     selectedTaskIdx: 0,
     selectedTaskLabel: '',
+    lastRefreshText: '扫码或下拉刷新任务',
+    statusDisplayLabel: '状态：全部',
+    taskCountLabel: '0 个',
+    emptyTaskText: '任务加载中...',
+    showTaskRetry: false,
     taskTitle: '',
     taskSkuLabel: '',
     taskStatusLabel: '',
+    taskPlanLabel: '',
     taskProgress: '-',
     activeTaskCount: 0,
     inputMaterialViews: [],
+    hasNoInputMaterials: true,
     warehouses: [],
     warehouseRange: [],
     warehouseIdx: 0,
     selectedWarehouseLabel: '',
+    warehousePickerLabel: '请选择出库仓库',
     locations: [],
     locationRange: [],
     locationIdx: 0,
     selectedLocationLabel: '',
+    locationPickerLabel: '请选择库位，可选',
     materialKeyword: '',
     materialOptions: [],
     materialRange: [],
     materialIdx: 0,
     selectedMaterialLabel: '',
+    materialPickerLabel: '请选择投料物料',
     issueQty: '',
     dyeLotNo: '',
     completedQty: '',
@@ -76,7 +86,8 @@ Page({
     materialSearching: false,
     submitting: false,
     loadError: '',
-    lastRefreshAt: ''
+    lastRefreshAt: '',
+    startDisabled: true
   },
 
   onLoad: function () {
@@ -99,6 +110,8 @@ Page({
       var priorityLabel = priority === 'urgent' ? '紧急' : (priority === 'high' ? '高' : '普通')
       return {
         id: task.id,
+        className: 'ops-task ops-task--' + priority + (selectedTask && task.id === selectedTask.id ? ' ops-task--active' : ''),
+        dotClass: 'ops-task__dot ops-task__dot--' + (task.status || 'pending'),
         priority: priority,
         priorityLabel: priorityLabel,
         title: titleOf(task),
@@ -125,9 +138,12 @@ Page({
       taskTitle: titleOf(selectedTask),
       taskSkuLabel: skuOf(selectedTask),
       taskStatusLabel: selectedTask ? (STATUS_LABELS[selectedTask.status] || selectedTask.status) : '',
+      taskPlanLabel: selectedTask ? ('计划 ' + (selectedTask.plannedQty || '-') + ' ' + (selectedTask.unit || '')) : '',
       taskProgress: selectedTask ? ((selectedTask.completedQty || 0) + '/' + (selectedTask.plannedQty || '-') + ' ' + (selectedTask.unit || '')) : '-',
       activeTaskCount: tasks.filter(function (task) { return task.status !== 'completed' }).length,
-      inputMaterialViews: inputMaterialViews
+      inputMaterialViews: inputMaterialViews,
+      hasNoInputMaterials: inputMaterialViews.length === 0,
+      taskCountLabel: tasks.length + ' 个'
     }
   },
 
@@ -137,7 +153,8 @@ Page({
       completedQty: task ? String(task.completedQty || '') : '',
       actualHours: '',
       scrapQty: '',
-      completeNotes: ''
+      completeNotes: '',
+      startDisabled: !task || task.status === 'completed'
     }, this.buildTaskState(this.data.tasks, task)))
   },
 
@@ -152,9 +169,10 @@ Page({
         if (self.data.selectedTask && task.id === self.data.selectedTask.id) preferred = task
       })
       if (!preferred && list.length) preferred = list[0]
-      self.setData({ tasks: list, lastRefreshAt: ui.nowTimeLabel() })
+      var refreshAt = ui.nowTimeLabel()
+      self.setData({ tasks: list, lastRefreshAt: refreshAt, lastRefreshText: '最后同步 ' + refreshAt })
       if (!preferred) {
-        self.setData(Object.assign({ selectedTask: null }, self.buildTaskState(list, null)))
+        self.setData(Object.assign({ selectedTask: null, showTaskRetry: true, emptyTaskText: '暂无符合条件的任务' }, self.buildTaskState(list, null)))
         return null
       }
       return api.productionTaskApi.detail(preferred.id).then(function (detail) {
@@ -165,7 +183,7 @@ Page({
       self.setData({ loadError: ui.getErrorMessage(error, '加载任务失败') })
       ui.showError(error, '加载任务失败')
     }).finally(function () {
-      self.setData({ loading: false })
+      self.setData({ loading: false, showTaskRetry: true, emptyTaskText: '暂无符合条件的任务' })
       ui.stopPullDownRefresh()
     })
   },
@@ -178,7 +196,8 @@ Page({
         warehouses: list,
         warehouseRange: list.map(function (item) { return item.name }),
         warehouseIdx: list.length ? 0 : 0,
-        selectedWarehouseLabel: list.length ? list[0].name : ''
+        selectedWarehouseLabel: list.length ? list[0].name : '',
+        warehousePickerLabel: list.length ? list[0].name : '请选择出库仓库'
       })
       if (list.length) self.loadLocations(list[0].id)
     }).catch(function (error) {
@@ -194,16 +213,18 @@ Page({
         locations: list,
         locationRange: list.map(function (item) { return [item.code, item.name].filter(Boolean).join(' ') }),
         locationIdx: list.length ? 0 : 0,
-        selectedLocationLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : ''
+        selectedLocationLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : '',
+        locationPickerLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : '请选择库位，可选'
       })
     }).catch(function (error) {
-      self.setData({ locations: [], locationRange: [], selectedLocationLabel: '' })
+      self.setData({ locations: [], locationRange: [], selectedLocationLabel: '', locationPickerLabel: '请选择库位，可选' })
       ui.showError(error, '加载库位失败')
     })
   },
 
   handleStatusChange: function (event) {
-    this.setData({ statusIdx: Number(event.detail.value) || 0 })
+    var idx = Number(event.detail.value) || 0
+    this.setData({ statusIdx: idx, statusDisplayLabel: '状态：' + STATUS_OPTIONS[idx] })
     this.loadTasks()
   },
 
@@ -252,14 +273,15 @@ Page({
   handleWarehouseChange: function (event) {
     var idx = Number(event.detail.value) || 0
     var warehouse = this.data.warehouses[idx]
-    this.setData({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '' })
+    this.setData({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '', warehousePickerLabel: warehouse ? warehouse.name : '请选择出库仓库' })
     if (warehouse) this.loadLocations(warehouse.id)
   },
 
   handleLocationChange: function (event) {
     var idx = Number(event.detail.value) || 0
     var location = this.data.locations[idx]
-    this.setData({ locationIdx: idx, selectedLocationLabel: location ? [location.code, location.name].filter(Boolean).join(' ') : '' })
+    var label = location ? [location.code, location.name].filter(Boolean).join(' ') : ''
+    this.setData({ locationIdx: idx, selectedLocationLabel: label, locationPickerLabel: label || '请选择库位，可选' })
   },
 
   handleMaterialKeywordInput: function (event) { this.setData({ materialKeyword: event.detail.value }) },
@@ -287,7 +309,8 @@ Page({
         materialOptions: list,
         materialRange: list.map(ui.formatSku),
         materialIdx: 0,
-        selectedMaterialLabel: list.length ? ui.formatSku(list[0]) : ''
+        selectedMaterialLabel: list.length ? ui.formatSku(list[0]) : '',
+        materialPickerLabel: list.length ? ui.formatSku(list[0]) : '请选择投料物料'
       })
       if (!list.length) wx.showToast({ title: '未找到物料', icon: 'none' })
     }).catch(function (error) {
@@ -300,7 +323,7 @@ Page({
   handleMaterialChange: function (event) {
     var idx = Number(event.detail.value) || 0
     var item = this.data.materialOptions[idx]
-    this.setData({ materialIdx: idx, selectedMaterialLabel: item ? ui.formatSku(item) : '' })
+    this.setData({ materialIdx: idx, selectedMaterialLabel: item ? ui.formatSku(item) : '', materialPickerLabel: item ? ui.formatSku(item) : '请选择投料物料' })
   },
 
   pickRecommendedMaterial: function (event) {
@@ -319,6 +342,7 @@ Page({
       materialRange: [ui.formatSku(option)],
       materialIdx: 0,
       selectedMaterialLabel: ui.formatSku(option),
+      materialPickerLabel: ui.formatSku(option),
       issueQty: source.requiredQty || source.qty ? String(source.requiredQty || source.qty) : this.data.issueQty
     })
   },

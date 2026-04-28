@@ -69,6 +69,9 @@ for (const file of files) {
   if (extname(file) === '.wxss' && /:(first-child|last-child)|\binset\s*:/.test(text)) {
     fail(`unsupported wxss selector/property found in ${file}`)
   }
+  if (extname(file) === '.wxml' && /\{\{[^}]*([?:]|\|\||&&|===|!==)[^}]*\}\}/.test(text)) {
+    fail(`complex wxml expression found in ${file}; compute it in page js instead`)
+  }
   if (extname(file) === '.json') JSON.parse(text)
   if (extname(file) === '.js') {
     const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' })

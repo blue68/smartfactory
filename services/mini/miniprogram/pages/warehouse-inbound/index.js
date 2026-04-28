@@ -33,6 +33,7 @@ Page({
     skuRange: [],
     skuIdx: 0,
     selectedSkuLabel: '',
+    skuPickerLabel: '请选择候选物料',
     selectedSkuCode: '',
     selectedSkuName: '',
     selectedSkuUnit: '件',
@@ -43,13 +44,17 @@ Page({
     warehouseRange: [],
     warehouseIdx: 0,
     selectedWarehouseLabel: '',
+    warehousePickerLabel: '请选择仓库',
     locations: [],
     locationRange: [],
     locationIdx: 0,
     selectedLocationLabel: '',
+    locationPickerLabel: '请选择库位',
     loading: false,
     loadError: '',
     lastRefreshAt: '',
+    syncLabel: '待同步',
+    skuCandidateCount: 0,
     submitting: false,
     successVisible: false,
     successQtyLabel: '',
@@ -72,6 +77,7 @@ Page({
       skuRange: list.map(ui.formatSku),
       skuIdx: idx || 0,
       selectedSkuLabel: sku ? ui.formatSku(sku) : '',
+      skuPickerLabel: sku ? ui.formatSku(sku) : '请选择候选物料',
       selectedSkuCode: sku ? (sku.skuCode || sku.code || '') : '',
       selectedSkuName: sku ? (sku.name || sku.skuName || '') : '',
       selectedSkuUnit: sku ? (sku.stockUnit || sku.purchaseUnit || sku.unit || '件') : '件'
@@ -88,7 +94,9 @@ Page({
         warehouseRange: list.map(function (item) { return item.name }),
         warehouseIdx: list.length ? 0 : 0,
         selectedWarehouseLabel: list.length ? list[0].name : '',
-        lastRefreshAt: ui.nowTimeLabel()
+        warehousePickerLabel: list.length ? list[0].name : '请选择仓库',
+        lastRefreshAt: ui.nowTimeLabel(),
+        syncLabel: ui.nowTimeLabel()
       })
       if (list.length) self.loadLocations(list[0].id)
     }).catch(function (error) {
@@ -107,10 +115,11 @@ Page({
         locations: list,
         locationRange: list.map(function (item) { return [item.code, item.name].filter(Boolean).join(' ') }),
         locationIdx: list.length ? 0 : 0,
-        selectedLocationLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : ''
+        selectedLocationLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : '',
+        locationPickerLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : '请选择库位'
       })
     }).catch(function (error) {
-      self.setData({ locations: [], locationRange: [], selectedLocationLabel: '' })
+      self.setData({ locations: [], locationRange: [], selectedLocationLabel: '', locationPickerLabel: '请选择库位' })
       ui.showError(error, '加载库位失败')
     })
   },
@@ -131,6 +140,7 @@ Page({
     return api.skuApi.search(keyword).then(function (res) {
       var list = res.list || []
       self.setSkuSelection(list, list.length ? 0 : 0)
+      self.setData({ skuCandidateCount: list.length })
       if (!list.length) wx.showToast({ title: '未找到物料', icon: 'none' })
       return list
     }).catch(function (error) {
@@ -178,14 +188,15 @@ Page({
   handleWarehouseChange: function (event) {
     var idx = Number(event.detail.value) || 0
     var warehouse = this.data.warehouses[idx]
-    this.setData({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '' })
+    this.setData({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '', warehousePickerLabel: warehouse ? warehouse.name : '请选择仓库' })
     if (warehouse) this.loadLocations(warehouse.id)
   },
 
   handleLocationChange: function (event) {
     var idx = Number(event.detail.value) || 0
     var location = this.data.locations[idx]
-    this.setData({ locationIdx: idx, selectedLocationLabel: location ? [location.code, location.name].filter(Boolean).join(' ') : '' })
+    var label = location ? [location.code, location.name].filter(Boolean).join(' ') : ''
+    this.setData({ locationIdx: idx, selectedLocationLabel: label, locationPickerLabel: label || '请选择库位' })
   },
 
   addQuickQty: function (event) {
@@ -199,7 +210,7 @@ Page({
     ui.confirmAction('清空表单', '确认清空当前物料、数量和批次信息？').then(function (ok) {
       if (!ok) return
       self.setSkuSelection([], 0)
-      self.setData({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '', successVisible: false })
+      self.setData({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '', successVisible: false, skuCandidateCount: 0 })
     })
   },
 
@@ -235,7 +246,7 @@ Page({
           successDyeLot: self.data.dyeLotNo.trim() || '未填写'
         })
         self.setSkuSelection([], 0)
-        self.setData({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '' })
+        self.setData({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '', skuCandidateCount: 0 })
       }).catch(function (error) {
         ui.showError(error, '入库失败')
       }).finally(function () {
