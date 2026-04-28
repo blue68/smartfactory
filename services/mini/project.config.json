@@ -1,0 +1,28 @@
+{
+  "miniprogramRoot": "dist/",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "postcss": true,
+    "minified": true,
+    "uglifyFileName": false,
+    "enhance": true,
+    "packNpmRelationList": [],
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    },
+    "useCompilerPlugins": false,
+    "minifyWXML": true
+  },
+  "compileType": "miniprogram",
+  "projectname": "smartfactory-mini",
+  "simulatorPluginLibVersion": {},
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "appid": "wx9a02c6fa07761797",
+  "editorSetting": {}
+}

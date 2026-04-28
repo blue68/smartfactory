@@ -12,10 +12,12 @@
 
 import Taro from '@tarojs/taro'
 
+declare const __API_BASE_URL__: string
+
 // ─────────────────────────────────────────────
 // 全局配置
 // ─────────────────────────────────────────────
-const BASE_URL = process.env.TARO_APP_API_BASE_URL || 'http://localhost:3000'
+const BASE_URL = __API_BASE_URL__
 const TIMEOUT = 15_000
 const TOKEN_KEY = 'sf_access_token'
 
