@@ -12,6 +12,7 @@ const requiredFiles = [
   'utils/config.js',
   'utils/request.js',
   'utils/api.js',
+  'utils/mockData.js',
   'utils/interaction.js',
   'pages/worker-task/index.js',
   'pages/worker-task/index.json',
@@ -106,5 +107,26 @@ for (const jsFile of [
 ]) {
   require(join(miniRoot, jsFile))
 }
+
+const api = require(join(miniRoot, 'utils/api.js'))
+const taskPage = await api.productionTaskApi.list({ page: 1, pageSize: 10 })
+if (!taskPage.list.length) fail('mock production tasks must not be empty')
+await api.productionTaskApi.start(taskPage.list[0].id)
+await api.productionTaskApi.issueMaterials(taskPage.list[0].id, [{ skuId: 101, qty: 1, warehouseId: 1 }])
+await api.productionTaskApi.complete(taskPage.list[0].id, { completedQty: 1, actualHours: 0.5, scrapQty: 0 })
+
+const skuPage = await api.skuApi.search('FAB')
+if (!skuPage.list.length) fail('mock SKU search must return data')
+const warehouseList = await api.inventoryApi.warehouses()
+if (!warehouseList.length) fail('mock warehouses must not be empty')
+const locationList = await api.inventoryApi.locations(warehouseList[0].id)
+if (!locationList.length) fail('mock locations must not be empty')
+await api.inventoryApi.inbound({ skuId: skuPage.list[0].id, skuCode: skuPage.list[0].skuCode, qtyInput: 1, inputUnit: 'm', warehouseId: warehouseList[0].id, locationId: locationList[0].id })
+
+const inspectionPage = await api.incomingInspectionApi.list({ page: 1, pageSize: 10 })
+if (!inspectionPage.list.length) fail('mock inspections must not be empty')
+const inspection = await api.incomingInspectionApi.detail(inspectionPage.list[0].id)
+await api.incomingInspectionApi.updateItems(inspection.id, inspection.items.map((item) => Object.assign({}, item, { result: 'pass', disposition: 'accept' })))
+await api.incomingInspectionApi.submit(inspection.id, { overallResult: 'pass', warehouseId: warehouseList[0].id, locationId: locationList[0].id })
 
 console.log('mini validation passed')
