@@ -1,0 +1,36 @@
+{
+  "pages": [
+    "pages/worker-task/index",
+    "pages/warehouse-inbound/index",
+    "pages/qc-inspect/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "智造管家",
+    "navigationBarBackgroundColor": "#0f62d6",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f3f7fc",
+    "enablePullDownRefresh": true
+  },
+  "tabBar": {
+    "color": "#77859a",
+    "selectedColor": "#0f62d6",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/worker-task/index",
+        "text": "我的任务"
+      },
+      {
+        "pagePath": "pages/warehouse-inbound/index",
+        "text": "仓库入库"
+      },
+      {
+        "pagePath": "pages/qc-inspect/index",
+        "text": "QC检验"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

@@ -1,0 +1,19 @@
+.status-pending {
+  color: #9a5b00;
+  background: #fff4d8;
+}
+
+.status-in_progress {
+  color: #0f62d6;
+  background: #eaf2ff;
+}
+
+.status-exception {
+  color: #c92a2a;
+  background: #fff0f0;
+}
+
+.status-completed {
+  color: #0a7f4d;
+  background: #e8f7ef;
+}

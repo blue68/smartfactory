@@ -1,0 +1,386 @@
+var api = require('../../utils/api')
+var ui = require('../../utils/interaction')
+
+var RESULT_OPTIONS = [
+  { value: 'pass', label: '合格' },
+  { value: 'conditional_pass', label: '让步接收' },
+  { value: 'fail', label: '不合格' }
+]
+var DISPOSITION_OPTIONS = [
+  { value: 'accept', label: '接收入库' },
+  { value: 'rework', label: '返工复检' },
+  { value: 'return', label: '整批退货' },
+  { value: 'scrap', label: '报废隔离' }
+]
+
+function asText(value) {
+  return value === undefined || value === null ? '' : String(value)
+}
+
+function numberText(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback || '0'
+  return String(value)
+}
+
+function buildDrafts(items) {
+  return (items || []).map(function (item, index) {
+    return {
+      id: item.id,
+      sourceItemIds: item.sourceItemIds || [],
+      label: [item.skuCode || '', item.skuName || item.name || ''].filter(Boolean).join(' ') || ('明细 ' + (index + 1)),
+      qtyDelivered: numberText(item.qtyDelivered),
+      qtySampled: numberText(item.qtySampled),
+      qtyPassed: numberText(item.qtyPassed),
+      qtyFailed: numberText(item.qtyFailed),
+      acceptedStockQty: numberText(item.acceptedStockQty !== undefined ? item.acceptedStockQty : item.qtyPassed),
+      dyeLotNo: asText(item.dyeLotNo),
+      result: asText(item.result),
+      disposition: asText(item.disposition),
+      notes: asText(item.notes),
+      defectImages: Array.isArray(item.defectImages) ? item.defectImages.filter(Boolean) : []
+    }
+  })
+}
+
+Page({
+  data: {
+    resultLabels: RESULT_OPTIONS.map(function (item) { return item.label }),
+    dispositionLabels: DISPOSITION_OPTIONS.map(function (item) { return item.label }),
+    inspections: [],
+    inspectionRange: [],
+    inspectionIdx: 0,
+    inspectionLabel: '',
+    detail: null,
+    drafts: [],
+    draftRange: [],
+    activeItemIdx: 0,
+    activeDraft: null,
+    hasActiveDraft: false,
+    activeResultIdx: 0,
+    activeResultLabel: '',
+    activeDispositionIdx: 0,
+    activeDispositionLabel: '',
+    completedItemCount: 0,
+    warehouses: [],
+    warehouseRange: [],
+    warehouseIdx: 0,
+    selectedWarehouseLabel: '',
+    locations: [],
+    locationRange: [],
+    locationIdx: 0,
+    selectedLocationLabel: '',
+    overallResultIdx: 0,
+    notes: '',
+    loading: false,
+    uploading: false,
+    submitting: false,
+    loadError: '',
+    lastRefreshAt: ''
+  },
+
+  onLoad: function () {
+    this.loadInspections()
+    this.loadWarehouses()
+  },
+
+  onPullDownRefresh: function () {
+    this.loadInspections()
+  },
+
+  deriveDraftState: function (drafts, idx) {
+    var active = drafts[idx] || null
+    var resultIdx = active ? RESULT_OPTIONS.findIndex(function (item) { return item.value === active.result }) : -1
+    var dispositionIdx = active ? DISPOSITION_OPTIONS.findIndex(function (item) { return item.value === active.disposition }) : -1
+    return {
+      draftRange: drafts.map(function (item) { return item.label }),
+      activeItemIdx: idx || 0,
+      activeDraft: active,
+      hasActiveDraft: Boolean(active),
+      activeResultIdx: resultIdx >= 0 ? resultIdx : 0,
+      activeResultLabel: resultIdx >= 0 ? RESULT_OPTIONS[resultIdx].label : '',
+      activeDispositionIdx: dispositionIdx >= 0 ? dispositionIdx : 0,
+      activeDispositionLabel: dispositionIdx >= 0 ? DISPOSITION_OPTIONS[dispositionIdx].label : '',
+      completedItemCount: drafts.filter(function (item) { return item.result && item.disposition }).length
+    }
+  },
+
+  setDrafts: function (drafts, idx) {
+    this.setData(Object.assign({ drafts: drafts }, this.deriveDraftState(drafts, idx || 0)))
+  },
+
+  loadInspections: function () {
+    var self = this
+    this.setData({ loading: true, loadError: '' })
+    api.incomingInspectionApi.list({ page: 1, pageSize: 50 }).then(function (res) {
+      var list = res.list || []
+      self.setData({
+        inspections: list,
+        inspectionRange: list.map(function (item) {
+          return (item.inspectionNo || item.id) + ' · ' + (item.supplierName || item.purchaseOrderNo || '来料质检')
+        }),
+        lastRefreshAt: ui.nowTimeLabel()
+      })
+      if (!list.length) {
+        self.setData({ detail: null, inspectionLabel: '' })
+        self.setDrafts([], 0)
+        return null
+      }
+      var idx = self.data.inspectionIdx < list.length ? self.data.inspectionIdx : 0
+      return self.selectInspectionByIndex(idx)
+    }).catch(function (error) {
+      self.setData({ loadError: ui.getErrorMessage(error, '加载质检单失败') })
+      ui.showError(error, '加载质检单失败')
+    }).finally(function () {
+      self.setData({ loading: false })
+      ui.stopPullDownRefresh()
+    })
+  },
+
+  selectInspectionByIndex: function (idx) {
+    var self = this
+    var item = this.data.inspections[idx]
+    if (!item) return Promise.resolve()
+    this.setData({ inspectionIdx: idx, inspectionLabel: this.data.inspectionRange[idx] || '' })
+    return api.incomingInspectionApi.detail(item.id).then(function (detail) {
+      self.setData({
+        detail: detail,
+        notes: asText(detail.notes),
+        overallResultIdx: Math.max(0, RESULT_OPTIONS.findIndex(function (option) { return option.value === detail.overallResult }))
+      })
+      self.setDrafts(buildDrafts(detail.items), 0)
+    })
+  },
+
+  handleInspectionChange: function (event) {
+    var self = this
+    this.setData({ loading: true })
+    this.selectInspectionByIndex(Number(event.detail.value) || 0).catch(function (error) {
+      ui.showError(error, '加载详情失败')
+    }).finally(function () {
+      self.setData({ loading: false })
+    })
+  },
+
+  loadWarehouses: function () {
+    var self = this
+    api.inventoryApi.warehouses().then(function (res) {
+      var list = Array.isArray(res) ? res : []
+      self.setData({
+        warehouses: list,
+        warehouseRange: list.map(function (item) { return item.name }),
+        warehouseIdx: list.length ? 0 : 0,
+        selectedWarehouseLabel: list.length ? list[0].name : ''
+      })
+      if (list.length) self.loadLocations(list[0].id)
+    }).catch(function (error) {
+      ui.showError(error, '加载仓库失败')
+    })
+  },
+
+  loadLocations: function (warehouseId) {
+    var self = this
+    api.inventoryApi.locations(warehouseId).then(function (res) {
+      var list = Array.isArray(res) ? res : []
+      self.setData({
+        locations: list,
+        locationRange: list.map(function (item) { return [item.code, item.name].filter(Boolean).join(' ') }),
+        locationIdx: list.length ? 0 : 0,
+        selectedLocationLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : ''
+      })
+    }).catch(function (error) {
+      self.setData({ locations: [], locationRange: [], selectedLocationLabel: '' })
+      ui.showError(error, '加载库位失败')
+    })
+  },
+
+  handleWarehouseChange: function (event) {
+    var idx = Number(event.detail.value) || 0
+    var warehouse = this.data.warehouses[idx]
+    this.setData({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '' })
+    if (warehouse) this.loadLocations(warehouse.id)
+  },
+
+  handleLocationChange: function (event) {
+    var idx = Number(event.detail.value) || 0
+    var location = this.data.locations[idx]
+    this.setData({ locationIdx: idx, selectedLocationLabel: location ? [location.code, location.name].filter(Boolean).join(' ') : '' })
+  },
+
+  handleActiveItemChange: function (event) {
+    this.setDrafts(this.data.drafts, Number(event.detail.value) || 0)
+  },
+
+  updateActiveDraft: function (patch) {
+    var drafts = this.data.drafts.slice()
+    var current = Object.assign({}, drafts[this.data.activeItemIdx] || {}, patch)
+    drafts[this.data.activeItemIdx] = current
+    this.setDrafts(drafts, this.data.activeItemIdx)
+  },
+
+  handleDraftInput: function (event) {
+    var patch = {}
+    patch[event.currentTarget.dataset.field] = ui.decimalInput(event.detail.value)
+    this.updateActiveDraft(patch)
+  },
+
+  handleDraftTextInput: function (event) {
+    var patch = {}
+    patch[event.currentTarget.dataset.field] = event.detail.value
+    this.updateActiveDraft(patch)
+  },
+
+  handleDraftResultChange: function (event) {
+    var idx = Number(event.detail.value) || 0
+    this.updateActiveDraft({ result: RESULT_OPTIONS[idx].value })
+  },
+
+  handleDraftDispositionChange: function (event) {
+    var idx = Number(event.detail.value) || 0
+    this.updateActiveDraft({ disposition: DISPOSITION_OPTIONS[idx].value })
+  },
+
+  handleOverallResultChange: function (event) {
+    this.setData({ overallResultIdx: Number(event.detail.value) || 0 })
+  },
+
+  handleNotesInput: function (event) {
+    this.setData({ notes: event.detail.value })
+  },
+
+  uploadImages: function () {
+    var self = this
+    var active = this.data.activeDraft
+    if (!active) return
+    var remaining = 3 - active.defectImages.length
+    if (remaining <= 0) {
+      wx.showToast({ title: '每条明细最多 3 张图片', icon: 'none' })
+      return
+    }
+    this.setData({ uploading: true })
+    wx.chooseImage({
+      count: remaining,
+      sizeType: ['compressed'],
+      sourceType: ['camera', 'album'],
+      success: function (picked) {
+        var files = picked.tempFilePaths || []
+        var chain = Promise.resolve([])
+        files.forEach(function (filePath) {
+          chain = chain.then(function (uploaded) {
+            return api.upload(filePath).then(function (result) {
+              uploaded.push(result.url)
+              return uploaded
+            })
+          })
+        })
+        chain.then(function (uploaded) {
+          self.updateActiveDraft({ defectImages: active.defectImages.concat(uploaded) })
+          ui.showSuccess('留证图已上传')
+        }).catch(function (error) {
+          ui.showError(error, '图片上传失败')
+        }).finally(function () {
+          self.setData({ uploading: false })
+        })
+      },
+      fail: function (error) {
+        self.setData({ uploading: false })
+        if (error && error.errMsg && error.errMsg.indexOf('cancel') >= 0) return
+        ui.showError(error, '选择图片失败')
+      }
+    })
+  },
+
+  removeImage: function (event) {
+    var self = this
+    var url = event.currentTarget.dataset.url
+    if (!url || !this.data.activeDraft) return
+    ui.confirmAction('移除留证图', '确认从当前质检明细中移除这张图片？').then(function (ok) {
+      if (!ok) return
+      self.updateActiveDraft({
+        defectImages: self.data.activeDraft.defectImages.filter(function (item) { return item !== url })
+      })
+    })
+  },
+
+  validateDrafts: function () {
+    if (!this.data.detail) throw new Error('请先选择质检单')
+    if (!this.data.drafts.length) throw new Error('当前质检单没有明细')
+    var missing = this.data.drafts.find(function (item) { return !item.result || !item.disposition })
+    if (missing) throw new Error('请为每条明细选择结果和处置方式')
+    var invalidQty = this.data.drafts.find(function (item) {
+      var sampled = ui.asNumber(item.qtySampled)
+      var passed = ui.asNumber(item.qtyPassed)
+      var failed = ui.asNumber(item.qtyFailed)
+      return !Number.isFinite(sampled) || !Number.isFinite(passed) || !Number.isFinite(failed) || sampled < passed + failed
+    })
+    if (invalidQty) throw new Error('抽检数不能小于合格数与不良数之和')
+  },
+
+  saveItems: function () {
+    var detail = this.data.detail
+    this.validateDrafts()
+    return api.incomingInspectionApi.updateItems(detail.id, this.data.drafts.map(function (item) {
+      return {
+        id: item.id,
+        sourceItemIds: item.sourceItemIds,
+        qtyDelivered: item.qtyDelivered,
+        qtysampled: item.qtySampled,
+        qtyPassed: item.qtyPassed,
+        qtyFailed: item.qtyFailed,
+        acceptedStockQty: item.acceptedStockQty,
+        dyeLotNo: item.dyeLotNo || undefined,
+        result: item.result,
+        defectImages: item.defectImages,
+        disposition: item.disposition,
+        notes: item.notes || undefined
+      }
+    }))
+  },
+
+  handleSave: function () {
+    var self = this
+    this.setData({ submitting: true })
+    this.saveItems().then(function () {
+      ui.showSuccess('明细已保存')
+    }).catch(function (error) {
+      ui.showError(error, '保存失败')
+    }).finally(function () {
+      self.setData({ submitting: false })
+    })
+  },
+
+  handleSubmit: function () {
+    var self = this
+    var detail = this.data.detail
+    var warehouse = this.data.warehouses[this.data.warehouseIdx]
+    var location = this.data.locations[this.data.locationIdx]
+    if (!detail || !warehouse || !location) {
+      ui.showError('请选择放行仓库和库位', '放行信息不完整')
+      return
+    }
+    try {
+      this.validateDrafts()
+    } catch (error) {
+      ui.showError(error, '提交失败')
+      return
+    }
+    ui.confirmAction('提交质检结论', '结论：' + RESULT_OPTIONS[this.data.overallResultIdx].label + '\n提交后将按明细放行入库。').then(function (ok) {
+      if (!ok) return
+      self.setData({ submitting: true })
+      self.saveItems().then(function () {
+        return api.incomingInspectionApi.submit(detail.id, {
+          overallResult: RESULT_OPTIONS[self.data.overallResultIdx].value,
+          warehouseId: warehouse.id,
+          locationId: location.id,
+          notes: self.data.notes.trim() || undefined
+        })
+      }).then(function () {
+        ui.showSuccess('质检已提交')
+        return self.selectInspectionByIndex(self.data.inspectionIdx)
+      }).catch(function (error) {
+        ui.showError(error, '提交失败')
+      }).finally(function () {
+        self.setData({ submitting: false })
+      })
+    })
+  }
+})

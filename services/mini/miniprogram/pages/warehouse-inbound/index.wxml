@@ -1,0 +1,69 @@
+<view class="page">
+  <view class="hero">
+    <view>
+      <text class="eyebrow">物料库存上架</text>
+      <view class="page-title">来料入库上架</view>
+      <text class="hero-subtitle">{{lastRefreshAt ? '仓库同步 ' + lastRefreshAt : '扫码或搜索后完成上架'}}</text>
+    </view>
+    <button class="scan-button" bindtap="handleScan">扫码</button>
+  </view>
+
+  <view class="metric-row">
+    <view class="metric-card">
+      <text class="metric-value">{{skuOptions.length}}</text>
+      <text class="metric-label">候选物料</text>
+    </view>
+    <view class="metric-card">
+      <text class="metric-value">{{warehouses.length}}</text>
+      <text class="metric-label">可用仓库</text>
+    </view>
+    <view class="metric-card">
+      <text class="metric-value">{{locations.length}}</text>
+      <text class="metric-label">当前库位</text>
+    </view>
+  </view>
+
+  <view wx:if="{{loadError}}" class="alert-card">
+    <text class="alert-title">仓库资料同步失败</text>
+    <text class="alert-text">{{loadError}}</text>
+    <button class="alert-action" bindtap="loadWarehouses">重试</button>
+  </view>
+
+  <view class="section">
+    <text class="section-title">物料检索</text>
+    <view class="inline-row">
+      <input class="input flex" value="{{keyword}}" placeholder="SKU 编码 / 名称 / 条码" bindinput="handleKeywordInput" />
+      <button class="primary-small" loading="{{loading}}" disabled="{{loading}}" bindtap="searchSku">查询</button>
+    </view>
+    <text class="field-help">扫码失败时可直接输入 SKU 编码或名称查询。</text>
+    <picker mode="selector" range="{{skuRange}}" value="{{skuIdx}}" bindchange="handleSkuChange">
+      <view class="picker-box">{{selectedSkuLabel || '请选择物料'}}</view>
+    </picker>
+    <view wx:if="{{selectedSkuLabel}}" class="sku-card">
+      <text class="sku-code">{{selectedSkuCode}}</text>
+      <text class="sku-name">{{selectedSkuName}}</text>
+      <text class="sku-unit">默认单位：{{selectedSkuUnit}}</text>
+    </view>
+  </view>
+
+  <view class="section">
+    <text class="section-title">上架信息</text>
+    <view wx:if="{{deliveryNo}}" class="delivery-hint">已识别送货单：{{deliveryNo}}</view>
+    <input class="input" type="digit" value="{{qty}}" placeholder="入库数量" bindinput="handleQtyInput" />
+    <view class="quick-row">
+      <view wx:for="{{quickQty}}" wx:key="item" class="quick-chip" data-value="{{item}}" bindtap="addQuickQty">+{{item}}</view>
+    </view>
+    <input class="input" value="{{dyeLotNo}}" placeholder="缸号/批次，可选" bindinput="handleDyeLotInput" />
+    <picker mode="selector" range="{{warehouseRange}}" value="{{warehouseIdx}}" bindchange="handleWarehouseChange">
+      <view class="picker-box">{{selectedWarehouseLabel || '请选择仓库'}}</view>
+    </picker>
+    <picker mode="selector" range="{{locationRange}}" value="{{locationIdx}}" bindchange="handleLocationChange">
+      <view class="picker-box">{{selectedLocationLabel || '请选择库位'}}</view>
+    </picker>
+    <text class="field-help">提交前会二次确认，确认后生成库存入库流水。</text>
+    <view class="action-row">
+      <button class="secondary-button flex" disabled="{{submitting}}" bindtap="resetForm">清空</button>
+      <button class="submit-button flex" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">确认上架</button>
+    </view>
+  </view>
+</view>

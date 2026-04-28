@@ -1,0 +1,21 @@
+.delivery-hint {
+  margin-top: 14rpx;
+  padding: 14rpx 18rpx;
+  border-radius: 18rpx;
+  color: #0a7f4d;
+  background: #e8f7ef;
+  font-size: 24rpx;
+}
+
+.sku-card {
+  border: 2rpx solid #dce9ff;
+  background: #f7fbff;
+}
+
+.sku-name,
+.sku-unit {
+  display: block;
+  margin-top: 8rpx;
+  color: #77859a;
+  font-size: 24rpx;
+}

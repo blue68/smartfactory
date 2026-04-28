@@ -1,0 +1,108 @@
+<view class="page">
+  <view class="hero">
+    <view>
+      <text class="eyebrow">工单操作</text>
+      <view class="page-title">我的生产任务</view>
+      <text class="hero-subtitle">{{lastRefreshAt ? '最后同步 ' + lastRefreshAt : '下拉刷新，扫码定位任务'}}</text>
+    </view>
+    <button class="ghost-button" bindtap="handleScanTask">扫码</button>
+  </view>
+
+  <view class="metric-row">
+    <view class="metric-card">
+      <text class="metric-value">{{tasks.length}}</text>
+      <text class="metric-label">列表任务</text>
+    </view>
+    <view class="metric-card">
+      <text class="metric-value">{{activeTaskCount}}</text>
+      <text class="metric-label">待处理</text>
+    </view>
+    <view class="metric-card">
+      <text class="metric-value">{{taskProgress}}</text>
+      <text class="metric-label">当前进度</text>
+    </view>
+  </view>
+
+  <view wx:if="{{loadError}}" class="alert-card">
+    <text class="alert-title">任务同步失败</text>
+    <text class="alert-text">{{loadError}}</text>
+    <button class="alert-action" bindtap="loadTasks">重试</button>
+  </view>
+
+  <view class="section">
+    <text class="section-title">快速定位</text>
+    <picker mode="selector" range="{{statusOptions}}" value="{{statusIdx}}" bindchange="handleStatusChange">
+      <view class="picker-box">状态：{{statusOptions[statusIdx]}}</view>
+    </picker>
+    <picker mode="selector" range="{{taskRange}}" value="{{selectedTaskIdx}}" bindchange="handleTaskChange">
+      <view class="picker-box">{{selectedTaskLabel || '请选择任务'}}</view>
+    </picker>
+    <text class="field-help">现场先扫码，无法识别时从列表选择；刷新会保留当前任务。</text>
+    <button class="primary-button" loading="{{loading}}" disabled="{{loading}}" bindtap="loadTasks">同步任务</button>
+  </view>
+
+  <block wx:if="{{selectedTask}}">
+    <view class="task-card">
+      <view class="task-header">
+        <text class="task-title">{{taskTitle}}</text>
+        <text class="status-pill status-{{selectedTask.status}}">{{taskStatusLabel}}</text>
+      </view>
+      <text class="muted">{{taskSkuLabel}}</text>
+      <text class="muted">计划：{{selectedTask.plannedQty || '-'}} {{selectedTask.unit || ''}}</text>
+      <button class="primary-button" loading="{{submitting}}" disabled="{{submitting || selectedTask.status === 'completed'}}" bindtap="handleStart">确认开工</button>
+    </view>
+
+    <view class="section">
+      <text class="section-title">投料领料</text>
+      <view class="chips">
+        <view wx:for="{{inputMaterialViews}}" wx:key="key" class="chip" data-index="{{index}}" bindtap="pickRecommendedMaterial">
+          {{item.label}}
+        </view>
+      </view>
+      <view wx:if="{{inputMaterialViews.length === 0}}" class="empty-card">暂无 BOM 推荐投料，可手动搜索 SKU。</view>
+      <view class="inline-row">
+        <input class="input flex" value="{{materialKeyword}}" placeholder="物料编码/名称" bindinput="handleMaterialKeywordInput" />
+        <button class="primary-small" loading="{{materialSearching}}" disabled="{{materialSearching}}" bindtap="searchMaterial">查询</button>
+      </view>
+      <picker mode="selector" range="{{materialRange}}" value="{{materialIdx}}" bindchange="handleMaterialChange">
+        <view class="picker-box">{{selectedMaterialLabel || '请选择投料物料'}}</view>
+      </picker>
+      <input class="input" type="digit" value="{{issueQty}}" placeholder="投料数量" bindinput="handleIssueQtyInput" />
+      <input class="input" value="{{dyeLotNo}}" placeholder="缸号/批号，可选" bindinput="handleDyeLotInput" />
+      <picker mode="selector" range="{{warehouseRange}}" value="{{warehouseIdx}}" bindchange="handleWarehouseChange">
+        <view class="picker-box">{{selectedWarehouseLabel || '请选择出库仓库'}}</view>
+      </picker>
+      <picker mode="selector" range="{{locationRange}}" value="{{locationIdx}}" bindchange="handleLocationChange">
+        <view class="picker-box">{{selectedLocationLabel || '请选择库位，可选'}}</view>
+      </picker>
+      <text class="field-help">投料会写入当前任务领料记录，请核对 SKU、数量和库位。</text>
+      <button class="primary-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleIssue">确认投料</button>
+    </view>
+
+    <view class="section">
+      <text class="section-title">完工报工</text>
+      <input class="input" type="digit" value="{{completedQty}}" placeholder="完工数量" bindinput="handleCompletedQtyInput" />
+      <input class="input" type="digit" value="{{actualHours}}" placeholder="实际工时(h)，支持小数" bindinput="handleActualHoursInput" />
+      <input class="input" type="digit" value="{{scrapQty}}" placeholder="报废数量，可选" bindinput="handleScrapQtyInput" />
+      <textarea class="textarea" value="{{completeNotes}}" placeholder="完工备注，可选" maxlength="300" bindinput="handleCompleteNotesInput" />
+      <button class="success-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleComplete">提交完工</button>
+    </view>
+
+    <view class="section danger-section">
+      <text class="section-title">异常上报</text>
+      <picker mode="selector" range="{{exceptionLabels}}" value="{{exceptionTypeIdx}}" bindchange="handleExceptionTypeChange">
+        <view class="picker-box">异常类型：{{exceptionLabels[exceptionTypeIdx]}}</view>
+      </picker>
+      <picker mode="selector" range="{{severityLabels}}" value="{{severityIdx}}" bindchange="handleSeverityChange">
+        <view class="picker-box">严重程度：{{severityLabels[severityIdx]}}</view>
+      </picker>
+      <textarea class="textarea" value="{{exceptionText}}" placeholder="描述异常现象、影响范围和需要支持的事项" maxlength="500" bindinput="handleExceptionTextInput" />
+      <button class="danger-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleException">提交异常</button>
+    </view>
+  </block>
+
+  <view wx:else class="empty-card">
+    <text>{{loading ? '任务加载中...' : '暂无符合条件的任务'}}</text>
+    <button wx:if="{{!loading}}" class="empty-action" bindtap="loadTasks">重新同步</button>
+  </view>
+</view>
