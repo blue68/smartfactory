@@ -37,6 +37,85 @@
   color: #182033;
 }
 
+.hero-subtitle {
+  display: block;
+  margin-top: 8rpx;
+  color: #71819a;
+  font-size: 24rpx;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.4fr;
+  gap: 14rpx;
+  margin-bottom: 22rpx;
+}
+
+.metric-card,
+.alert-card {
+  background: #ffffff;
+  border: 1rpx solid #e3ebf7;
+  border-radius: 22rpx;
+  box-shadow: 0 14rpx 34rpx rgba(15, 35, 65, 0.06);
+}
+
+.metric-card {
+  padding: 20rpx;
+}
+
+.metric-value,
+.metric-label {
+  display: block;
+}
+
+.metric-value {
+  color: #172033;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.metric-label {
+  margin-top: 6rpx;
+  color: #71819a;
+  font-size: 22rpx;
+}
+
+.alert-card {
+  padding: 22rpx;
+  margin-bottom: 22rpx;
+  border-color: #ffd3d3;
+  background: #fff8f8;
+}
+
+.alert-title,
+.alert-text {
+  display: block;
+}
+
+.alert-title {
+  color: #b42318;
+  font-size: 28rpx;
+  font-weight: 900;
+}
+
+.alert-text {
+  margin-top: 8rpx;
+  color: #7a2e2e;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.alert-action,
+.empty-action {
+  margin: 18rpx 0 0;
+  border: none;
+  border-radius: 16rpx;
+  color: #ffffff;
+  background: #1d66e5;
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
 .toolbar,
 .section {
   padding: 24rpx;
@@ -56,6 +135,30 @@
   font-size: 30rpx;
   font-weight: 800;
   color: #172033;
+}
+
+.field-help,
+.inline-empty {
+  display: block;
+  color: #7b889b;
+  font-size: 24rpx;
+  line-height: 1.45;
+}
+
+.field-help {
+  margin: -4rpx 0 16rpx;
+}
+
+.danger-help {
+  color: #a84646;
+}
+
+.inline-empty {
+  margin-bottom: 16rpx;
+  padding: 18rpx;
+  border: 2rpx dashed #d6e4f5;
+  border-radius: 18rpx;
+  background: #f8fbff;
 }
 
 .task-card {
@@ -191,4 +294,8 @@
   color: #8b98ab;
   text-align: center;
   font-size: 28rpx;
+}
+
+.empty-hint text {
+  display: block;
 }

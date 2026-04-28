@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { Button, Input, Picker, Text, Textarea, View } from '@tarojs/components'
 import {
   getSkuId,
@@ -11,6 +11,7 @@ import {
   skuApi,
   WarehouseOption,
 } from '../../utils/api'
+import { confirmAction, getErrorMessage, nowTimeLabel, showError, showSuccess } from '../../utils/interaction'
 import './index.css'
 
 const STATUS_OPTIONS = ['全部', '待开工', '进行中', '异常', '已完成']
@@ -19,6 +20,12 @@ const EXCEPTION_TYPES = ['material_shortage', 'quality_issue', 'equipment_failur
 const EXCEPTION_LABELS = ['物料短缺', '质量异常', '设备异常', '工艺异常', '其他']
 const SEVERITY_OPTIONS = ['low', 'medium', 'high']
 const SEVERITY_LABELS = ['低', '中', '高']
+const STATUS_LABELS: Record<string, string> = {
+  pending: '待开工',
+  in_progress: '进行中',
+  exception: '异常',
+  completed: '已完成',
+}
 
 function toNumber(value: string): number {
   return Number.parseFloat(value)
@@ -62,7 +69,10 @@ export default function WorkerTaskPage() {
   const [severityIdx, setSeverityIdx] = useState(1)
   const [exceptionText, setExceptionText] = useState('')
   const [loading, setLoading] = useState(false)
+  const [materialSearching, setMaterialSearching] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [lastRefreshAt, setLastRefreshAt] = useState('')
 
   const selectedWarehouse = warehouseIdx >= 0 ? warehouses[warehouseIdx] : null
   const selectedLocation = locationIdx >= 0 ? locations[locationIdx] : null
@@ -72,21 +82,41 @@ export default function WorkerTaskPage() {
     () => tasks.map((task) => `${task.taskNo || task.workOrderNo || task.productionOrderNo || task.id} · ${getTaskTitle(task)}`),
     [tasks],
   )
+  const selectedTaskIdx = useMemo(
+    () => tasks.findIndex((task) => task.id === selectedTask?.id),
+    [selectedTask, tasks],
+  )
+  const activeTaskCount = useMemo(
+    () => tasks.filter((task) => task.status !== 'completed').length,
+    [tasks],
+  )
+  const taskProgress = selectedTask
+    ? `${selectedTask.completedQty ?? 0}/${selectedTask.plannedQty ?? '-'} ${selectedTask.unit || ''}`
+    : '-'
 
   const loadTasks = useCallback(async () => {
     setLoading(true)
+    setLoadError('')
     try {
       const status = STATUS_VALUES[statusIdx]
       const res = await productionTaskApi.list({ page: 1, pageSize: 50, ...(status ? { status } : {}) })
       setTasks(res.list ?? [])
-      if (!selectedTask && res.list?.[0]) {
-        const detail = await productionTaskApi.detail(res.list[0].id)
+      const preferred = selectedTask
+        ? res.list?.find((item) => item.id === selectedTask.id) ?? res.list?.[0]
+        : res.list?.[0]
+      if (preferred) {
+        const detail = await productionTaskApi.detail(preferred.id)
         setSelectedTask(detail)
+      } else {
+        setSelectedTask(null)
       }
+      setLastRefreshAt(nowTimeLabel())
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '加载任务失败', icon: 'none' })
+      setLoadError(getErrorMessage(error, '加载任务失败'))
+      showError(error, '加载任务失败')
     } finally {
       setLoading(false)
+      Taro.stopPullDownRefresh()
     }
   }, [selectedTask, statusIdx])
 
@@ -94,14 +124,19 @@ export default function WorkerTaskPage() {
     try {
       const res = await inventoryApi.warehouses()
       setWarehouses(res)
+      if (res.length && warehouseIdx < 0) setWarehouseIdx(0)
     } catch {
-      Taro.showToast({ title: '加载仓库失败', icon: 'none' })
+      showError('加载仓库失败', '加载仓库失败')
     }
-  }, [])
+  }, [warehouseIdx])
 
   useDidShow(() => {
     void loadTasks()
     void loadWarehouses()
+  })
+
+  usePullDownRefresh(() => {
+    void loadTasks()
   })
 
   useEffect(() => {
@@ -110,9 +145,13 @@ export default function WorkerTaskPage() {
       setLocationIdx(-1)
       return
     }
-    void inventoryApi.locations(selectedWarehouse.id).then(setLocations).catch(() => {
+    void inventoryApi.locations(selectedWarehouse.id).then((res) => {
+      setLocations(res)
+      setLocationIdx((current) => (current >= 0 && current < res.length ? current : (res.length ? 0 : -1)))
+    }).catch(() => {
       setLocations([])
-      Taro.showToast({ title: '加载库位失败', icon: 'none' })
+      setLocationIdx(-1)
+      showError('加载库位失败', '加载库位失败')
     })
   }, [selectedWarehouse])
 
@@ -128,7 +167,7 @@ export default function WorkerTaskPage() {
       setScrapQty('')
       setCompleteNotes('')
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '加载任务详情失败', icon: 'none' })
+      showError(error, '加载任务详情失败')
     } finally {
       setLoading(false)
     }
@@ -140,13 +179,14 @@ export default function WorkerTaskPage() {
       const payload = normalizeScanPayload(scan.result)
       const taskId = Number(payload.TASK_ID || payload.TASKID || scan.result)
       if (!Number.isFinite(taskId) || taskId <= 0) {
-        Taro.showToast({ title: '未识别到任务 ID', icon: 'none' })
+        showError('未识别到任务 ID，可手动选择任务', '未识别到任务 ID')
         return
       }
       const detail = await productionTaskApi.detail(taskId)
       setSelectedTask(detail)
+      showSuccess('已定位任务')
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '扫码失败', icon: 'none' })
+      showError(error, '扫码失败')
     }
   }
 
@@ -155,13 +195,16 @@ export default function WorkerTaskPage() {
       Taro.showToast({ title: '请输入物料编码或名称', icon: 'none' })
       return
     }
+    setMaterialSearching(true)
     try {
       const res = await skuApi.search(materialKeyword.trim())
       setMaterialOptions(res.list ?? [])
       setMaterialIdx(res.list?.length ? 0 : -1)
       if (!res.list?.length) Taro.showToast({ title: '未找到物料', icon: 'none' })
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '查询物料失败', icon: 'none' })
+      showError(error, '查询物料失败')
+    } finally {
+      setMaterialSearching(false)
     }
   }
 
@@ -171,17 +214,18 @@ export default function WorkerTaskPage() {
     setMaterialIdx(0)
   }
 
-  const withSubmitting = async (fn: () => Promise<void>) => {
+  const withSubmitting = async (fn: () => Promise<boolean | void>) => {
     if (submitting || !selectedTask) return
     setSubmitting(true)
     try {
-      await fn()
+      const committed = await fn()
+      if (committed === false) return
       const detail = await productionTaskApi.detail(selectedTask.id)
       setSelectedTask(detail)
-      Taro.showToast({ title: '操作成功', icon: 'success' })
+      showSuccess('操作成功')
       void loadTasks()
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' })
+      showError(error, '操作失败')
     } finally {
       setSubmitting(false)
     }
@@ -189,6 +233,8 @@ export default function WorkerTaskPage() {
 
   const handleStart = () => withSubmitting(async () => {
     if (!selectedTask) return
+    const confirmed = await confirmAction('确认开工', `开始执行「${getTaskTitle(selectedTask)}」？`)
+    if (!confirmed) return false
     await productionTaskApi.start(selectedTask.id)
   })
 
@@ -201,6 +247,11 @@ export default function WorkerTaskPage() {
     if (!skuId || !Number.isFinite(qty) || qty <= 0 || !selectedWarehouse) {
       throw new Error('请补齐物料、数量和仓库')
     }
+    const confirmed = await confirmAction(
+      '确认投料',
+      `物料：${selectedMaterial.skuCode || selectedMaterial.code || selectedMaterial.name}\n数量：${qty} ${selectedMaterial.stockUnit || selectedMaterial.purchaseUnit || selectedMaterial.unit || ''}`,
+    )
+    if (!confirmed) return false
     await productionTaskApi.issueMaterials(selectedTask.id, [{
       skuId,
       qty,
@@ -221,6 +272,8 @@ export default function WorkerTaskPage() {
     if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(hours) || hours < 0) {
       throw new Error('请填写有效完工数量和工时')
     }
+    const confirmed = await confirmAction('提交完工', `完工数量 ${qty}，实际工时 ${hours}h。提交后将进入后续流转。`)
+    if (!confirmed) return false
     await productionTaskApi.complete(selectedTask.id, {
       completedQty: qty,
       actualHours: hours,
@@ -234,6 +287,8 @@ export default function WorkerTaskPage() {
     if (!exceptionText.trim()) {
       throw new Error('请填写异常说明')
     }
+    const confirmed = await confirmAction('提交异常', `异常类型：${EXCEPTION_LABELS[exceptionTypeIdx]}\n严重程度：${SEVERITY_LABELS[severityIdx]}`)
+    if (!confirmed) return false
     await productionTaskApi.reportException(selectedTask.id, {
       type: EXCEPTION_TYPES[exceptionTypeIdx],
       severity: SEVERITY_OPTIONS[severityIdx],
@@ -249,9 +304,33 @@ export default function WorkerTaskPage() {
         <View>
           <Text className='eyebrow'>工单操作</Text>
           <View className='page__title'>我的生产任务</View>
+          <Text className='hero-subtitle'>{lastRefreshAt ? `最后同步 ${lastRefreshAt}` : '下拉可刷新任务'}</Text>
         </View>
         <Button className='ghost-button' onClick={handleScanTask}>扫码</Button>
       </View>
+
+      <View className='metric-grid'>
+        <View className='metric-card'>
+          <Text className='metric-value'>{tasks.length}</Text>
+          <Text className='metric-label'>当前列表</Text>
+        </View>
+        <View className='metric-card'>
+          <Text className='metric-value'>{activeTaskCount}</Text>
+          <Text className='metric-label'>待处理</Text>
+        </View>
+        <View className='metric-card'>
+          <Text className='metric-value'>{taskProgress}</Text>
+          <Text className='metric-label'>当前进度</Text>
+        </View>
+      </View>
+
+      {loadError && (
+        <View className='alert-card'>
+          <Text className='alert-title'>任务同步失败</Text>
+          <Text className='alert-text'>{loadError}</Text>
+          <Button className='alert-action' onClick={() => void loadTasks()}>重试</Button>
+        </View>
+      )}
 
       <View className='toolbar'>
         <Picker mode='selector' range={STATUS_OPTIONS} value={statusIdx} onChange={(event) => setStatusIdx(Number(event.detail.value))}>
@@ -262,9 +341,10 @@ export default function WorkerTaskPage() {
 
       <View className='section'>
         <Text className='section-title'>选择任务</Text>
-        <Picker mode='selector' range={taskRange} value={0} onChange={(event) => void selectTask(Number(event.detail.value))}>
+        <Picker mode='selector' range={taskRange} value={Math.max(selectedTaskIdx, 0)} onChange={(event) => void selectTask(Number(event.detail.value))}>
           <View className='picker-box'>{selectedTask ? `${selectedTask.taskNo || selectedTask.id} · ${getTaskTitle(selectedTask)}` : '请选择任务'}</View>
         </Picker>
+        <Text className='field-help'>现场可扫码定位任务；扫码失败时从列表手动选择。</Text>
       </View>
 
       {selectedTask ? (
@@ -272,11 +352,11 @@ export default function WorkerTaskPage() {
           <View className='task-card'>
             <View className='task-card__header'>
               <Text className='task-card__title'>{getTaskTitle(selectedTask)}</Text>
-              <Text className='status-pill'>{selectedTask.status}</Text>
+              <Text className='status-pill'>{STATUS_LABELS[selectedTask.status] ?? selectedTask.status}</Text>
             </View>
             <Text className='muted'>{getTaskSku(selectedTask)}</Text>
             <Text className='muted'>计划：{selectedTask.plannedQty ?? '-'} {selectedTask.unit || ''}</Text>
-            <Button className='primary-button' loading={submitting} onClick={handleStart}>开工</Button>
+            <Button className='primary-button' loading={submitting} disabled={submitting || selectedTask.status === 'completed'} onClick={handleStart}>确认开工</Button>
           </View>
 
           <View className='section'>
@@ -292,9 +372,12 @@ export default function WorkerTaskPage() {
                 </View>
               ))}
             </View>
+            {(selectedTask.inputMaterials ?? []).length === 0 && (
+              <View className='inline-empty'>暂无 BOM 推荐投料，可手动搜索 SKU。</View>
+            )}
             <View className='inline-row'>
               <Input className='input flex' value={materialKeyword} placeholder='物料编码/名称' onInput={(event) => setMaterialKeyword(event.detail.value)} />
-              <Button className='primary-small' onClick={() => void searchMaterial()}>查询</Button>
+              <Button className='primary-small' loading={materialSearching} disabled={materialSearching} onClick={() => void searchMaterial()}>查询</Button>
             </View>
             <Picker mode='selector' range={materialOptions.map((item) => `${item.skuCode || item.code} · ${item.name}`)} value={Math.max(materialIdx, 0)} onChange={(event) => setMaterialIdx(Number(event.detail.value))}>
               <View className='picker-box'>{selectedMaterial ? `${selectedMaterial.skuCode || selectedMaterial.code} · ${selectedMaterial.name}` : '请选择投料物料'}</View>
@@ -307,7 +390,8 @@ export default function WorkerTaskPage() {
             <Picker mode='selector' range={locations.map((item) => item.name)} value={Math.max(locationIdx, 0)} onChange={(event) => setLocationIdx(Number(event.detail.value))}>
               <View className='picker-box'>{selectedLocation?.name || '请选择库位，可选'}</View>
             </Picker>
-            <Button className='primary-button' loading={submitting} onClick={handleIssue}>确认投料</Button>
+            <Text className='field-help'>投料会写入当前任务领料记录，请核对 SKU、数量和库位。</Text>
+            <Button className='primary-button' loading={submitting} disabled={submitting} onClick={handleIssue}>确认投料</Button>
           </View>
 
           <View className='section'>
@@ -316,7 +400,8 @@ export default function WorkerTaskPage() {
             <Input className='input' type='digit' value={actualHours} placeholder='实际工时(h)，支持小数' onInput={(event) => setActualHours(event.detail.value)} />
             <Input className='input' type='digit' value={scrapQty} placeholder='报废数量，可选' onInput={(event) => setScrapQty(event.detail.value)} />
             <Textarea className='textarea' value={completeNotes} placeholder='完工备注，可选' maxlength={300} onInput={(event) => setCompleteNotes(event.detail.value)} />
-            <Button className='success-button' loading={submitting} onClick={handleComplete}>提交完工</Button>
+            <Text className='field-help'>提交完工前会二次确认，避免现场误触。</Text>
+            <Button className='success-button' loading={submitting} disabled={submitting} onClick={handleComplete}>提交完工</Button>
           </View>
 
           <View className='section danger-section'>
@@ -328,11 +413,15 @@ export default function WorkerTaskPage() {
               <View className='picker-box'>严重程度：{SEVERITY_LABELS[severityIdx]}</View>
             </Picker>
             <Textarea className='textarea' value={exceptionText} placeholder='描述异常现象、影响范围和需要支持的事项' maxlength={500} onInput={(event) => setExceptionText(event.detail.value)} />
-            <Button className='danger-button' loading={submitting} onClick={handleException}>提交异常</Button>
+            <Text className='field-help danger-help'>异常会上报并影响任务进度，请写清影响范围和所需支持。</Text>
+            <Button className='danger-button' loading={submitting} disabled={submitting} onClick={handleException}>提交异常</Button>
           </View>
         </>
       ) : (
-        <View className='empty-hint'>{loading ? '加载中...' : '暂无任务'}</View>
+        <View className='empty-hint'>
+          <Text>{loading ? '任务加载中...' : '暂无符合条件的任务'}</Text>
+          {!loading && <Button className='empty-action' onClick={() => void loadTasks()}>重新同步</Button>}
+        </View>
       )}
     </View>
   )

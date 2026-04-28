@@ -36,9 +36,74 @@
   font-weight: 900;
 }
 
+.hero-subtitle {
+  display: block;
+  margin-top: 8rpx;
+  color: #6f8179;
+  font-size: 24rpx;
+}
+
 .section {
   padding: 24rpx;
   margin-bottom: 22rpx;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14rpx;
+  margin-bottom: 22rpx;
+}
+
+.metric-card,
+.alert-card {
+  background: #ffffff;
+  border: 1rpx solid #d7efe4;
+  border-radius: 22rpx;
+  box-shadow: 0 14rpx 34rpx rgba(13, 82, 56, 0.06);
+}
+
+.metric-card {
+  padding: 20rpx;
+}
+
+.metric-value,
+.metric-label,
+.alert-title,
+.alert-text {
+  display: block;
+}
+
+.metric-value {
+  color: #13261f;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.metric-label {
+  margin-top: 6rpx;
+  color: #6f8179;
+  font-size: 22rpx;
+}
+
+.alert-card {
+  padding: 22rpx;
+  margin-bottom: 22rpx;
+  border-color: #ffd5d5;
+  background: #fff8f8;
+}
+
+.alert-title {
+  color: #b42318;
+  font-size: 28rpx;
+  font-weight: 900;
+}
+
+.alert-text {
+  margin-top: 8rpx;
+  color: #7a2e2e;
+  font-size: 24rpx;
+  line-height: 1.5;
 }
 
 .section-title {
@@ -53,6 +118,28 @@
   display: flex;
   gap: 16rpx;
   align-items: center;
+}
+
+.action-row,
+.quick-row {
+  display: flex;
+  gap: 14rpx;
+  align-items: center;
+}
+
+.quick-row {
+  margin: -4rpx 0 16rpx;
+}
+
+.quick-chip {
+  flex: 1;
+  padding: 12rpx 0;
+  border-radius: 999rpx;
+  color: #0b7d55;
+  background: #ecfff7;
+  text-align: center;
+  font-size: 24rpx;
+  font-weight: 900;
 }
 
 .flex {
@@ -74,13 +161,22 @@
   font-size: 28rpx;
 }
 
+.field-help {
+  display: block;
+  margin: -4rpx 0 16rpx;
+  color: #6f8179;
+  font-size: 24rpx;
+  line-height: 1.45;
+}
+
 .scan-button,
 .primary-small,
-.submit-button {
+.submit-button,
+.secondary-button,
+.alert-action {
   margin: 0;
   border: none;
   border-radius: 18rpx;
-  color: #ffffff;
   font-weight: 900;
 }
 
@@ -95,9 +191,23 @@
 }
 
 .submit-button {
-  width: 100%;
+  flex: 2;
   margin-top: 10rpx;
+  color: #ffffff;
   background: #08865b;
+}
+
+.secondary-button {
+  flex: 1;
+  margin-top: 10rpx;
+  color: #0b7d55;
+  background: #ecfff7;
+}
+
+.alert-action {
+  margin-top: 18rpx;
+  color: #ffffff;
+  background: #0aa36b;
 }
 
 .sku-card {

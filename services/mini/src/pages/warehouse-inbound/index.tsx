@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { Button, Input, Picker, Text, View } from '@tarojs/components'
 import {
   getSkuId,
@@ -9,6 +9,7 @@ import {
   skuApi,
   WarehouseOption,
 } from '../../utils/api'
+import { confirmAction, getErrorMessage, nowTimeLabel, showError, showSuccess } from '../../utils/interaction'
 import './index.css'
 
 interface ParsedWarehouseScanPayload {
@@ -69,6 +70,8 @@ export default function WarehouseInboundPage() {
   const [warehouseIdx, setWarehouseIdx] = useState(-1)
   const [locationIdx, setLocationIdx] = useState(-1)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [lastRefreshAt, setLastRefreshAt] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const selectedSku = skuIdx >= 0 ? skuOptions[skuIdx] : null
@@ -77,16 +80,25 @@ export default function WarehouseInboundPage() {
   const skuRange = useMemo(() => skuOptions.map((item) => `${item.skuCode || item.code} · ${item.name}`), [skuOptions])
 
   const loadWarehouses = useCallback(async () => {
+    setLoadError('')
     try {
       const res = await inventoryApi.warehouses()
       setWarehouses(res)
       if (res.length && warehouseIdx < 0) setWarehouseIdx(0)
-    } catch {
-      Taro.showToast({ title: '加载仓库失败', icon: 'none' })
+      setLastRefreshAt(nowTimeLabel())
+    } catch (error) {
+      setLoadError(getErrorMessage(error, '加载仓库失败'))
+      showError(error, '加载仓库失败')
+    } finally {
+      Taro.stopPullDownRefresh()
     }
   }, [warehouseIdx])
 
   useDidShow(() => {
+    void loadWarehouses()
+  })
+
+  usePullDownRefresh(() => {
     void loadWarehouses()
   })
 
@@ -102,7 +114,7 @@ export default function WarehouseInboundPage() {
     }).catch(() => {
       setLocations([])
       setLocationIdx(-1)
-      Taro.showToast({ title: '加载库位失败', icon: 'none' })
+      showError('加载库位失败', '加载库位失败')
     })
   }, [selectedWarehouse])
 
@@ -121,7 +133,7 @@ export default function WarehouseInboundPage() {
       if (!list.length) Taro.showToast({ title: '未找到物料', icon: 'none' })
       return list
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '查询物料失败', icon: 'none' })
+      showError(error, '查询物料失败')
       return []
     } finally {
       setLoading(false)
@@ -144,8 +156,9 @@ export default function WarehouseInboundPage() {
         const idx = list.findIndex((item) => String(getSkuId(item)) === parsed.skuId)
         if (idx >= 0) setSkuIdx(idx)
       }
+      showSuccess('扫码已回填')
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '扫码失败', icon: 'none' })
+      showError(error, '扫码失败')
     }
   }
 
@@ -162,6 +175,11 @@ export default function WarehouseInboundPage() {
     try {
       validate()
       if (!selectedSku || !selectedWarehouse || !selectedLocation) return
+      const confirmed = await confirmAction(
+        '确认上架入库',
+        `物料：${selectedSku.skuCode || selectedSku.code || selectedSku.name}\n数量：${qty} ${selectedSku.stockUnit || selectedSku.purchaseUnit || selectedSku.unit || '件'}\n库位：${selectedLocation.name}`,
+      )
+      if (!confirmed) return
       await inventoryApi.inbound({
         skuCode: selectedSku.skuCode || selectedSku.code || '',
         skuId: getSkuId(selectedSku),
@@ -172,16 +190,33 @@ export default function WarehouseInboundPage() {
         dyeLotNo: dyeLotNo.trim() || undefined,
         transactionType: 'purchase_in',
       })
-      Taro.showToast({ title: '上架入库成功', icon: 'success' })
+      showSuccess('上架入库成功')
       setQty('')
       setDyeLotNo('')
       setDeliveryNo('')
       setSkuIdx(-1)
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '入库失败', icon: 'none' })
+      showError(error, '入库失败')
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const resetForm = async () => {
+    const confirmed = await confirmAction('清空表单', '确认清空当前物料、数量和批次信息？')
+    if (!confirmed) return
+    setKeyword('')
+    setSkuOptions([])
+    setSkuIdx(-1)
+    setQty('')
+    setDyeLotNo('')
+    setDeliveryNo('')
+  }
+
+  const addQuickQty = (value: string) => {
+    const current = Number.parseFloat(qty)
+    const delta = Number.parseFloat(value)
+    setQty(`${(Number.isFinite(current) ? current : 0) + delta}`)
   }
 
   return (
@@ -190,9 +225,33 @@ export default function WarehouseInboundPage() {
         <View>
           <Text className='eyebrow'>物料库存上架</Text>
           <View className='page__title'>来料入库上架</View>
+          <Text className='hero-subtitle'>{lastRefreshAt ? `仓库同步 ${lastRefreshAt}` : '扫码或搜索后完成上架'}</Text>
         </View>
         <Button className='scan-button' onClick={() => void handleScan()}>扫码</Button>
       </View>
+
+      <View className='metric-grid'>
+        <View className='metric-card'>
+          <Text className='metric-value'>{skuOptions.length}</Text>
+          <Text className='metric-label'>候选物料</Text>
+        </View>
+        <View className='metric-card'>
+          <Text className='metric-value'>{warehouses.length}</Text>
+          <Text className='metric-label'>可用仓库</Text>
+        </View>
+        <View className='metric-card'>
+          <Text className='metric-value'>{locations.length}</Text>
+          <Text className='metric-label'>当前库位</Text>
+        </View>
+      </View>
+
+      {loadError && (
+        <View className='alert-card'>
+          <Text className='alert-title'>仓库资料同步失败</Text>
+          <Text className='alert-text'>{loadError}</Text>
+          <Button className='alert-action' onClick={() => void loadWarehouses()}>重试</Button>
+        </View>
+      )}
 
       <View className='section'>
         <Text className='section-title'>物料检索</Text>
@@ -200,6 +259,7 @@ export default function WarehouseInboundPage() {
           <Input className='input flex' value={keyword} placeholder='SKU 编码 / 名称 / 条码' onInput={(event) => setKeyword(event.detail.value)} />
           <Button className='primary-small' loading={loading} onClick={() => void searchSku()}>查询</Button>
         </View>
+        <Text className='field-help'>扫码失败时可直接输入 SKU 编码或名称查询。</Text>
         <Picker mode='selector' range={skuRange} value={Math.max(skuIdx, 0)} onChange={(event) => setSkuIdx(Number(event.detail.value))}>
           <View className='picker-box'>{selectedSku ? `${selectedSku.skuCode || selectedSku.code} · ${selectedSku.name}` : '请选择物料'}</View>
         </Picker>
@@ -216,6 +276,11 @@ export default function WarehouseInboundPage() {
         <Text className='section-title'>上架信息</Text>
         {deliveryNo && <View className='delivery-hint'>已识别送货单：{deliveryNo}</View>}
         <Input className='input' type='digit' value={qty} placeholder='入库数量' onInput={(event) => setQty(clampDecimal(event.detail.value))} />
+        <View className='quick-row'>
+          {['1', '5', '10', '50'].map((item) => (
+            <View key={item} className='quick-chip' onClick={() => addQuickQty(item)}>+{item}</View>
+          ))}
+        </View>
         <Input className='input' value={dyeLotNo} placeholder='缸号/批次，可选' onInput={(event) => setDyeLotNo(event.detail.value)} />
         <Picker mode='selector' range={warehouses.map((item) => item.name)} value={Math.max(warehouseIdx, 0)} onChange={(event) => setWarehouseIdx(Number(event.detail.value))}>
           <View className='picker-box'>{selectedWarehouse?.name || '请选择仓库'}</View>
@@ -223,7 +288,11 @@ export default function WarehouseInboundPage() {
         <Picker mode='selector' range={locations.map((item) => `${item.code || ''} ${item.name}`.trim())} value={Math.max(locationIdx, 0)} onChange={(event) => setLocationIdx(Number(event.detail.value))}>
           <View className='picker-box'>{selectedLocation ? `${selectedLocation.code || ''} ${selectedLocation.name}`.trim() : '请选择库位'}</View>
         </Picker>
-        <Button className='submit-button' loading={submitting} onClick={() => void handleSubmit()}>确认上架入库</Button>
+        <Text className='field-help'>提交前会二次确认，确认后生成库存入库流水。</Text>
+        <View className='action-row'>
+          <Button className='secondary-button' disabled={submitting} onClick={() => void resetForm()}>清空</Button>
+          <Button className='submit-button' loading={submitting} disabled={submitting} onClick={() => void handleSubmit()}>确认上架</Button>
+        </View>
       </View>
     </View>
   )

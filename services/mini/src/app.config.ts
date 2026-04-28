@@ -14,6 +14,7 @@ export default defineAppConfig({
     navigationBarTitleText: '智造管家',
     navigationBarTextStyle: 'white',
     backgroundColor: '#f5f6fa',
+    enablePullDownRefresh: true,
   },
   tabBar: {
     color: '#8a8a99',

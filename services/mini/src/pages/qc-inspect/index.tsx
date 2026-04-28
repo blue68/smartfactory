@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { Button, Image, Input, Picker, Text, Textarea, View } from '@tarojs/components'
 import {
   incomingInspectionApi,
@@ -9,6 +9,7 @@ import {
   LocationOption,
   WarehouseOption,
 } from '../../utils/api'
+import { confirmAction, getErrorMessage, nowTimeLabel, showError, showSuccess } from '../../utils/interaction'
 import request from '../../utils/request'
 import './index.css'
 
@@ -88,7 +89,10 @@ export default function QcInspectPage() {
   const [overallResultIdx, setOverallResultIdx] = useState(0)
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [lastRefreshAt, setLastRefreshAt] = useState('')
 
   const inspectionRange = useMemo(
     () => inspections.map((item) => `${item.inspectionNo || item.id} · ${item.supplierName || item.purchaseOrderNo || '来料质检'}`),
@@ -97,9 +101,14 @@ export default function QcInspectPage() {
   const activeDraft = drafts[activeItemIdx]
   const selectedWarehouse = warehouseIdx >= 0 ? warehouses[warehouseIdx] : null
   const selectedLocation = locationIdx >= 0 ? locations[locationIdx] : null
+  const completedItemCount = useMemo(
+    () => drafts.filter((item) => item.result && item.disposition).length,
+    [drafts],
+  )
 
   const loadInspections = useCallback(async () => {
     setLoading(true)
+    setLoadError('')
     try {
       const res = await incomingInspectionApi.list({ page: 1, pageSize: 50 })
       setInspections(res.list ?? [])
@@ -107,10 +116,13 @@ export default function QcInspectPage() {
         await selectInspectionById(res.list[0].id)
         setInspectionIdx(0)
       }
+      setLastRefreshAt(nowTimeLabel())
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '加载质检单失败', icon: 'none' })
+      setLoadError(getErrorMessage(error, '加载质检单失败'))
+      showError(error, '加载质检单失败')
     } finally {
       setLoading(false)
+      Taro.stopPullDownRefresh()
     }
   }, [detail])
 
@@ -118,14 +130,19 @@ export default function QcInspectPage() {
     try {
       const res = await inventoryApi.warehouses()
       setWarehouses(res)
+      if (res.length && warehouseIdx < 0) setWarehouseIdx(0)
     } catch {
-      Taro.showToast({ title: '加载仓库失败', icon: 'none' })
+      showError('加载仓库失败', '加载仓库失败')
     }
-  }, [])
+  }, [warehouseIdx])
 
   useDidShow(() => {
     void loadInspections()
     void loadWarehouses()
+  })
+
+  usePullDownRefresh(() => {
+    void loadInspections()
   })
 
   useEffect(() => {
@@ -134,9 +151,13 @@ export default function QcInspectPage() {
       setLocationIdx(-1)
       return
     }
-    void inventoryApi.locations(selectedWarehouse.id).then(setLocations).catch(() => {
+    void inventoryApi.locations(selectedWarehouse.id).then((res) => {
+      setLocations(res)
+      setLocationIdx((current) => (current >= 0 && current < res.length ? current : (res.length ? 0 : -1)))
+    }).catch(() => {
       setLocations([])
-      Taro.showToast({ title: '加载库位失败', icon: 'none' })
+      setLocationIdx(-1)
+      showError('加载库位失败', '加载库位失败')
     })
   }, [selectedWarehouse])
 
@@ -158,7 +179,7 @@ export default function QcInspectPage() {
       setInspectionIdx(idx)
       await selectInspectionById(selected.id)
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '加载详情失败', icon: 'none' })
+      showError(error, '加载详情失败')
     } finally {
       setLoading(false)
     }
@@ -180,6 +201,7 @@ export default function QcInspectPage() {
       return
     }
     try {
+      setUploading(true)
       const picked = await Taro.chooseImage({ count: remaining, sizeType: ['compressed'], sourceType: ['camera', 'album'] })
       const uploaded: string[] = []
       for (const filePath of picked.tempFilePaths) {
@@ -187,13 +209,18 @@ export default function QcInspectPage() {
         uploaded.push(result.url)
       }
       updateDraft({ defectImages: [...activeDraft.defectImages, ...uploaded] })
+      showSuccess('留证图已上传')
     } catch (error) {
-      if (error instanceof Error) Taro.showToast({ title: error.message, icon: 'none' })
+      if (error instanceof Error) showError(error, '图片上传失败')
+    } finally {
+      setUploading(false)
     }
   }
 
-  const removeImage = (url: string) => {
+  const removeImage = async (url: string) => {
     if (!activeDraft) return
+    const confirmed = await confirmAction('移除留证图', '确认从当前质检明细中移除这张图片？')
+    if (!confirmed) return
     updateDraft({ defectImages: activeDraft.defectImages.filter((item) => item !== url) })
   }
 
@@ -202,6 +229,13 @@ export default function QcInspectPage() {
     if (!drafts.length) throw new Error('当前质检单没有明细')
     const missing = drafts.find((item) => !item.result || !item.disposition)
     if (missing) throw new Error('请为每条明细选择结果和处置方式')
+    const invalidQty = drafts.find((item) => {
+      const sampled = Number(item.qtySampled)
+      const passed = Number(item.qtyPassed)
+      const failed = Number(item.qtyFailed)
+      return !Number.isFinite(sampled) || !Number.isFinite(passed) || !Number.isFinite(failed) || sampled < passed + failed
+    })
+    if (invalidQty) throw new Error('抽检数不能小于合格数与不良数之和')
   }
 
   const saveItems = async () => {
@@ -226,9 +260,9 @@ export default function QcInspectPage() {
     setSubmitting(true)
     try {
       await saveItems()
-      Taro.showToast({ title: '明细已保存', icon: 'success' })
+      showSuccess('明细已保存')
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '保存失败', icon: 'none' })
+      showError(error, '保存失败')
     } finally {
       setSubmitting(false)
     }
@@ -237,18 +271,21 @@ export default function QcInspectPage() {
   const handleSubmit = async () => {
     setSubmitting(true)
     try {
-      await saveItems()
       if (!detail || !selectedWarehouse || !selectedLocation) throw new Error('请选择放行仓库和库位')
+      validateDrafts()
+      const confirmed = await confirmAction('提交质检结论', `结论：${RESULT_OPTIONS[overallResultIdx].label}\n提交后将按明细放行入库。`)
+      if (!confirmed) return
+      await saveItems()
       await incomingInspectionApi.submit(detail.id, {
         overallResult: RESULT_OPTIONS[overallResultIdx].value,
         warehouseId: selectedWarehouse.id,
         locationId: selectedLocation.id,
         notes: notes.trim() || undefined,
       })
-      Taro.showToast({ title: '质检已提交', icon: 'success' })
+      showSuccess('质检已提交')
       await selectInspectionById(detail.id)
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '提交失败', icon: 'none' })
+      showError(error, '提交失败')
     } finally {
       setSubmitting(false)
     }
@@ -260,15 +297,40 @@ export default function QcInspectPage() {
         <View>
           <Text className='eyebrow'>来料验货</Text>
           <View className='page__title'>来料质检任务</View>
+          <Text className='hero-subtitle'>{lastRefreshAt ? `最后同步 ${lastRefreshAt}` : '逐项抽检后再提交结论'}</Text>
         </View>
         <Text className='count-pill'>{inspections.length} 单</Text>
       </View>
+
+      <View className='metric-grid'>
+        <View className='metric-card'>
+          <Text className='metric-value'>{inspections.length}</Text>
+          <Text className='metric-label'>质检单</Text>
+        </View>
+        <View className='metric-card'>
+          <Text className='metric-value'>{drafts.length}</Text>
+          <Text className='metric-label'>当前明细</Text>
+        </View>
+        <View className='metric-card'>
+          <Text className='metric-value'>{completedItemCount}/{drafts.length || 0}</Text>
+          <Text className='metric-label'>已判定</Text>
+        </View>
+      </View>
+
+      {loadError && (
+        <View className='alert-card'>
+          <Text className='alert-title'>质检任务同步失败</Text>
+          <Text className='alert-text'>{loadError}</Text>
+          <Button className='alert-action' onClick={() => void loadInspections()}>重试</Button>
+        </View>
+      )}
 
       <View className='section'>
         <Text className='section-title'>选择质检单</Text>
         <Picker mode='selector' range={inspectionRange} value={Math.max(inspectionIdx, 0)} onChange={(event) => void handleSelectInspection(Number(event.detail.value))}>
           <View className='picker-box'>{detail ? `${detail.inspectionNo || detail.id} · ${detail.supplierName || '供应商'}` : '请选择质检单'}</View>
         </Picker>
+        <Text className='field-help'>支持下拉刷新；每条明细必须选择结果和处置方式后才能提交。</Text>
         <Button className='primary-button' loading={loading} onClick={() => void loadInspections()}>刷新质检列表</Button>
       </View>
 
@@ -300,17 +362,18 @@ export default function QcInspectPage() {
               <View className='picker-box'>处置：{DISPOSITION_OPTIONS.find((item) => item.value === activeDraft.disposition)?.label || '请选择'}</View>
             </Picker>
             <Textarea className='textarea' value={activeDraft.notes} placeholder='明细备注，可选' maxlength={300} onInput={(event) => updateDraft({ notes: event.detail.value })} />
+            <Text className='field-help'>抽检数必须覆盖合格数和不良数，留证图最多 3 张。</Text>
 
             <View className='image-row'>
               {activeDraft.defectImages.map((url) => (
-                <View key={url} className='image-item' onClick={() => removeImage(url)}>
+                <View key={url} className='image-item' onClick={() => void removeImage(url)}>
                   <Image className='image' src={url} mode='aspectFill' />
                   <Text className='image-remove'>移除</Text>
                 </View>
               ))}
               <View className='image-add' onClick={() => void uploadImages()}>
                 <Text>+</Text>
-                <Text>留证图</Text>
+                <Text>{uploading ? '上传中' : '留证图'}</Text>
               </View>
             </View>
           </View>
@@ -327,14 +390,18 @@ export default function QcInspectPage() {
               <View className='picker-box'>{selectedLocation ? `${selectedLocation.code || ''} ${selectedLocation.name}`.trim() : '请选择库位'}</View>
             </Picker>
             <Textarea className='textarea' value={notes} placeholder='质检备注，可选' maxlength={500} onInput={(event) => setNotes(event.detail.value)} />
+            <Text className='field-help'>提交结论前会二次确认，避免误放行。</Text>
             <View className='action-row'>
-              <Button className='secondary-button' loading={submitting} onClick={() => void handleSave()}>保存明细</Button>
-              <Button className='success-button' loading={submitting} onClick={() => void handleSubmit()}>提交结论</Button>
+              <Button className='secondary-button' loading={submitting} disabled={submitting} onClick={() => void handleSave()}>保存明细</Button>
+              <Button className='success-button' loading={submitting} disabled={submitting} onClick={() => void handleSubmit()}>提交结论</Button>
             </View>
           </View>
         </>
       ) : (
-        <View className='empty-hint'>{loading ? '加载中...' : '暂无待处理质检明细'}</View>
+        <View className='empty-hint'>
+          <Text>{loading ? '质检数据加载中...' : '暂无待处理质检明细'}</Text>
+          {!loading && <Button className='empty-action' onClick={() => void loadInspections()}>重新同步</Button>}
+        </View>
       )}
     </View>
   )
