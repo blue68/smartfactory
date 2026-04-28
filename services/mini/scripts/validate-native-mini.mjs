@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 
 const root = new URL('..', import.meta.url).pathname
 const miniRoot = join(root, 'miniprogram')
@@ -44,6 +45,9 @@ const project = JSON.parse(readFileSync(join(root, 'project.config.json'), 'utf8
 if (project.miniprogramRoot !== 'miniprogram/') {
   fail('project.config.json must point miniprogramRoot to miniprogram/')
 }
+if (existsSync(join(miniRoot, 'project.config.json')) || existsSync(join(miniRoot, 'project.private.config.json'))) {
+  fail('do not keep project config files under miniprogram/. Import services/mini instead.')
+}
 
 for (const file of requiredFiles) {
   if (!existsSync(join(miniRoot, file))) fail(`missing ${file}`)
@@ -77,6 +81,30 @@ for (const file of files) {
     const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' })
     if (result.status !== 0) fail(result.stderr || `syntax check failed: ${file}`)
   }
+}
+
+const require = createRequire(import.meta.url)
+global.wx = {
+  getStorageSync: () => '',
+  setStorageSync: () => undefined,
+  removeStorageSync: () => undefined,
+  showToast: () => undefined,
+  vibrateShort: () => undefined
+}
+global.App = (definition) => definition
+global.Page = (definition) => {
+  if (!definition || typeof definition !== 'object') fail('Page definition must be an object')
+  if (!definition.data || typeof definition.data !== 'object') fail('Page data must be an object')
+  return definition
+}
+
+for (const jsFile of [
+  'app.js',
+  'pages/worker-task/index.js',
+  'pages/warehouse-inbound/index.js',
+  'pages/qc-inspect/index.js'
+]) {
+  require(join(miniRoot, jsFile))
 }
 
 console.log('mini validation passed')
