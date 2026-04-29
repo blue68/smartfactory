@@ -70,6 +70,15 @@ function remainingQty(task) {
   return remaining ? String(remaining) : String(task.completedQty || '')
 }
 
+function logItem(title, content) {
+  return {
+    id: String(Date.now()) + '-' + Math.floor(Math.random() * 1000),
+    time: ui.nowTimeLabel(),
+    title: title,
+    content: content
+  }
+}
+
 Page({
   data: {
     statusOptions: STATUS_OPTIONS,
@@ -124,7 +133,11 @@ Page({
     submitting: false,
     loadError: '',
     lastRefreshAt: '',
-    startDisabled: true
+    startDisabled: true,
+    operationLogs: [],
+    hasOperationLogs: false,
+    latestOperationTitle: '等待操作',
+    latestOperationText: '开工、投料、完工或异常上报后，会在这里保留操作回执。'
   },
 
   onLoad: function () {
@@ -193,6 +206,16 @@ Page({
       completeNotes: '',
       startDisabled: !task || task.status === 'completed'
     }, this.buildTaskState(this.data.tasks, task), recommendedMaterialState(task)))
+  },
+
+  appendOperationLog: function (title, content) {
+    var logs = [logItem(title, content)].concat(this.data.operationLogs || []).slice(0, 6)
+    this.setData({
+      operationLogs: logs,
+      hasOperationLogs: logs.length > 0,
+      latestOperationTitle: logs[0].title,
+      latestOperationText: logs[0].content
+    })
   },
 
   loadTasks: function () {
@@ -404,6 +427,7 @@ Page({
       if (!ok) return
       self.setData({ submitting: true })
       api.productionTaskApi.start(task.id).then(function () {
+        self.appendOperationLog('开工成功', (task.taskNo || task.id) + ' · ' + titleOf(task))
         ui.showSuccess('已开工')
         return self.refreshCurrentTask()
       }).catch(function (error) {
@@ -441,6 +465,7 @@ Page({
         locationId: location ? location.id : undefined,
         dyeLotNo: self.data.dyeLotNo.trim() || undefined
       }]).then(function () {
+        self.appendOperationLog('投料成功', ui.formatSku(material) + ' · ' + qty + ' ' + (material.stockUnit || material.purchaseUnit || material.unit || ''))
         self.setData({ issueQty: '', dyeLotNo: '' })
         ui.showSuccess('投料成功')
         return self.refreshCurrentTask()
@@ -475,6 +500,7 @@ Page({
         scrapQty: Number.isFinite(scrap) ? scrap : 0,
         notes: self.data.completeNotes.trim() || undefined
       }).then(function () {
+        self.appendOperationLog('完工已提交', '完工 ' + qty + ' ' + (task.unit || '') + ' · 工时 ' + hours + 'h')
         ui.showSuccess('完工已提交')
         return self.refreshCurrentTask()
       }).catch(function (error) {
@@ -505,6 +531,7 @@ Page({
         affectsProgress: true,
         description: self.data.exceptionText.trim()
       }).then(function () {
+        self.appendOperationLog('异常已上报', EXCEPTION_LABELS[self.data.exceptionTypeIdx] + ' · ' + SEVERITY_LABELS[self.data.severityIdx])
         self.setData({ exceptionText: '' })
         ui.showSuccess('异常已上报')
         return self.refreshCurrentTask()

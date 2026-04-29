@@ -47,6 +47,15 @@ function resultLabel(value) {
   return idx >= 0 ? RESULT_OPTIONS[idx].label : '待判定'
 }
 
+function logItem(title, content) {
+  return {
+    id: String(Date.now()) + '-' + Math.floor(Math.random() * 1000),
+    time: ui.nowTimeLabel(),
+    title: title,
+    content: content
+  }
+}
+
 Page({
   data: {
     resultLabels: RESULT_OPTIONS.map(function (item) { return item.label }),
@@ -107,7 +116,11 @@ Page({
     uploading: false,
     submitting: false,
     loadError: '',
-    lastRefreshAt: ''
+    lastRefreshAt: '',
+    operationLogs: [],
+    hasOperationLogs: false,
+    latestOperationTitle: '等待检验',
+    latestOperationText: '完成判定、保存或提交后，会在这里显示质检回执。'
   },
 
   onLoad: function () {
@@ -170,6 +183,16 @@ Page({
 
   setDrafts: function (drafts, idx) {
     this.setData(Object.assign({ drafts: drafts }, this.deriveDraftState(drafts, idx || 0)))
+  },
+
+  appendOperationLog: function (title, content) {
+    var logs = [logItem(title, content)].concat(this.data.operationLogs || []).slice(0, 6)
+    this.setData({
+      operationLogs: logs,
+      hasOperationLogs: logs.length > 0,
+      latestOperationTitle: logs[0].title,
+      latestOperationText: logs[0].content
+    })
   },
 
   loadInspections: function () {
@@ -366,6 +389,7 @@ Page({
     })
     this.setData({ overallResultIdx: 0, overallResultLabel: resultLabel('pass') })
     this.setDrafts(drafts, this.data.activeItemIdx)
+    this.appendOperationLog('全部合格', '已将 ' + drafts.length + ' 条明细标记为合格并设为接收入库。')
     ui.showSuccess('已全部标记合格')
   },
 
@@ -472,6 +496,7 @@ Page({
     var self = this
     this.setData({ submitting: true })
     this.saveItems().then(function () {
+      self.appendOperationLog('明细已保存', '已保存 ' + self.data.drafts.length + ' 条 QC 明细。')
       ui.showSuccess('明细已保存')
     }).catch(function (error) {
       ui.showError(error, '保存失败')
@@ -510,6 +535,7 @@ Page({
           notes: self.data.notes.trim() || undefined
         })
       }).then(function () {
+        self.appendOperationLog('质检已提交', '放行至 ' + warehouse.name + ' / ' + location.name)
         ui.showSuccess('质检已提交')
         return self.selectInspectionByIndex(self.data.inspectionIdx)
       }).catch(function (error) {

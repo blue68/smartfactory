@@ -25,6 +25,12 @@
     <view class="progress-track__fill" style="{{progressStyle}}"></view>
   </view>
 
+  <view class="qc-receipt">
+    <text class="qc-receipt__label">最近质检动作</text>
+    <view class="qc-receipt__title">{{latestOperationTitle}}</view>
+    <text class="qc-receipt__text">{{latestOperationText}}</text>
+  </view>
+
   <view wx:if="{{loadError}}" class="alert-card">
     <text class="alert-title">质检任务同步失败</text>
     <text class="alert-text">{{loadError}}</text>
@@ -112,6 +118,17 @@
       <view class="action-row">
         <button class="qc-outline flex" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSave">保存明细</button>
         <button class="qc-submit flex" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">提交报告</button>
+      </view>
+    </view>
+
+    <view wx:if="{{hasOperationLogs}}" class="summary-card">
+      <view class="summary-card__title">质检回执</view>
+      <view wx:for="{{operationLogs}}" wx:key="id" class="qc-log">
+        <text class="qc-log__time">{{item.time}}</text>
+        <view class="qc-log__body">
+          <text class="qc-log__title">{{item.title}}</text>
+          <text class="qc-log__text">{{item.content}}</text>
+        </view>
       </view>
     </view>
   </block>

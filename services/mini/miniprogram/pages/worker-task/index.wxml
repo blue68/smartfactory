@@ -30,6 +30,14 @@
     <text class="ops-section-head__count">{{taskCountLabel}}</text>
   </view>
 
+  <view class="ops-receipt">
+    <view>
+      <text class="ops-receipt__label">最近操作</text>
+      <view class="ops-receipt__title">{{latestOperationTitle}}</view>
+      <text class="ops-receipt__text">{{latestOperationText}}</text>
+    </view>
+  </view>
+
   <view wx:for="{{taskCards}}" wx:key="id" class="{{item.className}}" data-index="{{index}}" bindtap="handleTaskChange">
     <view class="ops-task__bar"></view>
     <view class="ops-task__body">
@@ -115,6 +123,17 @@
       </picker>
       <textarea class="textarea" value="{{exceptionText}}" placeholder="描述异常现象、影响范围和需要支持的事项" maxlength="500" bindinput="handleExceptionTextInput" />
       <button class="ops-warning" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleException">立即上报</button>
+    </view>
+
+    <view wx:if="{{hasOperationLogs}}" class="ops-panel">
+      <text class="ops-panel__title">操作回执</text>
+      <view wx:for="{{operationLogs}}" wx:key="id" class="ops-log">
+        <text class="ops-log__time">{{item.time}}</text>
+        <view class="ops-log__body">
+          <text class="ops-log__title">{{item.title}}</text>
+          <text class="ops-log__text">{{item.content}}</text>
+        </view>
+      </view>
     </view>
   </block>
 

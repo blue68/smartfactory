@@ -97,6 +97,35 @@
   transition: width .3s ease;
 }
 
+.qc-receipt {
+  margin-top: 22rpx;
+  padding: 22rpx 24rpx;
+  border: 2rpx solid #ddd6fe;
+  border-radius: 24rpx;
+  background: linear-gradient(135deg, #f5f3ff 0%, #fff 100%);
+  box-shadow: 0 8rpx 22rpx rgba(109, 40, 217, .08);
+}
+
+.qc-receipt__label {
+  color: #6d28d9;
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.qc-receipt__title {
+  margin-top: 6rpx;
+  color: #1e293b;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.qc-receipt__text {
+  display: block;
+  margin-top: 6rpx;
+  color: #64748b;
+  font-size: 24rpx;
+}
+
 .qc-card,
 .defect-form,
 .summary-card,
@@ -324,4 +353,41 @@
 .qc-submit {
   color: #fff;
   background: #7c3aed;
+}
+
+.qc-log {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 16rpx;
+  padding: 18rpx;
+  border-radius: 18rpx;
+  background: #f8fafc;
+}
+
+.qc-log__time {
+  min-width: 72rpx;
+  color: #6d28d9;
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.qc-log__body {
+  flex: 1;
+}
+
+.qc-log__title,
+.qc-log__text {
+  display: block;
+}
+
+.qc-log__title {
+  color: #1e293b;
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
+.qc-log__text {
+  margin-top: 4rpx;
+  color: #64748b;
+  font-size: 23rpx;
 }
