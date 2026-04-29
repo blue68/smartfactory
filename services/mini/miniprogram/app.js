@@ -1,4 +1,18 @@
 function installCompatibilityPolyfills() {
+  if (!Object.assign) {
+    Object.assign = function (target) {
+      if (target === undefined || target === null) throw new TypeError('Cannot convert undefined or null to object')
+      var output = Object(target)
+      for (var i = 1; i < arguments.length; i += 1) {
+        var source = arguments[i]
+        if (source === undefined || source === null) continue
+        for (var key in source) {
+          if (Object.prototype.hasOwnProperty.call(source, key)) output[key] = source[key]
+        }
+      }
+      return output
+    }
+  }
   if (!Promise.prototype.finally) {
     Promise.prototype.finally = function (callback) {
       var PromiseCtor = this.constructor
@@ -16,6 +30,9 @@ function installCompatibilityPolyfills() {
     Number.isFinite = function (value) {
       return typeof value === 'number' && isFinite(value)
     }
+  }
+  if (!Number.parseFloat) {
+    Number.parseFloat = parseFloat
   }
   if (!Array.prototype.findIndex) {
     Array.prototype.findIndex = function (predicate, thisArg) {

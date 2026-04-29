@@ -5,6 +5,7 @@ function getErrorMessage(error, fallback) {
 }
 
 function showError(error, fallback) {
+  if (typeof wx === 'undefined' || !wx.showToast) return
   wx.showToast({
     title: getErrorMessage(error, fallback).slice(0, 28),
     icon: 'none',
@@ -13,12 +14,16 @@ function showError(error, fallback) {
 }
 
 function showSuccess(title) {
-  wx.showToast({ title: title, icon: 'success', duration: 1600 })
-  wx.vibrateShort({ type: 'light' })
+  if (typeof wx !== 'undefined' && wx.showToast) wx.showToast({ title: title, icon: 'success', duration: 1600 })
+  if (typeof wx !== 'undefined' && wx.vibrateShort) wx.vibrateShort({ type: 'light' })
 }
 
 function confirmAction(title, content) {
   return new Promise(function (resolve) {
+    if (typeof wx === 'undefined' || !wx.showModal) {
+      resolve(true)
+      return
+    }
     wx.showModal({
       title: title,
       content: content,
@@ -43,7 +48,13 @@ function nowTimeLabel() {
 }
 
 function stopPullDownRefresh() {
-  wx.stopPullDownRefresh()
+  if (typeof wx !== 'undefined' && wx.stopPullDownRefresh) {
+    try {
+      wx.stopPullDownRefresh()
+    } catch (error) {
+      // Some simulator builds throw when no pull-down gesture is active.
+    }
+  }
 }
 
 function decimalInput(value) {
@@ -54,7 +65,7 @@ function decimalInput(value) {
 }
 
 function asNumber(value) {
-  var num = Number.parseFloat(value)
+  var num = parseFloat(value)
   return Number.isFinite(num) ? num : NaN
 }
 

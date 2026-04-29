@@ -143,6 +143,15 @@
   margin: 26rpx 4rpx 14rpx;
 }
 
+.quick-pass {
+  height: 84rpx;
+  line-height: 84rpx;
+  margin: 0 0 18rpx;
+  color: #fff;
+  background: #16a34a;
+  font-weight: 800;
+}
+
 .inspect-card {
   margin-bottom: 18rpx;
   overflow: hidden;

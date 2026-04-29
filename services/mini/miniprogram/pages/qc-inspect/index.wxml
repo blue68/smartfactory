@@ -12,6 +12,7 @@
       <view class="unit-bar__tags">
         <text>最后同步 {{syncLabel}}</text>
         <text>{{overallResultLabel}}</text>
+        <text>{{inspectionStatusLabel}}</text>
       </view>
     </view>
     <view class="unit-bar__progress">
@@ -40,6 +41,7 @@
 
   <block wx:if="{{hasActiveDraft}}">
     <view class="section-label">逐件检验</view>
+    <button class="quick-pass" bindtap="markAllPass">一键全部合格</button>
     <view wx:for="{{draftCards}}" wx:key="index" class="{{item.cardClass}}">
       <view class="inspect-card__header" data-index="{{index}}" bindtap="handleActiveItemChange">
         <view class="inspect-card__num">{{item.marker}}</view>
@@ -58,24 +60,24 @@
     <view class="defect-form">
       <view class="defect-form__title">当前明细补充信息</view>
       <picker mode="selector" range="{{draftRange}}" value="{{activeItemIdx}}" bindchange="handleActiveItemChange">
-        <view class="qc-picker">{{activeDraft.label}}</view>
+        <view class="qc-picker">{{activeLabel}}</view>
       </picker>
-      <input class="input" type="digit" value="{{activeDraft.qtyDelivered}}" placeholder="送货数" data-field="qtyDelivered" bindinput="handleDraftInput" />
-      <input class="input" type="digit" value="{{activeDraft.qtySampled}}" placeholder="抽检数" data-field="qtySampled" bindinput="handleDraftInput" />
-      <input class="input" type="digit" value="{{activeDraft.qtyPassed}}" placeholder="合格数" data-field="qtyPassed" bindinput="handleDraftInput" />
-      <input class="input" type="digit" value="{{activeDraft.qtyFailed}}" placeholder="不良数" data-field="qtyFailed" bindinput="handleDraftInput" />
-      <input class="input" type="digit" value="{{activeDraft.acceptedStockQty}}" placeholder="接收入库数" data-field="acceptedStockQty" bindinput="handleDraftInput" />
-      <input class="input" value="{{activeDraft.dyeLotNo}}" placeholder="缸号/批号，可选" data-field="dyeLotNo" bindinput="handleDraftTextInput" />
+      <input class="input" type="digit" value="{{activeQtyDelivered}}" placeholder="送货数" data-field="qtyDelivered" bindinput="handleDraftInput" />
+      <input class="input" type="digit" value="{{activeQtySampled}}" placeholder="抽检数" data-field="qtySampled" bindinput="handleDraftInput" />
+      <input class="input" type="digit" value="{{activeQtyPassed}}" placeholder="合格数" data-field="qtyPassed" bindinput="handleDraftInput" />
+      <input class="input" type="digit" value="{{activeQtyFailed}}" placeholder="不良数" data-field="qtyFailed" bindinput="handleDraftInput" />
+      <input class="input" type="digit" value="{{activeAcceptedStockQty}}" placeholder="接收入库数" data-field="acceptedStockQty" bindinput="handleDraftInput" />
+      <input class="input" value="{{activeDyeLotNo}}" placeholder="缸号/批号，可选" data-field="dyeLotNo" bindinput="handleDraftTextInput" />
       <picker mode="selector" range="{{resultLabels}}" value="{{activeResultIdx}}" bindchange="handleDraftResultChange">
         <view class="qc-picker">结果：{{activeResultPickerLabel}}</view>
       </picker>
       <picker mode="selector" range="{{dispositionLabels}}" value="{{activeDispositionIdx}}" bindchange="handleDraftDispositionChange">
         <view class="qc-picker">处置：{{activeDispositionPickerLabel}}</view>
       </picker>
-      <textarea class="textarea" value="{{activeDraft.notes}}" placeholder="明细备注，可选" maxlength="300" data-field="notes" bindinput="handleDraftTextInput" />
+      <textarea class="textarea" value="{{activeNotes}}" placeholder="明细备注，可选" maxlength="300" data-field="notes" bindinput="handleDraftTextInput" />
       <text class="field-help">抽检数必须覆盖合格数和不良数，留证图最多 3 张。</text>
       <view class="image-row">
-        <view wx:for="{{activeDraft.defectImages}}" wx:key="item" class="image-item" data-url="{{item}}" bindtap="removeImage">
+        <view wx:for="{{activeDefectImages}}" wx:key="item" class="image-item" data-url="{{item}}" bindtap="removeImage">
           <image class="image" src="{{item}}" mode="aspectFill" />
           <text class="image-remove">移除</text>
         </view>

@@ -162,7 +162,9 @@ var productionTaskApi = {
   issueMaterials: function (id, items) {
     var task = getTask(id)
     if (!task) return Promise.reject(new Error('FACTORY001 未找到工单任务'))
+    task.issueHistory = task.issueHistory || []
     task.lastIssueItems = clone(items || [])
+    task.issueHistory.push({ items: clone(items || []), issuedAt: new Date().toISOString() })
     if (task.status === 'pending') task.status = 'in_progress'
     return ok({ success: true })
   },
@@ -181,6 +183,7 @@ var productionTaskApi = {
     if (!task) return Promise.reject(new Error('FACTORY001 未找到工单任务'))
     task.status = 'exception'
     task.exception = clone(payload || {})
+    task.exception.reportedAt = new Date().toISOString()
     return ok({ success: true })
   }
 }
@@ -213,6 +216,22 @@ var incomingInspectionApi = {
     inspection.locationId = payload && payload.locationId
     inspection.notes = payload && payload.notes ? payload.notes : ''
     inspection.status = 'submitted'
+    inspection.submittedAt = new Date().toISOString()
+    inspection.items.forEach(function (item) {
+      inboundRecords.push({
+        id: inboundRecords.length + 1,
+        tenantCode: tenantCode,
+        sourceType: 'incoming_inspection',
+        sourceId: inspection.id,
+        skuId: item.skuId,
+        skuCode: item.skuCode,
+        qtyInput: Number(item.acceptedStockQty) || 0,
+        inputUnit: item.unit || '件',
+        warehouseId: inspection.warehouseId,
+        locationId: inspection.locationId,
+        dyeLotNo: item.dyeLotNo || ''
+      })
+    })
     return ok({ success: true })
   }
 }

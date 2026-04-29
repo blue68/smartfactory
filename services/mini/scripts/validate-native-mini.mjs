@@ -85,17 +85,30 @@ for (const file of files) {
 }
 
 const require = createRequire(import.meta.url)
+const pageDefinitions = {}
+let currentPageFile = ''
 global.wx = {
   getStorageSync: () => '',
   setStorageSync: () => undefined,
   removeStorageSync: () => undefined,
   showToast: () => undefined,
+  showModal: (options) => {
+    if (options && options.success) options.success({ confirm: true, cancel: false })
+  },
+  chooseImage: (options) => {
+    if (options && options.success) options.success({ tempFilePaths: ['/tmp/factory001-qc-proof.jpg'] })
+  },
+  scanCode: (options) => {
+    if (options && options.success) options.success({ result: '1001' })
+  },
+  stopPullDownRefresh: () => undefined,
   vibrateShort: () => undefined
 }
 global.App = (definition) => definition
 global.Page = (definition) => {
   if (!definition || typeof definition !== 'object') fail('Page definition must be an object')
   if (!definition.data || typeof definition.data !== 'object') fail('Page data must be an object')
+  pageDefinitions[currentPageFile] = definition
   return definition
 }
 
@@ -105,10 +118,82 @@ for (const jsFile of [
   'pages/warehouse-inbound/index.js',
   'pages/qc-inspect/index.js'
 ]) {
+  currentPageFile = jsFile
   require(join(miniRoot, jsFile))
 }
 
 const api = require(join(miniRoot, 'utils/api.js'))
+const clone = (value) => JSON.parse(JSON.stringify(value))
+const settle = async (cycles = 12) => {
+  for (let i = 0; i < cycles; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+}
+const makeEvent = (payload = {}) => ({
+  detail: payload.detail || { value: payload.value },
+  currentTarget: { dataset: payload.dataset || {} }
+})
+const createPageInstance = (pageFile) => {
+  const definition = pageDefinitions[pageFile]
+  if (!definition) fail(`missing captured Page definition: ${pageFile}`)
+  const instance = {
+    data: clone(definition.data || {}),
+    setData(patch) {
+      this.data = Object.assign({}, this.data, clone(patch || {}))
+    }
+  }
+  for (const [key, value] of Object.entries(definition)) {
+    if (key === 'data') continue
+    instance[key] = typeof value === 'function' ? value.bind(instance) : value
+  }
+  return instance
+}
+
+const workerPage = createPageInstance('pages/worker-task/index.js')
+workerPage.onLoad()
+await settle()
+if (!workerPage.data.selectedTask) fail('worker task page must load a selected task')
+workerPage.handleStart()
+await settle()
+if (workerPage.data.selectedTask.status !== 'in_progress') fail('worker start action must move task to in_progress')
+workerPage.pickRecommendedMaterial(makeEvent({ dataset: { index: 0 } }))
+workerPage.handleIssue()
+await settle()
+if (!workerPage.data.selectedTask.lastIssueItems || !workerPage.data.selectedTask.lastIssueItems.length) fail('worker issue action must write issue materials')
+workerPage.setData({ completedQty: '2', actualHours: '0.5', scrapQty: '0' })
+workerPage.handleComplete()
+await settle()
+if (workerPage.data.selectedTask.status !== 'completed') fail('worker complete action must move task to completed')
+workerPage.handleTaskChange(makeEvent({ dataset: { index: 1 }, value: 1 }))
+await settle()
+workerPage.setData({ exceptionText: 'FACTORY001 设备噪音偏大，需要班组长确认。' })
+workerPage.handleException()
+await settle()
+if (workerPage.data.selectedTask.status !== 'exception') fail('worker exception action must move task to exception')
+
+const inboundPage = createPageInstance('pages/warehouse-inbound/index.js')
+inboundPage.onLoad()
+await settle()
+await inboundPage.searchSku('FAB')
+await settle()
+inboundPage.setData({ qty: '1' })
+inboundPage.handleSubmit()
+await settle()
+if (!inboundPage.data.successVisible) fail('warehouse inbound submit must show success state')
+
+const qcPage = createPageInstance('pages/qc-inspect/index.js')
+qcPage.onLoad()
+await settle()
+if (!qcPage.data.hasActiveDraft || !qcPage.data.drafts.length) fail('QC page must load FACTORY001 inspection drafts')
+qcPage.markAllPass()
+await settle()
+if (qcPage.data.completedItemCount !== qcPage.data.drafts.length) fail('QC markAllPass must complete all drafts')
+qcPage.handleSave()
+await settle()
+qcPage.handleSubmit()
+await settle()
+if (!qcPage.data.detail || qcPage.data.detail.status !== 'submitted') fail('QC submit must move inspection to submitted')
+
 const taskPage = await api.productionTaskApi.list({ page: 1, pageSize: 10 })
 if (!taskPage.list.length) fail('mock production tasks must not be empty')
 await api.productionTaskApi.start(taskPage.list[0].id)

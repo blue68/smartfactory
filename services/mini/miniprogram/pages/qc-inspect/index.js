@@ -42,6 +42,11 @@ function buildDrafts(items) {
   })
 }
 
+function resultLabel(value) {
+  var idx = RESULT_OPTIONS.findIndex(function (item) { return item.value === value })
+  return idx >= 0 ? RESULT_OPTIONS[idx].label : '待判定'
+}
+
 Page({
   data: {
     resultLabels: RESULT_OPTIONS.map(function (item) { return item.label }),
@@ -57,6 +62,15 @@ Page({
     activeItemIdx: 0,
     activeDraft: null,
     hasActiveDraft: false,
+    activeLabel: '',
+    activeQtyDelivered: '',
+    activeQtySampled: '',
+    activeQtyPassed: '',
+    activeQtyFailed: '',
+    activeAcceptedStockQty: '',
+    activeDyeLotNo: '',
+    activeNotes: '',
+    activeDefectImages: [],
     activeResultIdx: 0,
     activeResultLabel: '',
     activeResultPickerLabel: '请选择',
@@ -75,6 +89,7 @@ Page({
     unitOrderLabel: '请选择质检单',
     unitPurchaseLabel: '待加载',
     unitProductLabel: '来料质检任务',
+    inspectionStatusLabel: '待加载',
     warehouses: [],
     warehouseRange: [],
     warehouseIdx: 0,
@@ -130,6 +145,15 @@ Page({
       activeItemIdx: idx || 0,
       activeDraft: active,
       hasActiveDraft: Boolean(active),
+      activeLabel: active ? active.label : '',
+      activeQtyDelivered: active ? active.qtyDelivered : '',
+      activeQtySampled: active ? active.qtySampled : '',
+      activeQtyPassed: active ? active.qtyPassed : '',
+      activeQtyFailed: active ? active.qtyFailed : '',
+      activeAcceptedStockQty: active ? active.acceptedStockQty : '',
+      activeDyeLotNo: active ? active.dyeLotNo : '',
+      activeNotes: active ? active.notes : '',
+      activeDefectImages: active ? active.defectImages : [],
       activeResultIdx: resultIdx >= 0 ? resultIdx : 0,
       activeResultLabel: resultIdx >= 0 ? RESULT_OPTIONS[resultIdx].label : '',
       activeResultPickerLabel: resultIdx >= 0 ? RESULT_OPTIONS[resultIdx].label : '请选择',
@@ -168,7 +192,8 @@ Page({
           inspectionPickerLabel: '请选择质检单',
           unitOrderLabel: '请选择质检单',
           unitPurchaseLabel: '待加载',
-          unitProductLabel: '来料质检任务'
+          unitProductLabel: '来料质检任务',
+          inspectionStatusLabel: '待加载'
         })
         self.setDrafts([], 0)
         return null
@@ -197,7 +222,8 @@ Page({
         overallResultLabel: RESULT_OPTIONS[Math.max(0, RESULT_OPTIONS.findIndex(function (option) { return option.value === detail.overallResult }))].label,
         unitOrderLabel: detail.inspectionNo || String(detail.id),
         unitPurchaseLabel: detail.purchaseOrderNo || '-',
-        unitProductLabel: detail.supplierName || '来料质检'
+        unitProductLabel: detail.supplierName || '来料质检',
+        inspectionStatusLabel: detail.status === 'submitted' ? '已提交' : (detail.status === 'pending' ? '待检' : (detail.status || '待检'))
       })
       self.setDrafts(buildDrafts(detail.items), 0)
     })
@@ -276,23 +302,27 @@ Page({
   },
 
   handleDraftInput: function (event) {
+    if (!this.data.hasActiveDraft) return
     var patch = {}
     patch[event.currentTarget.dataset.field] = ui.decimalInput(event.detail.value)
     this.updateActiveDraft(patch)
   },
 
   handleDraftTextInput: function (event) {
+    if (!this.data.hasActiveDraft) return
     var patch = {}
     patch[event.currentTarget.dataset.field] = event.detail.value
     this.updateActiveDraft(patch)
   },
 
   handleDraftResultChange: function (event) {
+    if (!this.data.hasActiveDraft) return
     var idx = Number(event.detail.value) || 0
     this.updateActiveDraft({ result: RESULT_OPTIONS[idx].value })
   },
 
   handleDraftDispositionChange: function (event) {
+    if (!this.data.hasActiveDraft) return
     var idx = Number(event.detail.value) || 0
     this.updateActiveDraft({ disposition: DISPOSITION_OPTIONS[idx].value })
   },
@@ -318,6 +348,25 @@ Page({
     current.disposition = current.disposition || 'return'
     drafts[idx] = current
     this.setDrafts(drafts, idx)
+  },
+
+  markAllPass: function () {
+    if (!this.data.drafts.length) {
+      ui.showError('当前没有可判定明细', '无法判定')
+      return
+    }
+    var drafts = this.data.drafts.map(function (item) {
+      var current = Object.assign({}, item)
+      current.result = 'pass'
+      current.disposition = 'accept'
+      current.qtyFailed = '0'
+      if (!current.qtyPassed || current.qtyPassed === '0') current.qtyPassed = current.qtySampled || current.qtyDelivered || '0'
+      if (!current.acceptedStockQty || current.acceptedStockQty === '0') current.acceptedStockQty = current.qtyDelivered || current.qtyPassed || '0'
+      return current
+    })
+    this.setData({ overallResultIdx: 0, overallResultLabel: resultLabel('pass') })
+    this.setDrafts(drafts, this.data.activeItemIdx)
+    ui.showSuccess('已全部标记合格')
   },
 
   handleOverallResultChange: function (event) {
@@ -392,7 +441,8 @@ Page({
       var sampled = ui.asNumber(item.qtySampled)
       var passed = ui.asNumber(item.qtyPassed)
       var failed = ui.asNumber(item.qtyFailed)
-      return !Number.isFinite(sampled) || !Number.isFinite(passed) || !Number.isFinite(failed) || sampled < passed + failed
+      var accepted = ui.asNumber(item.acceptedStockQty)
+      return !Number.isFinite(sampled) || !Number.isFinite(passed) || !Number.isFinite(failed) || !Number.isFinite(accepted) || sampled < passed + failed
     })
     if (invalidQty) throw new Error('抽检数不能小于合格数与不良数之和')
   },
@@ -405,7 +455,7 @@ Page({
         id: item.id,
         sourceItemIds: item.sourceItemIds,
         qtyDelivered: item.qtyDelivered,
-        qtysampled: item.qtySampled,
+        qtySampled: item.qtySampled,
         qtyPassed: item.qtyPassed,
         qtyFailed: item.qtyFailed,
         acceptedStockQty: item.acceptedStockQty,
@@ -437,6 +487,10 @@ Page({
     var location = this.data.locations[this.data.locationIdx]
     if (!detail || !warehouse || !location) {
       ui.showError('请选择放行仓库和库位', '放行信息不完整')
+      return
+    }
+    if (detail.status === 'submitted') {
+      ui.showSuccess('质检单已提交')
       return
     }
     try {

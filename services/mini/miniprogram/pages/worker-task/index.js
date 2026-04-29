@@ -33,6 +33,43 @@ function normalizeScanPayload(raw) {
   return result
 }
 
+function toMaterialOption(source) {
+  if (!source) return null
+  return {
+    id: source.skuId || source.id,
+    skuId: source.skuId || source.id,
+    skuCode: source.skuCode || source.code || '',
+    code: source.skuCode || source.code || '',
+    name: source.name || source.skuName || source.skuCode || source.code || '物料',
+    unit: source.unit,
+    stockUnit: source.unit,
+    purchaseUnit: source.unit
+  }
+}
+
+function recommendedMaterialState(task) {
+  var first = task && task.inputMaterials && task.inputMaterials.length ? task.inputMaterials[0] : null
+  var option = toMaterialOption(first)
+  var qty = first ? (first.requiredQty || first.qty || '') : ''
+  return {
+    materialOptions: option ? [option] : [],
+    materialRange: option ? [ui.formatSku(option)] : [],
+    materialIdx: 0,
+    selectedMaterialLabel: option ? ui.formatSku(option) : '',
+    materialPickerLabel: option ? ui.formatSku(option) : '请选择投料物料',
+    issueQty: qty ? String(qty) : ''
+  }
+}
+
+function remainingQty(task) {
+  if (!task) return ''
+  var planned = Number(task.plannedQty)
+  var completed = Number(task.completedQty || 0)
+  if (!Number.isFinite(planned) || planned <= 0) return ''
+  var remaining = Math.max(planned - completed, 0)
+  return remaining ? String(remaining) : String(task.completedQty || '')
+}
+
 Page({
   data: {
     statusOptions: STATUS_OPTIONS,
@@ -150,12 +187,12 @@ Page({
   setSelectedTask: function (task) {
     this.setData(Object.assign({
       selectedTask: task,
-      completedQty: task ? String(task.completedQty || '') : '',
-      actualHours: '',
+      completedQty: remainingQty(task),
+      actualHours: task && task.standardHours ? String(task.standardHours) : '',
       scrapQty: '',
       completeNotes: '',
       startDisabled: !task || task.status === 'completed'
-    }, this.buildTaskState(this.data.tasks, task)))
+    }, this.buildTaskState(this.data.tasks, task), recommendedMaterialState(task)))
   },
 
   loadTasks: function () {
@@ -330,13 +367,8 @@ Page({
     var item = this.data.inputMaterialViews[event.currentTarget.dataset.index]
     if (!item || !item.source) return
     var source = item.source
-    var option = {
-      id: source.skuId,
-      skuCode: source.skuCode || '',
-      name: source.name || source.skuName || source.skuCode || '物料',
-      unit: source.unit,
-      stockUnit: source.unit
-    }
+    var option = toMaterialOption(source)
+    if (!option) return
     this.setData({
       materialOptions: [option],
       materialRange: [ui.formatSku(option)],
@@ -360,6 +392,14 @@ Page({
     var self = this
     var task = this.data.selectedTask
     if (!task || this.data.submitting) return
+    if (task.status === 'in_progress') {
+      ui.showSuccess('任务已在进行中')
+      return
+    }
+    if (task.status === 'completed') {
+      ui.showError('已完工任务不能重复开工', '无法开工')
+      return
+    }
     ui.confirmAction('确认开工', '开始执行「' + titleOf(task) + '」？').then(function (ok) {
       if (!ok) return
       self.setData({ submitting: true })
@@ -382,6 +422,10 @@ Page({
     var location = this.data.locations[this.data.locationIdx]
     var qty = ui.asNumber(this.data.issueQty)
     var skuId = ui.getSkuId(material)
+    if (task && task.status === 'completed') {
+      ui.showError('已完工任务不能继续投料', '无法投料')
+      return
+    }
     if (!task || !material || !skuId || !Number.isFinite(qty) || qty <= 0 || !warehouse) {
       ui.showError('请补齐物料、数量和仓库', '投料信息不完整')
       return
@@ -414,6 +458,10 @@ Page({
     var qty = ui.asNumber(this.data.completedQty)
     var hours = ui.asNumber(this.data.actualHours)
     var scrap = this.data.scrapQty ? ui.asNumber(this.data.scrapQty) : 0
+    if (task && task.status === 'completed') {
+      ui.showError('当前任务已完工，请勿重复提交', '无法完工')
+      return
+    }
     if (!task || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(hours) || hours < 0) {
       ui.showError('请填写有效完工数量和工时', '完工信息不完整')
       return
@@ -440,6 +488,10 @@ Page({
   handleException: function () {
     var self = this
     var task = this.data.selectedTask
+    if (task && task.status === 'completed') {
+      ui.showError('已完工任务不能上报异常', '无法上报')
+      return
+    }
     if (!task || !this.data.exceptionText.trim()) {
       ui.showError('请填写异常说明', '异常信息不完整')
       return
