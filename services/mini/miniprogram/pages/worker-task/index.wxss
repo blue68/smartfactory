@@ -1,5 +1,5 @@
 .page {
-  padding-bottom: 190rpx;
+  padding-bottom: 340rpx;
 }
 
 .ops-hero {
@@ -52,9 +52,6 @@
 }
 
 .ops-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
   margin: 24rpx 0;
 }
 
@@ -63,16 +60,21 @@
   margin-bottom: 14rpx;
 }
 
+.ops-toolbar__actions {
+  display: flex;
+  gap: 14rpx;
+}
+
 .ops-filter,
-.ops-scan,
-.ops-refresh,
-.ops-reset {
-  display: block;
+.ops-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   margin: 0;
   box-sizing: border-box;
   height: 76rpx;
-  line-height: 76rpx;
+  line-height: 1;
   padding: 0 10rpx;
   border-radius: 20rpx;
   color: #334155;
@@ -85,10 +87,9 @@
   box-shadow: 0 6rpx 18rpx rgba(30, 41, 59, .08);
 }
 
-.ops-scan,
-.ops-refresh,
-.ops-reset {
-  width: 31.5%;
+.ops-action {
+  flex: 1;
+  min-width: 0;
 }
 
 .ops-scan,
@@ -314,17 +315,21 @@
 .ops-primary,
 .ops-success,
 .ops-warning {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   box-sizing: border-box;
   margin-left: 0;
   margin-right: 0;
   margin-top: 20rpx;
   height: 92rpx;
-  line-height: 92rpx;
+  line-height: 1;
+  padding: 0;
   color: #fff;
   border-radius: 24rpx;
   font-weight: 800;
+  font-size: 30rpx;
 }
 
 .ops-primary {
@@ -357,8 +362,13 @@
 }
 
 .ops-panel .inline-row .primary-small {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
   width: 176rpx;
+  height: 84rpx;
+  line-height: 1;
   min-width: 0;
   box-sizing: border-box;
   margin-left: 14rpx;

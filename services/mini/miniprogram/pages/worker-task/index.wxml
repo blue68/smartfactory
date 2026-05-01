@@ -21,9 +21,11 @@
     <picker class="ops-toolbar__picker" mode="selector" range="{{statusOptions}}" value="{{statusIdx}}" bindchange="handleStatusChange">
       <view class="ops-filter">{{statusDisplayLabel}}</view>
     </picker>
-    <button class="ops-scan" bindtap="handleScanTask">扫码</button>
-    <button class="ops-refresh" loading="{{loading}}" disabled="{{loading}}" bindtap="loadTasks">刷新</button>
-    <button wx:if="{{canResetMock}}" class="ops-reset" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleResetMockData">重置</button>
+    <view class="ops-toolbar__actions">
+      <view class="ops-action ops-scan" bindtap="handleScanTask">扫码</view>
+      <view class="ops-action ops-refresh" bindtap="loadTasks">刷新</view>
+      <view wx:if="{{canResetMock}}" class="ops-action ops-reset" bindtap="handleResetMockData">重置</view>
+    </view>
   </view>
 
   <view class="ops-section-head">
