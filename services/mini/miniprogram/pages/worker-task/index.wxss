@@ -1,3 +1,7 @@
+.page {
+  padding-bottom: 190rpx;
+}
+
 .ops-hero {
   display: flex;
   align-items: flex-start;
@@ -48,14 +52,15 @@
 }
 
 .ops-toolbar {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12rpx;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
   margin: 24rpx 0;
 }
 
 .ops-toolbar__picker {
-  min-width: 0;
+  width: 100%;
+  margin-bottom: 14rpx;
 }
 
 .ops-filter,
@@ -78,6 +83,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   box-shadow: 0 6rpx 18rpx rgba(30, 41, 59, .08);
+}
+
+.ops-scan,
+.ops-refresh,
+.ops-reset {
+  width: 31.5%;
 }
 
 .ops-scan,
@@ -303,6 +314,11 @@
 .ops-primary,
 .ops-success,
 .ops-warning {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-left: 0;
+  margin-right: 0;
   margin-top: 20rpx;
   height: 92rpx;
   line-height: 92rpx;
@@ -327,6 +343,26 @@
   display: flex;
   flex-direction: column;
   gap: 14rpx;
+}
+
+.ops-panel .inline-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.ops-panel .inline-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ops-panel .inline-row .primary-small {
+  flex: none;
+  width: 176rpx;
+  min-width: 0;
+  box-sizing: border-box;
+  margin-left: 14rpx;
+  padding: 0;
 }
 
 .material-line {
