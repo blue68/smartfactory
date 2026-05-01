@@ -74,6 +74,15 @@
   font-weight: 800;
 }
 
+.stock-reset {
+  height: 84rpx;
+  line-height: 84rpx;
+  margin-top: 18rpx;
+  color: #ea580c;
+  background: #fff7ed;
+  font-weight: 800;
+}
+
 .stock-brief {
   display: flex;
   gap: 18rpx;

@@ -87,9 +87,12 @@ for (const file of files) {
 const require = createRequire(import.meta.url)
 const pageDefinitions = {}
 let currentPageFile = ''
+const wxStorage = {}
 global.wx = {
-  getStorageSync: () => '',
-  setStorageSync: () => undefined,
+  getStorageSync: (key) => wxStorage[key] || '',
+  setStorageSync: (key, value) => {
+    wxStorage[key] = value
+  },
   removeStorageSync: () => undefined,
   showToast: () => undefined,
   showModal: (options) => {
@@ -123,6 +126,7 @@ for (const jsFile of [
 }
 
 const api = require(join(miniRoot, 'utils/api.js'))
+if (api.resetMockData) await api.resetMockData()
 const clone = (value) => JSON.parse(JSON.stringify(value))
 const settle = async (cycles = 12) => {
   for (let i = 0; i < cycles; i += 1) {
@@ -150,6 +154,7 @@ const createPageInstance = (pageFile) => {
 }
 
 const workerPage = createPageInstance('pages/worker-task/index.js')
+if (!workerPage.data.canResetMock) fail('worker task page must expose FACTORY001 reset action in mock mode')
 workerPage.onLoad()
 await settle()
 if (!workerPage.data.selectedTask) fail('worker task page must load a selected task')
@@ -176,6 +181,7 @@ if (workerPage.data.selectedTask.status !== 'exception') fail('worker exception 
 if (!/异常/.test(workerPage.data.latestOperationTitle)) fail('worker exception action must update latest operation receipt')
 
 const inboundPage = createPageInstance('pages/warehouse-inbound/index.js')
+if (!inboundPage.data.canResetMock) fail('warehouse inbound page must expose FACTORY001 reset action in mock mode')
 inboundPage.onLoad()
 await settle()
 await inboundPage.searchSku('FAB')
@@ -184,8 +190,12 @@ inboundPage.setData({ qty: '1' })
 inboundPage.handleSubmit()
 await settle()
 if (!inboundPage.data.successVisible) fail('warehouse inbound submit must show success state')
+inboundPage.handleResetMockData()
+await settle()
+if (inboundPage.data.successVisible) fail('warehouse inbound reset must clear success state')
 
 const qcPage = createPageInstance('pages/qc-inspect/index.js')
+if (!qcPage.data.canResetMock) fail('QC page must expose FACTORY001 reset action in mock mode')
 qcPage.onLoad()
 await settle()
 if (!qcPage.data.hasActiveDraft || !qcPage.data.drafts.length) fail('QC page must load FACTORY001 inspection drafts')
@@ -220,5 +230,10 @@ if (!inspectionPage.list.length) fail('mock inspections must not be empty')
 const inspection = await api.incomingInspectionApi.detail(inspectionPage.list[0].id)
 await api.incomingInspectionApi.updateItems(inspection.id, inspection.items.map((item) => Object.assign({}, item, { result: 'pass', disposition: 'accept' })))
 await api.incomingInspectionApi.submit(inspection.id, { overallResult: 'pass', warehouseId: warehouseList[0].id, locationId: locationList[0].id })
+if (api.resetMockData) {
+  await api.resetMockData()
+  const resetInspection = await api.incomingInspectionApi.detail(inspection.id)
+  if (resetInspection.status !== 'pending') fail('mock reset must restore incoming inspection to pending')
+}
 
 console.log('mini validation passed')

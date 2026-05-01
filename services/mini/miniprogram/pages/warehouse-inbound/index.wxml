@@ -14,6 +14,7 @@
       <input class="scan-input flex" value="{{keyword}}" placeholder="或输入 SKU / 名称手动搜索" bindinput="handleKeywordInput" />
       <button class="scan-query" loading="{{loading}}" disabled="{{loading}}" bindtap="searchSku">查询</button>
     </view>
+    <button wx:if="{{canResetMock}}" class="stock-reset" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleResetMockData">重置 FACTORY001 模拟数据</button>
   </view>
 
   <view class="stock-brief">
@@ -38,19 +39,19 @@
       <text class="field-label">物料信息</text>
     </view>
     <view class="card__body">
-    <picker mode="selector" range="{{skuRange}}" value="{{skuIdx}}" bindchange="handleSkuChange">
-      <view class="stock-picker">{{skuPickerLabel}}</view>
-    </picker>
-    <view wx:if="{{selectedSkuLabel}}" class="sku-card">
-      <button class="sku-card__change" bindtap="resetForm">更换</button>
-      <text class="sku-code">{{selectedSkuCode}}</text>
-      <text class="sku-name">{{selectedSkuName}}</text>
-      <view class="sku-tags">
-        <text class="tag tag--dye">缸号批次</text>
-        <text class="tag tag--info">单位 {{selectedSkuUnit}}</text>
-        <text class="tag tag--neutral">安全库存可查</text>
+      <picker mode="selector" range="{{skuRange}}" value="{{skuIdx}}" bindchange="handleSkuChange">
+        <view class="stock-picker">{{skuPickerLabel}}</view>
+      </picker>
+      <view wx:if="{{selectedSkuLabel}}" class="sku-card">
+        <button class="sku-card__change" bindtap="resetForm">更换</button>
+        <text class="sku-code">{{selectedSkuCode}}</text>
+        <text class="sku-name">{{selectedSkuName}}</text>
+        <view class="sku-tags">
+          <text class="tag tag--dye">缸号批次</text>
+          <text class="tag tag--info">单位 {{selectedSkuUnit}}</text>
+          <text class="tag tag--neutral">安全库存可查</text>
+        </view>
       </view>
-    </view>
     </view>
   </view>
 

@@ -116,6 +116,58 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
+var defaultTasks = clone(tasks)
+var defaultInspections = clone(inspections)
+var storageKey = 'sf_factory001_mock_state_v1'
+
+function replaceArray(target, source) {
+  target.splice(0, target.length)
+  source.forEach(function (item) {
+    target.push(item)
+  })
+}
+
+function hasStorageApi() {
+  return typeof wx !== 'undefined' && wx.getStorageSync && wx.setStorageSync
+}
+
+function restoreState() {
+  if (!hasStorageApi()) return
+  try {
+    var cached = wx.getStorageSync(storageKey)
+    if (!cached || cached.tenantCode !== tenantCode) return
+    if (Array.isArray(cached.tasks)) tasks = cached.tasks
+    if (Array.isArray(cached.inspections)) inspections = cached.inspections
+    if (Array.isArray(cached.inboundRecords)) inboundRecords = cached.inboundRecords
+  } catch (error) {
+    // Bad local mock cache must not block the mini program startup.
+  }
+}
+
+function persistState() {
+  if (!hasStorageApi()) return
+  try {
+    wx.setStorageSync(storageKey, {
+      tenantCode: tenantCode,
+      tasks: tasks,
+      inspections: inspections,
+      inboundRecords: inboundRecords
+    })
+  } catch (error) {
+    // Local persistence is best effort in mock mode.
+  }
+}
+
+function resetMockData() {
+  replaceArray(tasks, clone(defaultTasks))
+  replaceArray(inspections, clone(defaultInspections))
+  replaceArray(inboundRecords, [])
+  persistState()
+  return ok({ success: true, tenantCode: tenantCode })
+}
+
+restoreState()
+
 function ok(data) {
   return Promise.resolve(clone(data))
 }
@@ -157,6 +209,7 @@ var productionTaskApi = {
     var task = getTask(id)
     if (!task) return Promise.reject(new Error('FACTORY001 未找到工单任务'))
     task.status = 'in_progress'
+    persistState()
     return ok({ success: true })
   },
   issueMaterials: function (id, items) {
@@ -166,6 +219,7 @@ var productionTaskApi = {
     task.lastIssueItems = clone(items || [])
     task.issueHistory.push({ items: clone(items || []), issuedAt: new Date().toISOString() })
     if (task.status === 'pending') task.status = 'in_progress'
+    persistState()
     return ok({ success: true })
   },
   complete: function (id, payload) {
@@ -176,6 +230,7 @@ var productionTaskApi = {
     task.scrapQty = Number(payload && payload.scrapQty) || 0
     task.notes = payload && payload.notes ? payload.notes : ''
     task.status = 'completed'
+    persistState()
     return ok({ success: true })
   },
   reportException: function (id, payload) {
@@ -184,6 +239,7 @@ var productionTaskApi = {
     task.status = 'exception'
     task.exception = clone(payload || {})
     task.exception.reportedAt = new Date().toISOString()
+    persistState()
     return ok({ success: true })
   }
 }
@@ -206,6 +262,7 @@ var incomingInspectionApi = {
         qtySampled: item.qtySampled || item.qtysampled || old.qtySampled
       })
     })
+    persistState()
     return ok({ success: true })
   },
   submit: function (id, payload) {
@@ -232,6 +289,7 @@ var incomingInspectionApi = {
         dyeLotNo: item.dyeLotNo || ''
       })
     })
+    persistState()
     return ok({ success: true })
   }
 }
@@ -245,6 +303,7 @@ var inventoryApi = {
   },
   inbound: function (payload) {
     inboundRecords.push(Object.assign({ id: inboundRecords.length + 1, tenantCode: tenantCode }, clone(payload || {})))
+    persistState()
     return ok({ success: true, id: inboundRecords.length })
   }
 }
@@ -271,6 +330,7 @@ module.exports = {
   inventoryApi: inventoryApi,
   skuApi: skuApi,
   upload: upload,
+  resetMockData: resetMockData,
   __mockState: {
     tasks: tasks,
     inspections: inspections,

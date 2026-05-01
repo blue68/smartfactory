@@ -56,6 +56,7 @@ Page({
     syncLabel: '待同步',
     skuCandidateCount: 0,
     submitting: false,
+    canResetMock: Boolean(api.resetMockData),
     successVisible: false,
     successQtyLabel: '',
     successSkuLabel: '',
@@ -211,6 +212,35 @@ Page({
       if (!ok) return
       self.setSkuSelection([], 0)
       self.setData({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '', successVisible: false, skuCandidateCount: 0 })
+    })
+  },
+
+  handleResetMockData: function () {
+    var self = this
+    if (!api.resetMockData) return
+    ui.confirmAction('重置 FACTORY001 数据', '确认恢复工单、质检和入库模拟数据到初始状态？').then(function (ok) {
+      if (!ok) return
+      self.setData({ submitting: true })
+      api.resetMockData().then(function () {
+        self.setSkuSelection([], 0)
+        self.setData({
+          keyword: '',
+          qty: '',
+          dyeLotNo: '',
+          deliveryNo: '',
+          skuCandidateCount: 0,
+          successVisible: false,
+          successQtyLabel: '',
+          successSkuLabel: '',
+          successDyeLot: ''
+        })
+        ui.showSuccess('已重置')
+        self.loadWarehouses()
+      }).catch(function (error) {
+        ui.showError(error, '重置失败')
+      }).finally(function () {
+        self.setData({ submitting: false })
+      })
     })
   },
 

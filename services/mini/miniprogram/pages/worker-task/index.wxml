@@ -23,6 +23,7 @@
     </picker>
     <button class="ops-scan" bindtap="handleScanTask">扫码</button>
     <button class="ops-refresh" loading="{{loading}}" disabled="{{loading}}" bindtap="loadTasks">刷新</button>
+    <button wx:if="{{canResetMock}}" class="ops-reset" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleResetMockData">重置</button>
   </view>
 
   <view class="ops-section-head">

@@ -134,6 +134,7 @@ Page({
     loadError: '',
     lastRefreshAt: '',
     startDisabled: true,
+    canResetMock: Boolean(api.resetMockData),
     operationLogs: [],
     hasOperationLogs: false,
     latestOperationTitle: '等待操作',
@@ -215,6 +216,30 @@ Page({
       hasOperationLogs: logs.length > 0,
       latestOperationTitle: logs[0].title,
       latestOperationText: logs[0].content
+    })
+  },
+
+  handleResetMockData: function () {
+    var self = this
+    if (!api.resetMockData) return
+    ui.confirmAction('重置 FACTORY001 数据', '确认恢复工单、质检和入库模拟数据到初始状态？').then(function (ok) {
+      if (!ok) return
+      self.setData({ submitting: true })
+      api.resetMockData().then(function () {
+        self.setData({
+          operationLogs: [],
+          hasOperationLogs: false,
+          latestOperationTitle: '模拟数据已重置',
+          latestOperationText: 'FACTORY001 工单和质检数据已恢复到初始演示状态。'
+        })
+        ui.showSuccess('已重置')
+        self.loadTasks()
+        self.loadWarehouses()
+      }).catch(function (error) {
+        ui.showError(error, '重置失败')
+      }).finally(function () {
+        self.setData({ submitting: false })
+      })
     })
   },
 

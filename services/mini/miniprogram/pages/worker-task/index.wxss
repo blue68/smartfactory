@@ -59,7 +59,8 @@
 
 .ops-filter,
 .ops-scan,
-.ops-refresh {
+.ops-refresh,
+.ops-reset {
   height: 76rpx;
   line-height: 76rpx;
   padding: 0 20rpx;
@@ -73,6 +74,11 @@
 .ops-scan,
 .ops-refresh {
   color: #2563eb;
+  font-weight: 700;
+}
+
+.ops-reset {
+  color: #ea580c;
   font-weight: 700;
 }
 

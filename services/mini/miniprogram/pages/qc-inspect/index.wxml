@@ -43,6 +43,7 @@
       <view class="qc-picker">{{inspectionPickerLabel}}</view>
     </picker>
     <button class="qc-refresh" loading="{{loading}}" disabled="{{loading}}" bindtap="loadInspections">刷新质检列表</button>
+    <button wx:if="{{canResetMock}}" class="qc-reset" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleResetMockData">重置 FACTORY001 模拟数据</button>
   </view>
 
   <block wx:if="{{hasActiveDraft}}">
