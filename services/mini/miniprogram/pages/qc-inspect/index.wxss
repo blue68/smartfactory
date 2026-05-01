@@ -126,6 +126,26 @@
   font-size: 24rpx;
 }
 
+.qc-flow-hint,
+.qc-lock {
+  margin-top: 18rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 18rpx;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.qc-flow-hint {
+  color: #5b21b6;
+  background: #f5f3ff;
+}
+
+.qc-lock {
+  margin-bottom: 18rpx;
+  color: #b45309;
+  background: #fff7ed;
+}
+
 .qc-card,
 .defect-form,
 .summary-card,

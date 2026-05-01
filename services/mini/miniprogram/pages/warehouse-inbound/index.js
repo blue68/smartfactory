@@ -25,6 +25,28 @@ function parseWarehouseScanPayload(raw) {
   return parsed
 }
 
+function buildInboundActionState(viewData) {
+  var sku = viewData.skuOptions && viewData.skuOptions[viewData.skuIdx]
+  var warehouse = viewData.warehouses && viewData.warehouses[viewData.warehouseIdx]
+  var location = viewData.locations && viewData.locations[viewData.locationIdx]
+  var qty = ui.asNumber(viewData.qty)
+  var hasSku = Boolean(sku && ui.getSkuId(sku))
+  var hasQty = Number.isFinite(qty) && qty > 0
+  var ready = Boolean(hasSku && hasQty && warehouse && location)
+  var hint = '扫描或搜索 SKU，填写数量，再确认仓库和库位。'
+  if (!hasSku) hint = '请先扫描或搜索并选择入库物料。'
+  else if (!hasQty) hint = '请填写大于 0 的入库数量。'
+  else if (!warehouse || !location) hint = '请选择上架仓库和库位。'
+  else hint = '入库信息完整，可确认上架。'
+  return {
+    submitDisabled: !ready,
+    inboundActionHint: hint,
+    inboundSummary: ready
+      ? ui.formatSku(sku) + ' · ' + qty + ' ' + (sku.stockUnit || sku.purchaseUnit || sku.unit || '件') + ' · ' + location.name
+      : '待补齐入库信息'
+  }
+}
+
 Page({
   data: {
     quickQty: ['1', '5', '10', '50'],
@@ -57,6 +79,9 @@ Page({
     skuCandidateCount: 0,
     submitting: false,
     canResetMock: Boolean(api.resetMockData),
+    submitDisabled: true,
+    inboundActionHint: '扫描或搜索 SKU，填写数量，再确认仓库和库位。',
+    inboundSummary: '待补齐入库信息',
     successVisible: false,
     successQtyLabel: '',
     successSkuLabel: '',
@@ -71,9 +96,14 @@ Page({
     this.loadWarehouses()
   },
 
+  applyInboundState: function (patch) {
+    var nextData = Object.assign({}, this.data, patch || {})
+    this.setData(Object.assign({}, patch || {}, buildInboundActionState(nextData)))
+  },
+
   setSkuSelection: function (list, idx) {
     var sku = list[idx]
-    this.setData({
+    this.applyInboundState({
       skuOptions: list,
       skuRange: list.map(ui.formatSku),
       skuIdx: idx || 0,
@@ -90,7 +120,7 @@ Page({
     this.setData({ loadError: '' })
     api.inventoryApi.warehouses().then(function (res) {
       var list = Array.isArray(res) ? res : []
-      self.setData({
+      self.applyInboundState({
         warehouses: list,
         warehouseRange: list.map(function (item) { return item.name }),
         warehouseIdx: list.length ? 0 : 0,
@@ -112,7 +142,7 @@ Page({
     var self = this
     api.inventoryApi.locations(warehouseId).then(function (res) {
       var list = Array.isArray(res) ? res : []
-      self.setData({
+      self.applyInboundState({
         locations: list,
         locationRange: list.map(function (item) { return [item.code, item.name].filter(Boolean).join(' ') }),
         locationIdx: list.length ? 0 : 0,
@@ -125,8 +155,8 @@ Page({
     })
   },
 
-  handleKeywordInput: function (event) { this.setData({ keyword: event.detail.value }) },
-  handleQtyInput: function (event) { this.setData({ qty: ui.decimalInput(event.detail.value) }) },
+  handleKeywordInput: function (event) { this.applyInboundState({ keyword: event.detail.value }) },
+  handleQtyInput: function (event) { this.applyInboundState({ qty: ui.decimalInput(event.detail.value) }) },
   handleDyeLotInput: function (event) { this.setData({ dyeLotNo: event.detail.value }) },
 
   searchSku: function (nextKeyword) {
@@ -189,7 +219,7 @@ Page({
   handleWarehouseChange: function (event) {
     var idx = Number(event.detail.value) || 0
     var warehouse = this.data.warehouses[idx]
-    this.setData({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '', warehousePickerLabel: warehouse ? warehouse.name : '请选择仓库' })
+    this.applyInboundState({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '', warehousePickerLabel: warehouse ? warehouse.name : '请选择仓库' })
     if (warehouse) this.loadLocations(warehouse.id)
   },
 
@@ -197,13 +227,13 @@ Page({
     var idx = Number(event.detail.value) || 0
     var location = this.data.locations[idx]
     var label = location ? [location.code, location.name].filter(Boolean).join(' ') : ''
-    this.setData({ locationIdx: idx, selectedLocationLabel: label, locationPickerLabel: label || '请选择库位' })
+    this.applyInboundState({ locationIdx: idx, selectedLocationLabel: label, locationPickerLabel: label || '请选择库位' })
   },
 
   addQuickQty: function (event) {
     var current = ui.asNumber(this.data.qty)
     var delta = ui.asNumber(event.currentTarget.dataset.value)
-    this.setData({ qty: String((Number.isFinite(current) ? current : 0) + delta) })
+    this.applyInboundState({ qty: String((Number.isFinite(current) ? current : 0) + delta) })
   },
 
   resetForm: function () {
@@ -211,7 +241,7 @@ Page({
     ui.confirmAction('清空表单', '确认清空当前物料、数量和批次信息？').then(function (ok) {
       if (!ok) return
       self.setSkuSelection([], 0)
-      self.setData({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '', successVisible: false, skuCandidateCount: 0 })
+      self.applyInboundState({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '', successVisible: false, skuCandidateCount: 0 })
     })
   },
 
@@ -223,7 +253,7 @@ Page({
       self.setData({ submitting: true })
       api.resetMockData().then(function () {
         self.setSkuSelection([], 0)
-        self.setData({
+        self.applyInboundState({
           keyword: '',
           qty: '',
           dyeLotNo: '',
@@ -251,6 +281,11 @@ Page({
     var location = this.data.locations[this.data.locationIdx]
     var skuId = ui.getSkuId(sku)
     var qty = ui.asNumber(this.data.qty)
+    if (this.data.submitting) return
+    if (this.data.submitDisabled) {
+      ui.showError(this.data.inboundActionHint, '入库信息不完整')
+      return
+    }
     if (!skuId || !Number.isFinite(qty) || qty <= 0 || !warehouse || !location) {
       ui.showError('请补齐物料、数量、仓库和库位', '入库信息不完整')
       return
@@ -276,7 +311,7 @@ Page({
           successDyeLot: self.data.dyeLotNo.trim() || '未填写'
         })
         self.setSkuSelection([], 0)
-        self.setData({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '', skuCandidateCount: 0 })
+        self.applyInboundState({ keyword: '', qty: '', dyeLotNo: '', deliveryNo: '', skuCandidateCount: 0 })
       }).catch(function (error) {
         ui.showError(error, '入库失败')
       }).finally(function () {

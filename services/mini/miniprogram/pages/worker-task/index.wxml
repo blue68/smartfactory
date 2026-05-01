@@ -75,7 +75,8 @@
         <text class="status-pill status-{{selectedTask.status}}">{{taskStatusLabel}}</text>
       </view>
       <text class="muted">{{taskSkuLabel}} · {{taskPlanLabel}}</text>
-      <button class="ops-primary" loading="{{submitting}}" disabled="{{startDisabled}}" bindtap="handleStart">确认开工</button>
+      <view class="ops-flow-hint">{{taskFlowHint}}</view>
+      <button class="ops-primary" loading="{{submitting}}" disabled="{{startDisabled}}" bindtap="handleStart">{{startButtonText}}</button>
     </view>
 
     <view class="ops-panel">
@@ -102,7 +103,8 @@
         <view class="picker-box">{{locationPickerLabel}}</view>
       </picker>
       <text class="field-help">投料会写入当前任务领料记录，请核对 SKU、数量和库位。</text>
-      <button class="ops-primary" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleIssue">确认投料</button>
+      <text class="field-help">{{issueHint}}</text>
+      <button class="ops-primary" loading="{{submitting}}" disabled="{{issueDisabled}}" bindtap="handleIssue">确认投料</button>
     </view>
 
     <view class="ops-panel">
@@ -111,19 +113,21 @@
       <input class="input" type="digit" value="{{actualHours}}" placeholder="实际工时(h)，支持小数" bindinput="handleActualHoursInput" />
       <input class="input" type="digit" value="{{scrapQty}}" placeholder="报废数量，可选" bindinput="handleScrapQtyInput" />
       <textarea class="textarea" value="{{completeNotes}}" placeholder="完工备注，可选" maxlength="300" bindinput="handleCompleteNotesInput" />
-      <button class="ops-success" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleComplete">提交完工</button>
+      <text class="field-help">{{completeHint}}</text>
+      <button class="ops-success" loading="{{submitting}}" disabled="{{completeDisabled}}" bindtap="handleComplete">提交完工</button>
     </view>
 
     <view class="ops-panel ops-panel--danger">
       <text class="ops-panel__title">异常上报</text>
       <picker mode="selector" range="{{exceptionLabels}}" value="{{exceptionTypeIdx}}" bindchange="handleExceptionTypeChange">
-        <view class="picker-box">异常类型：{{exceptionLabels[exceptionTypeIdx]}}</view>
+        <view class="picker-box">异常类型：{{exceptionTypeLabel}}</view>
       </picker>
       <picker mode="selector" range="{{severityLabels}}" value="{{severityIdx}}" bindchange="handleSeverityChange">
-        <view class="picker-box">严重程度：{{severityLabels[severityIdx]}}</view>
+        <view class="picker-box">严重程度：{{severityLabel}}</view>
       </picker>
       <textarea class="textarea" value="{{exceptionText}}" placeholder="描述异常现象、影响范围和需要支持的事项" maxlength="500" bindinput="handleExceptionTextInput" />
-      <button class="ops-warning" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleException">立即上报</button>
+      <text class="field-help">{{exceptionHint}}</text>
+      <button class="ops-warning" loading="{{submitting}}" disabled="{{exceptionDisabled}}" bindtap="handleException">立即上报</button>
     </view>
 
     <view wx:if="{{hasOperationLogs}}" class="ops-panel">

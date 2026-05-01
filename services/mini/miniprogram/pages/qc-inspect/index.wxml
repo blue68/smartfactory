@@ -31,6 +31,8 @@
     <text class="qc-receipt__text">{{latestOperationText}}</text>
   </view>
 
+  <view class="qc-flow-hint">{{qcFlowHint}}</view>
+
   <view wx:if="{{loadError}}" class="alert-card">
     <text class="alert-title">质检任务同步失败</text>
     <text class="alert-text">{{loadError}}</text>
@@ -48,7 +50,8 @@
 
   <block wx:if="{{hasActiveDraft}}">
     <view class="section-label">逐件检验</view>
-    <button class="quick-pass" bindtap="markAllPass">一键全部合格</button>
+    <button class="quick-pass" disabled="{{quickPassDisabled}}" bindtap="markAllPass">一键全部合格</button>
+    <view wx:if="{{inspectionSubmitted}}" class="qc-lock">该质检单已提交，当前页面只读。</view>
     <view wx:for="{{draftCards}}" wx:key="index" class="{{item.cardClass}}">
       <view class="inspect-card__header" data-index="{{index}}" bindtap="handleActiveItemChange">
         <view class="inspect-card__num">{{item.marker}}</view>
@@ -116,9 +119,11 @@
         <view class="qc-picker">{{locationPickerLabel}}</view>
       </picker>
       <textarea class="textarea" value="{{notes}}" placeholder="质检备注，可选" maxlength="500" bindinput="handleNotesInput" />
+      <text class="field-help">{{saveHint}}</text>
+      <text class="field-help">{{submitHint}}</text>
       <view class="action-row">
-        <button class="qc-outline flex" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSave">保存明细</button>
-        <button class="qc-submit flex" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">提交报告</button>
+        <button class="qc-outline flex" loading="{{submitting}}" disabled="{{saveDisabled}}" bindtap="handleSave">保存明细</button>
+        <button class="qc-submit flex" loading="{{submitting}}" disabled="{{submitDisabled}}" bindtap="handleSubmit">{{submitButtonText}}</button>
       </view>
     </view>
 

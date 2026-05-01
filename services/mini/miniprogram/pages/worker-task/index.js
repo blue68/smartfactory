@@ -79,6 +79,52 @@ function logItem(title, content) {
   }
 }
 
+function buildActionState(task, viewData) {
+  var status = task ? task.status : ''
+  var isCompleted = status === 'completed'
+  var material = viewData.materialOptions && viewData.materialOptions[viewData.materialIdx]
+  var warehouse = viewData.warehouses && viewData.warehouses[viewData.warehouseIdx]
+  var issueQty = ui.asNumber(viewData.issueQty)
+  var completedQty = ui.asNumber(viewData.completedQty)
+  var actualHours = ui.asNumber(viewData.actualHours)
+  var hasExceptionText = Boolean(String(viewData.exceptionText || '').trim())
+  var issueReady = Boolean(task && !isCompleted && material && ui.getSkuId(material) && Number.isFinite(issueQty) && issueQty > 0 && warehouse)
+  var completeReady = Boolean(task && !isCompleted && Number.isFinite(completedQty) && completedQty > 0 && Number.isFinite(actualHours) && actualHours >= 0)
+  var exceptionReady = Boolean(task && !isCompleted && hasExceptionText)
+  var startButtonText = '确认开工'
+  var flowHint = '选择任务后，按开工、投料、完工推进；遇到现场阻断时立即上报异常。'
+
+  if (!task) {
+    startButtonText = '请选择任务'
+    flowHint = '当前没有选中的任务，请扫码或从任务列表选择。'
+  } else if (status === 'pending') {
+    flowHint = '建议先确认开工；如已备料，可直接投料，系统会自动进入进行中。'
+  } else if (status === 'in_progress') {
+    startButtonText = '已开工'
+    flowHint = '任务进行中，请核对投料后提交完工；如遇问题可立即上报。'
+  } else if (status === 'exception') {
+    startButtonText = '异常处理中'
+    flowHint = '当前任务已上报异常，处理后可继续补充投料或提交完工。'
+  } else if (isCompleted) {
+    startButtonText = '已完工'
+    flowHint = '当前任务已完工，投料、完工和异常上报已锁定。'
+  }
+
+  return {
+    startDisabled: !task || status !== 'pending',
+    startButtonText: startButtonText,
+    taskFlowHint: flowHint,
+    issueDisabled: !issueReady,
+    issueHint: issueReady ? '投料信息完整，可提交领料记录。' : '请选择投料物料、填写数量并确认仓库。',
+    completeDisabled: !completeReady,
+    completeHint: completeReady ? '完工数量和工时已填写，可提交报工。' : '请填写有效完工数量和实际工时。',
+    exceptionDisabled: !exceptionReady,
+    exceptionHint: exceptionReady ? '异常说明已填写，可立即上报。' : '请填写异常说明，便于班组长定位处理。',
+    exceptionTypeLabel: EXCEPTION_LABELS[viewData.exceptionTypeIdx] || EXCEPTION_LABELS[0],
+    severityLabel: SEVERITY_LABELS[viewData.severityIdx] || SEVERITY_LABELS[1]
+  }
+}
+
 Page({
   data: {
     statusOptions: STATUS_OPTIONS,
@@ -134,6 +180,16 @@ Page({
     loadError: '',
     lastRefreshAt: '',
     startDisabled: true,
+    startButtonText: '请选择任务',
+    taskFlowHint: '选择任务后，按开工、投料、完工推进；遇到现场阻断时立即上报异常。',
+    issueDisabled: true,
+    issueHint: '请选择投料物料、填写数量并确认仓库。',
+    completeDisabled: true,
+    completeHint: '请填写有效完工数量和实际工时。',
+    exceptionDisabled: true,
+    exceptionHint: '请填写异常说明，便于班组长定位处理。',
+    exceptionTypeLabel: EXCEPTION_LABELS[0],
+    severityLabel: SEVERITY_LABELS[1],
     canResetMock: Boolean(api.resetMockData),
     operationLogs: [],
     hasOperationLogs: false,
@@ -198,14 +254,18 @@ Page({
     }
   },
 
+  applyActionState: function (patch) {
+    var nextData = Object.assign({}, this.data, patch || {})
+    this.setData(Object.assign({}, patch || {}, buildActionState(nextData.selectedTask, nextData)))
+  },
+
   setSelectedTask: function (task) {
-    this.setData(Object.assign({
+    this.applyActionState(Object.assign({
       selectedTask: task,
       completedQty: remainingQty(task),
       actualHours: task && task.standardHours ? String(task.standardHours) : '',
       scrapQty: '',
       completeNotes: '',
-      startDisabled: !task || task.status === 'completed'
     }, this.buildTaskState(this.data.tasks, task), recommendedMaterialState(task)))
   },
 
@@ -277,7 +337,7 @@ Page({
     var self = this
     api.inventoryApi.warehouses().then(function (res) {
       var list = Array.isArray(res) ? res : []
-      self.setData({
+      self.applyActionState({
         warehouses: list,
         warehouseRange: list.map(function (item) { return item.name }),
         warehouseIdx: list.length ? 0 : 0,
@@ -294,7 +354,7 @@ Page({
     var self = this
     api.inventoryApi.locations(warehouseId).then(function (res) {
       var list = Array.isArray(res) ? res : []
-      self.setData({
+      self.applyActionState({
         locations: list,
         locationRange: list.map(function (item) { return [item.code, item.name].filter(Boolean).join(' ') }),
         locationIdx: list.length ? 0 : 0,
@@ -358,7 +418,7 @@ Page({
   handleWarehouseChange: function (event) {
     var idx = Number(event.detail.value) || 0
     var warehouse = this.data.warehouses[idx]
-    this.setData({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '', warehousePickerLabel: warehouse ? warehouse.name : '请选择出库仓库' })
+    this.applyActionState({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '', warehousePickerLabel: warehouse ? warehouse.name : '请选择出库仓库' })
     if (warehouse) this.loadLocations(warehouse.id)
   },
 
@@ -366,19 +426,19 @@ Page({
     var idx = Number(event.detail.value) || 0
     var location = this.data.locations[idx]
     var label = location ? [location.code, location.name].filter(Boolean).join(' ') : ''
-    this.setData({ locationIdx: idx, selectedLocationLabel: label, locationPickerLabel: label || '请选择库位，可选' })
+    this.applyActionState({ locationIdx: idx, selectedLocationLabel: label, locationPickerLabel: label || '请选择库位，可选' })
   },
 
-  handleMaterialKeywordInput: function (event) { this.setData({ materialKeyword: event.detail.value }) },
-  handleIssueQtyInput: function (event) { this.setData({ issueQty: ui.decimalInput(event.detail.value) }) },
+  handleMaterialKeywordInput: function (event) { this.applyActionState({ materialKeyword: event.detail.value }) },
+  handleIssueQtyInput: function (event) { this.applyActionState({ issueQty: ui.decimalInput(event.detail.value) }) },
   handleDyeLotInput: function (event) { this.setData({ dyeLotNo: event.detail.value }) },
-  handleCompletedQtyInput: function (event) { this.setData({ completedQty: ui.decimalInput(event.detail.value) }) },
-  handleActualHoursInput: function (event) { this.setData({ actualHours: ui.decimalInput(event.detail.value) }) },
+  handleCompletedQtyInput: function (event) { this.applyActionState({ completedQty: ui.decimalInput(event.detail.value) }) },
+  handleActualHoursInput: function (event) { this.applyActionState({ actualHours: ui.decimalInput(event.detail.value) }) },
   handleScrapQtyInput: function (event) { this.setData({ scrapQty: ui.decimalInput(event.detail.value) }) },
   handleCompleteNotesInput: function (event) { this.setData({ completeNotes: event.detail.value }) },
-  handleExceptionTypeChange: function (event) { this.setData({ exceptionTypeIdx: Number(event.detail.value) || 0 }) },
-  handleSeverityChange: function (event) { this.setData({ severityIdx: Number(event.detail.value) || 0 }) },
-  handleExceptionTextInput: function (event) { this.setData({ exceptionText: event.detail.value }) },
+  handleExceptionTypeChange: function (event) { this.applyActionState({ exceptionTypeIdx: Number(event.detail.value) || 0 }) },
+  handleSeverityChange: function (event) { this.applyActionState({ severityIdx: Number(event.detail.value) || 0 }) },
+  handleExceptionTextInput: function (event) { this.applyActionState({ exceptionText: event.detail.value }) },
 
   searchMaterial: function () {
     var self = this
@@ -390,7 +450,7 @@ Page({
     this.setData({ materialSearching: true })
     api.skuApi.search(keyword).then(function (res) {
       var list = res.list || []
-      self.setData({
+      self.applyActionState({
         materialOptions: list,
         materialRange: list.map(ui.formatSku),
         materialIdx: 0,
@@ -408,7 +468,7 @@ Page({
   handleMaterialChange: function (event) {
     var idx = Number(event.detail.value) || 0
     var item = this.data.materialOptions[idx]
-    this.setData({ materialIdx: idx, selectedMaterialLabel: item ? ui.formatSku(item) : '', materialPickerLabel: item ? ui.formatSku(item) : '请选择投料物料' })
+    this.applyActionState({ materialIdx: idx, selectedMaterialLabel: item ? ui.formatSku(item) : '', materialPickerLabel: item ? ui.formatSku(item) : '请选择投料物料' })
   },
 
   pickRecommendedMaterial: function (event) {
@@ -417,7 +477,7 @@ Page({
     var source = item.source
     var option = toMaterialOption(source)
     if (!option) return
-    this.setData({
+    this.applyActionState({
       materialOptions: [option],
       materialRange: [ui.formatSku(option)],
       materialIdx: 0,
@@ -466,6 +526,7 @@ Page({
   handleIssue: function () {
     var self = this
     var task = this.data.selectedTask
+    if (this.data.submitting) return
     var material = this.data.materialOptions[this.data.materialIdx]
     var warehouse = this.data.warehouses[this.data.warehouseIdx]
     var location = this.data.locations[this.data.locationIdx]
@@ -505,6 +566,7 @@ Page({
   handleComplete: function () {
     var self = this
     var task = this.data.selectedTask
+    if (this.data.submitting) return
     var qty = ui.asNumber(this.data.completedQty)
     var hours = ui.asNumber(this.data.actualHours)
     var scrap = this.data.scrapQty ? ui.asNumber(this.data.scrapQty) : 0
@@ -539,6 +601,7 @@ Page({
   handleException: function () {
     var self = this
     var task = this.data.selectedTask
+    if (this.data.submitting) return
     if (task && task.status === 'completed') {
       ui.showError('已完工任务不能上报异常', '无法上报')
       return

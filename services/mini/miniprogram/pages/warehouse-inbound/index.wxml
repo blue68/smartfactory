@@ -28,6 +28,12 @@
     </view>
   </view>
 
+  <view class="stock-action-card">
+    <text class="stock-action-card__label">当前上架检查</text>
+    <view class="stock-action-card__summary">{{inboundSummary}}</view>
+    <text class="stock-action-card__hint">{{inboundActionHint}}</text>
+  </view>
+
   <view wx:if="{{loadError}}" class="alert-card">
     <text class="alert-title">仓库资料同步失败</text>
     <text class="alert-text">{{loadError}}</text>
@@ -97,7 +103,7 @@
 
   <view class="stock-footer">
     <button class="stock-clear" disabled="{{submitting}}" bindtap="resetForm">清空</button>
-    <button class="confirm-btn" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">确认入库</button>
+    <button class="confirm-btn" loading="{{submitting}}" disabled="{{submitDisabled}}" bindtap="handleSubmit">确认入库</button>
   </view>
 
   <view wx:if="{{successVisible}}" class="success-layer">

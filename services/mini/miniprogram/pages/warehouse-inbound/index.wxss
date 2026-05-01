@@ -113,6 +113,41 @@
   font-weight: 800;
 }
 
+.stock-action-card {
+  padding: 22rpx 24rpx;
+  border: 2rpx solid #bbf7d0;
+  border-radius: 24rpx;
+  color: #14532d;
+  background: linear-gradient(135deg, #f0fdf4 0%, #fff 100%);
+  box-shadow: 0 8rpx 22rpx rgba(22, 163, 74, .08);
+}
+
+.stock-action-card__label,
+.stock-action-card__summary,
+.stock-action-card__hint {
+  display: block;
+}
+
+.stock-action-card__label {
+  color: #16a34a;
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.stock-action-card__summary {
+  margin-top: 6rpx;
+  color: #1e293b;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.stock-action-card__hint {
+  margin-top: 6rpx;
+  color: #64748b;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
 .card {
   margin-top: 22rpx;
   overflow: hidden;

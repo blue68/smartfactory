@@ -271,6 +271,16 @@
   font-weight: 800;
 }
 
+.ops-flow-hint {
+  margin-top: 18rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 18rpx;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
 .ops-primary,
 .ops-success,
 .ops-warning {

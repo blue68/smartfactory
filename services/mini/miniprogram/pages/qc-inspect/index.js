@@ -56,6 +56,36 @@ function logItem(title, content) {
   }
 }
 
+function buildQcActionState(detail, drafts, viewData) {
+  var submitted = Boolean(detail && detail.status === 'submitted')
+  var hasDrafts = drafts && drafts.length > 0
+  var completedCount = (drafts || []).filter(function (item) { return item.result && item.disposition }).length
+  var allReady = Boolean(hasDrafts && completedCount === drafts.length)
+  var warehouse = viewData.warehouses && viewData.warehouses[viewData.warehouseIdx]
+  var location = viewData.locations && viewData.locations[viewData.locationIdx]
+  var releaseReady = Boolean(warehouse && location)
+  var flowHint = '先逐条判定明细，再保存明细，最后选择仓库/库位提交报告。'
+  if (submitted) {
+    flowHint = '该质检单已提交，明细和放行操作已锁定；如需重新演示请重置 FACTORY001 模拟数据。'
+  } else if (!hasDrafts) {
+    flowHint = '当前没有质检明细，请刷新质检列表或重置模拟数据。'
+  } else if (!allReady) {
+    flowHint = '还有 ' + (drafts.length - completedCount) + ' 条明细未判定，请先逐条选择结果和处置方式。'
+  } else if (!releaseReady) {
+    flowHint = '明细已判定，请选择放行仓库和库位后提交报告。'
+  }
+  return {
+    inspectionSubmitted: submitted,
+    qcFlowHint: flowHint,
+    quickPassDisabled: submitted || !hasDrafts,
+    saveDisabled: submitted || !allReady,
+    submitDisabled: submitted || !allReady || !releaseReady,
+    saveHint: allReady ? '明细完整，可保存。' : '请先完成所有明细判定。',
+    submitHint: submitted ? '质检单已提交。' : (releaseReady ? '放行库位已选择，可提交报告。' : '请选择放行仓库和库位。'),
+    submitButtonText: submitted ? '已提交' : '提交报告'
+  }
+}
+
 Page({
   data: {
     resultLabels: RESULT_OPTIONS.map(function (item) { return item.label }),
@@ -118,6 +148,14 @@ Page({
     loadError: '',
     lastRefreshAt: '',
     canResetMock: Boolean(api.resetMockData),
+    inspectionSubmitted: false,
+    qcFlowHint: '先逐条判定明细，再保存明细，最后选择仓库/库位提交报告。',
+    quickPassDisabled: true,
+    saveDisabled: true,
+    submitDisabled: true,
+    saveHint: '请先完成所有明细判定。',
+    submitHint: '请选择放行仓库和库位。',
+    submitButtonText: '提交报告',
     operationLogs: [],
     hasOperationLogs: false,
     latestOperationTitle: '等待检验',
@@ -183,7 +221,12 @@ Page({
   },
 
   setDrafts: function (drafts, idx) {
-    this.setData(Object.assign({ drafts: drafts }, this.deriveDraftState(drafts, idx || 0)))
+    this.applyQcState(Object.assign({ drafts: drafts }, this.deriveDraftState(drafts, idx || 0)))
+  },
+
+  applyQcState: function (patch) {
+    var nextData = Object.assign({}, this.data, patch || {})
+    this.setData(Object.assign({}, patch || {}, buildQcActionState(nextData.detail, nextData.drafts, nextData)))
   },
 
   appendOperationLog: function (title, content) {
@@ -263,8 +306,8 @@ Page({
     if (!item) return Promise.resolve()
     this.setData({ inspectionIdx: idx, inspectionLabel: this.data.inspectionRange[idx] || '', inspectionPickerLabel: this.data.inspectionRange[idx] || '请选择质检单' })
     return api.incomingInspectionApi.detail(item.id).then(function (detail) {
-      self.setData({
-        detail: detail,
+        self.applyQcState({
+          detail: detail,
         notes: asText(detail.notes),
         overallResultIdx: Math.max(0, RESULT_OPTIONS.findIndex(function (option) { return option.value === detail.overallResult })),
         overallResultLabel: RESULT_OPTIONS[Math.max(0, RESULT_OPTIONS.findIndex(function (option) { return option.value === detail.overallResult }))].label,
@@ -291,7 +334,7 @@ Page({
     var self = this
     api.inventoryApi.warehouses().then(function (res) {
       var list = Array.isArray(res) ? res : []
-      self.setData({
+      self.applyQcState({
         warehouses: list,
         warehouseRange: list.map(function (item) { return item.name }),
         warehouseIdx: list.length ? 0 : 0,
@@ -308,7 +351,7 @@ Page({
     var self = this
     api.inventoryApi.locations(warehouseId).then(function (res) {
       var list = Array.isArray(res) ? res : []
-      self.setData({
+      self.applyQcState({
         locations: list,
         locationRange: list.map(function (item) { return [item.code, item.name].filter(Boolean).join(' ') }),
         locationIdx: list.length ? 0 : 0,
@@ -324,7 +367,7 @@ Page({
   handleWarehouseChange: function (event) {
     var idx = Number(event.detail.value) || 0
     var warehouse = this.data.warehouses[idx]
-    this.setData({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '', warehousePickerLabel: warehouse ? warehouse.name : '请选择仓库' })
+    this.applyQcState({ warehouseIdx: idx, selectedWarehouseLabel: warehouse ? warehouse.name : '', warehousePickerLabel: warehouse ? warehouse.name : '请选择仓库' })
     if (warehouse) this.loadLocations(warehouse.id)
   },
 
@@ -332,7 +375,7 @@ Page({
     var idx = Number(event.detail.value) || 0
     var location = this.data.locations[idx]
     var label = location ? [location.code, location.name].filter(Boolean).join(' ') : ''
-    this.setData({ locationIdx: idx, selectedLocationLabel: label, locationPickerLabel: label || '请选择库位' })
+    this.applyQcState({ locationIdx: idx, selectedLocationLabel: label, locationPickerLabel: label || '请选择库位' })
   },
 
   handleActiveItemChange: function (event) {
@@ -350,33 +393,34 @@ Page({
   },
 
   handleDraftInput: function (event) {
-    if (!this.data.hasActiveDraft) return
+    if (!this.data.hasActiveDraft || this.data.inspectionSubmitted) return
     var patch = {}
     patch[event.currentTarget.dataset.field] = ui.decimalInput(event.detail.value)
     this.updateActiveDraft(patch)
   },
 
   handleDraftTextInput: function (event) {
-    if (!this.data.hasActiveDraft) return
+    if (!this.data.hasActiveDraft || this.data.inspectionSubmitted) return
     var patch = {}
     patch[event.currentTarget.dataset.field] = event.detail.value
     this.updateActiveDraft(patch)
   },
 
   handleDraftResultChange: function (event) {
-    if (!this.data.hasActiveDraft) return
+    if (!this.data.hasActiveDraft || this.data.inspectionSubmitted) return
     var idx = Number(event.detail.value) || 0
     this.updateActiveDraft({ result: RESULT_OPTIONS[idx].value })
   },
 
   handleDraftDispositionChange: function (event) {
-    if (!this.data.hasActiveDraft) return
+    if (!this.data.hasActiveDraft || this.data.inspectionSubmitted) return
     var idx = Number(event.detail.value) || 0
     this.updateActiveDraft({ disposition: DISPOSITION_OPTIONS[idx].value })
   },
 
   markDraftPass: function (event) {
     var idx = Number(event.currentTarget.dataset.index) || 0
+    if (this.data.inspectionSubmitted) return
     var drafts = this.data.drafts.slice()
     var current = Object.assign({}, drafts[idx] || {})
     current.result = 'pass'
@@ -390,6 +434,7 @@ Page({
 
   markDraftFail: function (event) {
     var idx = Number(event.currentTarget.dataset.index) || 0
+    if (this.data.inspectionSubmitted) return
     var drafts = this.data.drafts.slice()
     var current = Object.assign({}, drafts[idx] || {})
     current.result = 'fail'
@@ -399,6 +444,11 @@ Page({
   },
 
   markAllPass: function () {
+    if (this.data.submitting) return
+    if (this.data.inspectionSubmitted) {
+      ui.showSuccess('质检单已提交')
+      return
+    }
     if (!this.data.drafts.length) {
       ui.showError('当前没有可判定明细', '无法判定')
       return
@@ -420,17 +470,17 @@ Page({
 
   handleOverallResultChange: function (event) {
     var idx = Number(event.detail.value) || 0
-    this.setData({ overallResultIdx: idx, overallResultLabel: RESULT_OPTIONS[idx].label })
+    this.applyQcState({ overallResultIdx: idx, overallResultLabel: RESULT_OPTIONS[idx].label })
   },
 
   handleNotesInput: function (event) {
-    this.setData({ notes: event.detail.value })
+    this.applyQcState({ notes: event.detail.value })
   },
 
   uploadImages: function () {
     var self = this
     var active = this.data.activeDraft
-    if (!active) return
+    if (!active || this.data.inspectionSubmitted) return
     var remaining = 3 - active.defectImages.length
     if (remaining <= 0) {
       wx.showToast({ title: '每条明细最多 3 张图片', icon: 'none' })
@@ -472,7 +522,7 @@ Page({
   removeImage: function (event) {
     var self = this
     var url = event.currentTarget.dataset.url
-    if (!url || !this.data.activeDraft) return
+    if (!url || !this.data.activeDraft || this.data.inspectionSubmitted) return
     ui.confirmAction('移除留证图', '确认从当前质检明细中移除这张图片？').then(function (ok) {
       if (!ok) return
       self.updateActiveDraft({
@@ -519,6 +569,11 @@ Page({
 
   handleSave: function () {
     var self = this
+    if (this.data.submitting) return
+    if (this.data.saveDisabled) {
+      ui.showError(this.data.saveHint, '无法保存')
+      return
+    }
     this.setData({ submitting: true })
     this.saveItems().then(function () {
       self.appendOperationLog('明细已保存', '已保存 ' + self.data.drafts.length + ' 条 QC 明细。')
@@ -532,13 +587,15 @@ Page({
 
   handleSubmit: function () {
     var self = this
+    if (this.data.submitting) return
     var detail = this.data.detail
     var warehouse = this.data.warehouses[this.data.warehouseIdx]
     var location = this.data.locations[this.data.locationIdx]
-    if (!detail || !warehouse || !location) {
-      ui.showError('请选择放行仓库和库位', '放行信息不完整')
+    if (this.data.submitDisabled) {
+      ui.showError(this.data.qcFlowHint, '无法提交')
       return
     }
+    if (!detail || !warehouse || !location) return
     if (detail.status === 'submitted') {
       ui.showSuccess('质检单已提交')
       return
