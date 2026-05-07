@@ -147,9 +147,9 @@ export default function ConsumableIssuePage() {
   const warehouseQuery = useWarehouseOptions();
   const locationQuery = useLocationOptions(undefined);
 
-  const issueList = issueQuery.data?.list ?? [];
-  const stockList = stockQuery.data?.list ?? [];
-  const departments = departmentQuery.data?.list ?? [];
+  const issueList = useMemo(() => issueQuery.data?.list ?? [], [issueQuery.data?.list]);
+  const stockList = useMemo(() => stockQuery.data?.list ?? [], [stockQuery.data?.list]);
+  const departments = useMemo(() => departmentQuery.data?.list ?? [], [departmentQuery.data?.list]);
   const warehouseOptions = warehouseQuery.data ?? [];
   const locationOptions = locationQuery.data ?? [];
   const detail = detailQuery.data?.id === selectedIssueId ? detailQuery.data : null;

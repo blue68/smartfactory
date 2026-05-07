@@ -57,11 +57,12 @@ function stopPullDownRefresh() {
   }
 }
 
-function decimalInput(value) {
+function decimalInput(value, scale) {
+  var maxScale = typeof scale === 'number' ? scale : 4
   var text = String(value || '').replace(/[^\d.]/g, '')
   var firstDot = text.indexOf('.')
   if (firstDot < 0) return text
-  return text.slice(0, firstDot + 1) + text.slice(firstDot + 1).replace(/\./g, '')
+  return text.slice(0, firstDot + 1) + text.slice(firstDot + 1).replace(/\./g, '').slice(0, maxScale)
 }
 
 function asNumber(value) {

@@ -2,10 +2,9 @@
  * [artifact:前端代码] — 应用入口
  */
 
-import React, { useEffect, useState } from 'react';
+import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import App from './App';
+import RootProviders from './RootProviders';
 import { useAuthStore } from '@/stores/authStore';
 import { useAppStore } from '@/stores/appStore';
 import { onGlobalLoading } from '@/utils/request';
@@ -21,34 +20,6 @@ const enableReactStrictMode =
     typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('strictmode') === '1'
   );
-const enableQueryDevtools =
-  isDev &&
-  (
-    typeof window !== 'undefined' &&
-    (
-      window.localStorage.getItem('sf-enable-rq-devtools') === '1' ||
-      new URLSearchParams(window.location.search).get('rqdevtools') === '1'
-    )
-  );
-
-// ── React Query 客户端配置 ──────────────────────
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 30,          // 30 秒内不重新请求
-      gcTime: isDev ? 1000 * 60 : 1000 * 60 * 5, // 开发态缩短缓存驻留，避免多页采样时堆积
-      retry: (failureCount, error) => {
-        // ApiError 的业务错误不重试，网络错误最多重试 2 次
-        if (error instanceof Error && error.name === 'ApiError') return false;
-        return failureCount < 2;
-      },
-      refetchOnWindowFocus: false,
-    },
-    mutations: {
-      retry: false,
-    },
-  },
-});
 
 // ── 初始化：恢复认证状态 ──────────────────────
 useAuthStore.getState().hydrate();
@@ -77,49 +48,15 @@ onGlobalLoading((loading) => {
   useAppStore.getState().setGlobalLoading(loading);
 });
 
-function DevOnlyQueryDevtools() {
-  const [DevtoolsComponent, setDevtoolsComponent] = useState<React.ComponentType<{ initialIsOpen?: boolean; position?: 'top' | 'bottom' }> | null>(null);
-
-  useEffect(() => {
-    if (!enableQueryDevtools) return;
-
-    let active = true;
-
-    void import('@tanstack/react-query-devtools').then((mod) => {
-      if (!active) return;
-      setDevtoolsComponent(() => mod.ReactQueryDevtools);
-    });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  if (!enableQueryDevtools || !DevtoolsComponent) {
-    return null;
-  }
-
-  return <DevtoolsComponent initialIsOpen={false} position="bottom" />;
-}
-
-function RootProviders() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <App />
-      <DevOnlyQueryDevtools />
-    </QueryClientProvider>
-  );
-}
-
 // ── 挂载应用 ──────────────────────────────────
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element not found');
 
 ReactDOM.createRoot(rootEl).render(
   enableReactStrictMode ? (
-    <React.StrictMode>
+    <StrictMode>
       <RootProviders />
-    </React.StrictMode>
+    </StrictMode>
   ) : (
     <RootProviders />
   ),

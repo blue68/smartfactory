@@ -1,5 +1,7 @@
 var api = require('../../utils/api')
+var config = require('../../utils/config')
 var ui = require('../../utils/interaction')
+var nav = require('../../utils/navigation')
 
 var STATUS_OPTIONS = ['全部', '待开工', '进行中', '异常', '已完成']
 var STATUS_VALUES = ['', 'pending', 'in_progress', 'exception', 'completed']
@@ -9,7 +11,7 @@ var STATUS_LABELS = {
   exception: '异常',
   completed: '已完成'
 }
-var EXCEPTION_TYPES = ['material_shortage', 'quality_issue', 'equipment_failure', 'process_issue', 'other']
+var EXCEPTION_TYPES = ['物料缺失', '质量异常', '设备故障', '其他', '其他']
 var EXCEPTION_LABELS = ['物料短缺', '质量异常', '设备异常', '工艺异常', '其他']
 var SEVERITY_OPTIONS = ['low', 'medium', 'high']
 var SEVERITY_LABELS = ['低', '中', '高']
@@ -79,17 +81,24 @@ function logItem(title, content) {
   }
 }
 
+function currentUserId() {
+  var user = wx.getStorageSync('sf_user') || null
+  var id = user && (user.id || user.userId)
+  return id ? Number(id) : 0
+}
+
 function buildActionState(task, viewData) {
   var status = task ? task.status : ''
   var isCompleted = status === 'completed'
   var material = viewData.materialOptions && viewData.materialOptions[viewData.materialIdx]
   var warehouse = viewData.warehouses && viewData.warehouses[viewData.warehouseIdx]
+  var location = viewData.locations && viewData.locations[viewData.locationIdx]
   var issueQty = ui.asNumber(viewData.issueQty)
   var completedQty = ui.asNumber(viewData.completedQty)
   var actualHours = ui.asNumber(viewData.actualHours)
   var hasExceptionText = Boolean(String(viewData.exceptionText || '').trim())
-  var issueReady = Boolean(task && !isCompleted && material && ui.getSkuId(material) && Number.isFinite(issueQty) && issueQty > 0 && warehouse)
-  var completeReady = Boolean(task && !isCompleted && Number.isFinite(completedQty) && completedQty > 0 && Number.isFinite(actualHours) && actualHours >= 0)
+  var issueReady = Boolean(task && !isCompleted && material && ui.getSkuId(material) && Number.isFinite(issueQty) && issueQty > 0 && warehouse && location)
+  var completeReady = Boolean(task && !isCompleted && Number.isFinite(completedQty) && completedQty > 0 && Number.isFinite(actualHours) && actualHours > 0)
   var exceptionReady = Boolean(task && !isCompleted && hasExceptionText)
   var startButtonText = '确认开工'
   var flowHint = '选择任务后，按开工、投料、完工推进；遇到现场阻断时立即上报异常。'
@@ -115,9 +124,9 @@ function buildActionState(task, viewData) {
     startButtonText: startButtonText,
     taskFlowHint: flowHint,
     issueDisabled: !issueReady,
-    issueHint: issueReady ? '投料信息完整，可提交领料记录。' : '请选择投料物料、填写数量并确认仓库。',
+    issueHint: issueReady ? '投料信息完整，可提交领料记录。' : '请选择投料物料、填写数量并确认仓库和库位。',
     completeDisabled: !completeReady,
-    completeHint: completeReady ? '完工数量和工时已填写，可提交报工。' : '请填写有效完工数量和实际工时。',
+    completeHint: completeReady ? '完工数量和工时已填写，可提交报工。' : '请填写有效完工数量和大于 0 的实际工时。',
     exceptionDisabled: !exceptionReady,
     exceptionHint: exceptionReady ? '异常说明已填写，可立即上报。' : '请填写异常说明，便于班组长定位处理。',
     exceptionTypeLabel: EXCEPTION_LABELS[viewData.exceptionTypeIdx] || EXCEPTION_LABELS[0],
@@ -131,13 +140,18 @@ Page({
     exceptionLabels: EXCEPTION_LABELS,
     severityLabels: SEVERITY_LABELS,
     statusIdx: 0,
+    isListView: true,
+    isDetailView: false,
     tasks: [],
     taskRange: [],
+    taskCards: [],
+    hasTaskCards: false,
     selectedTask: null,
     selectedTaskIdx: 0,
     selectedTaskLabel: '',
     lastRefreshText: '扫码或下拉刷新任务',
     statusDisplayLabel: '状态：全部',
+    assignmentLabel: '当前账号分配任务',
     taskCountLabel: '0 个',
     emptyTaskText: '任务加载中...',
     showTaskRetry: false,
@@ -158,7 +172,7 @@ Page({
     locationRange: [],
     locationIdx: 0,
     selectedLocationLabel: '',
-    locationPickerLabel: '请选择库位，可选',
+    locationPickerLabel: '请选择库位',
     materialKeyword: '',
     materialOptions: [],
     materialRange: [],
@@ -190,7 +204,8 @@ Page({
     exceptionHint: '请填写异常说明，便于班组长定位处理。',
     exceptionTypeLabel: EXCEPTION_LABELS[0],
     severityLabel: SEVERITY_LABELS[1],
-    canResetMock: Boolean(api.resetMockData),
+    canResetMock: Boolean(api.isMockMode && api.isMockMode()),
+    runtimeSignature: '',
     operationLogs: [],
     hasOperationLogs: false,
     latestOperationTitle: '等待操作',
@@ -198,12 +213,32 @@ Page({
   },
 
   onLoad: function () {
+    if (!nav.ensureLogin()) return
+    this.syncRuntimeState(false)
     this.loadTasks()
     this.loadWarehouses()
   },
 
+  onShow: function () {
+    if (!nav.ensureLogin()) return
+    this.syncRuntimeState(true)
+  },
+
   onPullDownRefresh: function () {
     this.loadTasks()
+  },
+
+  syncRuntimeState: function (reloadOnChange) {
+    var signature = config.getRuntimeSignature ? config.getRuntimeSignature() : ''
+    var changed = Boolean(this.data.runtimeSignature && this.data.runtimeSignature !== signature)
+    this.setData({
+      runtimeSignature: signature,
+      canResetMock: Boolean(api.isMockMode && api.isMockMode())
+    })
+    if (changed && reloadOnChange) {
+      this.loadTasks()
+      this.loadWarehouses()
+    }
   },
 
   buildTaskState: function (tasks, selectedTask) {
@@ -240,6 +275,7 @@ Page({
     return {
       taskRange: taskRange,
       taskCards: taskCards,
+      hasTaskCards: taskCards.length > 0,
       selectedTaskIdx: selectedTaskIdx,
       selectedTaskLabel: selectedTask ? ((selectedTask.taskNo || selectedTask.id) + ' · ' + titleOf(selectedTask)) : '',
       taskTitle: titleOf(selectedTask),
@@ -267,6 +303,47 @@ Page({
       scrapQty: '',
       completeNotes: '',
     }, this.buildTaskState(this.data.tasks, task), recommendedMaterialState(task)))
+  },
+
+  openTaskDetail: function (taskId) {
+    var self = this
+    if (!taskId || this.data.loading) return
+    this.setData({ loading: true, loadError: '' })
+    api.productionTaskApi.detail(taskId).then(function (detail) {
+      self.setSelectedTask(detail)
+      self.setData({ isListView: false, isDetailView: true })
+    }).catch(function (error) {
+      ui.showError(error, '加载任务详情失败')
+    }).finally(function () {
+      self.setData({ loading: false })
+    })
+  },
+
+  handleBackToList: function () {
+    this.setData({ isListView: true, isDetailView: false })
+    this.loadTasks()
+  },
+
+  handleBackToDashboard: function () {
+    nav.backToDashboard()
+  },
+
+  handleDetailNav: function (event) {
+    var target = event.currentTarget.dataset.target
+    var selectors = {
+      detail: '#worker-task-detail',
+      material: '#worker-task-material',
+      complete: '#worker-task-complete',
+      exception: '#worker-task-exception',
+      receipt: '#worker-task-receipt'
+    }
+    var selector = selectors[target]
+    if (!selector || typeof wx === 'undefined' || !wx.pageScrollTo) return
+    wx.pageScrollTo({
+      selector: selector,
+      duration: 220,
+      offsetTop: 8
+    })
   },
 
   appendOperationLog: function (title, content) {
@@ -306,24 +383,38 @@ Page({
   loadTasks: function () {
     var self = this
     var status = STATUS_VALUES[this.data.statusIdx]
+    var userId = currentUserId()
+    var params = { page: 1, pageSize: 50, status: status }
+    if (userId) params.workerId = userId
     this.setData({ loading: true, loadError: '' })
-    api.productionTaskApi.list({ page: 1, pageSize: 50, status: status }).then(function (res) {
+    api.productionTaskApi.list(params).then(function (res) {
       var list = res.list || []
       var preferred = null
       list.forEach(function (task) {
         if (self.data.selectedTask && task.id === self.data.selectedTask.id) preferred = task
       })
-      if (!preferred && list.length) preferred = list[0]
       var refreshAt = ui.nowTimeLabel()
-      self.setData({ tasks: list, lastRefreshAt: refreshAt, lastRefreshText: '最后同步 ' + refreshAt })
-      if (!preferred) {
-        self.setData(Object.assign({ selectedTask: null, showTaskRetry: true, emptyTaskText: '暂无符合条件的任务' }, self.buildTaskState(list, null)))
+      var selectedForCards = preferred ? self.data.selectedTask : null
+      self.setData(Object.assign({
+        tasks: list,
+        lastRefreshAt: refreshAt,
+        lastRefreshText: '最后同步 ' + refreshAt,
+        assignmentLabel: userId ? '仅显示当前账号分配任务' : '未登录时显示可见任务'
+      }, self.buildTaskState(list, selectedForCards)))
+      if (!list.length) {
+        self.setData(Object.assign({
+          selectedTask: null,
+          isListView: true,
+          isDetailView: false,
+          showTaskRetry: true,
+          emptyTaskText: '暂无符合条件的任务'
+        }, self.buildTaskState(list, null)))
         return null
       }
-      return api.productionTaskApi.detail(preferred.id).then(function (detail) {
-        self.setData({ tasks: list })
-        self.setSelectedTask(detail)
-      })
+      if (self.data.isDetailView && !preferred) {
+        self.setData({ isListView: true, isDetailView: false, selectedTask: null })
+      }
+      return null
     }).catch(function (error) {
       self.setData({ loadError: ui.getErrorMessage(error, '加载任务失败') })
       ui.showError(error, '加载任务失败')
@@ -359,10 +450,10 @@ Page({
         locationRange: list.map(function (item) { return [item.code, item.name].filter(Boolean).join(' ') }),
         locationIdx: list.length ? 0 : 0,
         selectedLocationLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : '',
-        locationPickerLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : '请选择库位，可选'
+        locationPickerLabel: list.length ? [list[0].code, list[0].name].filter(Boolean).join(' ') : '请选择库位'
       })
     }).catch(function (error) {
-      self.setData({ locations: [], locationRange: [], selectedLocationLabel: '', locationPickerLabel: '请选择库位，可选' })
+      self.setData({ locations: [], locationRange: [], selectedLocationLabel: '', locationPickerLabel: '请选择库位' })
       ui.showError(error, '加载库位失败')
     })
   },
@@ -370,6 +461,7 @@ Page({
   handleStatusChange: function (event) {
     var idx = Number(event.detail.value) || 0
     this.setData({ statusIdx: idx, statusDisplayLabel: '状态：' + STATUS_OPTIONS[idx] })
+    this.setData({ isListView: true, isDetailView: false })
     this.loadTasks()
   },
 
@@ -381,14 +473,7 @@ Page({
     var idx = Number(rawIdx) || 0
     var task = this.data.tasks[idx]
     if (!task) return
-    this.setData({ loading: true })
-    api.productionTaskApi.detail(task.id).then(function (detail) {
-      self.setSelectedTask(detail)
-    }).catch(function (error) {
-      ui.showError(error, '加载任务详情失败')
-    }).finally(function () {
-      self.setData({ loading: false })
-    })
+    self.openTaskDetail(task.id)
   },
 
   handleScanTask: function () {
@@ -402,12 +487,8 @@ Page({
           ui.showError('未识别到任务 ID，可手动选择任务', '未识别到任务 ID')
           return
         }
-        api.productionTaskApi.detail(taskId).then(function (detail) {
-          self.setSelectedTask(detail)
-          ui.showSuccess('已定位任务')
-        }).catch(function (error) {
-          ui.showError(error, '扫码定位失败')
-        })
+        self.openTaskDetail(taskId)
+        ui.showSuccess('已定位任务')
       },
       fail: function (error) {
         ui.showError(error, '扫码失败')
@@ -426,7 +507,7 @@ Page({
     var idx = Number(event.detail.value) || 0
     var location = this.data.locations[idx]
     var label = location ? [location.code, location.name].filter(Boolean).join(' ') : ''
-    this.applyActionState({ locationIdx: idx, selectedLocationLabel: label, locationPickerLabel: label || '请选择库位，可选' })
+    this.applyActionState({ locationIdx: idx, selectedLocationLabel: label, locationPickerLabel: label || '请选择库位' })
   },
 
   handleMaterialKeywordInput: function (event) { this.applyActionState({ materialKeyword: event.detail.value }) },
@@ -536,22 +617,25 @@ Page({
       ui.showError('已完工任务不能继续投料', '无法投料')
       return
     }
-    if (!task || !material || !skuId || !Number.isFinite(qty) || qty <= 0 || !warehouse) {
-      ui.showError('请补齐物料、数量和仓库', '投料信息不完整')
+    if (!task || !material || !skuId || !Number.isFinite(qty) || qty <= 0 || !warehouse || !location) {
+      ui.showError('请补齐物料、数量、仓库和库位', '投料信息不完整')
       return
     }
     ui.confirmAction('确认投料', '物料：' + ui.formatSku(material) + '\n数量：' + qty).then(function (ok) {
       if (!ok) return
       self.setData({ submitting: true })
-      api.productionTaskApi.issueMaterials(task.id, [{
-        skuId: skuId,
-        qty: qty,
-        unit: material.stockUnit || material.purchaseUnit || material.unit,
-        warehouseId: warehouse.id,
-        locationId: location ? location.id : undefined,
-        dyeLotNo: self.data.dyeLotNo.trim() || undefined
-      }]).then(function () {
-        self.appendOperationLog('投料成功', ui.formatSku(material) + ' · ' + qty + ' ' + (material.stockUnit || material.purchaseUnit || material.unit || ''))
+      var ensureStarted = task.status === 'pending' ? api.productionTaskApi.start(task.id) : Promise.resolve()
+      ensureStarted.then(function () {
+        return api.productionTaskApi.issueMaterials(task.id, [{
+          skuId: skuId,
+          qty: qty,
+          unit: material.stockUnit || material.purchaseUnit || material.unit,
+          warehouseId: warehouse.id,
+          locationId: location ? location.id : undefined,
+          dyeLotNo: self.data.dyeLotNo.trim() || undefined
+        }])
+      }).then(function () {
+        self.appendOperationLog('投料成功', (task.status === 'pending' ? '已自动开工 · ' : '') + ui.formatSku(material) + ' · ' + qty + ' ' + (material.stockUnit || material.purchaseUnit || material.unit || ''))
         self.setData({ issueQty: '', dyeLotNo: '' })
         ui.showSuccess('投料成功')
         return self.refreshCurrentTask()
@@ -574,8 +658,8 @@ Page({
       ui.showError('当前任务已完工，请勿重复提交', '无法完工')
       return
     }
-    if (!task || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(hours) || hours < 0) {
-      ui.showError('请填写有效完工数量和工时', '完工信息不完整')
+    if (!task || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(hours) || hours <= 0) {
+      ui.showError('请填写有效完工数量和大于 0 的实际工时', '完工信息不完整')
       return
     }
     ui.confirmAction('提交完工', '完工数量 ' + qty + '，实际工时 ' + hours + 'h。').then(function (ok) {
@@ -613,13 +697,16 @@ Page({
     ui.confirmAction('提交异常', '异常类型：' + EXCEPTION_LABELS[this.data.exceptionTypeIdx] + '\n严重程度：' + SEVERITY_LABELS[this.data.severityIdx]).then(function (ok) {
       if (!ok) return
       self.setData({ submitting: true })
-      api.productionTaskApi.reportException(task.id, {
-        type: EXCEPTION_TYPES[self.data.exceptionTypeIdx],
-        severity: SEVERITY_OPTIONS[self.data.severityIdx],
-        affectsProgress: true,
-        description: self.data.exceptionText.trim()
+      var ensureStarted = task.status === 'pending' ? api.productionTaskApi.start(task.id) : Promise.resolve()
+      ensureStarted.then(function () {
+        return api.productionTaskApi.reportException(task.id, {
+          type: EXCEPTION_TYPES[self.data.exceptionTypeIdx],
+          severity: SEVERITY_OPTIONS[self.data.severityIdx],
+          affectsProgress: true,
+          description: self.data.exceptionText.trim()
+        })
       }).then(function () {
-        self.appendOperationLog('异常已上报', EXCEPTION_LABELS[self.data.exceptionTypeIdx] + ' · ' + SEVERITY_LABELS[self.data.severityIdx])
+        self.appendOperationLog('异常已上报', (task.status === 'pending' ? '已自动开工 · ' : '') + EXCEPTION_LABELS[self.data.exceptionTypeIdx] + ' · ' + SEVERITY_LABELS[self.data.severityIdx])
         self.setData({ exceptionText: '' })
         ui.showSuccess('异常已上报')
         return self.refreshCurrentTask()

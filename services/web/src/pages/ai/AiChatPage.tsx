@@ -84,6 +84,12 @@ interface ChatUiSettings {
 
 const STORAGE_KEY = 'sf_ai_conversations';
 const SETTINGS_STORAGE_KEY = 'sf_ai_chat_settings';
+const MAX_STORED_CONVERSATIONS = 20;
+const MAX_MESSAGES_PER_CONVERSATION = 80;
+const MAX_MESSAGE_CONTENT_CHARS = 20_000;
+const MAX_STORAGE_CHARS = 2_000_000;
+const MAX_DATA_CARD_ROWS = 50;
+const MAX_DATA_CARD_CELL_CHARS = 2_000;
 
 const QUICK_QUESTIONS = [
   { icon: '⚠', text: '今日库存预警有哪些？' },
@@ -113,9 +119,65 @@ const newConvId = () => `conv_${Date.now()}_${++convCounter}`;
 // 工具函数
 // ─────────────────────────────────────────────
 
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}\n\n[内容过长，已截断]`;
+}
+
+function appendCappedContent(current: string, extra: string): string {
+  if (!extra) return current;
+  return truncateText(`${current}${extra}`, MAX_MESSAGE_CONTENT_CHARS);
+}
+
+function trimDataCard(dataCard: DataCardPayload | undefined): DataCardPayload | undefined {
+  if (!dataCard) return undefined;
+  if (dataCard.mode === 'table') {
+    return {
+      ...dataCard,
+      columns: dataCard.columns?.map((column) => truncateText(column, MAX_DATA_CARD_CELL_CHARS)),
+      rows: dataCard.rows
+        ?.slice(0, MAX_DATA_CARD_ROWS)
+        .map((row) => row.map((cell) => truncateText(cell, MAX_DATA_CARD_CELL_CHARS))),
+    };
+  }
+  return {
+    ...dataCard,
+    kpis: dataCard.kpis?.map((kpi) => ({
+      ...kpi,
+      label: truncateText(kpi.label, MAX_DATA_CARD_CELL_CHARS),
+      value: truncateText(kpi.value, MAX_DATA_CARD_CELL_CHARS),
+    })),
+  };
+}
+
+function trimMessage(message: Message): Message {
+  return {
+    ...message,
+    content: truncateText(message.content, MAX_MESSAGE_CONTENT_CHARS),
+    dataCard: trimDataCard(message.dataCard),
+  };
+}
+
+function trimConversation(conversation: Conversation): Conversation {
+  const messages = conversation.messages
+    .slice(-MAX_MESSAGES_PER_CONVERSATION)
+    .map(trimMessage);
+  return {
+    ...conversation,
+    messages,
+    title: deriveTitle(messages),
+  };
+}
+
+function trimConversations(conversations: Conversation[]): Conversation[] {
+  return conversations
+    .slice(0, MAX_STORED_CONVERSATIONS)
+    .map(trimConversation);
+}
+
 function saveConversations(conversations: Conversation[]): void {
   try {
-    const serialized = conversations.map((conv) => ({
+    const serialized = trimConversations(conversations).map((conv) => ({
       ...conv,
       createdAt: conv.createdAt.toISOString(),
       messages: conv.messages.map((m) => ({
@@ -134,6 +196,10 @@ function loadConversations(): Conversation[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
+    if (raw.length > MAX_STORAGE_CHARS) {
+      localStorage.removeItem(STORAGE_KEY);
+      return [];
+    }
     const parsed = JSON.parse(raw) as Array<Record<string, unknown>>;
     const normalized = parsed.map((conv) => {
       const createdAt = new Date(String(conv.createdAt ?? ''));
@@ -156,7 +222,7 @@ function loadConversations(): Conversation[] {
         messages,
       } as Conversation;
     });
-    return normalized;
+    return trimConversations(normalized);
   } catch {
     return [];
   }
@@ -419,15 +485,15 @@ export default function AiChatPage() {
   const updateActiveMessages = useCallback(
     (updater: (prev: Message[]) => Message[]) => {
       setConversations((prevConvs) =>
-        prevConvs.map((conv) => {
+        trimConversations(prevConvs.map((conv) => {
           if (conv.id !== activeConvId) return conv;
-          const newMessages = updater(conv.messages);
+          const newMessages = updater(conv.messages).map(trimMessage);
           return {
             ...conv,
             messages: newMessages,
             title: deriveTitle(newMessages),
           };
-        }),
+        })),
       );
     },
     [activeConvId],
@@ -536,36 +602,40 @@ export default function AiChatPage() {
                 content?: string;
                 dataCard?: DataCardPayload;
               };
-              if (parsed.content) accumulated += parsed.content;
-              if (parsed.dataCard) dataCard = parsed.dataCard;
+              if (parsed.content) accumulated = appendCappedContent(accumulated, parsed.content);
+              if (parsed.dataCard) dataCard = trimDataCard(parsed.dataCard);
             } catch {
-              accumulated += data;
+              accumulated = appendCappedContent(accumulated, data);
             }
 
             setConversations((prevConvs) =>
-              prevConvs.map((conv) => {
+              trimConversations(prevConvs.map((conv) => {
                 if (conv.id !== activeConvId) return conv;
+                const messages = conv.messages.map((m) =>
+                  m.id === aiMsgId ? trimMessage({ ...m, content: accumulated, dataCard }) : m,
+                );
                 return {
                   ...conv,
-                  messages: conv.messages.map((m) =>
-                    m.id === aiMsgId ? { ...m, content: accumulated, dataCard } : m,
-                  ),
+                  messages,
+                  title: deriveTitle(messages),
                 };
-              }),
+              })),
             );
           }
         }
 
         setConversations((prevConvs) =>
-          prevConvs.map((conv) => {
+          trimConversations(prevConvs.map((conv) => {
             if (conv.id !== activeConvId) return conv;
+            const messages = conv.messages.map((m) =>
+              m.id === aiMsgId ? trimMessage({ ...m, streaming: false }) : m,
+            );
             return {
               ...conv,
-              messages: conv.messages.map((m) =>
-                m.id === aiMsgId ? { ...m, streaming: false } : m,
-              ),
+              messages,
+              title: deriveTitle(messages),
             };
-          }),
+          })),
         );
         abortRef.current = null;
       } catch (err: unknown) {
@@ -629,7 +699,7 @@ export default function AiChatPage() {
       createdAt: new Date(),
       messages: [],
     };
-    setConversations((prev) => [newConv, ...prev]);
+    setConversations((prev) => trimConversations([newConv, ...prev]));
     setActiveConvId(newConv.id);
     setSidebarOpen(false);
   }, []);

@@ -1,0 +1,26 @@
+<view class="login-page">
+  <view class="login-shell">
+    <view class="login-brand">
+      <text class="login-brand__eyebrow">SMARTFACTORY MINI</text>
+      <view class="login-brand__title">账号登录</view>
+      <text class="login-brand__sub">使用 Web 端租户、账号和密码进入手机端。</text>
+    </view>
+
+    <view class="login-card">
+      <view class="login-field">
+        <text class="login-label">租户</text>
+        <input class="login-input" value="{{tenantCode}}" placeholder="请输入租户编码" confirm-type="next" bindinput="handleTenantInput" />
+      </view>
+      <view class="login-field">
+        <text class="login-label">账号</text>
+        <input class="login-input" value="{{username}}" placeholder="请输入账号" confirm-type="next" bindinput="handleUsernameInput" />
+      </view>
+      <view class="login-field">
+        <text class="login-label">密码</text>
+        <input class="login-input" password="{{true}}" value="{{password}}" placeholder="请输入密码" confirm-type="done" bindinput="handlePasswordInput" bindconfirm="handleLogin" />
+      </view>
+      <text class="login-hint">{{loginHint}}</text>
+      <button class="login-button" loading="{{loggingIn}}" disabled="{{loginDisabled}}" bindtap="handleLogin">登录</button>
+    </view>
+  </view>
+</view>

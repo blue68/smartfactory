@@ -11,12 +11,15 @@ import { useAuthStore } from '@/stores/authStore';
 import AiChatPanel from '@/components/ai/AiChatPanel';
 import ToastContainer from '@/components/common/ToastContainer';
 import AiFloatButton from '@/components/common/AiFloatButton';
+import { useNotificationStream } from '@/api/notification';
 
 export default function AppLayout() {
   const { sidebarCollapsed, aiPanelOpen, setAiPanelOpen } = useAppStore();
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
   const hideAiEntry = user?.scopeLevel === 'platform';
+
+  useNotificationStream(Boolean(user));
 
   // 移动端：屏宽小于768时自动折叠侧边栏
   useEffect(() => {

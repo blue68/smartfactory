@@ -1,4 +1,12 @@
 <view class="page">
+  <view class="mini-page-nav">
+    <view class="mini-page-nav__back" bindtap="handleBackToDashboard">
+      <text class="mini-page-nav__icon">‹</text>
+      <text>控制面板</text>
+    </view>
+    <text class="mini-page-nav__title">我的任务</text>
+  </view>
+
   <view class="ops-hero">
     <view class="ops-hero__main">
       <text class="ops-hero__eyebrow">PRODUCTION TASK</text>
@@ -17,135 +25,166 @@
     <button class="alert-action" bindtap="loadTasks">重试</button>
   </view>
 
-  <view class="ops-toolbar">
-    <picker class="ops-toolbar__picker" mode="selector" range="{{statusOptions}}" value="{{statusIdx}}" bindchange="handleStatusChange">
-      <view class="ops-filter">{{statusDisplayLabel}}</view>
-    </picker>
-    <view class="ops-toolbar__actions">
-      <view class="ops-action ops-scan" bindtap="handleScanTask">扫码</view>
-      <view class="ops-action ops-refresh" bindtap="loadTasks">刷新</view>
-      <view wx:if="{{canResetMock}}" class="ops-action ops-reset" bindtap="handleResetMockData">重置</view>
-    </view>
-  </view>
-
-  <view class="ops-section-head">
-    <text class="ops-section-head__title">任务列表</text>
-    <text class="ops-section-head__count">{{taskCountLabel}}</text>
-  </view>
-
-  <view class="ops-receipt">
-    <view>
-      <text class="ops-receipt__label">最近操作</text>
-      <view class="ops-receipt__title">{{latestOperationTitle}}</view>
-      <text class="ops-receipt__text">{{latestOperationText}}</text>
-    </view>
-  </view>
-
-  <view wx:for="{{taskCards}}" wx:key="id" class="{{item.className}}" data-index="{{index}}" bindtap="handleTaskChange">
-    <view class="ops-task__bar"></view>
-    <view class="ops-task__body">
-      <view class="ops-task__top">
-        <text class="ops-task__priority">{{item.priorityLabel}}</text>
-        <text class="ops-task__name">{{item.title}}</text>
-        <text class="{{item.dotClass}}"></text>
-      </view>
-      <view class="ops-task__meta">
-        <view>
-          <text class="ops-task__label">订单号</text>
-          <text class="ops-task__value">{{item.orderNo}}</text>
-        </view>
-        <view>
-          <text class="ops-task__label">产品</text>
-          <text class="ops-task__value">{{item.sku}}</text>
-        </view>
-        <view>
-          <text class="ops-task__label">进度</text>
-          <text class="ops-task__value">{{item.qty}}</text>
-        </view>
-      </view>
-      <view wx:if="{{item.active}}" class="ops-task__selected">当前操作任务 · {{item.statusLabel}}</view>
-    </view>
-  </view>
-
-  <block wx:if="{{selectedTask}}">
-    <view class="ops-panel">
-      <view class="ops-panel__header">
-        <view>
-          <text class="ops-panel__kicker">当前工序</text>
-          <view class="ops-panel__title">{{taskTitle}}</view>
-        </view>
-        <text class="status-pill status-{{selectedTask.status}}">{{taskStatusLabel}}</text>
-      </view>
-      <text class="muted">{{taskSkuLabel}} · {{taskPlanLabel}}</text>
-      <view class="ops-flow-hint">{{taskFlowHint}}</view>
-      <button class="ops-primary" loading="{{submitting}}" disabled="{{startDisabled}}" bindtap="handleStart">{{startButtonText}}</button>
-    </view>
-
-    <view class="ops-panel">
-      <text class="ops-panel__title">所需物料 / 投料</text>
-      <view class="material-stack">
-        <view wx:for="{{inputMaterialViews}}" wx:key="key" class="material-line" data-index="{{index}}" bindtap="pickRecommendedMaterial">
-          {{item.label}}
-        </view>
-      </view>
-      <view wx:if="{{hasNoInputMaterials}}" class="ops-empty">暂无 BOM 推荐投料，可手动搜索 SKU。</view>
-      <view class="inline-row">
-        <input class="input flex" value="{{materialKeyword}}" placeholder="物料编码/名称" bindinput="handleMaterialKeywordInput" />
-        <button class="primary-small" loading="{{materialSearching}}" disabled="{{materialSearching}}" bindtap="searchMaterial">查询</button>
-      </view>
-      <picker mode="selector" range="{{materialRange}}" value="{{materialIdx}}" bindchange="handleMaterialChange">
-        <view class="picker-box">{{materialPickerLabel}}</view>
+  <block wx:if="{{isListView}}">
+    <view class="ops-toolbar">
+      <picker class="ops-toolbar__picker" mode="selector" range="{{statusOptions}}" value="{{statusIdx}}" bindchange="handleStatusChange">
+        <view class="ops-filter">{{statusDisplayLabel}}</view>
       </picker>
-      <input class="input" type="digit" value="{{issueQty}}" placeholder="投料数量" bindinput="handleIssueQtyInput" />
-      <input class="input" value="{{dyeLotNo}}" placeholder="缸号/批号，可选" bindinput="handleDyeLotInput" />
-      <picker mode="selector" range="{{warehouseRange}}" value="{{warehouseIdx}}" bindchange="handleWarehouseChange">
-        <view class="picker-box">{{warehousePickerLabel}}</view>
-      </picker>
-      <picker mode="selector" range="{{locationRange}}" value="{{locationIdx}}" bindchange="handleLocationChange">
-        <view class="picker-box">{{locationPickerLabel}}</view>
-      </picker>
-      <text class="field-help">投料会写入当前任务领料记录，请核对 SKU、数量和库位。</text>
-      <text class="field-help">{{issueHint}}</text>
-      <button class="ops-primary" loading="{{submitting}}" disabled="{{issueDisabled}}" bindtap="handleIssue">确认投料</button>
+      <view class="ops-toolbar__actions">
+        <view class="ops-action ops-scan" bindtap="handleScanTask">扫码</view>
+        <view class="ops-action ops-refresh" bindtap="loadTasks">刷新</view>
+        <view wx:if="{{canResetMock}}" class="ops-action ops-reset" bindtap="handleResetMockData">重置</view>
+      </view>
     </view>
 
-    <view class="ops-panel">
-      <text class="ops-panel__title">完工报工</text>
-      <input class="input" type="digit" value="{{completedQty}}" placeholder="完工数量" bindinput="handleCompletedQtyInput" />
-      <input class="input" type="digit" value="{{actualHours}}" placeholder="实际工时(h)，支持小数" bindinput="handleActualHoursInput" />
-      <input class="input" type="digit" value="{{scrapQty}}" placeholder="报废数量，可选" bindinput="handleScrapQtyInput" />
-      <textarea class="textarea" value="{{completeNotes}}" placeholder="完工备注，可选" maxlength="300" bindinput="handleCompleteNotesInput" />
-      <text class="field-help">{{completeHint}}</text>
-      <button class="ops-success" loading="{{submitting}}" disabled="{{completeDisabled}}" bindtap="handleComplete">提交完工</button>
+    <view class="ops-section-head">
+      <text class="ops-section-head__title">任务列表</text>
+      <text class="ops-section-head__count">{{assignmentLabel}} · {{taskCountLabel}}</text>
     </view>
 
-    <view class="ops-panel ops-panel--danger">
-      <text class="ops-panel__title">异常上报</text>
-      <picker mode="selector" range="{{exceptionLabels}}" value="{{exceptionTypeIdx}}" bindchange="handleExceptionTypeChange">
-        <view class="picker-box">异常类型：{{exceptionTypeLabel}}</view>
-      </picker>
-      <picker mode="selector" range="{{severityLabels}}" value="{{severityIdx}}" bindchange="handleSeverityChange">
-        <view class="picker-box">严重程度：{{severityLabel}}</view>
-      </picker>
-      <textarea class="textarea" value="{{exceptionText}}" placeholder="描述异常现象、影响范围和需要支持的事项" maxlength="500" bindinput="handleExceptionTextInput" />
-      <text class="field-help">{{exceptionHint}}</text>
-      <button class="ops-warning" loading="{{submitting}}" disabled="{{exceptionDisabled}}" bindtap="handleException">立即上报</button>
-    </view>
-
-    <view wx:if="{{hasOperationLogs}}" class="ops-panel">
-      <text class="ops-panel__title">操作回执</text>
-      <view wx:for="{{operationLogs}}" wx:key="id" class="ops-log">
-        <text class="ops-log__time">{{item.time}}</text>
-        <view class="ops-log__body">
-          <text class="ops-log__title">{{item.title}}</text>
-          <text class="ops-log__text">{{item.content}}</text>
+    <block wx:if="{{hasTaskCards}}">
+      <view wx:for="{{taskCards}}" wx:key="id" class="{{item.className}}" data-index="{{index}}" bindtap="handleTaskChange">
+        <view class="ops-task__bar"></view>
+        <view class="ops-task__body">
+          <view class="ops-task__top">
+            <text class="ops-task__priority">{{item.priorityLabel}}</text>
+            <text class="ops-task__name">{{item.title}}</text>
+            <text class="{{item.dotClass}}"></text>
+          </view>
+          <view class="ops-task__meta">
+            <view>
+              <text class="ops-task__label">订单号</text>
+              <text class="ops-task__value">{{item.orderNo}}</text>
+            </view>
+            <view>
+              <text class="ops-task__label">产品</text>
+              <text class="ops-task__value">{{item.sku}}</text>
+            </view>
+            <view>
+              <text class="ops-task__label">进度</text>
+              <text class="ops-task__value">{{item.qty}}</text>
+            </view>
+          </view>
+          <view wx:if="{{item.active}}" class="ops-task__selected">上次操作任务 · {{item.statusLabel}}</view>
+          <view class="ops-task__enter">查看详情与操作</view>
         </view>
       </view>
+    </block>
+
+    <view wx:else class="empty-card">
+      <text>{{emptyTaskText}}</text>
+      <button wx:if="{{showTaskRetry}}" class="empty-action" bindtap="loadTasks">重新同步</button>
     </view>
   </block>
 
-  <view wx:else class="empty-card">
-    <text>{{emptyTaskText}}</text>
-    <button wx:if="{{showTaskRetry}}" class="empty-action" bindtap="loadTasks">重新同步</button>
-  </view>
+  <block wx:if="{{isDetailView}}">
+    <block wx:if="{{selectedTask}}">
+      <view class="ops-detail-nav">
+        <view class="ops-detail-nav__top">
+          <view class="ops-back" bindtap="handleBackToList">
+            <text class="ops-back__icon">‹</text>
+            <text>任务列表</text>
+          </view>
+          <text class="status-pill status-{{selectedTask.status}}">{{taskStatusLabel}}</text>
+        </view>
+        <text class="ops-detail-nav__label">我的任务 / 任务详情</text>
+        <view class="ops-detail-nav__title">{{selectedTaskLabel}}</view>
+        <view class="ops-detail-tabs">
+          <view class="ops-detail-tab" data-target="detail" bindtap="handleDetailNav">详情</view>
+          <view class="ops-detail-tab" data-target="material" bindtap="handleDetailNav">投料</view>
+          <view class="ops-detail-tab" data-target="complete" bindtap="handleDetailNav">报工</view>
+          <view class="ops-detail-tab" data-target="exception" bindtap="handleDetailNav">异常</view>
+          <view class="ops-detail-tab" data-target="receipt" bindtap="handleDetailNav">回执</view>
+        </view>
+      </view>
+
+      <view id="worker-task-receipt" class="ops-receipt">
+        <view>
+          <text class="ops-receipt__label">最近操作</text>
+          <view class="ops-receipt__title">{{latestOperationTitle}}</view>
+          <text class="ops-receipt__text">{{latestOperationText}}</text>
+        </view>
+      </view>
+
+      <view id="worker-task-detail" class="ops-panel">
+        <view class="ops-panel__header">
+          <view>
+            <text class="ops-panel__kicker">任务详情</text>
+            <view class="ops-panel__title">{{taskTitle}}</view>
+          </view>
+          <text class="status-pill status-{{selectedTask.status}}">{{taskStatusLabel}}</text>
+        </view>
+        <text class="muted">{{taskSkuLabel}} · {{taskPlanLabel}}</text>
+        <view class="ops-flow-hint">{{taskFlowHint}}</view>
+        <button class="ops-primary" loading="{{submitting}}" disabled="{{startDisabled}}" bindtap="handleStart">{{startButtonText}}</button>
+      </view>
+
+      <view id="worker-task-material" class="ops-panel">
+        <text class="ops-panel__title">所需物料 / 投料</text>
+        <view class="material-stack">
+          <view wx:for="{{inputMaterialViews}}" wx:key="key" class="material-line" data-index="{{index}}" bindtap="pickRecommendedMaterial">
+            {{item.label}}
+          </view>
+        </view>
+        <view wx:if="{{hasNoInputMaterials}}" class="ops-empty">暂无 BOM 推荐投料，可手动搜索 SKU。</view>
+        <view class="inline-row">
+          <input class="input flex" value="{{materialKeyword}}" placeholder="物料编码/名称" bindinput="handleMaterialKeywordInput" />
+          <button class="primary-small" loading="{{materialSearching}}" disabled="{{materialSearching}}" bindtap="searchMaterial">查询</button>
+        </view>
+        <picker mode="selector" range="{{materialRange}}" value="{{materialIdx}}" bindchange="handleMaterialChange">
+          <view class="picker-box">{{materialPickerLabel}}</view>
+        </picker>
+        <input class="input" type="digit" value="{{issueQty}}" placeholder="投料数量" bindinput="handleIssueQtyInput" />
+        <input class="input" value="{{dyeLotNo}}" placeholder="缸号/批号，可选" bindinput="handleDyeLotInput" />
+        <picker mode="selector" range="{{warehouseRange}}" value="{{warehouseIdx}}" bindchange="handleWarehouseChange">
+          <view class="picker-box">{{warehousePickerLabel}}</view>
+        </picker>
+        <picker mode="selector" range="{{locationRange}}" value="{{locationIdx}}" bindchange="handleLocationChange">
+          <view class="picker-box">{{locationPickerLabel}}</view>
+        </picker>
+        <text class="field-help">投料会写入当前任务领料记录，请核对 SKU、数量和库位。</text>
+        <text class="field-help">{{issueHint}}</text>
+        <button class="ops-primary" loading="{{submitting}}" disabled="{{issueDisabled}}" bindtap="handleIssue">确认投料</button>
+      </view>
+
+      <view id="worker-task-complete" class="ops-panel">
+        <text class="ops-panel__title">完工报工</text>
+        <input class="input" type="digit" value="{{completedQty}}" placeholder="完工数量" bindinput="handleCompletedQtyInput" />
+        <input class="input" type="digit" value="{{actualHours}}" placeholder="实际工时(h)，支持小数" bindinput="handleActualHoursInput" />
+        <input class="input" type="digit" value="{{scrapQty}}" placeholder="报废数量，可选" bindinput="handleScrapQtyInput" />
+        <textarea class="textarea" value="{{completeNotes}}" placeholder="完工备注，可选" maxlength="300" bindinput="handleCompleteNotesInput" />
+        <text class="field-help">{{completeHint}}</text>
+        <button class="ops-success" loading="{{submitting}}" disabled="{{completeDisabled}}" bindtap="handleComplete">提交完工</button>
+      </view>
+
+      <view id="worker-task-exception" class="ops-panel ops-panel--danger">
+        <text class="ops-panel__title">异常上报</text>
+        <picker mode="selector" range="{{exceptionLabels}}" value="{{exceptionTypeIdx}}" bindchange="handleExceptionTypeChange">
+          <view class="picker-box">异常类型：{{exceptionTypeLabel}}</view>
+        </picker>
+        <picker mode="selector" range="{{severityLabels}}" value="{{severityIdx}}" bindchange="handleSeverityChange">
+          <view class="picker-box">严重程度：{{severityLabel}}</view>
+        </picker>
+        <textarea class="textarea" value="{{exceptionText}}" placeholder="描述异常现象、影响范围和需要支持的事项" maxlength="500" bindinput="handleExceptionTextInput" />
+        <text class="field-help">{{exceptionHint}}</text>
+        <button class="ops-warning" loading="{{submitting}}" disabled="{{exceptionDisabled}}" bindtap="handleException">立即上报</button>
+      </view>
+
+      <view wx:if="{{hasOperationLogs}}" class="ops-panel">
+        <text class="ops-panel__title">操作回执</text>
+        <view wx:for="{{operationLogs}}" wx:key="id" class="ops-log">
+          <text class="ops-log__time">{{item.time}}</text>
+          <view class="ops-log__body">
+            <text class="ops-log__title">{{item.title}}</text>
+            <text class="ops-log__text">{{item.content}}</text>
+          </view>
+        </view>
+      </view>
+    </block>
+
+    <view wx:else class="empty-card">
+      <text>任务详情未加载，请返回列表重新选择。</text>
+      <button class="empty-action" bindtap="handleBackToList">返回列表</button>
+    </view>
+  </block>
 </view>

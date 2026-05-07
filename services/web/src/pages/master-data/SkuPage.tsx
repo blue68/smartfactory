@@ -3,10 +3,9 @@
  * 按设计稿 100% 视觉还原
  */
 
-import { Suspense, lazy, useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { Suspense, lazy, useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import {
-  skuApi,
   useSkuList,
   useSkuDetail,
   useSkuStats,
@@ -366,7 +365,7 @@ function getControlModeLabel(value?: Sku['controlMode']): string {
   }
 }
 
-function getDefaultWarehouseTypeLabel(value?: Sku['defaultWarehouseType']): string {
+function getDefaultWarehouseTypeLabel(value?: Sku['defaultWarehouseType'] | ''): string {
   switch (value) {
     case 'raw_material':
       return '原料仓';

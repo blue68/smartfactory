@@ -520,7 +520,7 @@ function openAuthFile(url: string) {
       const blobUrl = URL.createObjectURL(blob);
       window.open(blobUrl, '_blank');
       // 延迟释放，让新标签页有时间加载
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
     })
     .catch(() => { /* silently fail */ });
 }

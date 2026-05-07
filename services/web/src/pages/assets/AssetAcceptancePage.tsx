@@ -159,7 +159,7 @@ export default function AssetAcceptancePage() {
     [detail],
   );
   const userOptions = userQuery.data?.list ?? [];
-  const departments = departmentQuery.data?.list ?? [];
+  const departments = useMemo(() => departmentQuery.data?.list ?? [], [departmentQuery.data?.list]);
   const departmentMap = useMemo(() => buildDepartmentMap(departments), [departments]);
   const receiptError = receiptQuery.error instanceof Error ? receiptQuery.error.message : null;
   const detailError = detailQuery.error instanceof Error ? detailQuery.error.message : null;

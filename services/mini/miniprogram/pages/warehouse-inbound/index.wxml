@@ -1,8 +1,10 @@
 <view class="page">
-  <view class="stock-nav">
-    <text class="stock-nav__back">‹</text>
-    <text class="stock-nav__title">采购入库</text>
-    <text class="stock-nav__right"></text>
+  <view class="mini-page-nav">
+    <view class="mini-page-nav__back" bindtap="handleBackToDashboard">
+      <text class="mini-page-nav__icon">‹</text>
+      <text>控制面板</text>
+    </view>
+    <text class="mini-page-nav__title">仓库入库</text>
   </view>
 
   <view class="scan-zone">
@@ -10,11 +12,28 @@
       <text class="scan-btn__icon">📷</text>
       <text>扫描物料条码</text>
     </button>
-    <view class="inline-row scan-search">
-      <input class="scan-input flex" value="{{keyword}}" placeholder="或输入 SKU / 名称手动搜索" bindinput="handleKeywordInput" />
-      <button class="scan-query" loading="{{loading}}" disabled="{{loading}}" bindtap="searchSku">查询</button>
+    <button class="shelf-btn" bindtap="handleShelfScan">
+      <text>扫描仓库货架条码</text>
+    </button>
+    <view class="scan-search">
+      <view class="scan-input-wrap">
+        <input
+          class="scan-input"
+          value="{{keyword}}"
+          placeholder="SKU 编码 / 名称"
+          placeholder-class="mobile-placeholder"
+          confirm-type="search"
+          adjust-position="{{true}}"
+          bindinput="handleKeywordInput"
+          bindconfirm="handleSearchSubmit"
+        />
+        <view wx:if="{{hasKeyword}}" class="scan-input-clear" bindtap="clearKeyword">×</view>
+      </view>
     </view>
-    <button wx:if="{{canResetMock}}" class="stock-reset" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleResetMockData">重置 FACTORY001 模拟数据</button>
+    <view class="scan-actions">
+      <button class="scan-query" loading="{{loading}}" disabled="{{queryDisabled}}" bindtap="handleSearchSubmit">查询</button>
+      <button wx:if="{{canResetMock}}" class="stock-reset" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleResetMockData">重置数据</button>
+    </view>
   </view>
 
   <view class="stock-brief">
@@ -67,12 +86,25 @@
     </view>
     <view class="card__body">
       <view wx:if="{{deliveryNo}}" class="delivery-hint">已识别送货单：{{deliveryNo}}</view>
-      <view class="qty-row">
-        <input class="qty-input" type="digit" value="{{qty}}" placeholder="0" bindinput="handleQtyInput" />
-        <view class="unit-chip">{{selectedSkuUnit}}</view>
+      <view class="qty-stepper">
+        <view class="{{qtyMinusClass}}" data-value="-1" bindtap="adjustQty">-</view>
+        <input
+          class="qty-stepper__input"
+          type="digit"
+          value="{{qty}}"
+          placeholder="入库数"
+          placeholder-class="mobile-placeholder"
+          confirm-type="done"
+          adjust-position="{{true}}"
+          bindinput="handleQtyInput"
+          bindconfirm="handleQtyConfirm"
+        />
+        <view class="qty-stepper__unit">{{selectedSkuUnit}}</view>
+        <view class="qty-stepper__btn" data-value="1" bindtap="adjustQty">+</view>
       </view>
       <view class="quick-row">
         <view wx:for="{{quickQty}}" wx:key="item" class="quick-chip" data-value="{{item}}" bindtap="addQuickQty">+{{item}}</view>
+        <view wx:if="{{hasQty}}" class="quick-chip quick-chip--clear" bindtap="clearQty">清空</view>
       </view>
     </view>
   </view>
@@ -83,7 +115,7 @@
       <text class="dye-card__title">缸号 / 染色批次</text>
       <text class="dye-card__req">建议填写</text>
     </view>
-    <input class="dye-input" value="{{dyeLotNo}}" placeholder="例如 DY-2026-001" bindinput="handleDyeLotInput" />
+    <input class="dye-input" value="{{dyeLotNo}}" placeholder="例如 DY-2026-001" placeholder-class="mobile-placeholder" confirm-type="done" adjust-position="{{true}}" bindinput="handleDyeLotInput" />
     <text class="dye-hint">同一订单面料建议保持同一缸号，避免色差追溯困难。</text>
   </view>
 

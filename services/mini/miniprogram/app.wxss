@@ -6,7 +6,13 @@ page {
 }
 
 button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   border-radius: 18rpx;
+  line-height: 1;
+  text-align: center;
 }
 
 button[disabled] {
@@ -14,8 +20,50 @@ button[disabled] {
 }
 
 .page {
-  padding: 28rpx 24rpx 44rpx;
+  padding: 28rpx 24rpx 48rpx;
   box-sizing: border-box;
+}
+
+.mini-page-nav {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  min-height: 70rpx;
+  margin-bottom: 18rpx;
+}
+
+.mini-page-nav__back {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 156rpx;
+  height: 62rpx;
+  box-sizing: border-box;
+  padding: 0 18rpx;
+  border-radius: 999rpx;
+  color: #2563eb;
+  background: #eaf3ff;
+  font-size: 25rpx;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.mini-page-nav__icon {
+  margin-right: 4rpx;
+  font-size: 36rpx;
+  line-height: 1;
+}
+
+.mini-page-nav__title {
+  flex: 1;
+  min-width: 0;
+  color: #172033;
+  font-size: 32rpx;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hero {
@@ -52,9 +100,13 @@ button[disabled] {
 
 .ghost-button,
 .scan-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   min-width: 128rpx;
   height: 76rpx;
-  line-height: 76rpx;
+  line-height: 1;
   padding: 0 28rpx;
   color: #0f62d6;
   background: #fff;
@@ -163,11 +215,16 @@ button[disabled] {
 .primary-small,
 .alert-action,
 .empty-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   margin-top: 20rpx;
   color: #fff;
   background: #0f62d6;
   font-weight: 800;
   font-size: 28rpx;
+  line-height: 1;
 }
 
 .success-button,

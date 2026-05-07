@@ -1,0 +1,108 @@
+<view class="page">
+  <view class="mini-page-nav">
+    <view class="mini-page-nav__back" bindtap="handleBackToDashboard">
+      <text class="mini-page-nav__icon">‹</text>
+      <text>控制面板</text>
+    </view>
+    <text class="mini-page-nav__title">库存盘点</text>
+  </view>
+
+  <view class="stocktaking-hero">
+    <view>
+      <text class="stocktaking-hero__eyebrow">INVENTORY COUNT</text>
+      <view class="stocktaking-hero__title">库存盘点</view>
+      <text class="stocktaking-hero__sub">{{actionHint}}</text>
+    </view>
+    <view class="stocktaking-hero__stat">
+      <text>{{progressLabel}}</text>
+      <text>已录入</text>
+    </view>
+  </view>
+
+  <view wx:if="{{loadError}}" class="alert-card">
+    <text class="alert-title">盘点同步失败</text>
+    <text class="alert-text">{{loadError}}</text>
+    <button class="alert-action" bindtap="loadTasks">重试</button>
+  </view>
+
+  <view class="stocktaking-panel">
+    <view class="stocktaking-panel__title">盘点任务</view>
+    <view class="stocktaking-actions">
+      <button class="stocktaking-tool" loading="{{loading}}" disabled="{{loading}}" bindtap="loadTasks">刷新</button>
+      <button class="stocktaking-tool stocktaking-tool--scan" bindtap="handleShelfScan">扫货架</button>
+      <button wx:if="{{canResetMock}}" class="stocktaking-tool stocktaking-tool--reset" bindtap="handleResetMockData">重置</button>
+    </view>
+    <view wx:for="{{taskCards}}" wx:key="id" class="{{item.className}}" data-index="{{index}}" bindtap="handleTaskChange">
+      <view>
+        <text class="stocktaking-task__title">{{item.title}}</text>
+        <text class="stocktaking-task__meta">{{item.scopeLabel}}</text>
+      </view>
+      <view class="stocktaking-task__side">
+        <text>{{item.statusLabel}}</text>
+        <text>{{item.countLabel}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="stocktaking-panel">
+    <view class="stocktaking-panel__title">按货架创建盘点</view>
+    <picker mode="selector" range="{{warehouseRange}}" value="{{warehouseIdx}}" bindchange="handleWarehouseChange">
+      <view class="stocktaking-picker">{{warehousePickerLabel}}</view>
+    </picker>
+    <picker mode="selector" range="{{locationRange}}" value="{{locationIdx}}" bindchange="handleLocationChange">
+      <view class="stocktaking-picker">{{locationPickerLabel}}</view>
+    </picker>
+    <button class="stocktaking-primary" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleCreateLocationTask">创建库位盘点</button>
+  </view>
+
+  <view class="stocktaking-receipt">
+    <text class="stocktaking-receipt__label">最近操作</text>
+    <view class="stocktaking-receipt__title">{{latestOperationTitle}}</view>
+    <text class="stocktaking-receipt__text">{{latestOperationText}}</text>
+  </view>
+
+  <block wx:if="{{selectedTask}}">
+    <view class="stocktaking-summary">
+      <view>
+        <text class="stocktaking-summary__label">当前任务</text>
+        <view class="stocktaking-summary__title">{{selectedTaskTitle}}</view>
+      </view>
+      <view class="stocktaking-summary__status">{{selectedTaskStatusLabel}}</view>
+    </view>
+
+    <view class="stocktaking-panel">
+      <view class="stocktaking-panel__title">盘点明细</view>
+      <view class="stocktaking-search">
+        <input class="input stocktaking-search__input" value="{{itemKeyword}}" placeholder="扫描或输入 SKU 编码/名称" bindinput="handleKeywordInput" />
+        <button class="stocktaking-search__btn" bindtap="handleSkuScan">扫码</button>
+      </view>
+      <view class="stocktaking-kpis">
+        <view><text class="stocktaking-kpis__num">{{completedItemCount}}</text><text>已录入</text></view>
+        <view><text class="stocktaking-kpis__num">{{diffItemCount}}</text><text>有差异</text></view>
+        <view><text class="stocktaking-kpis__num">{{taskCountLabel}}</text><text>任务数</text></view>
+      </view>
+
+      <view wx:for="{{visibleItems}}" wx:key="skuId" class="stocktaking-item">
+        <view class="stocktaking-item__head">
+          <view>
+            <text class="stocktaking-item__code">{{item.skuCode}}</text>
+            <text class="stocktaking-item__name">{{item.skuName}}</text>
+          </view>
+          <text class="{{item.diffClass}}">{{item.diffLabel}}</text>
+        </view>
+        <text class="stocktaking-item__meta">{{item.locationText}} · 系统 {{item.systemQty}} {{item.stockUnit}}</text>
+        <input class="stocktaking-item__input" type="digit" value="{{item.actualQty}}" disabled="{{inputDisabled}}" data-sku-id="{{item.skuId}}" bindinput="handleActualInput" />
+      </view>
+
+      <view wx:if="{{canOperate}}" class="stocktaking-submit-row">
+        <button class="stocktaking-secondary" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSave">保存盘点</button>
+        <button class="stocktaking-primary" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">提交确认</button>
+      </view>
+    </view>
+  </block>
+
+  <view wx:else class="empty-card">
+    <text>{{emptyText}}</text>
+    <button wx:if="{{showRetry}}" class="empty-action" bindtap="loadTasks">重新同步</button>
+  </view>
+</view>

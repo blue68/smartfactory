@@ -58,7 +58,7 @@ export default function RoleGrantPage() {
   });
   const { data: menuTree = [], isLoading: menuLoading, error: menuError } = useMenuTree();
   const menuList = useMemo(() => flattenMenuTree(menuTree), [menuTree]);
-  const roleList = roleData?.list ?? [];
+  const roleList = useMemo(() => roleData?.list ?? [], [roleData?.list]);
 
   const filteredRoles = useMemo(() => {
     const keyword = roleKeyword.trim().toLowerCase();

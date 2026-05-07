@@ -11,14 +11,14 @@ export type SortOrder = 'asc' | 'desc' | null;
 
 export interface Column<T> {
   key: string;
-  title: string;
+  title: React.ReactNode;
   width?: number | string;
   align?: 'left' | 'center' | 'right';
   sortable?: boolean;
   render?: (value: unknown, record: T, index: number) => React.ReactNode;
 }
 
-export interface TableProps<T extends Record<string, unknown>> {
+export interface TableProps<T extends object> {
   columns: Column<T>[];
   dataSource: T[];
   rowKey: keyof T | ((record: T) => string | number);
@@ -49,7 +49,7 @@ function buildPageItems(current: number, totalPages: number): Array<number | 'el
   return [1, 'ellipsis', current - 1, current, current + 1, 'ellipsis', totalPages];
 }
 
-export default function Table<T extends Record<string, unknown>>({
+export default function Table<T extends object>({
   columns,
   dataSource,
   rowKey,
@@ -88,6 +88,7 @@ export default function Table<T extends Record<string, unknown>>({
 
   const totalPages = pagination ? Math.ceil(pagination.total / pagination.pageSize) : 1;
   const pageItems = pagination ? buildPageItems(pagination.page, totalPages) : [];
+  const getCellValue = (record: T, key: string): unknown => (record as Record<string, unknown>)[key];
 
   return (
     <div className={`${styles.table_wrap} ${className}`}>
@@ -183,8 +184,8 @@ export default function Table<T extends Record<string, unknown>>({
                           style={{ textAlign: col.align ?? 'left' }}
                         >
                           {col.render
-                            ? col.render(record[col.key], record, idx)
-                            : (record[col.key] as React.ReactNode) ?? '—'}
+                            ? col.render(getCellValue(record, col.key), record, idx)
+                            : (getCellValue(record, col.key) as React.ReactNode) ?? '—'}
                         </td>
                       ))}
                     </tr>

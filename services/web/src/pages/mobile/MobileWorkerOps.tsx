@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import QrScanner from 'qr-scanner';
 import Button from '@/components/common/Button';
@@ -225,7 +225,7 @@ function WorkerTaskScannerPanel() {
   const [cameraReady, setCameraReady] = useState(false);
   const [imageDecodeName, setImageDecodeName] = useState('');
 
-  const handleResolvedPayload = (payload: string) => {
+  const handleResolvedPayload = useCallback((payload: string) => {
     if (handledRef.current) return;
     const parsed = parseTaskQrPayload(payload);
     if (!parsed?.taskId) {
@@ -234,7 +234,7 @@ function WorkerTaskScannerPanel() {
     }
     handledRef.current = true;
     navigate(`/m/tasks/${parsed.taskId}?entry=scan`, { replace: true });
-  };
+  }, [navigate]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -282,7 +282,7 @@ function WorkerTaskScannerPanel() {
       scanner.destroy();
       scannerRef.current = null;
     };
-  }, []);
+  }, [handleResolvedPayload]);
 
   return (
     <div className={styles.panelStack}>

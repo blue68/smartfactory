@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import QrScanner from 'qr-scanner';
 import Button from '@/components/common/Button';
@@ -407,7 +407,7 @@ function WarehouseScanPanel() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
 
-  const resolvePayload = (payload: string) => {
+  const resolvePayload = useCallback((payload: string) => {
     if (handledRef.current) return;
     const parsed = parseWarehouseScanPayload(payload);
     if (!parsed) {
@@ -421,7 +421,7 @@ function WarehouseScanPanel() {
     if (parsed.dyeLotNo) search.set('dyeLotNo', parsed.dyeLotNo);
     if (parsed.deliveryNo) search.set('deliveryNo', parsed.deliveryNo);
     navigate(`/m/warehouse/inbound?${search.toString()}`, { replace: true });
-  };
+  }, [navigate]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -466,7 +466,7 @@ function WarehouseScanPanel() {
       cancelled = true;
       scanner.destroy();
     };
-  }, []);
+  }, [resolvePayload]);
 
   return (
     <div className={styles.panelStack}>
@@ -554,7 +554,10 @@ function WarehouseStocktakingPanel({ stocktakingId }: { stocktakingId: number })
   const navigate = useNavigate();
   const showToast = useAppStore((state) => state.showToast);
   const stocktakingDetailQuery = useStocktakingDetail(stocktakingId);
-  const stocktakingItems = stocktakingDetailQuery.data?.items ?? [];
+  const stocktakingItems = useMemo(
+    () => stocktakingDetailQuery.data?.items ?? [],
+    [stocktakingDetailQuery.data?.items],
+  );
   const updateStocktakingItems = useUpdateStocktakingItems(stocktakingId);
   const submitStocktaking = useSubmitStocktaking();
   const stocktakingTask = stocktakingDetailQuery.data?.task ?? null;
@@ -562,11 +565,11 @@ function WarehouseStocktakingPanel({ stocktakingId }: { stocktakingId: number })
   const isReadonly = stocktakingTask?.status === 'confirmed' || stocktakingTask?.status === 'cancelled';
 
   useEffect(() => {
-    const nextDrafts: StocktakingDraftMap = {};
-    stocktakingItems.forEach((item) => {
-      nextDrafts[item.skuId] = item.actualQty ?? item.systemQty ?? '0';
-    });
     setStocktakingDrafts((current) => {
+      const nextDrafts: StocktakingDraftMap = {};
+      stocktakingItems.forEach((item) => {
+        nextDrafts[item.skuId] = current[item.skuId] ?? item.actualQty ?? item.systemQty ?? '0';
+      });
       const currentKeys = Object.keys(current);
       const nextKeys = Object.keys(nextDrafts);
       const unchanged = currentKeys.length === nextKeys.length
@@ -647,7 +650,7 @@ function WarehouseStocktakingPanel({ stocktakingId }: { stocktakingId: number })
           </div>
         </div>
         <div className={styles.panelStack}>
-          {stocktakingItems.slice(0, 10).map((item) => (
+          {stocktakingItems.map((item) => (
             <div key={item.id} className={styles.formBlock}>
               <div className={styles.taskCardTop}>
                 <strong>{item.skuCode}</strong>

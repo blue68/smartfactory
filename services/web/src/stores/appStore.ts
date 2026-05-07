@@ -41,6 +41,14 @@ interface AppState {
 }
 
 let toastIdCounter = 0;
+const toastDismissTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function clearToastDismissTimer(id: string): void {
+  const timer = toastDismissTimers.get(id);
+  if (!timer) return;
+  clearTimeout(timer);
+  toastDismissTimers.delete(id);
+}
 
 export const useAppStore = create<AppState>()((set, get) => ({
   sidebarCollapsed: false,
@@ -60,18 +68,26 @@ export const useAppStore = create<AppState>()((set, get) => ({
       toast.type === 'success' ? 3000 : toast.type === 'warning' ? 5000 : undefined;
     const duration = toast.duration ?? defaultDuration;
 
-    set((s) => ({
-      toasts: [...s.toasts.slice(-2), newToast], // 最多显示 3 条
-    }));
+    set((s) => {
+      const retainedToasts = s.toasts.slice(-2);
+      for (const evictedToast of s.toasts.slice(0, Math.max(0, s.toasts.length - 2))) {
+        clearToastDismissTimer(evictedToast.id);
+      }
+      return { toasts: [...retainedToasts, newToast] }; // 最多显示 3 条
+    });
 
     if (duration !== undefined) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        toastDismissTimers.delete(id);
         get().dismissToast(id);
       }, duration);
+      toastDismissTimers.set(id, timer);
     }
   },
-  dismissToast: (id) =>
-    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  dismissToast: (id) => {
+    clearToastDismissTimer(id);
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+  },
 
   aiPanelOpen: false,
   setAiPanelOpen: (open) => set({ aiPanelOpen: open }),

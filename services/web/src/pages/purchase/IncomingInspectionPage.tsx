@@ -731,7 +731,6 @@ export default function IncomingInspectionPage() {
     setDrawerOpen(false);
     setSelectedId(null);
     setEditableItems([]);
-    setPreviewImage(null);
     closeSubmitModal();
   }, [closeSubmitModal]);
 

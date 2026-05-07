@@ -17,7 +17,6 @@ import { useProductionOrderList } from '@/api/production';
 import { useInventoryList } from '@/api/inventory';
 import { useSuggestionList, useApproveSuggestion } from '@/api/purchase';
 import { useDashboardKpi } from '@/api/analytics';
-import { useNotificationStream } from '@/api/notification';
 import { useLatestSuggestion } from '@/hooks/useScheduleSuggestion';
 import {
   ProductionOrderStatus,
@@ -347,7 +346,6 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { can } = usePermission();
   const canApproveSuggestion = can('purchase:suggestion:approve');
-  useNotificationStream();
 
   useEffect(() => { setPageTitle('老板驾驶舱'); }, [setPageTitle]);
 

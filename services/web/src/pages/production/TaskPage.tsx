@@ -393,7 +393,7 @@ function openAuthFile(url: string) {
     .then((blob) => {
       const blobUrl = URL.createObjectURL(blob);
       window.open(blobUrl, '_blank');
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
     })
     .catch(() => {
       // noop

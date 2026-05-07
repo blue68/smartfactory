@@ -1,28 +1,9 @@
 .page {
-  padding-bottom: 48rpx;
-}
-
-.qc-nav {
-  display: flex;
-  align-items: center;
-  height: 76rpx;
-  margin: -12rpx -6rpx 0;
-}
-
-.qc-nav__back {
-  width: 80rpx;
-  color: #64748b;
-  font-size: 48rpx;
-}
-
-.qc-nav__title {
-  flex: 1;
-  color: #1e293b;
-  font-size: 34rpx;
-  font-weight: 800;
+  padding-bottom: 64rpx;
 }
 
 .qc-nav__step {
+  flex: none;
   padding: 8rpx 18rpx;
   border-radius: 999rpx;
   color: #6d28d9;
@@ -180,8 +161,12 @@
 }
 
 .qc-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   height: 84rpx;
-  line-height: 84rpx;
+  line-height: 1;
   margin-top: 18rpx;
   color: #6d28d9;
   background: #ede9fe;
@@ -189,8 +174,12 @@
 }
 
 .qc-reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   height: 84rpx;
-  line-height: 84rpx;
+  line-height: 1;
   margin-top: 16rpx;
   color: #ea580c;
   background: #fff7ed;
@@ -202,8 +191,12 @@
 }
 
 .quick-pass {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   height: 84rpx;
-  line-height: 84rpx;
+  line-height: 1;
   margin: 0 0 18rpx;
   color: #fff;
   background: #16a34a;
@@ -298,8 +291,12 @@
 
 .inspect-btn {
   flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   height: 88rpx;
-  line-height: 88rpx;
+  line-height: 1;
   margin: 0;
   border-radius: 0;
   background: #fff;
@@ -367,8 +364,12 @@
 
 .qc-outline,
 .qc-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   height: 92rpx;
-  line-height: 92rpx;
+  line-height: 1;
   margin-top: 20rpx;
   border-radius: 24rpx;
   font-weight: 800;

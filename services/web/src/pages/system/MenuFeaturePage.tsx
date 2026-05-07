@@ -140,7 +140,7 @@ export default function MenuFeaturePage() {
     setMenuModalState({ mode: 'edit', menu: selectedMenu, parentId: selectedMenu.parentId ?? null });
     setMenuForm({
       code: selectedMenu.code,
-      name: selectedMenu.name.replace(/^[　]+/, ''),
+      name: selectedMenu.name.replace(/^[\u3000]+/, ''),
       parentId: selectedMenu.parentId ?? null,
       menuType: selectedMenu.menuType ?? 'page',
       routePath: selectedMenu.routePath ?? '',
@@ -216,7 +216,7 @@ export default function MenuFeaturePage() {
 
   const handleDeleteMenu = async () => {
     if (!selectedMenu) return;
-    const confirmed = window.confirm(`确认删除菜单“${selectedMenu.name.replace(/^[　]+/, '')}”吗？`);
+    const confirmed = window.confirm(`确认删除菜单“${selectedMenu.name.replace(/^[\u3000]+/, '')}”吗？`);
     if (!confirmed) return;
     try {
       await deleteMenuMutation.mutateAsync(selectedMenu.id);

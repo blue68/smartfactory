@@ -1,5 +1,7 @@
 var api = require('../../utils/api')
+var config = require('../../utils/config')
 var ui = require('../../utils/interaction')
+var nav = require('../../utils/navigation')
 
 var RESULT_OPTIONS = [
   { value: 'pass', label: '合格' },
@@ -45,6 +47,23 @@ function buildDrafts(items) {
 function resultLabel(value) {
   var idx = RESULT_OPTIONS.findIndex(function (item) { return item.value === value })
   return idx >= 0 ? RESULT_OPTIONS[idx].label : '待判定'
+}
+
+function applyResultDefaults(draft, result) {
+  var current = Object.assign({}, draft || {})
+  current.result = result
+  if (result === 'pass' || result === 'conditional_pass') {
+    if (!current.disposition || current.disposition === 'return' || current.disposition === 'scrap') current.disposition = 'accept'
+    current.qtyFailed = '0'
+    if (!current.qtyPassed || current.qtyPassed === '0') current.qtyPassed = current.qtySampled || current.qtyDelivered || '0'
+    if (!current.acceptedStockQty || current.acceptedStockQty === '0') current.acceptedStockQty = current.qtyDelivered || current.qtyPassed || '0'
+  } else if (result === 'fail') {
+    if (!current.disposition || current.disposition === 'accept') current.disposition = 'return'
+    current.qtyPassed = '0'
+    if (!current.qtyFailed || current.qtyFailed === '0') current.qtyFailed = current.qtySampled || current.qtyDelivered || '0'
+    current.acceptedStockQty = '0'
+  }
+  return current
 }
 
 function logItem(title, content) {
@@ -147,7 +166,8 @@ Page({
     submitting: false,
     loadError: '',
     lastRefreshAt: '',
-    canResetMock: Boolean(api.resetMockData),
+    canResetMock: Boolean(api.isMockMode && api.isMockMode()),
+    runtimeSignature: '',
     inspectionSubmitted: false,
     qcFlowHint: '先逐条判定明细，再保存明细，最后选择仓库/库位提交报告。',
     quickPassDisabled: true,
@@ -163,12 +183,32 @@ Page({
   },
 
   onLoad: function () {
+    if (!nav.ensureLogin()) return
+    this.syncRuntimeState(false)
     this.loadInspections()
     this.loadWarehouses()
   },
 
+  onShow: function () {
+    if (!nav.ensureLogin()) return
+    this.syncRuntimeState(true)
+  },
+
   onPullDownRefresh: function () {
     this.loadInspections()
+  },
+
+  syncRuntimeState: function (reloadOnChange) {
+    var signature = config.getRuntimeSignature ? config.getRuntimeSignature() : ''
+    var changed = Boolean(this.data.runtimeSignature && this.data.runtimeSignature !== signature)
+    this.setData({
+      runtimeSignature: signature,
+      canResetMock: Boolean(api.isMockMode && api.isMockMode())
+    })
+    if (changed && reloadOnChange) {
+      this.loadInspections()
+      this.loadWarehouses()
+    }
   },
 
   deriveDraftState: function (drafts, idx) {
@@ -409,7 +449,7 @@ Page({
   handleDraftResultChange: function (event) {
     if (!this.data.hasActiveDraft || this.data.inspectionSubmitted) return
     var idx = Number(event.detail.value) || 0
-    this.updateActiveDraft({ result: RESULT_OPTIONS[idx].value })
+    this.updateActiveDraft(applyResultDefaults(this.data.activeDraft, RESULT_OPTIONS[idx].value))
   },
 
   handleDraftDispositionChange: function (event) {
@@ -422,13 +462,7 @@ Page({
     var idx = Number(event.currentTarget.dataset.index) || 0
     if (this.data.inspectionSubmitted) return
     var drafts = this.data.drafts.slice()
-    var current = Object.assign({}, drafts[idx] || {})
-    current.result = 'pass'
-    current.disposition = current.disposition || 'accept'
-    current.qtyFailed = current.qtyFailed || '0'
-    if (!current.qtyPassed || current.qtyPassed === '0') current.qtyPassed = current.qtySampled || current.qtyDelivered || '0'
-    if (!current.acceptedStockQty || current.acceptedStockQty === '0') current.acceptedStockQty = current.qtyPassed
-    drafts[idx] = current
+    drafts[idx] = applyResultDefaults(drafts[idx], 'pass')
     this.setDrafts(drafts, idx)
   },
 
@@ -436,10 +470,7 @@ Page({
     var idx = Number(event.currentTarget.dataset.index) || 0
     if (this.data.inspectionSubmitted) return
     var drafts = this.data.drafts.slice()
-    var current = Object.assign({}, drafts[idx] || {})
-    current.result = 'fail'
-    current.disposition = current.disposition || 'return'
-    drafts[idx] = current
+    drafts[idx] = applyResultDefaults(drafts[idx], 'fail')
     this.setDrafts(drafts, idx)
   },
 
@@ -554,6 +585,7 @@ Page({
         id: item.id,
         sourceItemIds: item.sourceItemIds,
         qtyDelivered: item.qtyDelivered,
+        qtysampled: item.qtySampled,
         qtySampled: item.qtySampled,
         qtyPassed: item.qtyPassed,
         qtyFailed: item.qtyFailed,
@@ -626,5 +658,9 @@ Page({
         self.setData({ submitting: false })
       })
     })
+  },
+
+  handleBackToDashboard: function () {
+    nav.backToDashboard()
   }
 })

@@ -505,7 +505,7 @@ export function useAdjustSchedule() {
   return useMutation({
     mutationFn: ({ date, adjustments }: { date: string; adjustments: ScheduleAdjustmentPayload[] }) =>
       productionApi.adjustSchedule(date, adjustments),
-    onSuccess: (_data, { date }) => {
+    onSuccess: () => {
       void qc.invalidateQueries({ queryKey: [...productionKeys.all, 'schedule'] });
     },
   });

@@ -350,7 +350,7 @@ export default function WarehouseLocationPage() {
       width: 160,
       render: (value) => (value ? (WAREHOUSE_TYPE_LABEL[String(value)] ?? String(value)) : '-'),
     },
-    { key: 'plantCode', title: '厂区编码', width: 160, render: (value) => value || '-' },
+    { key: 'plantCode', title: '厂区编码', width: 160, render: (value) => value ? String(value) : '-' },
     {
       key: 'status',
       title: '状态',

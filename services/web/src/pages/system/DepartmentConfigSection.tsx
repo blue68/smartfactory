@@ -51,7 +51,7 @@ export default function DepartmentConfigSection() {
   const updateMutation = useUpdateDepartment();
   const updateStatusMutation = useUpdateDepartmentStatus();
 
-  const departments = data?.list ?? [];
+  const departments = useMemo(() => data?.list ?? [], [data?.list]);
   const activeCount = useMemo(
     () => departments.filter((item) => item.status === 'active').length,
     [departments],

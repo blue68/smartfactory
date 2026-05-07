@@ -360,11 +360,12 @@ export default function MatchPage() {
   useEffect(() => {
     if (!executeModal || !executePoId || !executeOrder?.deliveries?.length) return;
     setExecuteForm((current) => {
+      const deliveries = executeOrder.deliveries ?? [];
       let nextDeliveryId = current.deliveryNoteId;
       let nextReceiptId = current.receiptId;
 
       if (!nextDeliveryId && nextReceiptId) {
-        const matchedDelivery = executeOrder.deliveries?.find(
+        const matchedDelivery = deliveries.find(
           (item) => Number(item.receiptId) === Number(nextReceiptId),
         );
         if (matchedDelivery) {
@@ -373,7 +374,7 @@ export default function MatchPage() {
       }
 
       if (nextDeliveryId && !nextReceiptId) {
-        const matchedDelivery = executeOrder.deliveries?.find(
+        const matchedDelivery = deliveries.find(
           (item) => Number(item.id) === Number(nextDeliveryId),
         );
         if (matchedDelivery?.receiptId) {
@@ -381,8 +382,8 @@ export default function MatchPage() {
         }
       }
 
-      if (!nextDeliveryId && executeOrder.deliveries.length === 1) {
-        const onlyDelivery = executeOrder.deliveries[0];
+      if (!nextDeliveryId && deliveries.length === 1) {
+        const onlyDelivery = deliveries[0];
         nextDeliveryId = String(onlyDelivery.id);
         nextReceiptId = onlyDelivery.receiptId ? String(onlyDelivery.receiptId) : '';
       }
@@ -682,8 +683,6 @@ export default function MatchPage() {
       ].filter(Boolean) as Array<{ key: string; label: string; onClear: () => void }>,
     [activePoNo, activeReceiptNo, poIdFilter, receiptIdFilter],
   );
-  const hasPrefilledExecuteContext = Boolean(executePoId || executeDeliveryId || executeReceiptId);
-
   /* ---- render ---------------------------------------------- */
   return (
     <div className={styles.page}>

@@ -28,6 +28,26 @@ const THINKING_STEPS: ThinkingStep[] = [
 
 let msgCounter = 0;
 const newId = () => `msg_${++msgCounter}`;
+const MAX_PANEL_MESSAGES = 80;
+const MAX_PANEL_MESSAGE_CONTENT_CHARS = 20_000;
+
+function truncateMessageContent(content: string): string {
+  if (content.length <= MAX_PANEL_MESSAGE_CONTENT_CHARS) return content;
+  return `${content.slice(0, MAX_PANEL_MESSAGE_CONTENT_CHARS)}\n\n[内容过长，已截断]`;
+}
+
+function appendCappedContent(current: string, extra: string): string {
+  return truncateMessageContent(`${current}${extra}`);
+}
+
+function trimPanelMessages(messages: Message[]): Message[] {
+  return messages
+    .slice(-MAX_PANEL_MESSAGES)
+    .map((message) => ({
+      ...message,
+      content: truncateMessageContent(message.content),
+    }));
+}
 
 export default function AiChatPanel() {
   const { setAiPanelOpen } = useAppStore();
@@ -82,10 +102,10 @@ export default function AiChatPanel() {
     abortRef.current = null;
     setThinking(false);
     stopTimer();
-    setMessages((prev) => [
+    setMessages((prev) => trimPanelMessages([
       ...prev,
       { id: newId(), role: 'ai', content: '已取消。有其他问题吗？', timestamp: new Date() },
-    ]);
+    ]));
   }, [stopTimer]);
 
   const sendMessage = useCallback(async () => {
@@ -96,7 +116,7 @@ export default function AiChatPanel() {
 
     // 追加用户消息
     const userMsg: Message = { id: newId(), role: 'user', content: text, timestamp: new Date() };
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => trimPanelMessages([...prev, userMsg]));
 
     // 进入思考状态
     setThinking(true);
@@ -135,7 +155,7 @@ export default function AiChatPanel() {
 
       // 追加 AI 消息占位
       const aiMsg: Message = { id: aiMsgId, role: 'ai', content: '', streaming: true, timestamp: new Date() };
-      setMessages((prev) => [...prev, aiMsg]);
+      setMessages((prev) => trimPanelMessages([...prev, aiMsg]));
 
       // SSE 流式读取
       const reader = response.body.getReader();
@@ -155,16 +175,16 @@ export default function AiChatPanel() {
             try {
               const parsed = JSON.parse(data) as { content?: string };
               if (parsed.content) {
-                accumulated += parsed.content;
+                accumulated = appendCappedContent(accumulated, parsed.content);
                 setMessages((prev) =>
-                  prev.map((m) => m.id === aiMsgId ? { ...m, content: accumulated } : m),
+                  trimPanelMessages(prev.map((m) => m.id === aiMsgId ? { ...m, content: accumulated } : m)),
                 );
               }
             } catch {
               // 非 JSON 数据直接追加
-              accumulated += data;
+              accumulated = appendCappedContent(accumulated, data);
               setMessages((prev) =>
-                prev.map((m) => m.id === aiMsgId ? { ...m, content: accumulated } : m),
+                trimPanelMessages(prev.map((m) => m.id === aiMsgId ? { ...m, content: accumulated } : m)),
               );
             }
           }
@@ -174,7 +194,7 @@ export default function AiChatPanel() {
       // 流结束，关闭光标
       abortRef.current = null;
       setMessages((prev) =>
-        prev.map((m) => m.id === aiMsgId ? { ...m, streaming: false } : m),
+        trimPanelMessages(prev.map((m) => m.id === aiMsgId ? { ...m, streaming: false } : m)),
       );
     } catch (err: unknown) {
       abortRef.current = null;
@@ -182,7 +202,7 @@ export default function AiChatPanel() {
       stopTimer();
       if (err instanceof Error && err.name === 'AbortError') return;
 
-      setMessages((prev) => [
+      setMessages((prev) => trimPanelMessages([
         ...prev,
         {
           id: newId(),
@@ -190,7 +210,7 @@ export default function AiChatPanel() {
           content: '抱歉，AI 服务暂时不可用，请稍后重试。',
           timestamp: new Date(),
         },
-      ]);
+      ]));
     }
   }, [input, thinking, startTimer, stopTimer]);
 

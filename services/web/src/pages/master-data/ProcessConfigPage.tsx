@@ -1096,12 +1096,17 @@ function NodeDrawer({
     };
   }, [onMaterialSkuKeywordChange, open]);
 
+  const draftNodeKey = node?._key ?? null;
+  const draftNodeHours = node?.hours;
+  const draftNodeMaxHours = node?.maxHours;
+  const draftNodeUnitPrice = node?.unitPrice;
+
   useEffect(() => {
-    if (!node) return;
-    setHoursDraft(formatDecimalDraft(node.hours));
-    setMaxHoursDraft(formatDecimalDraft(node.maxHours));
-    setUnitPriceDraft(formatDecimalDraft(node.unitPrice));
-  }, [node?._key, node?.hours, node?.maxHours, node?.unitPrice]);
+    if (!draftNodeKey) return;
+    setHoursDraft(formatDecimalDraft(draftNodeHours));
+    setMaxHoursDraft(formatDecimalDraft(draftNodeMaxHours));
+    setUnitPriceDraft(formatDecimalDraft(draftNodeUnitPrice));
+  }, [draftNodeHours, draftNodeKey, draftNodeMaxHours, draftNodeUnitPrice]);
 
   if (!open || !node) return null;
 
@@ -2180,7 +2185,7 @@ export default function ProcessConfigPage() {
       name: item.name,
       stockUnit: item.stockUnit ?? null,
     }));
-  }, [materialSkuCatalogData, materialSkuKeyword]);
+  }, [materialSkuCatalogData]);
   const activeMaterialSelection = useMemo(
     () => materialSkuOptions.find((item) => item.id === activeMaterialSelectionId) ?? null,
     [activeMaterialSelectionId, materialSkuOptions],

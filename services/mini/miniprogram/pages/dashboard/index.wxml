@@ -1,0 +1,24 @@
+<view class="page dashboard-page">
+  <view class="dashboard-hero">
+    <view>
+      <text class="dashboard-hero__eyebrow">CONTROL PANEL</text>
+      <view class="dashboard-hero__title">控制面板</view>
+      <text class="dashboard-hero__sub">{{userLabel}} · {{tenantLabel}}</text>
+    </view>
+    <button class="dashboard-logout" bindtap="handleLogout">退出</button>
+  </view>
+
+  <view class="dashboard-grid" wx:if="{{hasModules}}">
+    <view wx:for="{{modules}}" wx:key="key" class="dashboard-cell">
+      <view class="{{item.cardClass}}" data-index="{{index}}" bindtap="handleModuleTap">
+        <view class="dashboard-tile__mark">{{item.marker}}</view>
+        <text class="dashboard-tile__title">{{item.title}}</text>
+        <text class="dashboard-tile__desc">{{item.desc}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:else class="empty-card">
+    <text>当前账号暂无手机端功能权限。</text>
+  </view>
+</view>

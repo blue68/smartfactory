@@ -24,8 +24,14 @@ vi.mock('@/stores/appStore', () => ({
 }));
 
 vi.mock('@/stores/authStore', () => ({
-  useAuthStore: () => ({
+  useAuthStore: (selector: (state: {
+    user: { roles: string[] };
+    hasPermission: () => boolean;
+    hasAnyRole: (roles: string[]) => boolean;
+  }) => unknown) => selector({
     user: { roles: ['boss'] },
+    hasPermission: () => false,
+    hasAnyRole: (roles: string[]) => roles.includes('boss'),
   }),
 }));
 

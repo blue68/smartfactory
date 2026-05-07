@@ -1149,8 +1149,8 @@ export default function PriceImportWizard({
   const importingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeRunControllerRef = useRef<AbortController | null>(null);
 
-  const isAbortError = (error: unknown): boolean =>
-    error instanceof DOMException && error.name === 'AbortError';
+  const isAbortError = useCallback((error: unknown): boolean =>
+    error instanceof DOMException && error.name === 'AbortError', []);
 
   /** 清理导入进度轮询定时器 */
   const clearUploadTicker = useCallback(() => {
@@ -1367,12 +1367,13 @@ export default function PriceImportWizard({
 
   /** G14: 终止导入 */
   const handleAbortImport = useCallback(() => {
+    abortActiveRun();
     clearImportingTimer();
     setImportingPhase('aborted');
     setConfirming(false);
     // 终止后回到 Step3 让用户重新选择
     setStep(3);
-  }, [clearImportingTimer]);
+  }, [abortActiveRun, clearImportingTimer]);
 
   // 弹框关闭时同步重置（处理 ESC 关闭）
   useEffect(() => {

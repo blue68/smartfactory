@@ -33,8 +33,6 @@ import {
   useCreateProductionBatch,
   useConfirmProductionBatch,
   type ProductionBatchMode,
-  type ProductionBatchStatus,
-  type ProductionBatchListItem,
 } from '@/api/production';
 import type {
   SalesOrder,
@@ -255,15 +253,6 @@ function getVisibleSkuCode(sku: { skuCode: string; customerSkuCode?: string | nu
 
 function getVisibleSkuName(sku: { name: string; customerSkuName?: string | null }): string {
   return sku.customerSkuName ?? sku.name;
-}
-
-function getSkuSearchLabel(sku: {
-  skuCode: string;
-  name: string;
-  customerSkuCode?: string | null;
-  customerSkuName?: string | null;
-}): string {
-  return `${getVisibleSkuCode(sku)} · ${getVisibleSkuName(sku)}`;
 }
 
 function isIntegerDraft(value: string): boolean {
@@ -1502,7 +1491,7 @@ function BatchCenterModal({ open, initialBatchId, onClose }: BatchCenterModalPro
     1,
     50,
   );
-  const batchList = batchPage?.list ?? [];
+  const batchList = useMemo(() => batchPage?.list ?? [], [batchPage?.list]);
   const { data: detail, isLoading: detailLoading } = useProductionBatchDetail(open ? activeBatchId : null);
   const batchOrderMap = useMemo(
     () => new Map((detail?.orders ?? []).map((order) => [order.salesOrderId, order])),
@@ -2428,7 +2417,7 @@ export default function SalesOrderListPage() {
   const { data: pendingData } = usePendingApprovals();
   const pendingCount = isAdmin ? (pendingData?.count ?? 0) : 0;
 
-  const orders: SalesOrder[] = data?.list ?? [];
+  const orders: SalesOrder[] = useMemo(() => data?.list ?? [], [data?.list]);
   const total: number = data?.total ?? 0;
   const totalPages = Math.ceil(total / (query.pageSize ?? 20));
   const eligibleVisibleOrderIds = useMemo(
