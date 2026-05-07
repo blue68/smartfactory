@@ -12,3 +12,4 @@ services/web/dist-fresh/
 services/mini/project.private.config.json
 services/mini/miniprogram/project.config.json
 services/mini/miniprogram/project.private.config.json
+backups/

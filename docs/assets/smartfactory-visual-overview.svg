@@ -1,0 +1,333 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1060" viewBox="0 0 1600 1060" role="img" aria-labelledby="title desc">
+  <title id="title">智造管家项目视觉概要图</title>
+  <desc id="desc">从业务流程、系统架构、核心模块和数据流向四个维度概览 SmartFactory 智造管家系统。</desc>
+  <defs>
+    <linearGradient id="headerGradient" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="50%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="blueFill" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#eff6ff"/>
+      <stop offset="100%" stop-color="#dbeafe"/>
+    </linearGradient>
+    <linearGradient id="greenFill" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#ecfdf5"/>
+      <stop offset="100%" stop-color="#dcfce7"/>
+    </linearGradient>
+    <linearGradient id="orangeFill" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#fff7ed"/>
+      <stop offset="100%" stop-color="#ffedd5"/>
+    </linearGradient>
+    <linearGradient id="purpleFill" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#faf5ff"/>
+      <stop offset="100%" stop-color="#ede9fe"/>
+    </linearGradient>
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#16a34a"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#ea580c"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .header { fill: url(#headerGradient); }
+      .panel { fill: #ffffff; stroke: #bfdbfe; stroke-width: 2; filter: url(#softShadow); }
+      .sectionTag { fill: #1d4ed8; }
+      .sectionTitle { font: 700 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .title { font: 800 48px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; letter-spacing: 1px; }
+      .subtitle { font: 500 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #dbeafe; }
+      .pill { fill: rgba(255,255,255,0.16); stroke: rgba(255,255,255,0.35); stroke-width: 1; }
+      .pillText { font: 700 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .cardText { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .smallText { font: 500 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .tinyText { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #64748b; }
+      .num { font: 800 25px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .blueCard { fill: url(#blueFill); stroke: #60a5fa; stroke-width: 1.5; }
+      .greenCard { fill: url(#greenFill); stroke: #4ade80; stroke-width: 1.5; }
+      .orangeCard { fill: url(#orangeFill); stroke: #fb923c; stroke-width: 1.5; }
+      .purpleCard { fill: url(#purpleFill); stroke: #a78bfa; stroke-width: 1.5; }
+      .lineBlue { stroke: #2563eb; stroke-width: 2.4; fill: none; marker-end: url(#arrowBlue); }
+      .lineGreen { stroke: #16a34a; stroke-width: 2.4; fill: none; marker-end: url(#arrowGreen); }
+      .lineOrange { stroke: #ea580c; stroke-width: 2.4; fill: none; marker-end: url(#arrowOrange); }
+      .dashed { stroke-dasharray: 7 6; }
+      .icon { font: 800 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1d4ed8; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1600" height="1060"/>
+  <rect class="header" x="24" y="22" width="1552" height="116" rx="24"/>
+  <text class="title" x="62" y="80">智造管家 SmartFactory 项目总览</text>
+  <text class="subtitle" x="66" y="113">多租户制造经营系统：销售、主数据、BOM、采购、仓储、生产、质检、结算、分析与 AI 辅助形成闭环</text>
+
+  <g transform="translate(1070 42)">
+    <rect class="pill" x="0" y="0" width="110" height="70" rx="14"/>
+    <text class="pillText" x="55" y="30" text-anchor="middle">一体化</text>
+    <text class="tinyText" x="55" y="51" text-anchor="middle" fill="#dbeafe">端到端业务</text>
+    <rect class="pill" x="126" y="0" width="110" height="70" rx="14"/>
+    <text class="pillText" x="181" y="30" text-anchor="middle">数据驱动</text>
+    <text class="tinyText" x="181" y="51" text-anchor="middle" fill="#dbeafe">实时分析</text>
+    <rect class="pill" x="252" y="0" width="110" height="70" rx="14"/>
+    <text class="pillText" x="307" y="30" text-anchor="middle">移动作业</text>
+    <text class="tinyText" x="307" y="51" text-anchor="middle" fill="#dbeafe">小程序执行</text>
+    <rect class="pill" x="378" y="0" width="110" height="70" rx="14"/>
+    <text class="pillText" x="433" y="30" text-anchor="middle">安全可靠</text>
+    <text class="tinyText" x="433" y="51" text-anchor="middle" fill="#dbeafe">租户隔离</text>
+  </g>
+
+  <g transform="translate(24 160)">
+    <rect class="panel" x="0" y="0" width="760" height="430" rx="18"/>
+    <rect class="sectionTag" x="18" y="14" width="42" height="42" rx="10"/>
+    <text class="num" x="39" y="44" text-anchor="middle">1</text>
+    <text class="sectionTitle" x="74" y="43">整体业务流程图</text>
+
+    <g transform="translate(34 78)">
+      <rect class="blueCard" x="0" y="0" width="108" height="74" rx="12"/>
+      <text class="cardText" x="54" y="29" text-anchor="middle">客户需求</text>
+      <text class="smallText" x="54" y="52" text-anchor="middle">市场 / 客户</text>
+      <line class="lineBlue" x1="112" y1="37" x2="151" y2="37"/>
+
+      <rect class="blueCard" x="156" y="0" width="108" height="74" rx="12"/>
+      <text class="cardText" x="210" y="29" text-anchor="middle">客户档案</text>
+      <text class="smallText" x="210" y="52" text-anchor="middle">信用 / 价格</text>
+      <line class="lineBlue" x1="268" y1="37" x2="307" y2="37"/>
+
+      <rect class="blueCard" x="312" y="0" width="108" height="74" rx="12"/>
+      <text class="cardText" x="366" y="29" text-anchor="middle">销售订单</text>
+      <text class="smallText" x="366" y="52" text-anchor="middle">SKU / 交期</text>
+      <line class="lineBlue" x1="424" y1="37" x2="463" y2="37"/>
+
+      <polygon points="510,0 570,37 510,74 450,37" fill="#eff6ff" stroke="#2563eb" stroke-width="1.8"/>
+      <text class="smallText" x="510" y="30" text-anchor="middle">订单策略</text>
+      <text class="tinyText" x="510" y="49" text-anchor="middle">独立 / 合并</text>
+      <line class="lineBlue" x1="573" y1="20" x2="625" y2="20"/>
+      <line class="lineBlue" x1="573" y1="55" x2="625" y2="55"/>
+
+      <rect class="blueCard" x="630" y="-8" width="112" height="54" rx="12"/>
+      <text class="smallText" x="686" y="14" text-anchor="middle">生产订单</text>
+      <text class="tinyText" x="686" y="33" text-anchor="middle">独立生产</text>
+      <rect class="blueCard" x="630" y="52" width="112" height="54" rx="12"/>
+      <text class="smallText" x="686" y="74" text-anchor="middle">联合批次</text>
+      <text class="tinyText" x="686" y="93" text-anchor="middle">合并生产</text>
+    </g>
+
+    <g transform="translate(34 190)">
+      <rect class="greenCard" x="0" y="0" width="120" height="78" rx="12"/>
+      <text class="cardText" x="60" y="29" text-anchor="middle">BOM 展开</text>
+      <text class="smallText" x="60" y="53" text-anchor="middle">工艺 / 物料</text>
+      <line class="lineGreen" x1="124" y1="39" x2="161" y2="39"/>
+      <rect class="greenCard" x="166" y="0" width="120" height="78" rx="12"/>
+      <text class="cardText" x="226" y="29" text-anchor="middle">MRP 缺料</text>
+      <text class="smallText" x="226" y="53" text-anchor="middle">需求识别</text>
+      <line class="lineGreen" x1="290" y1="39" x2="327" y2="39"/>
+      <rect class="greenCard" x="332" y="0" width="120" height="78" rx="12"/>
+      <text class="cardText" x="392" y="29" text-anchor="middle">AI 建议</text>
+      <text class="smallText" x="392" y="53" text-anchor="middle">采购 / 排产</text>
+      <line class="lineGreen" x1="456" y1="39" x2="493" y2="39"/>
+      <rect class="greenCard" x="498" y="0" width="120" height="78" rx="12"/>
+      <text class="cardText" x="558" y="29" text-anchor="middle">采购订单</text>
+      <text class="smallText" x="558" y="53" text-anchor="middle">供应商交付</text>
+      <line class="lineGreen" x1="622" y1="39" x2="659" y2="39"/>
+      <rect class="greenCard" x="664" y="0" width="80" height="78" rx="12"/>
+      <text class="cardText" x="704" y="29" text-anchor="middle">入库</text>
+      <text class="smallText" x="704" y="53" text-anchor="middle">收料</text>
+    </g>
+
+    <g transform="translate(34 306)">
+      <rect class="purpleCard" x="0" y="0" width="122" height="82" rx="12"/>
+      <text class="cardText" x="61" y="30" text-anchor="middle">来料质检</text>
+      <text class="smallText" x="61" y="55" text-anchor="middle">合格 / 异常</text>
+      <line class="lineBlue" x1="126" y1="41" x2="159" y2="41"/>
+      <rect class="purpleCard" x="164" y="0" width="122" height="82" rx="12"/>
+      <text class="cardText" x="225" y="30" text-anchor="middle">生产任务</text>
+      <text class="smallText" x="225" y="55" text-anchor="middle">开工 / 投料</text>
+      <line class="lineBlue" x1="290" y1="41" x2="323" y2="41"/>
+      <rect class="purpleCard" x="328" y="0" width="122" height="82" rx="12"/>
+      <text class="cardText" x="389" y="30" text-anchor="middle">报工异常</text>
+      <text class="smallText" x="389" y="55" text-anchor="middle">完工 / 处理</text>
+      <line class="lineOrange" x1="454" y1="41" x2="487" y2="41"/>
+      <rect class="orangeCard" x="492" y="0" width="122" height="82" rx="12"/>
+      <text class="cardText" x="553" y="30" text-anchor="middle">发货结算</text>
+      <text class="smallText" x="553" y="55" text-anchor="middle">收款 / 对账</text>
+      <line class="lineOrange" x1="618" y1="41" x2="651" y2="41"/>
+      <rect class="orangeCard" x="656" y="0" width="88" height="82" rx="12"/>
+      <text class="cardText" x="700" y="30" text-anchor="middle">分析</text>
+      <text class="smallText" x="700" y="55" text-anchor="middle">经营</text>
+    </g>
+  </g>
+
+  <g transform="translate(816 160)">
+    <rect class="panel" x="0" y="0" width="760" height="430" rx="18"/>
+    <rect class="sectionTag" x="18" y="14" width="42" height="42" rx="10"/>
+    <text class="num" x="39" y="44" text-anchor="middle">2</text>
+    <text class="sectionTitle" x="74" y="43">系统架构图</text>
+
+    <g transform="translate(34 80)">
+      <rect class="blueCard" x="104" y="0" width="154" height="62" rx="12"/>
+      <text class="cardText" x="181" y="26" text-anchor="middle">Web 管理端</text>
+      <text class="smallText" x="181" y="47" text-anchor="middle">React + Vite</text>
+      <rect class="greenCard" x="303" y="0" width="154" height="62" rx="12"/>
+      <text class="cardText" x="380" y="26" text-anchor="middle">微信小程序</text>
+      <text class="smallText" x="380" y="47" text-anchor="middle">移动作业</text>
+      <rect class="purpleCard" x="502" y="0" width="154" height="62" rx="12"/>
+      <text class="cardText" x="579" y="26" text-anchor="middle">AI 助手入口</text>
+      <text class="smallText" x="579" y="47" text-anchor="middle">问答 / 建议</text>
+
+      <line class="lineBlue" x1="181" y1="66" x2="181" y2="94"/>
+      <line class="lineGreen" x1="380" y1="66" x2="380" y2="94"/>
+      <line class="lineBlue" x1="579" y1="66" x2="579" y2="94"/>
+      <rect class="blueCard" x="54" y="98" width="650" height="52" rx="12"/>
+      <text class="cardText" x="379" y="130" text-anchor="middle">Nginx 反向代理 / SPA fallback / 负载入口</text>
+
+      <line class="lineBlue" x1="379" y1="154" x2="379" y2="184"/>
+      <rect class="purpleCard" x="54" y="188" width="650" height="66" rx="12"/>
+      <text class="cardText" x="379" y="215" text-anchor="middle">安全与治理：JWT / Refresh Cookie / RBAC / 租户隔离 / 审计日志</text>
+      <text class="smallText" x="379" y="239" text-anchor="middle">页面守卫、按钮权限、菜单权限、操作日志、上传鉴权</text>
+
+      <line class="lineBlue" x1="379" y1="258" x2="379" y2="286"/>
+      <rect class="blueCard" x="54" y="290" width="650" height="62" rx="12"/>
+      <text class="cardText" x="379" y="316" text-anchor="middle">Node.js API 服务：Express REST、TypeORM、BullMQ Worker、SSE 通知</text>
+      <text class="smallText" x="379" y="340" text-anchor="middle">业务模块：销售、生产、MRP、采购、库存、质检、结算、报表、系统管理、AI</text>
+    </g>
+
+    <g transform="translate(96 374)">
+      <rect class="greenCard" x="0" y="0" width="110" height="42" rx="10"/>
+      <text class="smallText" x="55" y="27" text-anchor="middle">MySQL</text>
+      <rect class="orangeCard" x="130" y="0" width="110" height="42" rx="10"/>
+      <text class="smallText" x="185" y="27" text-anchor="middle">Redis</text>
+      <rect class="purpleCard" x="260" y="0" width="110" height="42" rx="10"/>
+      <text class="smallText" x="315" y="27" text-anchor="middle">BullMQ</text>
+      <rect class="blueCard" x="390" y="0" width="110" height="42" rx="10"/>
+      <text class="smallText" x="445" y="27" text-anchor="middle">文件存储</text>
+      <rect class="greenCard" x="520" y="0" width="110" height="42" rx="10"/>
+      <text class="smallText" x="575" y="27" text-anchor="middle">LLM API</text>
+    </g>
+  </g>
+
+  <g transform="translate(24 622)">
+    <rect class="panel" x="0" y="0" width="760" height="406" rx="18"/>
+    <rect class="sectionTag" x="18" y="14" width="42" height="42" rx="10"/>
+    <text class="num" x="39" y="44" text-anchor="middle">3</text>
+    <text class="sectionTitle" x="74" y="43">核心模块拆解</text>
+
+    <g transform="translate(34 76)">
+      <rect class="blueCard" x="0" y="0" width="160" height="84" rx="12"/>
+      <text class="cardText" x="80" y="28" text-anchor="middle">系统管理</text>
+      <text class="smallText" x="80" y="52" text-anchor="middle">租户 / 用户 / 角色</text>
+      <text class="tinyText" x="80" y="70" text-anchor="middle">菜单、权限、审计</text>
+      <rect class="greenCard" x="184" y="0" width="160" height="84" rx="12"/>
+      <text class="cardText" x="264" y="28" text-anchor="middle">主数据</text>
+      <text class="smallText" x="264" y="52" text-anchor="middle">SKU / BOM / 仓库</text>
+      <text class="tinyText" x="264" y="70" text-anchor="middle">供应商、客户、工艺</text>
+      <rect class="blueCard" x="368" y="0" width="160" height="84" rx="12"/>
+      <text class="cardText" x="448" y="28" text-anchor="middle">销售管理</text>
+      <text class="smallText" x="448" y="52" text-anchor="middle">订单 / 交期 / 发货</text>
+      <text class="tinyText" x="448" y="70" text-anchor="middle">收款、结算、分析</text>
+      <rect class="purpleCard" x="552" y="0" width="160" height="84" rx="12"/>
+      <text class="cardText" x="632" y="28" text-anchor="middle">联合生产</text>
+      <text class="smallText" x="632" y="52" text-anchor="middle">合并批次 / 拆分</text>
+      <text class="tinyText" x="632" y="70" text-anchor="middle">批次进度追踪</text>
+
+      <rect class="purpleCard" x="0" y="108" width="160" height="84" rx="12"/>
+      <text class="cardText" x="80" y="136" text-anchor="middle">生产执行</text>
+      <text class="smallText" x="80" y="160" text-anchor="middle">排产 / 工单 / 报工</text>
+      <text class="tinyText" x="80" y="178" text-anchor="middle">投料、异常、工资</text>
+      <rect class="greenCard" x="184" y="108" width="160" height="84" rx="12"/>
+      <text class="cardText" x="264" y="136" text-anchor="middle">MRP / 缺料</text>
+      <text class="smallText" x="264" y="160" text-anchor="middle">净需求 / 采购建议</text>
+      <text class="tinyText" x="264" y="178" text-anchor="middle">库存、BOM、在途</text>
+      <rect class="orangeCard" x="368" y="108" width="160" height="84" rx="12"/>
+      <text class="cardText" x="448" y="136" text-anchor="middle">采购管理</text>
+      <text class="smallText" x="448" y="160" text-anchor="middle">建议 / 订单 / 收料</text>
+      <text class="tinyText" x="448" y="178" text-anchor="middle">三单匹配、对账</text>
+      <rect class="blueCard" x="552" y="108" width="160" height="84" rx="12"/>
+      <text class="cardText" x="632" y="136" text-anchor="middle">库存管理</text>
+      <text class="smallText" x="632" y="160" text-anchor="middle">入出库 / 盘点</text>
+      <text class="tinyText" x="632" y="178" text-anchor="middle">批次、缸号、流水</text>
+
+      <rect class="purpleCard" x="0" y="216" width="160" height="84" rx="12"/>
+      <text class="cardText" x="80" y="244" text-anchor="middle">检验追溯</text>
+      <text class="smallText" x="80" y="268" text-anchor="middle">来料 / 过程 / 成品</text>
+      <text class="tinyText" x="80" y="286" text-anchor="middle">异常闭环</text>
+      <rect class="orangeCard" x="184" y="216" width="160" height="84" rx="12"/>
+      <text class="cardText" x="264" y="244" text-anchor="middle">报表分析</text>
+      <text class="smallText" x="264" y="268" text-anchor="middle">销售 / 采购 / 库存</text>
+      <text class="tinyText" x="264" y="286" text-anchor="middle">利润、绩效、质量</text>
+      <rect class="blueCard" x="368" y="216" width="160" height="84" rx="12"/>
+      <text class="cardText" x="448" y="244" text-anchor="middle">小程序端</text>
+      <text class="smallText" x="448" y="268" text-anchor="middle">任务 / 入库 / QC</text>
+      <text class="tinyText" x="448" y="286" text-anchor="middle">盘点、扫码、上报</text>
+      <rect class="greenCard" x="552" y="216" width="160" height="84" rx="12"/>
+      <text class="cardText" x="632" y="244" text-anchor="middle">AI 能力</text>
+      <text class="smallText" x="632" y="268" text-anchor="middle">问答 / 建议 / 预警</text>
+      <text class="tinyText" x="632" y="286" text-anchor="middle">采购、排产、经营</text>
+    </g>
+  </g>
+
+  <g transform="translate(816 622)">
+    <rect class="panel" x="0" y="0" width="760" height="406" rx="18"/>
+    <rect class="sectionTag" x="18" y="14" width="42" height="42" rx="10"/>
+    <text class="num" x="39" y="44" text-anchor="middle">4</text>
+    <text class="sectionTitle" x="74" y="43">数据流向图</text>
+
+    <g transform="translate(34 78)">
+      <rect class="greenCard" x="0" y="30" width="110" height="170" rx="12"/>
+      <text class="cardText" x="55" y="58" text-anchor="middle">基础数据</text>
+      <text class="tinyText" x="55" y="84" text-anchor="middle">SKU / BOM</text>
+      <text class="tinyText" x="55" y="108" text-anchor="middle">客户 / 供应商</text>
+      <text class="tinyText" x="55" y="132" text-anchor="middle">仓库 / 库位</text>
+      <text class="tinyText" x="55" y="156" text-anchor="middle">用户 / 权限</text>
+
+      <line class="lineBlue" x1="114" y1="90" x2="153" y2="90"/>
+      <line class="lineBlue" x1="114" y1="142" x2="153" y2="142"/>
+      <rect class="blueCard" x="158" y="38" width="118" height="74" rx="12"/>
+      <text class="cardText" x="217" y="68" text-anchor="middle">销售域</text>
+      <text class="smallText" x="217" y="92" text-anchor="middle">订单 / 交期</text>
+      <rect class="purpleCard" x="158" y="130" width="118" height="74" rx="12"/>
+      <text class="cardText" x="217" y="160" text-anchor="middle">生产域</text>
+      <text class="smallText" x="217" y="184" text-anchor="middle">批次 / 工单</text>
+
+      <line class="lineGreen" x1="280" y1="75" x2="319" y2="75"/>
+      <line class="lineGreen" x1="280" y1="167" x2="319" y2="167"/>
+      <rect class="greenCard" x="324" y="74" width="128" height="100" rx="12"/>
+      <text class="cardText" x="388" y="108" text-anchor="middle">MRP 缺料</text>
+      <text class="smallText" x="388" y="133" text-anchor="middle">BOM + 库存</text>
+      <text class="smallText" x="388" y="156" text-anchor="middle">在途 + 产能</text>
+
+      <line class="lineOrange" x1="456" y1="124" x2="495" y2="124"/>
+      <rect class="orangeCard" x="500" y="42" width="122" height="74" rx="12"/>
+      <text class="cardText" x="561" y="72" text-anchor="middle">采购域</text>
+      <text class="smallText" x="561" y="96" text-anchor="middle">订单 / 收料</text>
+      <rect class="blueCard" x="500" y="136" width="122" height="74" rx="12"/>
+      <text class="cardText" x="561" y="166" text-anchor="middle">库存域</text>
+      <text class="smallText" x="561" y="190" text-anchor="middle">入出库 / 盘点</text>
+
+      <line class="lineBlue" x1="626" y1="79" x2="665" y2="79"/>
+      <line class="lineBlue" x1="626" y1="173" x2="665" y2="173"/>
+      <rect class="purpleCard" x="670" y="66" width="84" height="120" rx="12"/>
+      <text class="cardText" x="712" y="95" text-anchor="middle">质量域</text>
+      <text class="tinyText" x="712" y="121" text-anchor="middle">来料</text>
+      <text class="tinyText" x="712" y="144" text-anchor="middle">过程</text>
+      <text class="tinyText" x="712" y="167" text-anchor="middle">成品</text>
+
+      <path class="lineOrange dashed" d="M217 208 C217 248, 388 248, 388 190"/>
+      <path class="lineGreen dashed" d="M561 214 C561 250, 712 248, 712 190"/>
+      <path class="lineBlue dashed" d="M388 70 C388 22, 561 20, 561 38"/>
+    </g>
+
+    <g transform="translate(96 288)">
+      <line class="lineBlue" x1="0" y1="0" x2="54" y2="0"/>
+      <text class="tinyText" x="62" y="5">业务数据创建 / 写入</text>
+      <line class="lineGreen" x1="220" y1="0" x2="274" y2="0"/>
+      <text class="tinyText" x="282" y="5">物料与库存流</text>
+      <line class="lineOrange dashed" x1="410" y1="0" x2="464" y2="0"/>
+      <text class="tinyText" x="472" y="5">分析与反馈闭环</text>
+    </g>
+  </g>
+</svg>
