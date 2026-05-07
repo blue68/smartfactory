@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1060" viewBox="0 0 1600 1060" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1140" viewBox="0 0 1600 1140" role="img" aria-labelledby="title desc">
   <title id="title">智造管家项目视觉概要图</title>
   <desc id="desc">从业务流程、系统架构、核心模块和数据流向四个维度概览 SmartFactory 智造管家系统。</desc>
   <defs>
@@ -45,6 +45,7 @@
       .subtitle { font: 500 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #dbeafe; }
       .pill { fill: rgba(255,255,255,0.16); stroke: rgba(255,255,255,0.35); stroke-width: 1; }
       .pillText { font: 700 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .pillSub { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #dbeafe; }
       .cardText { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
       .smallText { font: 500 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
       .tinyText { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #64748b; }
@@ -61,7 +62,7 @@
     </style>
   </defs>
 
-  <rect class="bg" width="1600" height="1060"/>
+  <rect class="bg" width="1600" height="1140"/>
   <rect class="header" x="24" y="22" width="1552" height="116" rx="24"/>
   <text class="title" x="62" y="80">智造管家 SmartFactory 项目总览</text>
   <text class="subtitle" x="66" y="113">多租户制造经营系统：销售、主数据、BOM、采购、仓储、生产、质检、结算、分析与 AI 辅助形成闭环</text>
@@ -69,20 +70,20 @@
   <g transform="translate(1070 42)">
     <rect class="pill" x="0" y="0" width="110" height="70" rx="14"/>
     <text class="pillText" x="55" y="30" text-anchor="middle">一体化</text>
-    <text class="tinyText" x="55" y="51" text-anchor="middle" fill="#dbeafe">端到端业务</text>
+    <text class="pillSub" x="55" y="51" text-anchor="middle">端到端业务</text>
     <rect class="pill" x="126" y="0" width="110" height="70" rx="14"/>
     <text class="pillText" x="181" y="30" text-anchor="middle">数据驱动</text>
-    <text class="tinyText" x="181" y="51" text-anchor="middle" fill="#dbeafe">实时分析</text>
+    <text class="pillSub" x="181" y="51" text-anchor="middle">实时分析</text>
     <rect class="pill" x="252" y="0" width="110" height="70" rx="14"/>
     <text class="pillText" x="307" y="30" text-anchor="middle">移动作业</text>
-    <text class="tinyText" x="307" y="51" text-anchor="middle" fill="#dbeafe">小程序执行</text>
+    <text class="pillSub" x="307" y="51" text-anchor="middle">小程序执行</text>
     <rect class="pill" x="378" y="0" width="110" height="70" rx="14"/>
     <text class="pillText" x="433" y="30" text-anchor="middle">安全可靠</text>
-    <text class="tinyText" x="433" y="51" text-anchor="middle" fill="#dbeafe">租户隔离</text>
+    <text class="pillSub" x="433" y="51" text-anchor="middle">租户隔离</text>
   </g>
 
   <g transform="translate(24 160)">
-    <rect class="panel" x="0" y="0" width="760" height="430" rx="18"/>
+    <rect class="panel" x="0" y="0" width="760" height="510" rx="18"/>
     <rect class="sectionTag" x="18" y="14" width="42" height="42" rx="10"/>
     <text class="num" x="39" y="44" text-anchor="middle">1</text>
     <text class="sectionTitle" x="74" y="43">整体业务流程图</text>
@@ -163,7 +164,7 @@
   </g>
 
   <g transform="translate(816 160)">
-    <rect class="panel" x="0" y="0" width="760" height="430" rx="18"/>
+    <rect class="panel" x="0" y="0" width="760" height="510" rx="18"/>
     <rect class="sectionTag" x="18" y="14" width="42" height="42" rx="10"/>
     <text class="num" x="39" y="44" text-anchor="middle">2</text>
     <text class="sectionTitle" x="74" y="43">系统架构图</text>
@@ -196,7 +197,7 @@
       <text class="smallText" x="379" y="340" text-anchor="middle">业务模块：销售、生产、MRP、采购、库存、质检、结算、报表、系统管理、AI</text>
     </g>
 
-    <g transform="translate(96 374)">
+    <g transform="translate(96 444)">
       <rect class="greenCard" x="0" y="0" width="110" height="42" rx="10"/>
       <text class="smallText" x="55" y="27" text-anchor="middle">MySQL</text>
       <rect class="orangeCard" x="130" y="0" width="110" height="42" rx="10"/>
@@ -210,7 +211,7 @@
     </g>
   </g>
 
-  <g transform="translate(24 622)">
+  <g transform="translate(24 700)">
     <rect class="panel" x="0" y="0" width="760" height="406" rx="18"/>
     <rect class="sectionTag" x="18" y="14" width="42" height="42" rx="10"/>
     <text class="num" x="39" y="44" text-anchor="middle">3</text>
@@ -270,7 +271,7 @@
     </g>
   </g>
 
-  <g transform="translate(816 622)">
+  <g transform="translate(816 700)">
     <rect class="panel" x="0" y="0" width="760" height="406" rx="18"/>
     <rect class="sectionTag" x="18" y="14" width="42" height="42" rx="10"/>
     <text class="num" x="39" y="44" text-anchor="middle">4</text>
@@ -300,25 +301,25 @@
       <text class="smallText" x="388" y="133" text-anchor="middle">BOM + 库存</text>
       <text class="smallText" x="388" y="156" text-anchor="middle">在途 + 产能</text>
 
-      <line class="lineOrange" x1="456" y1="124" x2="495" y2="124"/>
-      <rect class="orangeCard" x="500" y="42" width="122" height="74" rx="12"/>
-      <text class="cardText" x="561" y="72" text-anchor="middle">采购域</text>
-      <text class="smallText" x="561" y="96" text-anchor="middle">订单 / 收料</text>
-      <rect class="blueCard" x="500" y="136" width="122" height="74" rx="12"/>
-      <text class="cardText" x="561" y="166" text-anchor="middle">库存域</text>
-      <text class="smallText" x="561" y="190" text-anchor="middle">入出库 / 盘点</text>
+      <line class="lineOrange" x1="456" y1="124" x2="475" y2="124"/>
+      <rect class="orangeCard" x="480" y="42" width="116" height="74" rx="12"/>
+      <text class="cardText" x="538" y="72" text-anchor="middle">采购域</text>
+      <text class="smallText" x="538" y="96" text-anchor="middle">订单 / 收料</text>
+      <rect class="blueCard" x="480" y="136" width="116" height="74" rx="12"/>
+      <text class="cardText" x="538" y="166" text-anchor="middle">库存域</text>
+      <text class="smallText" x="538" y="190" text-anchor="middle">入出库 / 盘点</text>
 
-      <line class="lineBlue" x1="626" y1="79" x2="665" y2="79"/>
-      <line class="lineBlue" x1="626" y1="173" x2="665" y2="173"/>
-      <rect class="purpleCard" x="670" y="66" width="84" height="120" rx="12"/>
-      <text class="cardText" x="712" y="95" text-anchor="middle">质量域</text>
-      <text class="tinyText" x="712" y="121" text-anchor="middle">来料</text>
-      <text class="tinyText" x="712" y="144" text-anchor="middle">过程</text>
-      <text class="tinyText" x="712" y="167" text-anchor="middle">成品</text>
+      <line class="lineBlue" x1="600" y1="79" x2="625" y2="79"/>
+      <line class="lineBlue" x1="600" y1="173" x2="625" y2="173"/>
+      <rect class="purpleCard" x="630" y="66" width="84" height="120" rx="12"/>
+      <text class="cardText" x="672" y="95" text-anchor="middle">质量域</text>
+      <text class="tinyText" x="672" y="121" text-anchor="middle">来料</text>
+      <text class="tinyText" x="672" y="144" text-anchor="middle">过程</text>
+      <text class="tinyText" x="672" y="167" text-anchor="middle">成品</text>
 
       <path class="lineOrange dashed" d="M217 208 C217 248, 388 248, 388 190"/>
-      <path class="lineGreen dashed" d="M561 214 C561 250, 712 248, 712 190"/>
-      <path class="lineBlue dashed" d="M388 70 C388 22, 561 20, 561 38"/>
+      <path class="lineGreen dashed" d="M538 214 C538 250, 672 248, 672 190"/>
+      <path class="lineBlue dashed" d="M388 70 C388 22, 538 20, 538 38"/>
     </g>
 
     <g transform="translate(96 288)">
