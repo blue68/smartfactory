@@ -195,6 +195,7 @@ interface AssessmentLineResult {
 }
 
 type AssessmentLineCacheEntry = AssessmentLineResult | Promise<AssessmentLineResult>;
+const ASSESSMENT_CACHE_MAX_ENTRIES = 100;
 
 let draftLineSequence = 0;
 
@@ -248,6 +249,21 @@ function buildAssessmentLinesFromDraftItems(items: DraftLineItem[]): AssessmentL
     .filter((item) => Number.isInteger(item.skuId) && item.skuId > 0 && Number.isFinite(item.quantity) && item.quantity > 0);
 }
 
+function setAssessmentCacheEntry(
+  cache: Map<string, AssessmentLineCacheEntry> | undefined,
+  key: string,
+  value: AssessmentLineCacheEntry,
+): void {
+  if (!cache) return;
+  if (cache.has(key)) cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > ASSESSMENT_CACHE_MAX_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
+}
+
 async function buildDeliveryCapacityAssessment(
   lines: AssessmentLineInput[],
   expectedDelivery: string,
@@ -275,6 +291,7 @@ async function buildDeliveryCapacityAssessment(
       const cacheKey = `${line.skuId}:${line.quantity}:${expectedDelivery}`;
       const cachedEntry = cache?.get(cacheKey);
       if (cachedEntry) {
+        setAssessmentCacheEntry(cache, cacheKey, cachedEntry);
         const cachedResult = cachedEntry instanceof Promise ? await cachedEntry : cachedEntry;
         return { line, ...cachedResult };
       }
@@ -298,9 +315,9 @@ async function buildDeliveryCapacityAssessment(
           failed: true,
         }));
 
-      cache?.set(cacheKey, pendingResult);
+      setAssessmentCacheEntry(cache, cacheKey, pendingResult);
       const result = await pendingResult;
-      cache?.set(cacheKey, result);
+      setAssessmentCacheEntry(cache, cacheKey, result);
       return { line, ...result };
     }),
   );

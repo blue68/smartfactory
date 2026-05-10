@@ -44,15 +44,36 @@ export class NotificationController {
 
     const svc = this.svc(req);
     const unsubscribe = svc.subscribe(res);
-    const heartbeat = setInterval(() => svc.emitHeartbeat(), 25_000);
+    let cleanedUp = false;
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
 
-    svc.emitHeartbeat();
-
-    req.on('close', () => {
-      clearInterval(heartbeat);
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
       unsubscribe();
-      res.end();
-    });
+      if (!res.destroyed && !res.writableEnded) {
+        res.end();
+      }
+    };
+
+    const sendHeartbeat = () => {
+      if (!svc.emitHeartbeat(res)) {
+        cleanup();
+      }
+    };
+
+    req.once('close', cleanup);
+    req.once('error', cleanup);
+    res.once('close', cleanup);
+    res.once('error', cleanup);
+    res.once('finish', cleanup);
+
+    heartbeat = setInterval(sendHeartbeat, 25_000);
+    sendHeartbeat();
   }
 
   /**

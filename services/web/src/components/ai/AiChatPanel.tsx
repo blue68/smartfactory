@@ -76,6 +76,10 @@ export default function AiChatPanel() {
 
   // 计时器
   const startTimer = useCallback(() => {
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = 0;
+    }
     setElapsed(0);
     timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000);
   }, []);
@@ -128,7 +132,9 @@ export default function AiChatPanel() {
     ]);
 
     const aiMsgId = newId();
-    abortRef.current = new AbortController();
+    const requestController = new AbortController();
+    abortRef.current = requestController;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
     try {
       const token = getAccessToken();
@@ -139,7 +145,7 @@ export default function AiChatPanel() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ message: text }),
-        signal: abortRef.current.signal,
+        signal: requestController.signal,
       });
 
       if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
@@ -158,7 +164,7 @@ export default function AiChatPanel() {
       setMessages((prev) => trimPanelMessages([...prev, aiMsg]));
 
       // SSE 流式读取
-      const reader = response.body.getReader();
+      reader = response.body.getReader();
       const decoder = new TextDecoder();
       let accumulated = '';
 
@@ -197,7 +203,6 @@ export default function AiChatPanel() {
         trimPanelMessages(prev.map((m) => m.id === aiMsgId ? { ...m, streaming: false } : m)),
       );
     } catch (err: unknown) {
-      abortRef.current = null;
       setThinking(false);
       stopTimer();
       if (err instanceof Error && err.name === 'AbortError') return;
@@ -211,6 +216,15 @@ export default function AiChatPanel() {
           timestamp: new Date(),
         },
       ]));
+    } finally {
+      try {
+        reader?.releaseLock();
+      } catch {
+        // ignore release failures after an already-aborted stream
+      }
+      if (abortRef.current === requestController) {
+        abortRef.current = null;
+      }
     }
   }, [input, thinking, startTimer, stopTimer]);
 

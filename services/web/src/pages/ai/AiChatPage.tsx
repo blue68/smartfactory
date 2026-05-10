@@ -542,9 +542,11 @@ export default function AiChatPage() {
       ]);
 
       const aiMsgId = newMsgId();
-      abortRef.current = new AbortController();
+      const requestController = new AbortController();
+      abortRef.current = requestController;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
       // 客户端 30 秒超时（SEC HF-004），与服务端超时对齐
-      timeoutRef.current = window.setTimeout(() => abortRef.current?.abort(), 30_000);
+      timeoutRef.current = window.setTimeout(() => requestController.abort(), 30_000);
 
       try {
         const token = getAccessToken();
@@ -555,7 +557,7 @@ export default function AiChatPage() {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({ message: trimmed }),
-          signal: abortRef.current.signal,
+          signal: requestController.signal,
         });
         if (timeoutRef.current) {
           window.clearTimeout(timeoutRef.current);
@@ -582,7 +584,7 @@ export default function AiChatPage() {
         };
         updateActiveMessages((prev) => [...prev, aiMsgPlaceholder]);
 
-        const reader = response.body.getReader();
+        reader = response.body.getReader();
         const decoder = new TextDecoder();
         let accumulated = '';
         let dataCard: DataCardPayload | undefined;
@@ -657,6 +659,19 @@ export default function AiChatPage() {
             timestamp: new Date(),
           },
         ]);
+      } finally {
+        try {
+          reader?.releaseLock();
+        } catch {
+          // ignore release failures after an already-aborted stream
+        }
+        if (timeoutRef.current) {
+          window.clearTimeout(timeoutRef.current);
+          timeoutRef.current = 0;
+        }
+        if (abortRef.current === requestController) {
+          abortRef.current = null;
+        }
       }
     },
     [thinking, startCountdown, stopCountdown, updateActiveMessages, activeConvId],

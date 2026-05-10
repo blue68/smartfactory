@@ -13,8 +13,75 @@ export interface ImportProgress {
   errors: string[];
 }
 
-/** Keyed by numeric taskId. Entries are never deleted so polling always works. */
-export const importProgressStore = new Map<number, ImportProgress>();
+interface ImportProgressEntry extends ImportProgress {
+  updatedAt: number;
+  expiresAt: number;
+}
+
+const IMPORT_PROGRESS_TTL_MS = 60 * 60 * 1000;
+const IMPORT_PROGRESS_MAX_ENTRIES = 200;
+const IMPORT_PROGRESS_MAX_ERRORS = 200;
+
+/** Keyed by numeric taskId. Completed entries are bounded by TTL and capacity. */
+export const importProgressStore = new Map<number, ImportProgressEntry>();
+
+function serializeImportProgress(entry: ImportProgress): ImportProgress {
+  return {
+    status: entry.status,
+    total: entry.total,
+    processed: entry.processed,
+    errors: [...entry.errors],
+  };
+}
+
+function pruneImportProgressStore(now = Date.now()): void {
+  for (const [taskId, entry] of importProgressStore) {
+    if (entry.status !== 'processing' && entry.expiresAt <= now) {
+      importProgressStore.delete(taskId);
+    }
+  }
+
+  if (importProgressStore.size <= IMPORT_PROGRESS_MAX_ENTRIES) return;
+
+  const removable = [...importProgressStore.entries()]
+    .filter(([, entry]) => entry.status !== 'processing')
+    .sort(([, a], [, b]) => a.updatedAt - b.updatedAt);
+
+  for (const [taskId] of removable) {
+    if (importProgressStore.size <= IMPORT_PROGRESS_MAX_ENTRIES) break;
+    importProgressStore.delete(taskId);
+  }
+}
+
+function setImportProgress(taskId: number, progress: ImportProgress): ImportProgressEntry {
+  const now = Date.now();
+  const entry: ImportProgressEntry = {
+    ...progress,
+    updatedAt: now,
+    expiresAt: now + IMPORT_PROGRESS_TTL_MS,
+  };
+  importProgressStore.set(taskId, entry);
+  pruneImportProgressStore(now);
+  return entry;
+}
+
+function touchImportProgress(entry: ImportProgressEntry): void {
+  const now = Date.now();
+  entry.updatedAt = now;
+  if (entry.status !== 'processing') {
+    entry.expiresAt = now + IMPORT_PROGRESS_TTL_MS;
+  }
+}
+
+function appendImportProgressError(entry: ImportProgress, message: string): void {
+  if (entry.errors.length < IMPORT_PROGRESS_MAX_ERRORS) {
+    entry.errors.push(message);
+    return;
+  }
+  if (entry.errors.length === IMPORT_PROGRESS_MAX_ERRORS) {
+    entry.errors.push(`错误较多，仅在进度中保留前 ${IMPORT_PROGRESS_MAX_ERRORS} 条。`);
+  }
+}
 
 /** 价格导入单行结构（对应模板列） */
 export interface ImportPriceRow {
@@ -295,8 +362,8 @@ export class PriceService {
     });
     await taskRepo.save(task);
 
-    // Register initial progress entry so polling can start immediately
-    importProgressStore.set(task.id, {
+    // Register initial progress entry so polling can start immediately.
+    setImportProgress(task.id, {
       status: 'processing',
       total: 0,
       processed: 0,
@@ -333,6 +400,10 @@ export class PriceService {
           totalRows: 0,
           successCount: 0,
         });
+        progress.status = 'completed';
+        progress.total = 0;
+        progress.processed = 0;
+        touchImportProgress(progress);
         return {
           taskId: task.id, totalRows: 0, successCount: 0,
           failCount: 0, skipCount: 0, warningCount: 0,
@@ -516,7 +587,7 @@ export class PriceService {
 
       // Propagate validation errors to progress store
       for (const e of errors) {
-        progress.errors.push(`第${e.row}行 [${e.column ?? ''}]: ${e.message}`);
+        appendImportProgressError(progress, `第${e.row}行 [${e.column ?? ''}]: ${e.message}`);
       }
 
       // ── 6. 事务写入合法行 ─────────────────────────────────────────────────
@@ -572,6 +643,7 @@ export class PriceService {
       progress.status = 'completed';
       progress.total = parsedRows.length;
       progress.processed = successCount;
+      touchImportProgress(progress);
 
       return {
         taskId: task.id,
@@ -590,7 +662,8 @@ export class PriceService {
       const failedProgress = importProgressStore.get(task.id);
       if (failedProgress) {
         failedProgress.status = 'failed';
-        failedProgress.errors.push(err instanceof Error ? err.message : String(err));
+        appendImportProgressError(failedProgress, err instanceof Error ? err.message : String(err));
+        touchImportProgress(failedProgress);
       }
       throw err;
     }
@@ -615,20 +688,30 @@ export class PriceService {
    * Falls back to DB entity when the store has no entry (e.g. after server restart).
    */
   async getImportProgress(taskId: number): Promise<ImportProgress> {
+    pruneImportProgressStore();
     const cached = importProgressStore.get(taskId);
-    if (cached) return cached;
+    if (cached) {
+      touchImportProgress(cached);
+      return serializeImportProgress(cached);
+    }
 
     // Fallback: reconstruct from DB (covers restart scenario)
     const task = await this.getImportTaskStatus(taskId);
+    const errorDetails = task.errorDetails ?? [];
+    const errors = errorDetails
+      .slice(0, IMPORT_PROGRESS_MAX_ERRORS)
+      .map((e) => `第${e.row}行 [${e.column ?? ''}]: ${e.message}`);
+    if (errorDetails.length > IMPORT_PROGRESS_MAX_ERRORS) {
+      errors.push(`错误较多，仅在进度中保留前 ${IMPORT_PROGRESS_MAX_ERRORS} 条。`);
+    }
+
     return {
       status: task.status === 'completed' || task.status === 'failed'
         ? task.status
         : 'processing',
       total: task.totalRows ?? 0,
       processed: task.successCount ?? 0,
-      errors: (task.errorDetails ?? []).map(
-        (e) => `第${e.row}行 [${e.column ?? ''}]: ${e.message}`,
-      ),
+      errors,
     };
   }
 

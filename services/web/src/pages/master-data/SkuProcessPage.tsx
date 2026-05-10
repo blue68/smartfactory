@@ -5,7 +5,7 @@
  * 可新建、跳转编辑工序模板。
  */
 
-import { useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSkuList } from '@/api/sku';
 import {
@@ -158,6 +158,15 @@ export default function SkuProcessPage() {
   const [keyword, setKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    };
+  }, []);
 
   const handleKeywordChange = (val: string) => {
     setKeyword(val);

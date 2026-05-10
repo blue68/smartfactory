@@ -1997,6 +1997,20 @@ export default function ProcessConfigPage() {
   // ── 保存状态 ──
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      if (saveSuccessTimerRef.current) {
+        clearTimeout(saveSuccessTimerRef.current);
+        saveSuccessTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // ── 工种类型（动态加载） ──
   const { data: workstationData } = useWorkstationTypes();
@@ -3059,7 +3073,13 @@ export default function ProcessConfigPage() {
       } : prev);
 
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2200);
+      if (saveSuccessTimerRef.current) {
+        clearTimeout(saveSuccessTimerRef.current);
+      }
+      saveSuccessTimerRef.current = setTimeout(() => {
+        setSaveSuccess(false);
+        saveSuccessTimerRef.current = null;
+      }, 2200);
       showToast({ type: 'success', message: '工序模板已保存' });
     } catch (error) {
       showToast({

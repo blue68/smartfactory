@@ -53,28 +53,57 @@ class NotificationStreamRegistry {
     bucket.add(res);
     this.clients.set(key, bucket);
 
-    return () => {
-      const current = this.clients.get(key);
-      if (!current) return;
-      current.delete(res);
-      if (current.size === 0) {
-        this.clients.delete(key);
-      }
-    };
+    return () => this.unsubscribe(key, res);
   }
 
   emit(tenantId: number, userId: number, payload: NotificationStreamPayload): void {
-    const bucket = this.clients.get(this.getKey(tenantId, userId));
+    const key = this.getKey(tenantId, userId);
+    const bucket = this.clients.get(key);
     if (!bucket?.size) return;
 
-    const frame = `event: ${payload.type}\ndata: ${JSON.stringify(payload)}\n\n`;
+    const frame = this.serialize(payload);
+    const staleClients: Response[] = [];
+
     for (const res of bucket) {
-      res.write(frame);
+      if (!this.writeFrame(res, frame)) {
+        staleClients.push(res);
+      }
+    }
+
+    for (const res of staleClients) {
+      this.unsubscribe(key, res);
     }
   }
 
   private getKey(tenantId: number, userId: number): string {
     return `${tenantId}:${userId}`;
+  }
+
+  emitTo(res: Response, payload: NotificationStreamPayload): boolean {
+    return this.writeFrame(res, this.serialize(payload));
+  }
+
+  private serialize(payload: NotificationStreamPayload): string {
+    return `event: ${payload.type}\ndata: ${JSON.stringify(payload)}\n\n`;
+  }
+
+  private writeFrame(res: Response, frame: string): boolean {
+    if (res.destroyed || res.writableEnded) return false;
+    try {
+      res.write(frame);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private unsubscribe(key: string, res: Response): void {
+    const current = this.clients.get(key);
+    if (!current) return;
+    current.delete(res);
+    if (current.size === 0) {
+      this.clients.delete(key);
+    }
   }
 }
 
@@ -280,12 +309,17 @@ export class NotificationService {
     return streamRegistry.subscribe(this.tenantId, this.userId, res);
   }
 
-  emitHeartbeat(): void {
-    streamRegistry.emit(this.tenantId, this.userId, {
+  emitHeartbeat(res?: Response): boolean {
+    const payload: NotificationStreamPayload = {
       type: 'heartbeat',
       data: {
         ts: new Date().toISOString(),
       },
-    });
+    };
+    if (res) {
+      return streamRegistry.emitTo(res, payload);
+    }
+    streamRegistry.emit(this.tenantId, this.userId, payload);
+    return true;
   }
 }
