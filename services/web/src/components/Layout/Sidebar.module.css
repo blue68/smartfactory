@@ -26,15 +26,17 @@
   box-shadow: 0 8px 24px rgba(63, 91, 135, 0.06);
 }
 
-.sidebar__logo_icon { font-size: 1.5rem; flex-shrink: 0; }
+.sidebar__logo_brand {
+  min-width: 0;
+}
 
 .sidebar__logo_text {
+  color: var(--text-primary);
   font-size: var(--text-h4);
   font-weight: 700;
-  color: var(--text-primary);
+  line-height: 1.15;
   white-space: nowrap;
   overflow: hidden;
-  letter-spacing: -0.01em;
 }
 
 /* 菜单列表容器 */

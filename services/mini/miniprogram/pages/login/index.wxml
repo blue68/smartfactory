@@ -1,8 +1,19 @@
 <view class="login-page">
   <view class="login-shell">
     <view class="login-brand">
-      <text class="login-brand__eyebrow">SMARTFACTORY MINI</text>
-      <view class="login-brand__title">账号登录</view>
+      <view class="login-brand__lockup">
+        <view class="sf-logo">
+          <view class="sf-logo__factory"></view>
+          <view class="sf-logo__node sf-logo__node--a"></view>
+          <view class="sf-logo__node sf-logo__node--b"></view>
+          <view class="sf-logo__line sf-logo__line--a"></view>
+          <view class="sf-logo__line sf-logo__line--b"></view>
+        </view>
+        <view class="login-brand__copy">
+          <text class="login-brand__eyebrow">SMARTFACTORY MINI</text>
+          <view class="login-brand__title">账号登录</view>
+        </view>
+      </view>
       <text class="login-brand__sub">使用 Web 端租户、账号和密码进入手机端。</text>
     </view>
 

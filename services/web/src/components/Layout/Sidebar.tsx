@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useAppStore } from '@/stores/appStore';
 import { UserRole } from '@/types/enums';
 import { matchesRoleAccess } from '@/utils/roleAccess';
+import BrandLogo from '@/components/common/BrandLogo';
 import styles from './Sidebar.module.css';
 
 interface NavItem {
@@ -462,7 +463,12 @@ export default function Sidebar() {
     <nav className={`${styles.sidebar} ${sidebarCollapsed ? styles['sidebar--collapsed'] : ''}`} aria-label="主导航">
       {/* Logo 区域 */}
       <div className={styles.sidebar__logo}>
-        <span className={styles.sidebar__logo_icon} aria-hidden="true">⚙️</span>
+        <BrandLogo
+          className={styles.sidebar__logo_brand}
+          showText={false}
+          showSub={false}
+          size={sidebarCollapsed ? 'sm' : 'md'}
+        />
         {!sidebarCollapsed && (
           <span className={styles.sidebar__logo_text}>智造管家</span>
         )}

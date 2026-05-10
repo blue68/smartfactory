@@ -14,6 +14,89 @@
   box-shadow: 0 18rpx 44rpx rgba(37, 99, 235, .2);
 }
 
+.dashboard-hero__brand {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.dashboard-hero__copy {
+  min-width: 0;
+}
+
+.sf-logo {
+  position: relative;
+  flex: none;
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, .18);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, .28);
+  overflow: hidden;
+}
+
+.sf-logo__factory {
+  position: absolute;
+  left: 18rpx;
+  bottom: 19rpx;
+  width: 31rpx;
+  height: 19rpx;
+  border-radius: 5rpx 5rpx 7rpx 7rpx;
+  background: #fff;
+}
+
+.sf-logo__factory::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -13rpx;
+  width: 0;
+  height: 0;
+  border-left: 10rpx solid transparent;
+  border-right: 10rpx solid transparent;
+  border-bottom: 13rpx solid #fff;
+}
+
+.sf-logo__node {
+  position: absolute;
+  width: 10rpx;
+  height: 10rpx;
+  border: 3rpx solid #a7f3d0;
+  border-radius: 999rpx;
+  background: #fff;
+}
+
+.sf-logo__node--a {
+  top: 20rpx;
+  right: 17rpx;
+}
+
+.sf-logo__node--b {
+  right: 16rpx;
+  bottom: 20rpx;
+}
+
+.sf-logo__line {
+  position: absolute;
+  right: 23rpx;
+  width: 4rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, .84);
+}
+
+.sf-logo__line--a {
+  top: 32rpx;
+  height: 12rpx;
+}
+
+.sf-logo__line--b {
+  top: 43rpx;
+  right: 30rpx;
+  width: 16rpx;
+  height: 4rpx;
+}
+
 .dashboard-hero__eyebrow {
   color: rgba(255, 255, 255, .74);
   font-size: 22rpx;

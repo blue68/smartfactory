@@ -19,6 +19,88 @@
   padding: 0 8rpx;
 }
 
+.login-brand__lockup {
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+}
+
+.login-brand__copy {
+  min-width: 0;
+}
+
+.sf-logo {
+  position: relative;
+  flex: none;
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #0f766e 0%, #2563eb 58%, #7c3aed 100%);
+  box-shadow: 0 16rpx 34rpx rgba(37, 99, 235, .22);
+  overflow: hidden;
+}
+
+.sf-logo__factory {
+  position: absolute;
+  left: 20rpx;
+  bottom: 22rpx;
+  width: 36rpx;
+  height: 22rpx;
+  border-radius: 5rpx 5rpx 7rpx 7rpx;
+  background: #fff;
+}
+
+.sf-logo__factory::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -15rpx;
+  width: 0;
+  height: 0;
+  border-left: 12rpx solid transparent;
+  border-right: 12rpx solid transparent;
+  border-bottom: 15rpx solid #fff;
+}
+
+.sf-logo__node {
+  position: absolute;
+  width: 12rpx;
+  height: 12rpx;
+  border: 4rpx solid #a7f3d0;
+  border-radius: 999rpx;
+  background: #fff;
+}
+
+.sf-logo__node--a {
+  top: 22rpx;
+  right: 19rpx;
+}
+
+.sf-logo__node--b {
+  right: 18rpx;
+  bottom: 23rpx;
+}
+
+.sf-logo__line {
+  position: absolute;
+  right: 26rpx;
+  width: 4rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, .82);
+}
+
+.sf-logo__line--a {
+  top: 36rpx;
+  height: 14rpx;
+}
+
+.sf-logo__line--b {
+  top: 48rpx;
+  right: 34rpx;
+  width: 18rpx;
+  height: 4rpx;
+}
+
 .login-brand__eyebrow {
   color: #2563eb;
   font-size: 23rpx;
@@ -27,7 +109,7 @@
 }
 
 .login-brand__title {
-  margin-top: 10rpx;
+  margin-top: 8rpx;
   color: #172033;
   font-size: 52rpx;
   font-weight: 900;
@@ -36,7 +118,7 @@
 
 .login-brand__sub {
   display: block;
-  margin-top: 12rpx;
+  margin-top: 18rpx;
   color: #64748b;
   font-size: 26rpx;
   line-height: 1.45;

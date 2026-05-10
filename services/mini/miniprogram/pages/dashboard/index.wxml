@@ -1,9 +1,18 @@
 <view class="page dashboard-page">
   <view class="dashboard-hero">
-    <view>
-      <text class="dashboard-hero__eyebrow">CONTROL PANEL</text>
-      <view class="dashboard-hero__title">控制面板</view>
-      <text class="dashboard-hero__sub">{{userLabel}} · {{tenantLabel}}</text>
+    <view class="dashboard-hero__brand">
+      <view class="sf-logo sf-logo--hero">
+        <view class="sf-logo__factory"></view>
+        <view class="sf-logo__node sf-logo__node--a"></view>
+        <view class="sf-logo__node sf-logo__node--b"></view>
+        <view class="sf-logo__line sf-logo__line--a"></view>
+        <view class="sf-logo__line sf-logo__line--b"></view>
+      </view>
+      <view class="dashboard-hero__copy">
+        <text class="dashboard-hero__eyebrow">CONTROL PANEL</text>
+        <view class="dashboard-hero__title">控制面板</view>
+        <text class="dashboard-hero__sub">{{userLabel}} · {{tenantLabel}}</text>
+      </view>
     </view>
     <button class="dashboard-logout" bindtap="handleLogout">退出</button>
   </view>

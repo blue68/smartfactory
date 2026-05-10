@@ -9,6 +9,7 @@ import { authApi } from '@/api/auth';
 import { config } from '@/config';
 import { ApiError } from '@/types/api';
 import Button from '@/components/common/Button';
+import BrandLogo from '@/components/common/BrandLogo';
 import styles from './LoginPage.module.css';
 
 export default function LoginPage() {
@@ -62,11 +63,7 @@ export default function LoginPage() {
     <div className={styles.page}>
       <div className={styles.card}>
         {/* Logo */}
-        <div className={styles.logo}>
-          <span className={styles.logo__icon} aria-hidden="true">⚙️</span>
-          <h1 className={styles.logo__text}>智造管家</h1>
-          <p className={styles.logo__sub}>SmartFactory Agent</p>
-        </div>
+        <BrandLogo className={styles.logo} variant="stacked" size="lg" />
 
         {/* 表单 */}
         <form className={styles.form} onSubmit={(e) => void handleSubmit(e)} noValidate>
