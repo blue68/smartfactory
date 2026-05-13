@@ -69,9 +69,9 @@
 
 | 微信支付 | 支付宝 |
 | --- | --- |
-| 待补充原图：`docs/assets/donation/wechat-pay-reward.jpg` | 待补充原图：`docs/assets/donation/alipay-reward.jpg` |
+| <img src="docs/assets/donation/wechat-pay-reward.jpg" alt="微信支付打赏收款码" width="260"> | <img src="docs/assets/donation/alipay-reward.jpg" alt="支付宝打赏收款码" width="260"> |
 
-收款码图片应使用微信支付、支付宝导出的原图，分别保存到 `docs/assets/donation/wechat-pay-reward.jpg` 和 `docs/assets/donation/alipay-reward.jpg`。原图入库前，README 不直接嵌入二维码图片，避免 GitHub 页面出现 404 破图。
+收款码图片使用微信支付、支付宝导出的原图，分别保存在 `docs/assets/donation/wechat-pay-reward.jpg` 和 `docs/assets/donation/alipay-reward.jpg`。
 
 也可查看 [SUPPORT.md](SUPPORT.md)。
 

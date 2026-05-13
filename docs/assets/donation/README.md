@@ -1,6 +1,6 @@
 # Donation Assets
 
-Place the payment QR code images here:
+Payment QR code images:
 
 - `wechat-pay-reward.jpg`: WeChat Pay reward QR code.
 - `alipay-reward.jpg`: Alipay reward QR code.

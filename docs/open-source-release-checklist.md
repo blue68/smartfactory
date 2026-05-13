@@ -12,8 +12,8 @@
 
 - [x] Added donation documentation in `SUPPORT.md`.
 - [x] Reserved asset paths under `docs/assets/donation/`.
-- [ ] Save the original WeChat Pay QR image as `docs/assets/donation/wechat-pay-reward.jpg`.
-- [ ] Save the original Alipay QR image as `docs/assets/donation/alipay-reward.jpg`.
+- [x] Save the original WeChat Pay QR image as `docs/assets/donation/wechat-pay-reward.jpg`.
+- [x] Save the original Alipay QR image as `docs/assets/donation/alipay-reward.jpg`.
 
 Use the original exported images. Do not redraw, regenerate, crop, or heavily
 compress payment QR codes.
