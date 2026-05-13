@@ -52,16 +52,52 @@ export interface ProductionOrderComponent {
 
 export interface ProductionOrderOperation {
   id: number;
-  componentId: number;
+  componentId: number | null;
   componentType: 'fg' | 'wip' | 'rm' | null;
-  processStepId: number;
-  stepNo: number;
+  bomLevel?: number | null;
+  bomPath?: string | null;
+  processStepId: number | null;
+  stepNo: number | null;
   stepName: string;
   outputSkuId: number | null;
+  outputSkuCode?: string | null;
   outputSkuName: string | null;
+  outputUnit?: string | null;
+  executionMode?: 'internal' | 'outsource' | null;
   plannedQty: string;
   completedQty: string;
   status: string;
+  inputItems?: ProductionOrderOperationInputItem[];
+  outputItem?: ProductionOrderOperationOutputItem;
+}
+
+export interface ProductionOrderOperationInputItem {
+  skuId: number;
+  skuCode?: string | null;
+  skuName: string | null;
+  itemType: 'semi_finished' | 'material';
+  unit?: string | null;
+  requiredQty: string;
+  sourceOperationId?: number | null;
+  sourceStatus?: string | null;
+  sourceCompletedQty?: string | null;
+}
+
+export interface ProductionOrderOperationOutputItem {
+  skuId: number | null;
+  skuCode?: string | null;
+  skuName: string | null;
+  itemType: 'finished' | 'semi_finished';
+  unit?: string | null;
+  plannedQty: string;
+  completedQty: string;
+}
+
+export interface ReleaseProductionOrderResult {
+  productionOrderId: number;
+  reused: boolean;
+  componentCount: number;
+  operationCount: number;
 }
 
 export interface ScheduleAdjustmentPayload {
@@ -289,6 +325,9 @@ export const productionApi = {
   getOrderOperations: (id: number) =>
     request.get<ProductionOrderOperation[]>(`/api/production/orders/${id}/operations`),
 
+  releaseOrder: (id: number) =>
+    request.post<ReleaseProductionOrderResult>(`/api/production/orders/${id}/release`),
+
   createOrder: (payload: CreateProductionOrderPayload) =>
     request.post<{ id: number; workOrderNo: string }>('/api/production/orders', payload),
 
@@ -454,6 +493,21 @@ export function useCreateProductionOrder() {
     mutationFn: productionApi.createOrder,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: productionKeys.orders() });
+    },
+  });
+}
+
+/** 释放生产工单并生成 BOM 依赖任务链 */
+export function useReleaseProductionOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: number) => productionApi.releaseOrder(orderId),
+    onSuccess: (_data, orderId) => {
+      void qc.invalidateQueries({ queryKey: productionKeys.orders() });
+      void qc.invalidateQueries({ queryKey: productionKeys.orderDetail(orderId) });
+      void qc.invalidateQueries({ queryKey: productionKeys.orderComponents(orderId) });
+      void qc.invalidateQueries({ queryKey: productionKeys.orderOperations(orderId) });
+      void qc.invalidateQueries({ queryKey: productionKeys.materials(orderId) });
     },
   });
 }

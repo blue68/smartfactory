@@ -1,0 +1,84 @@
+SmartFactory Source-Available Non-Commercial License
+Version 1.0
+
+Copyright (c) 2026 SmartFactory Project Author. All rights reserved.
+
+1. Grant of Rights
+
+Subject to this license, the author grants you a limited, revocable,
+non-exclusive, non-transferable right to access, read, copy, modify, fork,
+and share this repository solely for non-commercial purposes, including:
+
+- personal learning and research;
+- technical evaluation;
+- non-commercial demonstration;
+- contribution back to this repository.
+
+2. Commercial Use Is Prohibited Without Written Permission
+
+You may not use this project, in whole or in part, for any commercial purpose
+unless you have obtained prior written permission from the author.
+
+Commercial use includes, but is not limited to:
+
+- deploying or operating this project for a company, factory, shop, SaaS
+  service, consulting delivery, paid customer, or revenue-generating workflow;
+- selling, renting, sublicensing, hosting, outsourcing, integrating, or
+  packaging this project as part of a paid product or service;
+- using this project to provide implementation, training, support, or
+  customization services for compensation;
+- removing, hiding, or weakening copyright, license, or non-commercial use
+  notices.
+
+If you need commercial use rights, contact the author and obtain explicit
+written authorization before any commercial deployment, delivery, or sale.
+
+3. Redistribution Requirements
+
+Any copy, fork, derivative work, documentation, or distribution of this project
+must preserve:
+
+- this LICENSE file;
+- NOTICE;
+- copyright notices;
+- the non-commercial use restriction.
+
+You may not relicense this project under MIT, Apache-2.0, GPL, LGPL, MPL, BSD,
+ISC, or any other license that allows commercial use without the author's prior
+written permission.
+
+4. Contributions
+
+Unless separately agreed in writing, any contribution submitted to this project
+is provided under this same license. By submitting a contribution, you confirm
+that you have the right to contribute it and that it does not introduce
+third-party material with incompatible licensing terms.
+
+5. Third-Party Dependencies
+
+This license applies only to this project's own source code, documentation,
+configuration, scripts, and assets. Third-party dependencies remain governed by
+their own licenses. You are responsible for reviewing and complying with those
+licenses before redistribution or deployment.
+
+6. No Warranty
+
+The project is provided "as is", without warranty of any kind, express or
+implied, including but not limited to warranties of merchantability, fitness for
+a particular purpose, security, data accuracy, or non-infringement.
+
+You use this project at your own risk. The author is not responsible for any
+data loss, production incident, business loss, security issue, or legal dispute
+arising from your use of this project.
+
+7. Enforcement
+
+Unauthorized commercial use is a breach of this license. The author reserves
+the right to require immediate cessation of use, removal of unauthorized
+deployments or distributions, compensation for losses, and pursuit of legal
+liability through applicable legal channels.
+
+8. Contact for Commercial Authorization
+
+Commercial authorization must be obtained from the author in writing before use.
+If no written authorization can be produced, commercial use is not permitted.

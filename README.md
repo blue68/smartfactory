@@ -8,6 +8,8 @@
 
 - [业务定位](#业务定位)
 - [视觉概要图](#视觉概要图)
+- [源码开放与非商业授权](#源码开放与非商业授权)
+- [支持作者](#支持作者)
 - [工程结构](#工程结构)
 - [系统架构](#系统架构)
 - [数据流向](#数据流向)
@@ -47,6 +49,31 @@
 下图从业务定位、系统架构、核心模块和数据流向四个视角快速概览工程全貌，可作为新人理解系统边界和主链路的第一张图。
 
 ![智造管家项目视觉概要图](docs/assets/smartfactory-visual-overview.svg)
+
+## 源码开放与非商业授权
+
+本仓库以“源码可见、非商业授权”的方式开放，便于个人学习、技术研究、非商业演示和社区贡献。由于本项目明确限制商业使用，它不是 OSI 语义下的开放源代码许可证项目。
+
+授权边界：
+
+- 允许：个人学习、研究、阅读、Fork、非商业演示、提交贡献。
+- 禁止：未经作者书面许可，将本项目用于公司/工厂生产经营、SaaS 服务、外包交付、付费培训、付费咨询、二次销售、商业集成或任何收入相关场景。
+- 商业使用：如需商业使用，必须先取得作者书面同意。
+- 侵权后果：未经授权进行商业使用的，作者保留要求停止侵权、移除部署或分发、追偿损失并依法追究法律责任的权利。
+
+完整条款见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
+
+## 支持作者
+
+如果这个项目对你有帮助，可以通过微信或支付宝打赏支持后续维护。打赏是自愿支持，不构成商业授权；商业使用仍需先取得作者书面许可。
+
+| 微信支付 | 支付宝 |
+| --- | --- |
+| ![微信支付打赏收款码](docs/assets/donation/wechat-pay-reward.jpg) | ![支付宝打赏收款码](docs/assets/donation/alipay-reward.jpg) |
+
+收款码图片应使用微信支付、支付宝导出的原图，分别保存到 `docs/assets/donation/wechat-pay-reward.jpg` 和 `docs/assets/donation/alipay-reward.jpg`。
+
+也可查看 [SUPPORT.md](SUPPORT.md)。
 
 ## 工程结构
 
@@ -1267,5 +1294,6 @@ docker volume ls | grep mysql_data
 - 数据库设计：`docs/database-design.md`
 - 部署指南：`docs/deployment-guide.md`
 - 生产部署 Runbook：`docs/production-server-deployment-runbook.md`
+- 开源发布检查清单：`docs/open-source-release-checklist.md`
 - 小程序说明：`services/mini/README.md`
 - 多 Agent 协作规范：`AGENTS.md`

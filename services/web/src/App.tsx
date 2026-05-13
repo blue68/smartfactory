@@ -2,7 +2,8 @@
  * [artifact:前端代码] — 根组件（路由配置 + 权限守卫）
  */
 
-import { Suspense, lazy, type ReactElement } from 'react';
+import { Suspense, lazy, useEffect, useRef, type ReactElement } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { ACTION_CODES, MENU_CODES } from '@/constants/accessControl';
@@ -69,6 +70,37 @@ function renderRouteElement(element: ReactElement) {
       {element}
     </Suspense>
   );
+}
+
+const ROUTE_INACTIVE_QUERY_CLEANUP_DELAY_MS = 1200;
+
+/**
+ * Route-level memory guard.
+ *
+ * React Query deliberately keeps inactive page data alive for fast back/forward
+ * navigation. In this ERP shell, users often scan through many heavy menus in
+ * one session, so keeping old list/detail/chart payloads around quickly creates
+ * a staircase-shaped heap profile. After the new route has mounted, inactive
+ * queries are cancelled and removed so only the current screen keeps data.
+ */
+function RouteMemoryGuard() {
+  const location = useLocation();
+  const queryClient = useQueryClient();
+  const previousPathRef = useRef(location.pathname);
+
+  useEffect(() => {
+    if (previousPathRef.current === location.pathname) return undefined;
+    previousPathRef.current = location.pathname;
+
+    const timer = window.setTimeout(() => {
+      void queryClient.cancelQueries({ type: 'inactive' });
+      queryClient.removeQueries({ type: 'inactive' });
+    }, ROUTE_INACTIVE_QUERY_CLEANUP_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [location.pathname, queryClient]);
+
+  return null;
 }
 
 /** 认证守卫：未登录跳转 /login */
@@ -220,6 +252,7 @@ const MENU_GUARDED_ROUTES: Array<{
 export default function App() {
   return (
     <BrowserRouter>
+      <RouteMemoryGuard />
       <Routes>
         {/* 公开路由 */}
         <Route path="/login" element={renderRouteElement(<LoginPage />)} />

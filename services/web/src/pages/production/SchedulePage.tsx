@@ -32,10 +32,12 @@ import Modal from '@/components/common/Modal';
 import Tag from '@/components/common/Tag';
 import styles from './SchedulePage.module.css';
 
-type ScheduleView = 'station' | 'order' | 'worker';
+type ScheduleView = 'station' | 'assignment' | 'order' | 'worker';
 type TaskBlockVariant = 'normal' | 'warning' | 'danger';
 type MaterialStatus = 'ok' | 'warn' | 'err';
 type RiskLevel = 'info' | 'warning' | 'danger';
+type AssignmentDrafts = Record<number, string>;
+type AssignmentFilter = 'all' | 'pending' | 'changed';
 
 interface GanttTask {
   source: ScheduleItem;
@@ -120,6 +122,12 @@ interface ScheduleRisk {
   level: RiskLevel;
   title: string;
   description: string;
+}
+
+interface AssignmentChange {
+  task: ScheduleItem;
+  scheduleId: number;
+  workerId: number;
 }
 
 const ALERT_STORAGE_KEY = 'schedule-risk-alert-dismissed';
@@ -448,6 +456,19 @@ function buildOrderCards(schedules: ScheduleItem[], timeSlots: string[]): OrderC
     .sort((left, right) => right.stepCount - left.stepCount || parseNumeric(right.totalHours) - parseNumeric(left.totalHours));
 }
 
+function buildAssignmentRows(schedules: ScheduleItem[]): ScheduleItem[] {
+  return [...schedules].sort((left, right) => {
+    const leftPending = left.workerId ? 1 : 0;
+    const rightPending = right.workerId ? 1 : 0;
+    return (
+      leftPending - rightPending ||
+      left.workOrderNo.localeCompare(right.workOrderNo) ||
+      left.processStepId - right.processStepId ||
+      left.scheduleId - right.scheduleId
+    );
+  });
+}
+
 function deriveRisks(schedules: ScheduleItem[], loadRate: number, timeSlots: string[]): ScheduleRisk[] {
   const risks: ScheduleRisk[] = [];
   const unassigned = schedules.filter((item) => !item.workerId || !item.workstationId).length;
@@ -521,6 +542,7 @@ export default function SchedulePage() {
   const [selectedTask, setSelectedTask] = useState<ScheduleItem | null>(null);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
   const [manualGenerate, setManualGenerate] = useState(false);
+  const [assignmentDrafts, setAssignmentDrafts] = useState<AssignmentDrafts>({});
   const [riskDismissed, setRiskDismissed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.sessionStorage.getItem(ALERT_STORAGE_KEY) === '1';
@@ -553,6 +575,7 @@ export default function SchedulePage() {
 
   useEffect(() => {
     setManualGenerate(false);
+    setAssignmentDrafts({});
   }, [batchFilter, selectedDate]);
 
   const now = new Date();
@@ -602,6 +625,7 @@ export default function SchedulePage() {
     () => buildStationRows(filteredSchedules, loadRate, timeSlots),
     [filteredSchedules, loadRate, timeSlots],
   );
+  const assignmentRows = useMemo(() => buildAssignmentRows(filteredSchedules), [filteredSchedules]);
   const workerCards = useMemo(() => buildWorkerCards(filteredSchedules, timeSlots), [filteredSchedules, timeSlots]);
   const orderCards = useMemo(() => buildOrderCards(filteredSchedules, timeSlots), [filteredSchedules, timeSlots]);
   const risks = useMemo(() => deriveRisks(filteredSchedules, loadRate, timeSlots), [filteredSchedules, loadRate, timeSlots]);
@@ -628,6 +652,25 @@ export default function SchedulePage() {
   const alertVisible = !riskDismissed && risks.length > 0;
 
   const canAdjust = !confirmed && hasSchedule;
+  const resourceGapCount = metrics.unassignedCount;
+  const assignmentChanges = useMemo<AssignmentChange[]>(
+    () =>
+      assignmentRows
+        .map((task) => {
+          const draftValue = assignmentDrafts[task.scheduleId];
+          if (draftValue === undefined) return null;
+          const workerId = parseOptionalId(draftValue);
+          if (!workerId || workerId === task.workerId) return null;
+          return {
+            task,
+            scheduleId: task.scheduleId,
+            workerId,
+          };
+        })
+        .filter((item): item is AssignmentChange => item !== null),
+    [assignmentDrafts, assignmentRows],
+  );
+  const unsavedAssignmentCount = assignmentChanges.length;
   const hasAdjustChanges =
     selectedTask !== null &&
     (adjustForm.workerId !== String(selectedTask.workerId ?? '') ||
@@ -654,6 +697,21 @@ export default function SchedulePage() {
 
   const closeAdjustModal = () => {
     setSelectedTask(null);
+  };
+
+  const confirmDiscardAssignmentDrafts = (actionLabel: string) => {
+    if (unsavedAssignmentCount === 0) return true;
+
+    const message = `还有 ${unsavedAssignmentCount} 条人员分配未保存，${actionLabel}会丢失这些选择。是否继续？`;
+    const canDiscard = typeof window !== 'undefined' && window.confirm(message);
+    if (canDiscard) {
+      setAssignmentDrafts({});
+      return true;
+    }
+
+    setScheduleView('assignment');
+    showToast({ type: 'warning', message: '请先保存或撤销人员分配' });
+    return false;
   };
 
   const updateCalendarRange = (
@@ -685,6 +743,8 @@ export default function SchedulePage() {
   };
 
   const handleRegenerate = async () => {
+    if (!confirmDiscardAssignmentDrafts('重新生成排产')) return;
+
     try {
       const nextResult = await productionApi.generateSchedule(selectedDate, true, normalizedBatchId ?? undefined);
       queryClient.setQueryData(
@@ -692,6 +752,7 @@ export default function SchedulePage() {
         nextResult,
       );
       closeAdjustModal();
+      setAssignmentDrafts({});
       showToast({ type: 'success', message: '已重新生成当日排产方案' });
     } catch {
       showToast({ type: 'error', message: '重新生成失败，请稍后重试' });
@@ -732,6 +793,14 @@ export default function SchedulePage() {
             workstationsQuery.data ?? [],
           ),
       );
+      setAssignmentDrafts((current) => {
+        const next = { ...current };
+        delete next[scheduleId];
+        return next;
+      });
+      await queryClient.invalidateQueries({
+        queryKey: productionKeys.schedule({ date: selectedDate, batchId: normalizedBatchId }),
+      });
       showToast({ type: 'success', message: '排产任务已更新' });
       closeAdjustModal();
     } catch (error) {
@@ -744,6 +813,71 @@ export default function SchedulePage() {
         return;
       }
       showToast({ type: 'error', message: '排产调整失败，请稍后重试' });
+    }
+  };
+
+  const handleAssignmentDraftChange = (task: ScheduleItem, workerIdValue: string) => {
+    if (confirmed) return;
+    const scheduleId = parseOptionalId(task.scheduleId);
+    if (!scheduleId) return;
+    const currentWorkerValue = task.workerId ? String(task.workerId) : '';
+
+    setAssignmentDrafts((current) => {
+      const next = { ...current };
+      if (workerIdValue === currentWorkerValue) {
+        delete next[scheduleId];
+      } else {
+        next[scheduleId] = workerIdValue;
+      }
+      return next;
+    });
+  };
+
+  const handleResetAssignmentDrafts = () => {
+    setAssignmentDrafts({});
+  };
+
+  const handleSaveAssignmentDrafts = async () => {
+    if (unsavedAssignmentCount === 0) return;
+    try {
+      await adjustMutation.mutateAsync({
+        date: selectedDate,
+        adjustments: assignmentChanges.map((change) => ({
+          scheduleId: change.scheduleId,
+          workerId: change.workerId,
+          expectedUpdatedAt: change.task.updatedAt,
+        })),
+      });
+      queryClient.setQueryData<ScheduleResult | undefined>(
+        productionKeys.schedule({ date: selectedDate, batchId: normalizedBatchId }),
+        (current) =>
+          assignmentChanges.reduce(
+            (next, change) =>
+              patchAdjustedScheduleResult(
+                next,
+                change.task,
+                { scheduleId: change.scheduleId, workerId: change.workerId },
+                workersQuery.data ?? [],
+                workstationsQuery.data ?? [],
+              ),
+            current,
+          ),
+      );
+      setAssignmentDrafts({});
+      await queryClient.invalidateQueries({
+        queryKey: productionKeys.schedule({ date: selectedDate, batchId: normalizedBatchId }),
+      });
+      showToast({ type: 'success', message: `已保存 ${unsavedAssignmentCount} 条任务人员分配` });
+    } catch (error) {
+      if (error instanceof ApiError && error.code === ApiCode.CONFLICT) {
+        await queryClient.invalidateQueries({
+          queryKey: productionKeys.schedule({ date: selectedDate, batchId: normalizedBatchId }),
+        });
+        setAssignmentDrafts({});
+        showToast({ type: 'warning', message: error.message || '排产已被他人修改，已刷新后请重试' });
+        return;
+      }
+      showToast({ type: 'error', message: '人员分配失败，请稍后重试' });
     }
   };
 
@@ -777,7 +911,34 @@ export default function SchedulePage() {
     }
   };
 
+  const handleOpenConfirmSchedule = () => {
+    if (unsavedAssignmentCount > 0) {
+      setScheduleView('assignment');
+      showToast({ type: 'warning', message: `还有 ${unsavedAssignmentCount} 条人员分配未保存，请先保存后再下发` });
+      return;
+    }
+    if (resourceGapCount > 0) {
+      setScheduleView('assignment');
+      showToast({ type: 'warning', message: `还有 ${resourceGapCount} 条任务未补齐工人或工位，请先补齐后再下发` });
+      return;
+    }
+    setConfirmModalOpen(true);
+  };
+
   const handleConfirmSchedule = async () => {
+    if (unsavedAssignmentCount > 0) {
+      setConfirmModalOpen(false);
+      setScheduleView('assignment');
+      showToast({ type: 'warning', message: `还有 ${unsavedAssignmentCount} 条人员分配未保存，请先保存后再下发` });
+      return;
+    }
+    if (resourceGapCount > 0) {
+      setConfirmModalOpen(false);
+      setScheduleView('assignment');
+      showToast({ type: 'warning', message: `还有 ${resourceGapCount} 条任务未补齐工人或工位，请先补齐后再下发` });
+      return;
+    }
+
     try {
       await confirmMutation.mutateAsync({
         date: selectedDate,
@@ -789,6 +950,7 @@ export default function SchedulePage() {
       });
       setConfirmModalOpen(false);
       closeAdjustModal();
+      setAssignmentDrafts({});
     } catch {
       showToast({ type: 'error', message: '下发失败，请稍后重试' });
     }
@@ -809,10 +971,27 @@ export default function SchedulePage() {
   };
 
   const handleDateChange = (value: string) => {
+    if (value === selectedDate) return true;
+    if (!confirmDiscardAssignmentDrafts('切换日期')) return false;
+
     startTransition(() => {
       setSelectedDate(value);
       closeAdjustModal();
+      setAssignmentDrafts({});
     });
+    return true;
+  };
+
+  const handleBatchChange = (value: number | '') => {
+    if (value === batchFilter) return true;
+    if (!confirmDiscardAssignmentDrafts('切换联合批次')) return false;
+
+    startTransition(() => {
+      setBatchFilter(value);
+      closeAdjustModal();
+      setAssignmentDrafts({});
+    });
+    return true;
   };
 
   if (isBeforeAutoWindow) {
@@ -823,12 +1002,7 @@ export default function SchedulePage() {
           batchFilter={batchFilter}
           batchOptions={batchQuery.data?.list ?? []}
           onDateChange={handleDateChange}
-          onBatchChange={(value) => {
-            startTransition(() => {
-              setBatchFilter(value);
-              closeAdjustModal();
-            });
-          }}
+          onBatchChange={handleBatchChange}
           onJumpToday={() => handleDateChange(today)}
           onJumpNextWorkday={() => handleDateChange(getNextWorkdayFromCalendar(selectedDate, calendarQuery.data))}
           onRefresh={() => setManualGenerate(true)}
@@ -856,12 +1030,7 @@ export default function SchedulePage() {
         batchFilter={batchFilter}
         batchOptions={batchQuery.data?.list ?? []}
         onDateChange={handleDateChange}
-        onBatchChange={(value) => {
-          startTransition(() => {
-            setBatchFilter(value);
-            closeAdjustModal();
-          });
-        }}
+        onBatchChange={handleBatchChange}
         onJumpToday={() => handleDateChange(today)}
         onJumpNextWorkday={() => handleDateChange(getNextWorkdayFromCalendar(selectedDate, calendarQuery.data))}
         onRefresh={() => void handleRegenerate()}
@@ -930,6 +1099,22 @@ export default function SchedulePage() {
                 <StationView rows={stationRows} timeSlots={timeSlots} onTaskClick={openAdjustModal} />
               )}
 
+              {scheduleView === 'assignment' && (
+                <AssignmentView
+                  rows={assignmentRows}
+                  workers={workersQuery.data ?? []}
+                  drafts={assignmentDrafts}
+                  loadingWorkers={workersQuery.isLoading}
+                  saving={adjustMutation.isPending}
+                  changedCount={unsavedAssignmentCount}
+                  confirmed={confirmed}
+                  onWorkerChange={handleAssignmentDraftChange}
+                  onReset={handleResetAssignmentDrafts}
+                  onSave={() => void handleSaveAssignmentDrafts()}
+                  onTaskClick={openAdjustModal}
+                />
+              )}
+
               {scheduleView === 'order' && (
                 <OrderView
                   cards={orderCards}
@@ -957,8 +1142,11 @@ export default function SchedulePage() {
           {canAdjust && (
             <StickyActionBar
               onReset={() => void handleRegenerate()}
-              onConfirm={() => setConfirmModalOpen(true)}
+              onConfirm={handleOpenConfirmSchedule}
+              onReviewAssignments={() => setScheduleView('assignment')}
               loading={confirmMutation.isPending}
+              unsavedAssignmentCount={unsavedAssignmentCount}
+              resourceGapCount={resourceGapCount}
             />
           )}
         </>
@@ -983,8 +1171,9 @@ export default function SchedulePage() {
         error={scheduleHistoryQuery.isError}
         onClose={() => setHistoryOpen(false)}
         onSelect={(date) => {
-          setHistoryOpen(false);
-          handleDateChange(date);
+          if (handleDateChange(date)) {
+            setHistoryOpen(false);
+          }
         }}
       />
 
@@ -1231,6 +1420,7 @@ function RiskPanel({ risks, onDismiss }: { risks: ScheduleRisk[]; onDismiss: () 
 function ViewToggle({ value, onChange }: { value: ScheduleView; onChange: (view: ScheduleView) => void }) {
   const options: Array<{ key: ScheduleView; label: string; hint: string }> = [
     { key: 'station', label: '工作站视图', hint: '看工位和时段占用' },
+    { key: 'assignment', label: '人员分配', hint: '按任务选择工人' },
     { key: 'order', label: '工单视图', hint: '看工单拆解结果' },
     { key: 'worker', label: '人员视图', hint: '看工人今日任务' },
   ];
@@ -1249,6 +1439,316 @@ function ViewToggle({ value, onChange }: { value: ScheduleView; onChange: (view:
         </button>
       ))}
     </div>
+  );
+}
+
+function formatWorkerLoad(load?: { count: number; hours: number }): string {
+  if (!load || load.count <= 0) return '';
+  return ` · ${load.count}项/${load.hours.toFixed(1)}h`;
+}
+
+function getAssignmentWorkerValue(row: ScheduleItem, drafts: AssignmentDrafts): string {
+  return drafts[row.scheduleId] ?? (row.workerId ? String(row.workerId) : '');
+}
+
+function AssignmentView(props: {
+  rows: ScheduleItem[];
+  workers: ProductionWorkerOption[];
+  drafts: AssignmentDrafts;
+  loadingWorkers: boolean;
+  saving: boolean;
+  changedCount: number;
+  confirmed: boolean;
+  onWorkerChange: (task: ScheduleItem, workerIdValue: string) => void;
+  onReset: () => void;
+  onSave: () => void;
+  onTaskClick: (task: ScheduleItem) => void;
+}) {
+  const [keyword, setKeyword] = useState('');
+  const [filter, setFilter] = useState<AssignmentFilter>('all');
+  const [selectedScheduleIds, setSelectedScheduleIds] = useState<number[]>([]);
+  const [bulkWorkerId, setBulkWorkerId] = useState('');
+
+  const workerLoads = useMemo(() => {
+    const loads = new Map<number, { count: number; hours: number }>();
+    props.rows.forEach((row) => {
+      const effectiveWorkerId = parseOptionalId(getAssignmentWorkerValue(row, props.drafts));
+      if (!effectiveWorkerId) return;
+      const current = loads.get(effectiveWorkerId) ?? { count: 0, hours: 0 };
+      current.count += 1;
+      current.hours += parseNumeric(row.estimatedHours);
+      loads.set(effectiveWorkerId, current);
+    });
+    return loads;
+  }, [props.drafts, props.rows]);
+
+  const visibleRows = useMemo(() => {
+    const normalizedKeyword = keyword.trim().toLowerCase();
+    return props.rows.filter((row) => {
+      const draftValue = props.drafts[row.scheduleId];
+      const currentWorkerValue = row.workerId ? String(row.workerId) : '';
+      const effectiveWorkerValue = draftValue ?? currentWorkerValue;
+      const hasDraftChange = draftValue !== undefined && draftValue !== currentWorkerValue;
+      const effectiveWorkerId = parseOptionalId(effectiveWorkerValue);
+      if (filter === 'pending' && effectiveWorkerId && row.workstationId) return false;
+      if (filter === 'changed' && !hasDraftChange) return false;
+      if (!normalizedKeyword) return true;
+      return [
+        row.workOrderNo,
+        row.batchNo,
+        row.stepName,
+        row.outputSkuName,
+        row.workstationName,
+        row.workerName,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedKeyword));
+    });
+  }, [filter, keyword, props.drafts, props.rows]);
+
+  useEffect(() => {
+    const availableIds = new Set(props.rows.map((row) => row.scheduleId));
+    setSelectedScheduleIds((current) => current.filter((scheduleId) => availableIds.has(scheduleId)));
+  }, [props.rows]);
+
+  useEffect(() => {
+    setSelectedScheduleIds([]);
+    setBulkWorkerId('');
+  }, [filter, keyword]);
+
+  const selectedVisibleRows = visibleRows.filter((row) => selectedScheduleIds.includes(row.scheduleId));
+  const allVisibleSelected =
+    visibleRows.length > 0 && visibleRows.every((row) => selectedScheduleIds.includes(row.scheduleId));
+
+  const toggleVisibleRows = () => {
+    setSelectedScheduleIds((current) => {
+      const currentSet = new Set(current);
+      if (allVisibleSelected) {
+        visibleRows.forEach((row) => currentSet.delete(row.scheduleId));
+      } else {
+        visibleRows.forEach((row) => currentSet.add(row.scheduleId));
+      }
+      return [...currentSet];
+    });
+  };
+
+  const toggleRow = (scheduleId: number) => {
+    setSelectedScheduleIds((current) =>
+      current.includes(scheduleId)
+        ? current.filter((item) => item !== scheduleId)
+        : [...current, scheduleId],
+    );
+  };
+
+  const applyBulkWorker = () => {
+    if (!bulkWorkerId || selectedVisibleRows.length === 0) return;
+    selectedVisibleRows.forEach((row) => props.onWorkerChange(row, bulkWorkerId));
+    setSelectedScheduleIds((current) =>
+      current.filter((scheduleId) => !selectedVisibleRows.some((row) => row.scheduleId === scheduleId)),
+    );
+    setBulkWorkerId('');
+  };
+
+  const pendingCount = props.rows.filter((row) => (
+    !parseOptionalId(getAssignmentWorkerValue(row, props.drafts)) || !row.workstationId
+  )).length;
+
+  return (
+    <section className={styles.assignment_panel}>
+      <div className={styles.assignment_header}>
+        <div>
+          <h2>任务人员分配</h2>
+          <p>连续选择多个任务人员后统一保存，确认下发前仍可继续调整。</p>
+        </div>
+        <div className={styles.assignment_header_actions}>
+          <Tag variant={props.confirmed ? 'success' : props.changedCount > 0 ? 'info' : 'warning'}>
+            {props.confirmed
+              ? '已下发'
+              : props.changedCount > 0
+                ? `${props.changedCount} 条待保存`
+                : `${pendingCount} 条待补齐`}
+          </Tag>
+          {!props.confirmed && (
+            <>
+              <Button variant="ghost" size="sm" disabled={props.changedCount === 0 || props.saving} onClick={props.onReset}>
+                撤销选择
+              </Button>
+              <Button variant="primary" size="sm" loading={props.saving} disabled={props.changedCount === 0} onClick={props.onSave}>
+                保存人员分配
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className={styles.assignment_tools}>
+        <input
+          className={styles.assignment_search}
+          value={keyword}
+          placeholder="搜索工单 / 工序 / 产出 / 工位"
+          onChange={(event) => setKeyword(event.target.value)}
+        />
+        <div className={styles.assignment_filter_group} role="group" aria-label="人员分配筛选">
+          {([
+            ['all', `全部 ${props.rows.length}`],
+            ['pending', `待补齐 ${pendingCount}`],
+            ['changed', `未保存 ${props.changedCount}`],
+          ] as Array<[AssignmentFilter, string]>).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={`${styles.assignment_filter_button} ${filter === key ? styles.assignment_filter_button_active : ''}`}
+              onClick={() => setFilter(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {!props.confirmed && (
+        <div className={styles.assignment_bulk_bar}>
+          <span>已选 {selectedVisibleRows.length} 条</span>
+          <select
+            value={bulkWorkerId}
+            disabled={props.saving || props.loadingWorkers || selectedVisibleRows.length === 0}
+            onChange={(event) => setBulkWorkerId(event.target.value)}
+          >
+            <option value="">选择批量指派人员</option>
+            {props.workers.map((worker) => (
+              <option key={worker.id} value={worker.id}>
+                {worker.name}{formatWorkerLoad(workerLoads.get(worker.id))}
+              </option>
+            ))}
+          </select>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!bulkWorkerId || selectedVisibleRows.length === 0 || props.saving}
+            onClick={applyBulkWorker}
+          >
+            应用到所选
+          </Button>
+          <Button
+            variant="text"
+            size="sm"
+            disabled={selectedScheduleIds.length === 0 || props.saving}
+            onClick={() => setSelectedScheduleIds([])}
+          >
+            清除勾选
+          </Button>
+        </div>
+      )}
+
+      <div className={styles.assignment_table_wrap}>
+        <table className={styles.assignment_table}>
+          <thead>
+            <tr>
+              <th className={styles.assignment_check_cell}>
+                <input
+                  type="checkbox"
+                  aria-label={allVisibleSelected ? '取消选择当前任务' : '选择当前任务'}
+                  checked={allVisibleSelected}
+                  disabled={props.confirmed || props.saving || visibleRows.length === 0}
+                  onChange={toggleVisibleRows}
+                />
+              </th>
+              <th>任务</th>
+              <th>产出 / 数量</th>
+              <th>工位</th>
+              <th>人员</th>
+              <th>工时</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className={styles.assignment_empty_row}>
+                  暂无符合条件的任务
+                </td>
+              </tr>
+            ) : visibleRows.map((row) => {
+              const draftValue = props.drafts[row.scheduleId];
+              const currentWorkerValue = row.workerId ? String(row.workerId) : '';
+              const effectiveWorkerValue = getAssignmentWorkerValue(row, props.drafts);
+              const hasDraftChange = draftValue !== undefined && draftValue !== currentWorkerValue;
+              const effectiveWorkerId = parseOptionalId(effectiveWorkerValue);
+              const selected = selectedScheduleIds.includes(row.scheduleId);
+              return (
+                <tr
+                  key={row.scheduleId}
+                  className={[
+                    !effectiveWorkerId || !row.workstationId ? styles.assignment_row_pending : '',
+                    hasDraftChange ? styles.assignment_row_changed : '',
+                    selected ? styles.assignment_row_selected : '',
+                  ].filter(Boolean).join(' ')}
+                >
+                  <td className={styles.assignment_check_cell}>
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${row.workOrderNo} ${row.stepName}`}
+                      checked={selected}
+                      disabled={props.confirmed || props.saving}
+                      onChange={() => toggleRow(row.scheduleId)}
+                    />
+                  </td>
+                  <td>
+                    <div className={styles.assignment_task}>
+                      <strong>{row.workOrderNo}</strong>
+                      {row.batchNo ? <span>联合批次 {row.batchNo}</span> : null}
+                      <span>{row.stepName}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div className={styles.assignment_meta}>
+                      <strong>{row.outputSkuName ?? '未配置产出'}</strong>
+                      <span>{formatQty(row.plannedQty)} 套</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className={row.workstationName ? styles.assignment_plain : styles.assignment_empty}>
+                      {row.workstationName ?? '待分配工位'}
+                    </span>
+                  </td>
+                  <td>
+                    <select
+                      className={styles.assignment_select}
+                      value={effectiveWorkerValue}
+                      disabled={props.confirmed || props.loadingWorkers || props.saving || props.workers.length === 0}
+                      onChange={(event) => props.onWorkerChange(row, event.target.value)}
+                    >
+                      <option value="" disabled={Boolean(row.workerId)}>
+                        {props.loadingWorkers ? '加载人员中' : '选择工人'}
+                      </option>
+                      {props.workers.map((worker) => (
+                        <option key={worker.id} value={worker.id}>
+                          {worker.name}{formatWorkerLoad(workerLoads.get(worker.id))}
+                        </option>
+                      ))}
+                    </select>
+                    {hasDraftChange ? <span className={styles.assignment_status}>未保存</span> : null}
+                  </td>
+                  <td>
+                    <span className={styles.assignment_plain}>{formatHours(row.estimatedHours)}</span>
+                  </td>
+                  <td>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={props.confirmed}
+                      onClick={() => props.onTaskClick(row)}
+                    >
+                      详情调整
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -1421,16 +1921,49 @@ function WorkerView({ cards, onTaskClick }: { cards: WorkerCard[]; onTaskClick: 
   );
 }
 
-function StickyActionBar(props: { onReset: () => void; onConfirm: () => void; loading: boolean }) {
+function StickyActionBar(props: {
+  onReset: () => void;
+  onConfirm: () => void;
+  onReviewAssignments: () => void;
+  loading: boolean;
+  unsavedAssignmentCount: number;
+  resourceGapCount: number;
+}) {
+  const hasUnsavedAssignments = props.unsavedAssignmentCount > 0;
+  const hasResourceGap = props.resourceGapCount > 0;
+  const isBlocked = hasUnsavedAssignments || hasResourceGap;
+  const title = hasUnsavedAssignments
+    ? `还有 ${props.unsavedAssignmentCount} 条人员分配未保存`
+    : hasResourceGap
+      ? `还有 ${props.resourceGapCount} 条任务未补齐资源`
+      : '今日计划尚未正式下发';
+  const description = hasUnsavedAssignments
+    ? '保存人员分配后，才能确认下发给工人。'
+    : hasResourceGap
+      ? '补齐工人和工位后，才能确认下发给工人。'
+      : '确认后将创建工人任务并同步更新工单排产状态。';
+
   return (
-    <div className={styles.action_bar}>
+    <div className={`${styles.action_bar} ${isBlocked ? styles.action_bar_warning : ''}`}>
       <div>
-        <strong>今日计划尚未正式下发</strong>
-        <p>确认后将创建工人任务并同步更新工单排产状态。</p>
+        <strong>{title}</strong>
+        <p>{description}</p>
       </div>
       <div className={styles.action_buttons}>
         <Button variant="ghost" onClick={props.onReset}>恢复 AI 初始方案</Button>
-        <Button variant="success" loading={props.loading} onClick={props.onConfirm}>确认并下发给工人</Button>
+        {isBlocked && (
+          <Button variant="primary" onClick={props.onReviewAssignments}>
+            {hasUnsavedAssignments ? '去保存人员分配' : '去补齐资源'}
+          </Button>
+        )}
+        <Button
+          variant="success"
+          loading={props.loading}
+          disabled={isBlocked}
+          onClick={props.onConfirm}
+        >
+          确认并下发给工人
+        </Button>
       </div>
     </div>
   );

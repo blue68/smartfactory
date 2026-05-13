@@ -2,6 +2,7 @@ import { AppDataSource } from '../../src/config/database';
 import { ProductionService } from '../../src/modules/production/production.service';
 
 const redisDelMock = jest.fn().mockResolvedValue(1);
+const redisKeysMock = jest.fn().mockResolvedValue([]);
 
 jest.mock('../../src/config/database', () => ({
   AppDataSource: {
@@ -13,9 +14,11 @@ jest.mock('../../src/config/database', () => ({
 jest.mock('../../src/config/redis', () => ({
   getRedisClient: () => ({
     del: redisDelMock,
+    keys: redisKeysMock,
   }),
   RedisKeys: {
     schedule: (tenantId: number, date: string) => `schedule:${tenantId}:${date}`,
+    schedulePattern: (tenantId: number, date: string) => `schedule:${tenantId}:${date}*`,
   },
 }));
 
@@ -27,12 +30,15 @@ const mockAppDataSource = AppDataSource as unknown as {
 describe('Production schedule regressions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    redisKeysMock.mockResolvedValue([]);
     mockAppDataSource.transaction.mockImplementation(async (callback: (manager: { query: jest.Mock }) => Promise<unknown>) =>
       callback({ query: mockAppDataSource.query }));
   });
 
   it('persists manual schedule adjustment to production_schedules and clears schedule cache', async () => {
     mockAppDataSource.query
+      .mockResolvedValueOnce([{ id: 201 }])
+      .mockResolvedValueOnce([{ id: 301 }])
       .mockResolvedValueOnce([{ id: 101, updatedAt: '2026-03-28 08:00:00' }])
       .mockResolvedValueOnce({ affectedRows: 1 });
 
@@ -48,17 +54,22 @@ describe('Production schedule regressions', () => {
     ]);
 
     expect(result).toEqual({ updated: 1 });
-    expect(String(mockAppDataSource.query.mock.calls[0][0])).toContain('DATE_FORMAT(updated_at');
-    expect(String(mockAppDataSource.query.mock.calls[0][0])).toContain('FOR UPDATE');
-    expect(mockAppDataSource.query.mock.calls[0][1]).toEqual([101, 7, '2026-03-29']);
-    expect(String(mockAppDataSource.query.mock.calls[1][0])).toContain('UPDATE production_schedules');
-    expect(String(mockAppDataSource.query.mock.calls[1][0])).toContain("status = 'planned'");
-    expect(mockAppDataSource.query.mock.calls[1][1]).toEqual([201, 301, '12.50', 11, 101, 7, '2026-03-29']);
+    expect(String(mockAppDataSource.query.mock.calls[0][0])).toContain("r.code = 'worker'");
+    expect(mockAppDataSource.query.mock.calls[0][1]).toEqual([7, 201]);
+    expect(String(mockAppDataSource.query.mock.calls[1][0])).toContain('FROM workstations');
+    expect(mockAppDataSource.query.mock.calls[1][1]).toEqual([7, 301]);
+    expect(String(mockAppDataSource.query.mock.calls[2][0])).toContain('DATE_FORMAT(updated_at');
+    expect(String(mockAppDataSource.query.mock.calls[2][0])).toContain('FOR UPDATE');
+    expect(mockAppDataSource.query.mock.calls[2][1]).toEqual([101, 7, '2026-03-29']);
+    expect(String(mockAppDataSource.query.mock.calls[3][0])).toContain('UPDATE production_schedules');
+    expect(String(mockAppDataSource.query.mock.calls[3][0])).toContain("status = 'planned'");
+    expect(mockAppDataSource.query.mock.calls[3][1]).toEqual([201, 301, '12.50', 11, 101, 7, '2026-03-29']);
     expect(redisDelMock).toHaveBeenCalledWith('schedule:7:2026-03-29');
   });
 
   it('manual schedule adjustment still succeeds when Redis cache invalidation fails', async () => {
     mockAppDataSource.query
+      .mockResolvedValueOnce([{ id: 202 }])
       .mockResolvedValueOnce([{ id: 102, updatedAt: '2026-03-29 08:00:00' }])
       .mockResolvedValueOnce([{ affectedRows: 1 }]);
     redisDelMock.mockRejectedValueOnce(new Error('Command timed out'));

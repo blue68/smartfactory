@@ -1998,6 +1998,19 @@ export default function ProcessConfigPage() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canvasFocusFrameRef = useRef<number | null>(null);
+  const canvasFocusTimerRef = useRef<number | null>(null);
+
+  const clearCanvasFocusWork = useCallback(() => {
+    if (canvasFocusFrameRef.current !== null) {
+      window.cancelAnimationFrame(canvasFocusFrameRef.current);
+      canvasFocusFrameRef.current = null;
+    }
+    if (canvasFocusTimerRef.current) {
+      clearTimeout(canvasFocusTimerRef.current);
+      canvasFocusTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -2009,8 +2022,9 @@ export default function ProcessConfigPage() {
         clearTimeout(saveSuccessTimerRef.current);
         saveSuccessTimerRef.current = null;
       }
+      clearCanvasFocusWork();
     };
-  }, []);
+  }, [clearCanvasFocusWork]);
 
   // ── 工种类型（动态加载） ──
   const { data: workstationData } = useWorkstationTypes();
@@ -2754,14 +2768,17 @@ export default function ProcessConfigPage() {
     const branchKey = editorTemplate?.nodes.find((node) => node._key === key)?.routeGroupKey?.trim() || '__unassigned__';
     setActiveDagBranchKey(branchKey);
     setActiveCanvasKey(key);
-    window.requestAnimationFrame(() => {
-      window.setTimeout(() => {
+    clearCanvasFocusWork();
+    canvasFocusFrameRef.current = window.requestAnimationFrame(() => {
+      canvasFocusFrameRef.current = null;
+      canvasFocusTimerRef.current = window.setTimeout(() => {
+        canvasFocusTimerRef.current = null;
         const target = document.querySelector<HTMLElement>(`[data-dag-node-key="${key}"]`);
         target?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
         target?.focus();
       }, 60);
     });
-  }, [editorTemplate]);
+  }, [clearCanvasFocusWork, editorTemplate]);
 
   // 节点变更
   const handleNodeChange = useCallback((updated: ProcessNode) => {

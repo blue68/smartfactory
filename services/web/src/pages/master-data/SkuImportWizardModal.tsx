@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { skuApi } from '@/api/sku';
 import Button from '@/components/common/Button';
@@ -115,6 +115,8 @@ function buildAutoMapping(headers: string[]): FieldMappingRow[] {
 }
 
 export default function SkuImportWizardModal({ open, onClose, onSuccess }: ImportWizardModalProps) {
+  const activeReaderRef = useRef<FileReader | null>(null);
+  const importRunIdRef = useRef(0);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -131,7 +133,18 @@ export default function SkuImportWizardModal({ open, onClose, onSuccess }: Impor
     errors: Array<{ row: number; message: string }>;
   } | null>(null);
 
+  const abortActiveReader = useCallback(() => {
+    const reader = activeReaderRef.current;
+    if (!reader) return;
+    activeReaderRef.current = null;
+    if (reader.readyState === FileReader.LOADING) {
+      reader.abort();
+    }
+  }, []);
+
   const handleClose = useCallback(() => {
+    importRunIdRef.current += 1;
+    abortActiveReader();
     setStep(1);
     setSelectedFile(null);
     setParsedHeaders([]);
@@ -142,7 +155,7 @@ export default function SkuImportWizardModal({ open, onClose, onSuccess }: Impor
     setImporting(false);
     setDownloadingTemplate(false);
     onClose();
-  }, [onClose]);
+  }, [abortActiveReader, onClose]);
 
   const handleFileChange = useCallback((file: File | null) => {
     if (!file) return;
@@ -155,8 +168,12 @@ export default function SkuImportWizardModal({ open, onClose, onSuccess }: Impor
     if (step === 1) {
       if (!selectedFile) return;
 
+      abortActiveReader();
       const reader = new FileReader();
+      activeReaderRef.current = reader;
       reader.onload = (e) => {
+        if (activeReaderRef.current !== reader) return;
+        activeReaderRef.current = null;
         const buffer = e.target?.result as ArrayBuffer;
         const { headers, rows } = parseFileData(buffer, selectedFile.name);
 
@@ -176,6 +193,8 @@ export default function SkuImportWizardModal({ open, onClose, onSuccess }: Impor
         setStep(2);
       };
       reader.onerror = () => {
+        if (activeReaderRef.current !== reader) return;
+        activeReaderRef.current = null;
         setParseError('文件读取失败，请重新选择文件。');
       };
       reader.readAsArrayBuffer(selectedFile);
@@ -189,6 +208,7 @@ export default function SkuImportWizardModal({ open, onClose, onSuccess }: Impor
 
     if (!selectedFile) return;
     setImporting(true);
+    const runId = ++importRunIdRef.current;
 
     const mappingRecord: Record<string, string> = {};
     for (const row of fieldMapping) {
@@ -200,6 +220,7 @@ export default function SkuImportWizardModal({ open, onClose, onSuccess }: Impor
     skuApi
       .importSkus(selectedFile, mappingRecord)
       .then((res) => {
+        if (importRunIdRef.current !== runId) return;
         const result = {
           imported: res.imported,
           failed: res.failed,
@@ -212,10 +233,16 @@ export default function SkuImportWizardModal({ open, onClose, onSuccess }: Impor
         }
       })
       .catch(() => {
+        if (importRunIdRef.current !== runId) return;
         setImportResult({ imported: 0, failed: parsedRows.length, errors: [{ row: 0, message: '服务器异常，请稍后重试' }] });
         setImporting(false);
       });
-  }, [fieldMapping, onSuccess, parsedRows.length, selectedFile, step]);
+  }, [abortActiveReader, fieldMapping, onSuccess, parsedRows.length, selectedFile, step]);
+
+  useEffect(() => () => {
+    importRunIdRef.current += 1;
+    abortActiveReader();
+  }, [abortActiveReader]);
 
   const handleDownloadTemplate = useCallback(async () => {
     try {

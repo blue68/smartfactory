@@ -283,6 +283,14 @@ export class ProductionOrderService {
             [item.sku_id, this.tenantId],
           );
         }
+        if (templateRows.length === 0) {
+          templateRows = await manager.query(
+            `SELECT id FROM process_templates
+             WHERE sku_id IS NULL AND tenant_id = ? AND status = 'active'
+             ORDER BY is_default DESC, id DESC LIMIT 1`,
+            [this.tenantId],
+          );
+        }
 
         if (templateRows.length === 0) {
           throw AppError.badRequest(
@@ -641,6 +649,14 @@ export class ProductionOrderService {
            WHERE sku_id = ? AND tenant_id = ?
            ORDER BY id DESC LIMIT 1`,
           [row.sku_id, this.tenantId],
+        );
+      }
+      if (templateRows.length === 0) {
+        templateRows = await manager.query(
+          `SELECT id FROM process_templates
+           WHERE sku_id IS NULL AND tenant_id = ? AND status = 'active'
+           ORDER BY is_default DESC, id DESC LIMIT 1`,
+          [this.tenantId],
         );
       }
       if (templateRows.length === 0) {

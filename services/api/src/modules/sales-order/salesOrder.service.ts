@@ -251,7 +251,7 @@ export class SalesOrderService {
       AppDataSource.query(
         `SELECT so.id, so.order_no AS orderNo, so.customer_id AS customerId,
                 c.name AS customerName, DATE(so.created_at) AS orderDate,
-                so.expected_delivery AS deliveryDate, (so.order_type = 'urgent') AS isUrgent,
+                so.expected_delivery AS deliveryDate, IF(so.order_type = 'urgent', 1, 0) AS isUrgent,
                 so.status, so.total_amount AS totalAmount,
                 so.created_at AS createdAt, so.updated_at AS updatedAt
          FROM sales_orders so
@@ -304,7 +304,7 @@ export class SalesOrderService {
     const [orderRow] = await AppDataSource.query<Array<Record<string, unknown>>>(
       `SELECT ${orderColumns},
               DATE(so.created_at) AS orderDate,
-              (so.order_type = 'urgent') AS isUrgent,
+              IF(so.order_type = 'urgent', 1, 0) AS isUrgent,
               COALESCE(c.name, CONCAT('客户#', so.customer_id)) AS customerName,
               approver.real_name AS approvedByName
        FROM sales_orders so
@@ -882,7 +882,7 @@ export class SalesOrderService {
     const orders = await AppDataSource.query(
       `SELECT so.id, so.order_no AS orderNo, so.customer_id AS customerId,
               c.name AS customerName, DATE(so.created_at) AS orderDate,
-              so.expected_delivery AS deliveryDate, (so.order_type = 'urgent') AS isUrgent,
+              so.expected_delivery AS deliveryDate, IF(so.order_type = 'urgent', 1, 0) AS isUrgent,
               so.total_amount AS totalAmount, so.created_at AS createdAt
        FROM sales_orders so
        INNER JOIN customers c ON c.id = so.customer_id

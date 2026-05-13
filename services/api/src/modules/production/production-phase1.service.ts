@@ -104,6 +104,59 @@ interface BomComponentParent {
   path: string;
 }
 
+interface BomDependencyItemRow {
+  id: number;
+  component_sku_id: number;
+  quantity: string;
+  scrap_rate: string | null;
+  sort_order: number;
+  child_bom_id: number | null;
+}
+
+interface BomDependencyNode {
+  key: string;
+  skuId: number;
+  bomId: number;
+  parentKey: string | null;
+  level: number;
+  path: string;
+  qtyRequired: string;
+  sortOrder: number;
+  children: BomDependencyNode[];
+}
+
+interface OperationListRow {
+  id: number | string;
+  componentId: number | string | null;
+  componentType: 'fg' | 'wip' | 'rm' | null;
+  bomLevel: number | string | null;
+  bomPath: string | null;
+  processStepId: number | string | null;
+  stepNo: number | string | null;
+  stepName: string | null;
+  outputSkuId: number | string | null;
+  outputSkuCode: string | null;
+  outputSkuName: string | null;
+  outputUnit: string | null;
+  executionMode: 'internal' | 'outsource' | null;
+  plannedQty: string | number | null;
+  completedQty: string | number | null;
+  status: string;
+}
+
+interface OperationInputRow {
+  operationId: number | string;
+  skuId: number | string;
+  skuCode: string | null;
+  skuName: string | null;
+  unit: string | null;
+  itemType: 'semi_finished' | 'material';
+  requiredQty: string | number | null;
+  sourceOperationId?: number | string | null;
+  sourceStatus?: string | null;
+  sourceCompletedQty?: string | number | null;
+}
+
 export class ProductionPhase1Service {
   private readonly tenantId: number;
   private readonly userId: number;
@@ -168,6 +221,16 @@ export class ProductionPhase1Service {
       if (processSteps.length === 0) {
         throw AppError.badRequest('工单缺少工序定义，无法 release', ResponseCode.INVALID_PARAMS);
       }
+
+      const bomDependencyRoot = await this.buildBomDependencyRootIfNeeded(
+        manager,
+        order,
+        processSteps,
+      );
+      if (bomDependencyRoot) {
+        return this.releaseOrderByBomDependency(manager, order, processSteps, bomDependencyRoot);
+      }
+
       const rootComponent = await this.insertComponent(
         manager,
         orderId,
@@ -186,9 +249,24 @@ export class ProductionPhase1Service {
         if (wipComponentMap.has(step.output_sku_id)) continue;
 
         const bomParent = bomSemiFinishedParents.get(step.output_sku_id) ?? null;
-        const parentComponent = bomParent?.parentSkuId
-          ? (wipComponentMap.get(bomParent.parentSkuId) ?? rootComponent)
+        const previousWipStep = processSteps
+          .filter((candidate) =>
+            candidate.step_no < step.step_no
+            && candidate.output_type === 'semi_finished'
+            && Number(candidate.output_sku_id ?? 0) > 0
+            && wipComponentMap.has(Number(candidate.output_sku_id)),
+          )
+          .sort((a, b) => b.step_no - a.step_no)[0];
+        const fallbackParentComponent = previousWipStep?.output_sku_id
+          ? (wipComponentMap.get(previousWipStep.output_sku_id) ?? rootComponent)
           : rootComponent;
+        const parentComponent = bomParent
+          ? (
+              bomParent.parentSkuId
+                ? (wipComponentMap.get(bomParent.parentSkuId) ?? rootComponent)
+                : rootComponent
+            )
+          : fallbackParentComponent;
         const wipComponent = await this.insertComponent(
           manager,
           orderId,
@@ -309,26 +387,400 @@ export class ProductionPhase1Service {
 
   async listOperations(orderId: number): Promise<unknown[]> {
     await this.assertOrderExists(orderId);
-    return AppDataSource.query(
+    const operations = await AppDataSource.query<OperationListRow[]>(
       `SELECT po.id, po.component_id AS componentId,
               poc.component_type AS componentType,
+              poc.bom_level AS bomLevel,
+              poc.bom_path AS bomPath,
               po.process_step_id AS processStepId,
               ps.step_no AS stepNo,
               COALESCE(ps.step_name, CONCAT('STEP#', po.process_step_id)) AS stepName,
               po.output_sku_id AS outputSkuId,
+              s.sku_code AS outputSkuCode,
               po.execution_mode AS executionMode,
               COALESCE(s.name, CONCAT('SKU#', po.output_sku_id)) AS outputSkuName,
+              s.stock_unit AS outputUnit,
               po.planned_qty AS plannedQty,
               po.completed_qty AS completedQty,
               po.status
        FROM production_operations po
        LEFT JOIN production_order_components poc ON poc.id = po.component_id
        LEFT JOIN process_steps ps ON ps.id = po.process_step_id
-       LEFT JOIN skus s ON s.id = po.output_sku_id
+       LEFT JOIN skus s ON s.id = po.output_sku_id AND s.tenant_id = po.tenant_id
        WHERE po.production_order_id = ? AND po.tenant_id = ?
-       ORDER BY ps.step_no ASC, po.id ASC`,
+       ORDER BY COALESCE(poc.bom_level, 0) DESC, ps.step_no ASC, po.id ASC`,
       [orderId, this.tenantId],
     );
+
+    if (operations.length === 0) {
+      return [];
+    }
+
+    const bomInputs = await AppDataSource.query<OperationInputRow[]>(
+      `SELECT op.id AS operationId,
+              bi.component_sku_id AS skuId,
+              sku.sku_code AS skuCode,
+              COALESCE(sku.name, CONCAT('SKU#', bi.component_sku_id)) AS skuName,
+              COALESCE(NULLIF(bi.unit, ''), sku.stock_unit, sku.purchase_unit) AS unit,
+              CASE
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM bom_headers child_bh
+                  WHERE child_bh.tenant_id = bi.tenant_id
+                    AND child_bh.sku_id = bi.component_sku_id
+                    AND child_bh.status = 'active'
+                  LIMIT 1
+                ) THEN 'semi_finished'
+                ELSE 'material'
+              END AS itemType,
+              (op.planned_qty * bi.quantity * (1 + COALESCE(bi.scrap_rate, 0))) AS requiredQty
+       FROM production_operations op
+       JOIN bom_headers bh
+         ON bh.tenant_id = op.tenant_id
+        AND bh.sku_id = op.output_sku_id
+        AND bh.status = 'active'
+       JOIN bom_items bi
+         ON bi.tenant_id = bh.tenant_id
+        AND bi.bom_header_id = bh.id
+        AND bi.parent_item_id IS NULL
+       LEFT JOIN skus sku
+         ON sku.tenant_id = bi.tenant_id
+        AND sku.id = bi.component_sku_id
+       WHERE op.tenant_id = ?
+         AND op.production_order_id = ?
+         AND op.output_sku_id IS NOT NULL
+       ORDER BY op.id ASC, bi.sort_order ASC, bi.id ASC`,
+      [this.tenantId, orderId],
+    );
+
+    const dependencyInputs = await AppDataSource.query<OperationInputRow[]>(
+      `SELECT dep.operation_id AS operationId,
+              pred.id AS sourceOperationId,
+              pred.output_sku_id AS skuId,
+              sku.sku_code AS skuCode,
+              COALESCE(sku.name, CONCAT('SKU#', pred.output_sku_id)) AS skuName,
+              sku.stock_unit AS unit,
+              'semi_finished' AS itemType,
+              dep.required_qty AS requiredQty,
+              pred.status AS sourceStatus,
+              pred.completed_qty AS sourceCompletedQty
+       FROM production_operation_dependencies dep
+       JOIN production_operations current_op
+         ON current_op.id = dep.operation_id
+        AND current_op.tenant_id = dep.tenant_id
+       JOIN production_operations pred
+         ON pred.id = dep.predecessor_operation_id
+        AND pred.tenant_id = dep.tenant_id
+       LEFT JOIN skus sku
+         ON sku.tenant_id = pred.tenant_id
+        AND sku.id = pred.output_sku_id
+       WHERE dep.tenant_id = ?
+         AND current_op.production_order_id = ?`,
+      [this.tenantId, orderId],
+    );
+
+    const dependenciesByOperationAndSku = new Map<string, OperationInputRow>();
+    for (const item of dependencyInputs) {
+      dependenciesByOperationAndSku.set(`${Number(item.operationId)}:${Number(item.skuId)}`, item);
+    }
+
+    const inputsByOperation = new Map<number, OperationInputRow[]>();
+    for (const item of bomInputs) {
+      const operationId = Number(item.operationId);
+      const dependency = dependenciesByOperationAndSku.get(`${operationId}:${Number(item.skuId)}`);
+      const merged: OperationInputRow = dependency && item.itemType === 'semi_finished'
+        ? { ...item, sourceOperationId: dependency.sourceOperationId, sourceStatus: dependency.sourceStatus, sourceCompletedQty: dependency.sourceCompletedQty }
+        : item;
+      const existing = inputsByOperation.get(operationId) ?? [];
+      existing.push(merged);
+      inputsByOperation.set(operationId, existing);
+    }
+
+    for (const item of dependencyInputs) {
+      const operationId = Number(item.operationId);
+      const existing = inputsByOperation.get(operationId) ?? [];
+      const alreadyExists = existing.some((input) => Number(input.skuId) === Number(item.skuId));
+      if (!alreadyExists) {
+        existing.push(item);
+        inputsByOperation.set(operationId, existing);
+      }
+    }
+
+    return operations.map((operation) => {
+      const operationId = Number(operation.id);
+      const componentType = operation.componentType ?? 'fg';
+      const plannedQty = new Decimal(operation.plannedQty ?? 0).toFixed(4);
+      const completedQty = new Decimal(operation.completedQty ?? 0).toFixed(4);
+      const inputItems = (inputsByOperation.get(operationId) ?? []).map((item) => ({
+        skuId: Number(item.skuId),
+        skuCode: item.skuCode,
+        skuName: item.skuName,
+        itemType: item.itemType,
+        unit: item.unit,
+        requiredQty: new Decimal(item.requiredQty ?? 0).toFixed(4),
+        sourceOperationId: item.sourceOperationId == null ? null : Number(item.sourceOperationId),
+        sourceStatus: item.sourceStatus ?? null,
+        sourceCompletedQty: item.sourceCompletedQty == null ? null : new Decimal(item.sourceCompletedQty).toFixed(4),
+      }));
+
+      return {
+        id: operationId,
+        componentId: operation.componentId == null ? null : Number(operation.componentId),
+        componentType,
+        bomLevel: operation.bomLevel == null ? null : Number(operation.bomLevel),
+        bomPath: operation.bomPath,
+        processStepId: operation.processStepId == null ? null : Number(operation.processStepId),
+        stepNo: operation.stepNo == null ? null : Number(operation.stepNo),
+        stepName: operation.stepName,
+        outputSkuId: operation.outputSkuId == null ? null : Number(operation.outputSkuId),
+        outputSkuCode: operation.outputSkuCode,
+        outputSkuName: operation.outputSkuName,
+        outputUnit: operation.outputUnit,
+        executionMode: operation.executionMode,
+        plannedQty,
+        completedQty,
+        status: operation.status,
+        inputItems,
+        outputItem: {
+          skuId: operation.outputSkuId == null ? null : Number(operation.outputSkuId),
+          skuCode: operation.outputSkuCode,
+          skuName: operation.outputSkuName,
+          itemType: componentType === 'fg' ? 'finished' : 'semi_finished',
+          unit: operation.outputUnit,
+          plannedQty,
+          completedQty,
+        },
+      };
+    });
+  }
+
+  private async buildBomDependencyRootIfNeeded(
+    manager: { query: typeof AppDataSource.query },
+    order: ProductionOrderRow,
+    processSteps: ProcessStepRow[],
+  ): Promise<BomDependencyNode | null> {
+    const hasExplicitSemiFinishedSteps = processSteps.some(
+      (step) => step.output_type === 'semi_finished' && Number(step.output_sku_id ?? 0) > 0,
+    );
+    if (hasExplicitSemiFinishedSteps) {
+      return null;
+    }
+
+    const rootBomId = await this.findActiveBomIdBySku(manager, order.sku_id);
+    if (!rootBomId) {
+      return null;
+    }
+
+    const root = await this.buildBomDependencyNode(
+      manager,
+      {
+        skuId: order.sku_id,
+        bomId: rootBomId,
+        qtyRequired: new Decimal(order.qty_planned ?? 0),
+        level: 0,
+        path: `fg:${order.sku_id}`,
+        parentKey: null,
+        sortOrder: 0,
+      },
+      new Set([rootBomId]),
+    );
+
+    return root.children.length > 0 ? root : null;
+  }
+
+  private async buildBomDependencyNode(
+    manager: { query: typeof AppDataSource.query },
+    current: {
+      skuId: number;
+      bomId: number;
+      qtyRequired: Decimal;
+      level: number;
+      path: string;
+      parentKey: string | null;
+      sortOrder: number;
+    },
+    visitedBomIds: Set<number>,
+  ): Promise<BomDependencyNode> {
+    const node: BomDependencyNode = {
+      key: current.path,
+      skuId: current.skuId,
+      bomId: current.bomId,
+      parentKey: current.parentKey,
+      level: current.level,
+      path: current.path,
+      qtyRequired: current.qtyRequired.toFixed(4),
+      sortOrder: current.sortOrder,
+      children: [],
+    };
+
+    const rows = await manager.query<BomDependencyItemRow[]>(
+      `SELECT
+          bi.id,
+          bi.component_sku_id,
+          CAST(bi.quantity AS CHAR) AS quantity,
+          CAST(COALESCE(bi.scrap_rate, 0) AS CHAR) AS scrap_rate,
+          bi.sort_order,
+          child_bh.id AS child_bom_id
+       FROM bom_items bi
+       LEFT JOIN bom_headers child_bh
+         ON child_bh.tenant_id = bi.tenant_id
+        AND child_bh.sku_id = bi.component_sku_id
+        AND child_bh.status = 'active'
+       WHERE bi.bom_header_id = ?
+         AND bi.tenant_id = ?
+         AND bi.parent_item_id IS NULL
+       ORDER BY bi.sort_order ASC, bi.id ASC`,
+      [current.bomId, this.tenantId],
+    );
+
+    for (const row of rows) {
+      const childBomId = Number(row.child_bom_id ?? 0);
+      if (!Number.isInteger(childBomId) || childBomId <= 0 || visitedBomIds.has(childBomId)) {
+        continue;
+      }
+
+      const childQty = current.qtyRequired
+        .mul(new Decimal(row.quantity ?? 0))
+        .mul(new Decimal(1).plus(new Decimal(row.scrap_rate ?? 0)));
+      const childSkuId = Number(row.component_sku_id);
+      const childPath = `${current.path}/wip:${childSkuId}:${row.id}`;
+      const nextVisited = new Set(visitedBomIds);
+      nextVisited.add(childBomId);
+
+      node.children.push(await this.buildBomDependencyNode(
+        manager,
+        {
+          skuId: childSkuId,
+          bomId: childBomId,
+          qtyRequired: childQty,
+          level: current.level + 1,
+          path: childPath,
+          parentKey: node.key,
+          sortOrder: Number(row.sort_order ?? 0),
+        },
+        nextVisited,
+      ));
+    }
+
+    return node;
+  }
+
+  private async releaseOrderByBomDependency(
+    manager: { query: typeof AppDataSource.query },
+    order: ProductionOrderRow,
+    processSteps: ProcessStepRow[],
+    root: BomDependencyNode,
+  ): Promise<{
+    productionOrderId: number;
+    reused: boolean;
+    componentCount: number;
+    operationCount: number;
+  }> {
+    const orderId = Number(order.id);
+    const nodes = this.flattenBomDependencyNodes(root);
+    const componentByNodeKey = new Map<string, CreatedComponent>();
+
+    for (const node of [...nodes].sort((a, b) => a.level - b.level || a.path.localeCompare(b.path, 'zh-CN'))) {
+      const parentComponent = node.parentKey ? componentByNodeKey.get(node.parentKey) ?? null : null;
+      const component = await this.insertComponent(
+        manager,
+        orderId,
+        parentComponent?.id ?? null,
+        node.skuId,
+        node.level === 0 ? 'fg' : 'wip',
+        node.qtyRequired,
+        node.level,
+        node.path,
+      );
+      componentByNodeKey.set(node.key, component);
+    }
+
+    const operationIdByNodeKey = new Map<string, number>();
+    for (const node of [...nodes].sort((a, b) => b.level - a.level || a.path.localeCompare(b.path, 'zh-CN'))) {
+      const component = componentByNodeKey.get(node.key);
+      if (!component) continue;
+      const processStepId = this.pickBomDependencyProcessStepId(processSteps, node, order.sku_id);
+      const opInsert = await manager.query(
+        `INSERT INTO production_operations
+           (tenant_id, production_order_id, component_id, process_step_id, output_sku_id,
+            planned_qty, completed_qty, status, execution_mode, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', 'internal', ?, ?)`,
+        [
+          this.tenantId,
+          orderId,
+          component.id,
+          processStepId,
+          node.skuId,
+          node.qtyRequired,
+          this.userId,
+          this.userId,
+        ],
+      );
+      operationIdByNodeKey.set(node.key, Number(opInsert.insertId));
+    }
+
+    for (const node of nodes) {
+      const operationId = operationIdByNodeKey.get(node.key);
+      if (!operationId) continue;
+      for (const child of node.children) {
+        const predecessorOperationId = operationIdByNodeKey.get(child.key);
+        if (!predecessorOperationId) continue;
+        await manager.query(
+          `INSERT INTO production_operation_dependencies
+             (tenant_id, operation_id, predecessor_operation_id, required_qty)
+           VALUES (?, ?, ?, ?)`,
+          [this.tenantId, operationId, predecessorOperationId, child.qtyRequired],
+        );
+      }
+    }
+
+    const [componentCountRow] = await manager.query<Array<{ cnt: string }>>(
+      `SELECT COUNT(*) AS cnt
+       FROM production_order_components
+       WHERE production_order_id = ? AND tenant_id = ?`,
+      [orderId, this.tenantId],
+    );
+    const [operationCountRow] = await manager.query<Array<{ cnt: string }>>(
+      `SELECT COUNT(*) AS cnt
+       FROM production_operations
+       WHERE production_order_id = ? AND tenant_id = ?`,
+      [orderId, this.tenantId],
+    );
+
+    return {
+      productionOrderId: orderId,
+      reused: false,
+      componentCount: Number(componentCountRow?.cnt ?? 0),
+      operationCount: Number(operationCountRow?.cnt ?? 0),
+    };
+  }
+
+  private flattenBomDependencyNodes(root: BomDependencyNode): BomDependencyNode[] {
+    return [root, ...root.children.flatMap((child) => this.flattenBomDependencyNodes(child))];
+  }
+
+  private pickBomDependencyProcessStepId(
+    processSteps: ProcessStepRow[],
+    node: BomDependencyNode,
+    rootSkuId: number,
+  ): number {
+    const exactOutputStep = processSteps.find(
+      (step) => Number(step.output_sku_id ?? 0) === node.skuId,
+    );
+    if (exactOutputStep) {
+      return exactOutputStep.id;
+    }
+
+    if (node.skuId === rootSkuId) {
+      const finalStep = processSteps.find((step) => step.output_type === 'final_product')
+        ?? [...processSteps].sort((a, b) => b.step_no - a.step_no)[0];
+      return finalStep.id;
+    }
+
+    const semiStep = processSteps.find((step) => step.output_type === 'semi_finished')
+      ?? processSteps.find((step) => step.output_type !== 'final_product')
+      ?? processSteps[0];
+    return semiStep.id;
   }
 
   private async assertOrderExists(orderId: number): Promise<void> {

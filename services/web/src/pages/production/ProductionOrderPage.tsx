@@ -2,7 +2,7 @@
  * [artifact:前端代码] — 生产工单管理页面 (R-10)
  * 对齐 design-production-order-v2.html 紧凑布局
  */
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   useProductionOrderList,
   useProductionOrderDetail,
@@ -12,6 +12,7 @@ import {
   useProductionBatchList,
   useMaterialRequirements,
   useCancelOrder,
+  useReleaseProductionOrder,
   type ProductionOrderComponent,
   type ProductionOrderOperation,
 } from '@/api/production';
@@ -45,7 +46,13 @@ interface OrderRow {
 type MaterialRow = MaterialRequirement;
 type ComponentRow = ProductionOrderComponent;
 type OperationRow = ProductionOrderOperation;
+type OperationInputItem = NonNullable<OperationRow['inputItems']>[number];
+type OperationOutputItem = NonNullable<OperationRow['outputItem']>;
 const EMPTY_ORDER_ROWS: OrderRow[] = [];
+const COMPONENT_ROW_HEIGHT = 58;
+const COMPONENT_OVERSCAN = 8;
+const COMPONENT_VIEWPORT_FALLBACK_HEIGHT = 520;
+const OPERATION_INPUT_PREVIEW_LIMIT = 3;
 
 interface SnapshotStep {
   id?: number | string;
@@ -66,6 +73,16 @@ interface ProcessSnapshotData {
   snapshotAt?: string;
   steps?: SnapshotStep[];
 }
+
+type ComponentFilter = 'all' | ComponentRow['componentType'] | 'resolved';
+
+const COMPONENT_FILTERS: Array<{ value: ComponentFilter; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'fg', label: '成品' },
+  { value: 'wip', label: '半成品' },
+  { value: 'rm', label: '原材料' },
+  { value: 'resolved', label: '通配' },
+];
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -199,6 +216,32 @@ function operationStatusLabel(status?: string | null): string {
     default:
       return status || '—';
   }
+}
+
+function operationInputTypeLabel(type: OperationInputItem['itemType']): string {
+  return type === 'semi_finished' ? '半成品' : '原材料';
+}
+
+function operationOutputTypeLabel(type: OperationOutputItem['itemType']): string {
+  return type === 'finished' ? '成品' : '半成品';
+}
+
+function operationItemTitle(item: OperationInputItem | OperationOutputItem): string {
+  const skuCode = item.skuCode?.trim();
+  const skuName = item.skuName?.trim();
+  if (skuCode && skuName) return `${skuCode} · ${skuName}`;
+  return skuName || skuCode || '未命名物料';
+}
+
+function operationInputStatusLabel(item: OperationInputItem): string | null {
+  if (item.itemType !== 'semi_finished') return null;
+  const status = normalizeStatusKey(item.sourceStatus);
+  if (!status) return '依赖作业';
+  return `来源${operationStatusLabel(status)}`;
+}
+
+function operationModeLabel(mode?: OperationRow['executionMode']): string {
+  return mode === 'outsource' ? '外协' : '内部';
 }
 
 function describeComponentPath(component: ComponentRow, componentMap: Map<number, ComponentRow>): string {
@@ -400,7 +443,135 @@ interface OrderTaskLite {
   completedQty?: string;
 }
 
+interface FlatComponentRow {
+  component: ComponentRow;
+  depth: number;
+  path: string;
+  resolved: boolean;
+}
+
 function ComponentStructure({ components }: { components: ComponentRow[] }) {
+  const [filter, setFilter] = useState<ComponentFilter>('all');
+  const [keyword, setKeyword] = useState('');
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(COMPONENT_VIEWPORT_FALLBACK_HEIGHT);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
+
+  const stats = useMemo(() => components.reduce((acc, component) => {
+    acc.total += 1;
+    acc[component.componentType] += 1;
+    if (component.resolvedSkuId && component.resolvedSkuId !== component.skuId) {
+      acc.resolved += 1;
+    }
+    return acc;
+  }, { total: 0, fg: 0, wip: 0, rm: 0, resolved: 0 }), [components]);
+
+  const flatRows = useMemo<FlatComponentRow[]>(() => {
+    const childrenByParent = new Map<number | null, ComponentRow[]>();
+    const componentMap = new Map<number, ComponentRow>();
+
+    components.forEach((component) => {
+      componentMap.set(component.id, component);
+      const key = component.parentComponentId ?? null;
+      const bucket = childrenByParent.get(key) ?? [];
+      bucket.push(component);
+      childrenByParent.set(key, bucket);
+    });
+
+    childrenByParent.forEach((items) => {
+      items.sort((a, b) => {
+        const levelDiff = Number(a.bomLevel ?? 0) - Number(b.bomLevel ?? 0);
+        if (levelDiff !== 0) return levelDiff;
+        return Number(a.id) - Number(b.id);
+      });
+    });
+
+    const rows: FlatComponentRow[] = [];
+    const visited = new Set<number>();
+    const walk = (parentId: number | null, depth: number) => {
+      for (const component of childrenByParent.get(parentId) ?? []) {
+        if (visited.has(component.id)) continue;
+        visited.add(component.id);
+        const resolved = Boolean(component.resolvedSkuId && component.resolvedSkuId !== component.skuId);
+        rows.push({
+          component,
+          depth,
+          path: describeComponentPath(component, componentMap),
+          resolved,
+        });
+        walk(component.id, depth + 1);
+      }
+    };
+
+    walk(null, 0);
+    if (rows.length < components.length) {
+      for (const component of components) {
+        if (visited.has(component.id)) continue;
+        const resolved = Boolean(component.resolvedSkuId && component.resolvedSkuId !== component.skuId);
+        rows.push({
+          component,
+          depth: Number(component.bomLevel ?? 0),
+          path: describeComponentPath(component, componentMap),
+          resolved,
+        });
+      }
+    }
+    return rows;
+  }, [components]);
+
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  const filteredRows = useMemo(() => flatRows.filter(({ component, path, resolved }) => {
+    if (filter === 'resolved' && !resolved) return false;
+    if (filter !== 'all' && filter !== 'resolved' && component.componentType !== filter) return false;
+    if (!normalizedKeyword) return true;
+
+    const haystack = [
+      component.skuName,
+      component.resolvedSkuName,
+      component.bomPath,
+      path,
+      componentTypeLabel(component.componentType),
+    ].filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(normalizedKeyword);
+  }), [filter, flatRows, normalizedKeyword]);
+
+  const handleFilterChange = useCallback((nextFilter: ComponentFilter) => {
+    setFilter(nextFilter);
+  }, []);
+
+  const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    const nextScrollTop = target.scrollTop;
+    const nextHeight = target.clientHeight;
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      setScrollTop(nextScrollTop);
+      if (nextHeight > 0) setViewportHeight(nextHeight);
+      scrollFrameRef.current = null;
+    });
+  }, []);
+
+  useEffect(() => {
+    setScrollTop(0);
+    if (viewportRef.current) viewportRef.current.scrollTop = 0;
+  }, [filter, normalizedKeyword]);
+
+  useEffect(() => () => {
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+  }, []);
+
+  const visibleCount = Math.ceil(viewportHeight / COMPONENT_ROW_HEIGHT) + COMPONENT_OVERSCAN * 2;
+  const maxStart = Math.max(filteredRows.length - visibleCount, 0);
+  const startIndex = Math.min(
+    Math.max(Math.floor(scrollTop / COMPONENT_ROW_HEIGHT) - COMPONENT_OVERSCAN, 0),
+    maxStart,
+  );
+  const endIndex = Math.min(filteredRows.length, startIndex + visibleCount);
+  const visibleRows = filteredRows.slice(startIndex, endIndex);
+  const paddingTop = startIndex * COMPONENT_ROW_HEIGHT;
+  const paddingBottom = Math.max(filteredRows.length - endIndex, 0) * COMPONENT_ROW_HEIGHT;
+
   if (!components.length) {
     return (
       <div className={styles.emptySnapshot}>
@@ -410,57 +581,6 @@ function ComponentStructure({ components }: { components: ComponentRow[] }) {
       </div>
     );
   }
-
-  const stats = components.reduce((acc, component) => {
-    acc.total += 1;
-    acc[component.componentType] += 1;
-    if (component.resolvedSkuId && component.resolvedSkuId !== component.skuId) {
-      acc.resolved += 1;
-    }
-    return acc;
-  }, { total: 0, fg: 0, wip: 0, rm: 0, resolved: 0 });
-
-  const childrenByParent = new Map<number | null, ComponentRow[]>();
-  const componentMap = new Map<number, ComponentRow>();
-  components.forEach((component) => {
-    componentMap.set(component.id, component);
-    const key = component.parentComponentId ?? null;
-    const bucket = childrenByParent.get(key) ?? [];
-    bucket.push(component);
-    childrenByParent.set(key, bucket);
-  });
-
-  const renderNodes = (parentId: number | null, depth = 0): React.ReactNode =>
-    (childrenByParent.get(parentId) ?? []).map((component) => {
-      const resolved = component.resolvedSkuId && component.resolvedSkuId !== component.skuId;
-      return (
-        <div key={component.id} className={styles.componentNode} style={{ '--component-depth': depth } as React.CSSProperties}>
-          <div className={styles.componentNode__line} />
-          <div className={styles.componentNode__card}>
-            <div className={styles.componentNode__header}>
-              <span className={`${styles.componentType} ${styles[`componentType--${component.componentType}`]}`}>
-                {componentTypeLabel(component.componentType)}
-              </span>
-              <span className={styles.componentQty}>需求 {formatQty(component.qtyRequired)}</span>
-            </div>
-            <div className={styles.componentNode__title}>{component.skuName}</div>
-            {resolved ? (
-              <div className={styles.componentNode__resolved}>
-                通配解析：{component.skuName} → {component.resolvedSkuName}
-              </div>
-            ) : (
-              <div className={styles.componentNode__resolvedMuted}>
-                冻结 SKU：{component.resolvedSkuName ?? component.skuName}
-              </div>
-            )}
-            <div className={styles.componentNode__path}>
-              结构路径：{describeComponentPath(component, componentMap)}
-            </div>
-          </div>
-          {renderNodes(component.id, depth + 1)}
-        </div>
-      );
-    });
 
   return (
     <div className={styles.structurePanel}>
@@ -482,8 +602,77 @@ function ComponentStructure({ components }: { components: ComponentRow[] }) {
           <span>通配解析</span>
         </div>
       </div>
-      <div className={styles.componentTree}>
-        {renderNodes(null)}
+      <div className={styles.structureToolbar}>
+        <div className={styles.structureFilterGroup} aria-label="结构类型筛选">
+          {COMPONENT_FILTERS.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              className={`${styles.structureFilter} ${filter === item.value ? styles.structureFilterActive : ''}`}
+              onClick={() => handleFilterChange(item.value)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <input
+          className={styles.structureSearch}
+          value={keyword}
+          onChange={(event) => setKeyword(event.target.value)}
+          placeholder="搜索 SKU / 路径"
+        />
+        <div className={styles.structureResultMeta}>
+          {filteredRows.length} / {flatRows.length}
+        </div>
+      </div>
+      <div
+        ref={viewportRef}
+        className={styles.componentTreeViewport}
+        onScroll={handleScroll}
+      >
+        {filteredRows.length === 0 ? (
+          <div className={styles.componentEmptyResult}>暂无匹配节点</div>
+        ) : (
+          <div className={styles.componentTreeVirtual}>
+            <div style={{ height: paddingTop }} />
+            {visibleRows.map(({ component, depth, path, resolved }) => (
+              <div
+                key={component.id}
+                className={styles.componentCompactRow}
+                style={{ '--component-depth': Math.min(depth, 8) } as React.CSSProperties}
+              >
+                <div className={styles.componentCompactRow__main}>
+                  <div className={styles.componentCompactRow__titleLine}>
+                    <span className={`${styles.componentType} ${styles[`componentType--${component.componentType}`]}`}>
+                      {componentTypeLabel(component.componentType)}
+                    </span>
+                    {resolved && <span className={styles.componentResolvedBadge}>通配</span>}
+                    <strong title={component.resolvedSkuName ?? component.skuName}>
+                      {component.resolvedSkuName ?? component.skuName}
+                    </strong>
+                  </div>
+                  <div className={styles.componentCompactRow__meta}>
+                    {resolved ? (
+                      <span title={`${component.skuName} → ${component.resolvedSkuName ?? ''}`}>
+                        {component.skuName} → {component.resolvedSkuName}
+                      </span>
+                    ) : (
+                      <span title={component.skuName}>冻结 SKU：{component.skuName}</span>
+                    )}
+                    <span className={styles.componentCompactRow__path} title={path}>
+                      {path}
+                    </span>
+                  </div>
+                </div>
+                <div className={styles.componentCompactRow__qty}>
+                  <span>需求</span>
+                  <strong>{formatQty(component.qtyRequired)}</strong>
+                </div>
+              </div>
+            ))}
+            <div style={{ height: paddingBottom }} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -492,82 +681,199 @@ function ComponentStructure({ components }: { components: ComponentRow[] }) {
 function OperationLane({
   operations,
   tasks,
+  onRelease,
+  releasePending,
+  canRelease,
 }: {
   operations: OperationRow[];
   tasks: OrderTaskLite[];
+  onRelease: () => void;
+  releasePending: boolean;
+  canRelease: boolean;
 }) {
-  if (!operations.length) {
+  const sortedOperations = useMemo(
+    () => [...operations].sort((a, b) => {
+      const levelDiff = Number(b.bomLevel ?? 0) - Number(a.bomLevel ?? 0);
+      if (levelDiff !== 0) return levelDiff;
+      const stepDiff = Number(a.stepNo ?? 0) - Number(b.stepNo ?? 0);
+      if (stepDiff !== 0) return stepDiff;
+      return Number(a.id) - Number(b.id);
+    }),
+    [operations],
+  );
+  const inputCount = sortedOperations.reduce((sum, operation) => sum + (operation.inputItems?.length ?? 0), 0);
+  const wipCount = sortedOperations.filter((operation) => operation.componentType === 'wip').length;
+  const dependencyCount = sortedOperations.reduce(
+    (sum, operation) => sum + (operation.inputItems ?? []).filter((item) => item.itemType === 'semi_finished').length,
+    0,
+  );
+
+  if (!sortedOperations.length) {
     return (
       <div className={styles.emptySnapshot}>
         <div className={styles.emptySnapshot__icon}>🛠</div>
-        <div className={styles.emptySnapshot__title}>尚未生成工序链路</div>
-        <div className={styles.emptySnapshot__desc}>release 后会在这里展示半成品工序、计划产出和任务落点</div>
+        <div className={styles.emptySnapshot__title}>尚未生成 BOM 任务链</div>
+        <div className={styles.emptySnapshot__desc}>
+          生成后会按 BOM 层级补充每道作业的输入、输出和半成品依赖。
+        </div>
+        <button
+          className={`${styles.btn} ${styles['btn--primary']} ${styles.emptySnapshot__action}`}
+          onClick={onRelease}
+          disabled={!canRelease || releasePending}
+        >
+          {releasePending ? '生成中...' : '生成 BOM 任务链'}
+        </button>
       </div>
     );
   }
 
   return (
-    <div className={styles.operationLane}>
-      {operations.map((operation, index) => {
+    <div className={styles.operationPlan}>
+      <div className={styles.operationPlan__summary}>
+        <div>
+          <div className={styles.operationPlan__title}>BOM 依赖任务清单</div>
+          <div className={styles.operationPlan__desc}>
+            底层半成品优先生产，上层作业自动引用下层输出，原材料按当前 BOM 直接展开。
+          </div>
+        </div>
+        <div className={styles.operationPlan__metrics}>
+          <span>{sortedOperations.length} 道作业</span>
+          <span>{wipCount} 个半成品</span>
+          <span>{inputCount} 项输入</span>
+          <span>{dependencyCount} 个依赖</span>
+        </div>
+      </div>
+
+      <div className={styles.operationLane}>
+        {sortedOperations.map((operation) => {
         const relatedTasks = tasks.filter((task) =>
           (task.operationId && task.operationId === operation.id)
           || (!task.operationId && task.processStepId === operation.processStepId)
         );
+        const inputItems = operation.inputItems ?? [];
+        const visibleInputItems = inputItems.slice(0, OPERATION_INPUT_PREVIEW_LIMIT);
+        const hiddenInputCount = Math.max(inputItems.length - visibleInputItems.length, 0);
+        const outputItem: OperationOutputItem = operation.outputItem ?? {
+          skuId: operation.outputSkuId,
+          skuCode: operation.outputSkuCode,
+          skuName: operation.outputSkuName,
+          itemType: operation.componentType === 'fg' ? 'finished' : 'semi_finished',
+          unit: operation.outputUnit,
+          plannedQty: operation.plannedQty,
+          completedQty: operation.completedQty,
+        };
         const completePct = Math.min(
           100,
           Math.round((Number(operation.completedQty ?? 0) / Math.max(Number(operation.plannedQty ?? 0), 1)) * 100),
         );
         return (
-          <div key={operation.id} className={styles.operationCard}>
-            <div className={styles.operationCard__eyebrow}>
-              <span>工序 {operation.stepNo}</span>
-              <span className={`${styles.operationStatus} ${styles[`operationStatus--${normalizeStatusKey(operation.status)}`] ?? ''}`}>
-                {operationStatusLabel(operation.status)}
-              </span>
-            </div>
-            <div className={styles.operationCard__title}>{operation.stepName}</div>
-            <div className={styles.operationCard__sku}>
-              产出 {operation.outputSkuName ?? '未配置半成品'}
-            </div>
-            <div className={styles.operationCard__metrics}>
-              <div>
-                <span>计划</span>
-                <strong>{formatQty(operation.plannedQty)}</strong>
+          <div key={operation.id} className={styles.operationRow}>
+            <div className={styles.operationRow__main}>
+              <div className={styles.operationRow__meta}>
+                <span className={styles.operationLevel}>L{operation.bomLevel ?? 0}</span>
+                <span>工序 {operation.stepNo ?? '-'}</span>
+                <span className={`${styles.operationStatus} ${styles[`operationStatus--${normalizeStatusKey(operation.status)}`] ?? ''}`}>
+                  {operationStatusLabel(operation.status)}
+                </span>
               </div>
-              <div>
-                <span>完成</span>
-                <strong>{formatQty(operation.completedQty)}</strong>
-              </div>
-              <div>
-                <span>任务</span>
-                <strong>{relatedTasks.length}</strong>
+              <div className={styles.operationRow__title} title={operation.stepName}>{operation.stepName}</div>
+              <div className={styles.operationRow__sub}>
+                <span>{operationModeLabel(operation.executionMode)}</span>
+                <span>{relatedTasks.length} 个任务</span>
+                {operation.bomPath && <span title={operation.bomPath}>BOM路径</span>}
               </div>
             </div>
-            <div className={styles.operationCard__progress}>
-              <div className={styles.operationCard__progressTrack}>
-                <div className={styles.operationCard__progressFill} style={{ width: `${completePct}%` }} />
+
+            <div className={styles.operationFlow}>
+              <div className={`${styles.operationFlowBlock} ${styles.operationFlowBlockInput}`}>
+                <div className={styles.operationFlowBlock__head}>
+                  <span>输入</span>
+                  <strong>{inputItems.length} 项</strong>
+                </div>
+                <div className={styles.operationIoList}>
+                  {visibleInputItems.length > 0 ? visibleInputItems.map((item, itemIndex) => {
+                    const statusLabel = operationInputStatusLabel(item);
+                    return (
+                      <div
+                        key={`${operation.id}-${item.skuId}-${item.itemType}-${itemIndex}`}
+                        className={`${styles.operationIoItem} ${styles[`operationIoItem--${item.itemType}`] ?? ''}`}
+                      >
+                        <span className={styles.operationIoItem__type}>{operationInputTypeLabel(item.itemType)}</span>
+                        <strong className={styles.operationIoItem__name} title={operationItemTitle(item)}>
+                          {operationItemTitle(item)}
+                        </strong>
+                        <span className={styles.operationIoItem__qty}>
+                          {formatDecimal(item.requiredQty, 4)}{item.unit ? ` ${item.unit}` : ''}
+                        </span>
+                        {statusLabel && <span className={styles.operationIoItem__hint}>{statusLabel}</span>}
+                      </div>
+                    );
+                  }) : (
+                    <div className={styles.operationIoEmpty}>未维护输入，按该作业直接推进</div>
+                  )}
+                  {hiddenInputCount > 0 && (
+                    <div className={styles.operationIoMore}>另有 {hiddenInputCount} 项输入</div>
+                  )}
+                </div>
               </div>
-              <span>{completePct}%</span>
+
+              <div className={styles.operationFlowArrow}>→</div>
+
+              <div className={`${styles.operationFlowBlock} ${styles.operationFlowBlockOutput}`}>
+                <div className={styles.operationFlowBlock__head}>
+                  <span>输出</span>
+                  <strong>{operationOutputTypeLabel(outputItem.itemType)}</strong>
+                </div>
+                <div className={`${styles.operationIoItem} ${styles[`operationIoItem--${outputItem.itemType}`] ?? ''}`}>
+                  <span className={styles.operationIoItem__type}>{operationOutputTypeLabel(outputItem.itemType)}</span>
+                  <strong className={styles.operationIoItem__name} title={operationItemTitle(outputItem)}>
+                    {operationItemTitle(outputItem)}
+                  </strong>
+                  <span className={styles.operationIoItem__qty}>
+                    {formatDecimal(outputItem.plannedQty, 4)}{outputItem.unit ? ` ${outputItem.unit}` : ''}
+                  </span>
+                  <span className={styles.operationIoItem__hint}>已完成 {formatDecimal(outputItem.completedQty, 4)}</span>
+                </div>
+              </div>
             </div>
-            {relatedTasks.length > 0 ? (
-              <div className={styles.operationTaskList}>
-                {relatedTasks.slice(0, 3).map((task) => (
-                  <div key={task.id} className={styles.operationTask}>
-                    <strong>{task.taskNo ?? `任务 #${task.id}`}</strong>
-                    <span>{task.workerName || '待分配'} · {formatDate(task.taskDate) ?? '未排日'}</span>
-                  </div>
-                ))}
-                {relatedTasks.length > 3 && (
-                  <div className={styles.operationTaskMore}>还有 {relatedTasks.length - 3} 个任务</div>
-                )}
+
+            <div className={styles.operationRow__side}>
+              <div className={styles.operationRow__metrics}>
+                <div>
+                  <span>计划</span>
+                  <strong>{formatQty(operation.plannedQty)}</strong>
+                </div>
+                <div>
+                  <span>完成</span>
+                  <strong>{formatQty(operation.completedQty)}</strong>
+                </div>
               </div>
-            ) : (
-              <div className={styles.operationTaskMore}>尚未下发任务</div>
-            )}
-            {index < operations.length - 1 && <div className={styles.operationConnector}>→</div>}
+              <div className={styles.operationCard__progress}>
+                <div className={styles.operationCard__progressTrack}>
+                  <div className={styles.operationCard__progressFill} style={{ width: `${completePct}%` }} />
+                </div>
+                <span>{completePct}%</span>
+              </div>
+              {relatedTasks.length > 0 ? (
+                <div className={styles.operationTaskList}>
+                  {relatedTasks.slice(0, 2).map((task) => (
+                    <div key={task.id} className={styles.operationTask}>
+                      <strong>{task.taskNo ?? `任务 #${task.id}`}</strong>
+                      <span>{task.workerName || '待分配'} · {formatDate(task.taskDate) ?? '未排日'}</span>
+                    </div>
+                  ))}
+                  {relatedTasks.length > 2 && (
+                    <div className={styles.operationTaskMore}>还有 {relatedTasks.length - 2} 个任务</div>
+                  )}
+                </div>
+              ) : (
+                <div className={styles.operationTaskMore}>尚未下发任务</div>
+              )}
+            </div>
           </div>
         );
-      })}
+        })}
+      </div>
     </div>
   );
 }
@@ -622,6 +928,7 @@ export default function ProductionOrderPage() {
   const { data: materialsData } = useMaterialRequirements(selectedId);
   const createFromSO          = useCreateFromSalesOrder();
   const cancelOrder           = useCancelOrder();
+  const releaseOrder          = useReleaseProductionOrder();
   const generateSuggestions   = useGenerateMrpSuggestions();
   const { showToast }         = useAppStore();
 
@@ -738,6 +1045,22 @@ export default function ProductionOrderPage() {
     setShowCancelModal(false);
     setSelectedId(null);
   }, [selectedId, cancelOrder]);
+
+  const handleReleaseOrder = useCallback(async () => {
+    if (!selectedId) return;
+    try {
+      const result = await releaseOrder.mutateAsync(selectedId);
+      setDrawerTab('operations');
+      showToast({
+        type: 'success',
+        message: result.reused
+          ? `已复用现有任务链：${result.operationCount} 道作业`
+          : `已生成 BOM 任务链：${result.operationCount} 道作业`,
+      });
+    } catch (error) {
+      showToast({ type: 'error', message: (error as Error).message });
+    }
+  }, [selectedId, releaseOrder, showToast]);
 
   const openDetail = useCallback((id: number) => {
     setSelectedId(id);
@@ -1044,6 +1367,13 @@ export default function ProductionOrderPage() {
                 <span className={`${styles.badge} ${STATUS_MAP[detail.status]?.cls ?? styles.badgePending}`}>
                   {(STATUS_MAP[detail.status]?.dot ?? '') + (STATUS_MAP[detail.status]?.label ?? detail.status)}
                 </span>
+                <button
+                  className={`${styles.btn} ${styles['btn--primary']} ${styles['btn--sm']} ${styles.drawerHead__action}`}
+                  onClick={handleReleaseOrder}
+                  disabled={releaseOrder.isPending || detail.status === 'completed' || detail.status === 'cancelled'}
+                >
+                  {releaseOrder.isPending ? '生成中...' : operations.length > 0 ? '刷新任务链' : '生成任务链'}
+                </button>
               </div>
               <div className={styles.drawerHead__subtitle}>
                 {detail.skuName}
@@ -1051,7 +1381,7 @@ export default function ProductionOrderPage() {
               </div>
               <div className={styles.drawerHead__meta}>
                 <span>冻结结构 {components.length} 节点</span>
-                <span>工序链 {operations.length} 道</span>
+                <span>BOM任务链 {operations.length} 道</span>
                 <span>任务 {(detail.tasks as OrderTaskLite[] | undefined)?.length ?? 0} 条</span>
               </div>
               {/* 进度 */}
@@ -1082,7 +1412,7 @@ export default function ProductionOrderPage() {
                     : t === 'structure'
                       ? '结构快照'
                       : t === 'operations'
-                        ? '工序链路'
+                        ? 'BOM任务链'
                         : t === 'materials'
                           ? '物料需求'
                           : '工艺快照'}
@@ -1141,8 +1471,14 @@ export default function ProductionOrderPage() {
 
             {drawerTab === 'operations' && (
               <div className={styles.drawerSection}>
-                <div className={styles.drawerSection__title}>半成品工序链路</div>
-                <OperationLane operations={operations} tasks={(detail.tasks as OrderTaskLite[] | undefined) ?? []} />
+                <div className={styles.drawerSection__title}>BOM 依赖任务链</div>
+                <OperationLane
+                  operations={operations}
+                  tasks={(detail.tasks as OrderTaskLite[] | undefined) ?? []}
+                  onRelease={handleReleaseOrder}
+                  releasePending={releaseOrder.isPending}
+                  canRelease={detail.status !== 'completed' && detail.status !== 'cancelled'}
+                />
               </div>
             )}
 

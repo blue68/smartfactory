@@ -459,6 +459,35 @@ export class SchedulerService {
    * 确认排产计划（车间主管审核后下发给工人）
    */
   async confirmSchedule(date: string, batchId?: number): Promise<void> {
+    const readinessRows = await AppDataSource.query<Array<{
+      total: number | string;
+      missingWorkerCount: number | string | null;
+      missingWorkstationCount: number | string | null;
+    }>>(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN ps.worker_id IS NULL THEN 1 ELSE 0 END) AS missingWorkerCount,
+         SUM(CASE WHEN ps.workstation_id IS NULL THEN 1 ELSE 0 END) AS missingWorkstationCount
+       FROM production_schedules ps
+       INNER JOIN production_orders po
+         ON po.id = ps.production_order_id
+        AND po.tenant_id = ps.tenant_id
+       WHERE ps.tenant_id = ? AND ps.schedule_date = ? AND ps.status = 'planned'
+         AND (? IS NULL OR po.joint_batch_id = ?)`,
+      [this.tenantId, date, batchId ?? null, batchId ?? null],
+    );
+    const readiness = readinessRows[0];
+    const plannedCount = Number(readiness?.total ?? 0);
+    const missingWorkerCount = Number(readiness?.missingWorkerCount ?? 0);
+    const missingWorkstationCount = Number(readiness?.missingWorkstationCount ?? 0);
+    if (plannedCount > 0 && (missingWorkerCount > 0 || missingWorkstationCount > 0)) {
+      const missingParts = [
+        missingWorkerCount > 0 ? `${missingWorkerCount} 条未分配工人` : '',
+        missingWorkstationCount > 0 ? `${missingWorkstationCount} 条未分配工位` : '',
+      ].filter(Boolean);
+      throw AppError.badRequest(`排产计划还有 ${missingParts.join('、')}，请补齐后再下发`);
+    }
+
     await AppDataSource.query(
       `UPDATE production_schedules
        SET status = 'confirmed', updated_by = ?
@@ -2363,6 +2392,7 @@ export class SchedulerService {
        INNER JOIN production_orders po ON po.id = op.production_order_id
        INNER JOIN sales_orders so ON so.id = po.sales_order_id
        LEFT JOIN joint_production_batches jb ON jb.id = po.joint_batch_id AND jb.tenant_id = po.tenant_id
+       LEFT JOIN production_order_components poc ON poc.id = op.component_id AND poc.tenant_id = op.tenant_id
        LEFT JOIN process_steps ps ON ps.id = op.process_step_id
        LEFT JOIN skus outs ON outs.id = op.output_sku_id
        WHERE op.tenant_id = ?
@@ -2380,6 +2410,7 @@ export class SchedulerService {
            20 * IF(so.order_type = 'urgent', 1, 0)
          ) DESC,
          COALESCE(ps.step_no, 9999) ASC,
+         COALESCE(poc.bom_level, 0) DESC,
          op.id ASC`,
       [this.tenantId, this.tenantId, batchId ?? null, batchId ?? null],
     );

@@ -16,8 +16,8 @@ const enableQueryDevtools =
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 30,
-      gcTime: isDev ? 1000 * 60 : 1000 * 60 * 5,
+      staleTime: 1000 * 20,
+      gcTime: 1000 * 60,
       retry: (failureCount, error) => {
         if (error instanceof Error && error.name === 'ApiError') return false;
         return failureCount < 2;
@@ -26,6 +26,7 @@ const queryClient = new QueryClient({
     },
     mutations: {
       retry: false,
+      gcTime: 1000 * 60,
     },
   },
 });

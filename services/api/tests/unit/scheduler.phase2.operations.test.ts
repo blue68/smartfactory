@@ -3,6 +3,7 @@ const mockSet = jest.fn();
 const mockGet = jest.fn();
 const mockDel = jest.fn();
 const mockSetex = jest.fn();
+const mockKeys = jest.fn();
 
 jest.mock('../../src/config/database', () => ({
   AppDataSource: {
@@ -13,6 +14,7 @@ jest.mock('../../src/config/database', () => ({
 jest.mock('../../src/config/redis', () => ({
   RedisKeys: {
     schedule: (tenantId: number, date: string) => `schedule:${tenantId}:${date}`,
+    schedulePattern: (tenantId: number, date: string) => `schedule:${tenantId}:${date}*`,
   },
   RedisTTL: {
     SCHEDULE: 300,
@@ -21,6 +23,7 @@ jest.mock('../../src/config/redis', () => ({
     set: (...args: unknown[]) => mockSet(...args),
     get: (...args: unknown[]) => mockGet(...args),
     del: (...args: unknown[]) => mockDel(...args),
+    keys: (...args: unknown[]) => mockKeys(...args),
     setex: (...args: unknown[]) => mockSetex(...args),
   }),
 }));
@@ -40,6 +43,7 @@ describe('SchedulerService phase2 operation scheduling', () => {
     mockGet.mockResolvedValue(null);
     mockDel.mockResolvedValue(1);
     mockSetex.mockResolvedValue('OK');
+    mockKeys.mockResolvedValue([]);
   });
 
   it('generateSchedule 使用 production_operations 作为排产输入', async () => {
@@ -61,6 +65,9 @@ describe('SchedulerService phase2 operation scheduling', () => {
       }
       if (sql.includes('SELECT COUNT(*) AS cnt') && sql.includes('FROM production_operations')) {
         return [{ cnt: 1 }];
+      }
+      if (sql.includes('FROM work_calendar')) {
+        return [];
       }
       if (sql.includes("FROM users u")) {
         return [{ id: 9001, real_name: '工人A', skill_tags: null }];
@@ -134,6 +141,9 @@ describe('SchedulerService phase2 operation scheduling', () => {
 
   it('confirmSchedule 写入 operation/component/output 关联字段到 production_tasks', async () => {
     mockQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('COUNT(*) AS total') && sql.includes('missingWorkerCount')) {
+        return [{ total: 1, missingWorkerCount: 0, missingWorkstationCount: 0 }];
+      }
       if (sql.startsWith('UPDATE production_schedules')) return { affectedRows: 1 };
       if (sql.includes('FROM production_schedules ps')) {
         return [{
@@ -168,8 +178,28 @@ describe('SchedulerService phase2 operation scheduling', () => {
     expect(insertCall?.[1]).toEqual(expect.arrayContaining([7001, 6001, 4001]));
   });
 
+  it('confirmSchedule 拒绝下发未补齐工人或工位的排产', async () => {
+    mockQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('COUNT(*) AS total') && sql.includes('missingWorkerCount')) {
+        return [{ total: 3, missingWorkerCount: 1, missingWorkstationCount: 2 }];
+      }
+      return [];
+    });
+
+    const svc = new SchedulerService({ tenantId: 1, userId: 99 });
+    await expect(svc.confirmSchedule('2026-04-01')).rejects.toThrow('请补齐后再下发');
+
+    const updateCall = mockQuery.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.startsWith('UPDATE production_schedules'),
+    );
+    expect(updateCall).toBeUndefined();
+  });
+
   it('confirmSchedule 不会为已生成任务的 confirmed 排产重复建任务', async () => {
     mockQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('COUNT(*) AS total') && sql.includes('missingWorkerCount')) {
+        return [{ total: 0, missingWorkerCount: 0, missingWorkstationCount: 0 }];
+      }
       if (sql.startsWith('UPDATE production_schedules')) return { affectedRows: 0 };
       if (sql.includes('FROM production_schedules ps')) return [];
       return [];
@@ -179,7 +209,7 @@ describe('SchedulerService phase2 operation scheduling', () => {
     await svc.confirmSchedule('2026-03-31');
 
     const scheduleSelect = mockQuery.mock.calls.find(
-      ([sql]) => typeof sql === 'string' && sql.includes('FROM production_schedules ps'),
+      ([sql]) => typeof sql === 'string' && sql.includes('FROM production_schedules ps') && sql.includes('NOT EXISTS'),
     );
     expect(scheduleSelect).toBeDefined();
     expect(String(scheduleSelect?.[0])).toContain('NOT EXISTS');

@@ -1215,6 +1215,53 @@ export class ProductionService {
   ): Promise<{ updated: number }> {
     let updated = 0;
     const normalizedAdjustments = [...adjustments].sort((a, b) => a.scheduleId - b.scheduleId);
+    const workerIds = [...new Set(
+      normalizedAdjustments
+        .map((item) => item.workerId)
+        .filter((workerId): workerId is number => workerId !== undefined),
+    )];
+    const workstationIds = [...new Set(
+      normalizedAdjustments
+        .map((item) => item.workstationId)
+        .filter((workstationId): workstationId is number => workstationId !== undefined),
+    )];
+
+    if (workerIds.length > 0) {
+      const placeholders = workerIds.map(() => '?').join(', ');
+      const rows = await AppDataSource.query<Array<{ id: number }>>(
+        `SELECT DISTINCT u.id
+         FROM users u
+         INNER JOIN user_roles ur ON ur.user_id = u.id
+         INNER JOIN roles r ON r.id = ur.role_id
+         WHERE u.tenant_id = ?
+           AND u.status = 'active'
+           AND r.code = 'worker'
+           AND u.id IN (${placeholders})`,
+        [this.tenantId, ...workerIds],
+      );
+      const validWorkerIds = new Set(rows.map((row) => Number(row.id)));
+      const invalidWorkerIds = workerIds.filter((workerId) => !validWorkerIds.has(workerId));
+      if (invalidWorkerIds.length > 0) {
+        throw AppError.badRequest(`存在无效或非生产工人账号：${invalidWorkerIds.join(', ')}`);
+      }
+    }
+
+    if (workstationIds.length > 0) {
+      const placeholders = workstationIds.map(() => '?').join(', ');
+      const rows = await AppDataSource.query<Array<{ id: number }>>(
+        `SELECT id
+         FROM workstations
+         WHERE tenant_id = ?
+           AND status = 'active'
+           AND id IN (${placeholders})`,
+        [this.tenantId, ...workstationIds],
+      );
+      const validWorkstationIds = new Set(rows.map((row) => Number(row.id)));
+      const invalidWorkstationIds = workstationIds.filter((workstationId) => !validWorkstationIds.has(workstationId));
+      if (invalidWorkstationIds.length > 0) {
+        throw AppError.badRequest(`存在无效或停用工作站：${invalidWorkstationIds.join(', ')}`);
+      }
+    }
 
     await AppDataSource.transaction(async (manager) => {
       for (const adj of normalizedAdjustments) {
@@ -2147,6 +2194,21 @@ export class ProductionService {
     });
   }
 
+  private async hasTaskStepInputMaterials(processStepId: number): Promise<boolean> {
+    const [row] = await AppDataSource.query<Array<{ cnt: string }>>(
+      `SELECT COUNT(*) AS cnt
+       FROM process_steps ps
+       INNER JOIN process_step_materials psm
+         ON psm.tenant_id = ps.tenant_id
+        AND psm.template_id = ps.template_id
+        AND psm.step_no = ps.step_no
+       WHERE ps.id = ? AND ps.tenant_id = ?
+       LIMIT 1`,
+      [processStepId, this.tenantId],
+    );
+    return Number(row?.cnt ?? 0) > 0;
+  }
+
   private async getTaskInputItems(
     task: {
       id: number;
@@ -2233,6 +2295,14 @@ export class ProductionService {
           inventoryTxId: null,
         };
       });
+
+    const hasExplicitStepMaterials = await this.hasTaskStepInputMaterials(task.processStepId);
+    if (!hasExplicitStepMaterials && task.outputSkuId) {
+      const bomInputItems = await this.getTaskBomInputItems(task, predecessors, materialTransactions);
+      if (bomInputItems.length > 0) {
+        return bomInputItems;
+      }
+    }
 
     const materialItems = await this.getTaskInputMaterials(task, materialTransactions);
     if (materialItems.length > 0) {
@@ -2406,8 +2476,13 @@ export class ProductionService {
 
       if (item.itemType === 'semi_finished') {
         const predecessor = predecessorBySkuId.get(Number(item.skuId));
-        const fulfilledQty = new Decimal(predecessor?.completedQty ?? 0);
-        const shortageQty = Decimal.max(requiredQty.minus(fulfilledQty), 0);
+        const transaction = txBySkuId.get(Number(item.skuId));
+        const producedQty = new Decimal(predecessor?.completedQty ?? 0);
+        const issuedQty = new Decimal(transaction?.actualQty ?? 0);
+        const shortageQty = Decimal.max(requiredQty.minus(producedQty), 0);
+        const issueShortageQty = shortageQty.gt(0)
+          ? shortageQty
+          : Decimal.max(requiredQty.minus(issuedQty), 0);
 
         return {
           itemType: 'semi_finished' as const,
@@ -2421,14 +2496,20 @@ export class ProductionService {
           productionUnit: item.productionUnit,
           hasDyeLot: false,
           requiredQty: requiredQty.toFixed(4),
-          fulfilledQty: fulfilledQty.toFixed(4),
-          qtyAvailable: fulfilledQty.toFixed(4),
-          shortageQty: shortageQty.toFixed(4),
-          isShortage: shortageQty.gt(0),
-          status: predecessor?.status ?? (shortageQty.gt(0) ? '待齐套' : '已满足'),
+          fulfilledQty: issuedQty.gt(0) ? issuedQty.toFixed(4) : producedQty.toFixed(4),
+          qtyAvailable: producedQty.toFixed(4),
+          shortageQty: issueShortageQty.toFixed(4),
+          isShortage: issueShortageQty.gt(0),
+          status: shortageQty.gt(0)
+            ? '待齐套'
+            : transaction?.inventoryTxId
+              ? '已投料'
+              : issuedQty.gt(0)
+                ? '部分投料'
+                : '待投料',
           operationId: predecessor?.operationId ?? null,
           stepName: predecessor?.stepName ?? null,
-          inventoryTxId: null,
+          inventoryTxId: transaction?.inventoryTxId ?? null,
         };
       }
 

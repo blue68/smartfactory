@@ -202,6 +202,16 @@ interface UrgentTagProps {
   urgent: boolean;
 }
 
+function toBooleanFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === '1' || normalized === 'true' || normalized === 'urgent';
+  }
+  return false;
+}
+
 function UrgentTag({ urgent }: UrgentTagProps) {
   if (!urgent) return <span className={styles.urgentTagEmpty}>—</span>;
   return <span className={styles.urgentTag}>紧急</span>;
@@ -823,7 +833,7 @@ function CreateOrderModal({ open, onClose, onSuccess, initialOrder = null }: Cre
     setCustomerId(Number(order.customerId) || '');
     setOrderDate(order.orderDate ? String(order.orderDate).slice(0, 10) : '');
     setDeliveryDate(order.deliveryDate ? String(order.deliveryDate).slice(0, 10) : '');
-    setUrgent(Boolean(order.isUrgent));
+    setUrgent(toBooleanFlag(order.isUrgent));
     setItems(buildDraftItemsFromOrder(order));
     setNotes(order.notes ?? '');
     setError('');
@@ -2096,7 +2106,7 @@ function OrderDetailDrawer({ orderId, onClose, onRefresh, onEdit }: OrderDetailD
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>紧急</span>
                   <span className={styles.infoValue}>
-                    <UrgentTag urgent={order.isUrgent} />
+                    <UrgentTag urgent={toBooleanFlag(order.isUrgent)} />
                   </span>
                 </div>
                 <div className={styles.infoItem}>
@@ -2563,7 +2573,7 @@ export default function SalesOrderListPage() {
     {
       key: 'isUrgent',
       title: '紧急',
-      render: (v) => <UrgentTag urgent={Boolean(v)} />,
+      render: (v) => <UrgentTag urgent={toBooleanFlag(v)} />,
     },
     {
       key: 'status',
