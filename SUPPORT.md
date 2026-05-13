@@ -4,13 +4,14 @@
 
 | 微信支付 | 支付宝 |
 | --- | --- |
-| ![微信支付打赏收款码](docs/assets/donation/wechat-pay-reward.jpg) | ![支付宝打赏收款码](docs/assets/donation/alipay-reward.jpg) |
+| 待补充原图：`docs/assets/donation/wechat-pay-reward.jpg` | 待补充原图：`docs/assets/donation/alipay-reward.jpg` |
 
 收款码资产路径：
 
 - 微信支付：`docs/assets/donation/wechat-pay-reward.jpg`
 - 支付宝：`docs/assets/donation/alipay-reward.jpg`
 - 请使用微信支付、支付宝导出的原图，不要重画、重新生成、裁剪或高压缩二维码。
+- 原图入库前，本文件不直接嵌入二维码图片，避免 GitHub 页面出现 404 破图。
 
 说明：
 
