@@ -8,6 +8,7 @@
 
 - [业务定位](#业务定位)
 - [视觉概要图](#视觉概要图)
+- [核心模块效果图](#核心模块效果图)
 - [源码开放与非商业授权](#源码开放与非商业授权)
 - [联系方式](#联系方式)
 - [支持作者](#支持作者)
@@ -50,6 +51,30 @@
 下图从业务定位、系统架构、核心模块和数据流向四个视角快速概览工程全貌，可作为新人理解系统边界和主链路的第一张图。
 
 ![智造管家项目视觉概要图](docs/assets/smartfactory-visual-overview.svg)
+
+## 核心模块效果图
+
+以下截图来自真实浏览器 E2E/功能回归流程，展示系统核心模块的实际运行界面。
+
+| 驾驶舱 | 销售订单 |
+| --- | --- |
+| <img src="docs/assets/screenshots/core/dashboard.png" alt="驾驶舱效果图" width="420"> | <img src="docs/assets/screenshots/core/sales-order-list.png" alt="销售订单效果图" width="420"> |
+
+| 库存总览 | 采购建议 |
+| --- | --- |
+| <img src="docs/assets/screenshots/core/inventory-list.png" alt="库存总览效果图" width="420"> | <img src="docs/assets/screenshots/core/purchase-suggestion.png" alt="采购建议效果图" width="420"> |
+
+| 生产排程 | 生产订单 |
+| --- | --- |
+| <img src="docs/assets/screenshots/core/production-schedule.png" alt="生产排程效果图" width="420"> | <img src="docs/assets/screenshots/core/production-orders.png" alt="生产订单效果图" width="420"> |
+
+| 生产任务 | 质量追溯 |
+| --- | --- |
+| <img src="docs/assets/screenshots/core/production-tasks.png" alt="生产任务效果图" width="420"> | <img src="docs/assets/screenshots/core/quality-trace.png" alt="质量追溯效果图" width="420"> |
+
+| AI 对话 |
+| --- |
+| <img src="docs/assets/screenshots/core/ai-chat.png" alt="AI 对话效果图" width="420"> |
 
 ## 源码开放与非商业授权
 
