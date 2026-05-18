@@ -1,0 +1,61 @@
+name: Feature request
+description: 提出非商业场景下的功能建议
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本项目限制商业使用。功能建议欢迎用于学习、研究、非商业演示和社区贡献；商业落地需先取得作者书面许可。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 背景和问题
+      description: 说明当前流程的痛点，以及为什么需要这个功能。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 描述你希望系统如何工作。
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及模块
+      options:
+        - 销售
+        - 采购
+        - 库存
+        - 生产
+        - 质量
+        - 报表
+        - AI 辅助
+        - 权限/租户
+        - 微信小程序
+        - 部署/运维
+        - 文档
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 用可验证的条目说明什么情况下算完成。
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: false
+  - type: textarea
+    id: risks
+    attributes:
+      label: 可能影响或风险
+      description: 例如权限、数据兼容、数据库迁移、部署、性能、已有流程回归等。
+    validations:
+      required: false
+

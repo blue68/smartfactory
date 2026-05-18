@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 商业授权咨询
+    url: https://github.com/blue68/smartfactory#联系方式
+    about: 商业使用、SaaS 运营、外包交付、付费培训或商业集成需先取得作者书面许可。
+  - name: 安全漏洞报告
+    url: https://github.com/blue68/smartfactory/security/policy
+    about: 请勿公开披露可利用细节，优先通过邮件私下报告。

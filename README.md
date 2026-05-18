@@ -25,6 +25,8 @@
 - [测试与质量检查](#测试与质量检查)
 - [部署与运维](#部署与运维)
 - [开发规范](#开发规范)
+- [参与贡献](#参与贡献)
+- [安全与漏洞报告](#安全与漏洞报告)
 - [常见问题](#常见问题)
 
 ## 业务定位
@@ -1237,6 +1239,18 @@ GET /api/health/metrics
 - 回滚路径。
 - 回归验证范围。
 
+## 参与贡献
+
+欢迎提交 Issue、Pull Request、测试用例、文档修正和非商业场景下的改进建议。Bug 和功能建议可使用 `.github/ISSUE_TEMPLATE/` 下的 GitHub Issue 模板。贡献前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并确认已理解 [LICENSE](LICENSE) 与 [NOTICE](NOTICE) 中的非商业授权边界。
+
+提交 PR 时请按 `.github/pull_request_template.md` 填写变更摘要、影响范围和验证记录。核心模块界面、部署方式、环境变量、联系方式、收款码或授权说明发生变化时，需要同步更新 README 或 `docs/`。
+
+## 安全与漏洞报告
+
+如果发现权限绕过、多租户数据隔离、敏感信息泄露、注入风险、认证缺陷或供应链风险，请不要先公开披露可利用细节。请按 [SECURITY.md](SECURITY.md) 通过邮件或微信联系作者。
+
+安全研究、漏洞报告或修复贡献不构成商业授权；商业使用仍需先取得作者书面同意。
+
 ## 常见问题
 
 ### 1. 登录提示租户或账号不存在
@@ -1329,5 +1343,7 @@ docker volume ls | grep mysql_data
 - 部署指南：`docs/deployment-guide.md`
 - 生产部署 Runbook：`docs/production-server-deployment-runbook.md`
 - 开源发布检查清单：`docs/open-source-release-checklist.md`
+- 贡献指南：`CONTRIBUTING.md`
+- 安全政策：`SECURITY.md`
 - 小程序说明：`services/mini/README.md`
 - 多 Agent 协作规范：`AGENTS.md`

@@ -7,6 +7,10 @@
 - [x] Updated root `package.json` and `package-lock.json` from `ISC` to `SEE LICENSE IN LICENSE`.
 - [x] Added README section for non-commercial authorization.
 - [x] Clarified that donations do not grant commercial authorization.
+- [x] Added `CONTRIBUTING.md` with contribution workflow and non-commercial contribution boundary.
+- [x] Added `SECURITY.md` with private vulnerability reporting path.
+- [x] Added GitHub Issue templates for bug reports and feature requests.
+- [x] Updated Pull Request template with authorization, README/docs, and latest-branch checks.
 
 ## Donation Assets
 
