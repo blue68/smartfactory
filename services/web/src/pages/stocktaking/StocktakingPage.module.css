@@ -483,7 +483,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2000;
+  z-index: var(--z-modal-backdrop, 1200);
   padding: 16px;
 }
 
@@ -493,6 +493,8 @@
   border-radius: 16px;
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
   overflow: hidden;
+  position: relative;
+  z-index: var(--z-modal, 1300);
 }
 
 .modal_header {

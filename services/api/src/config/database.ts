@@ -1,5 +1,12 @@
 import { DataSource } from 'typeorm';
 
+function readPositiveInt(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+const dbPoolMax = readPositiveInt('DB_POOL_MAX', readPositiveInt('DB_POOL_SIZE', 6));
+
 /**
  * TypeORM 数据源配置
  * 连接参数从环境变量读取，私有化部署与 SaaS 模式共用同一套代码
@@ -18,12 +25,11 @@ export const AppDataSource = new DataSource({
   logging: process.env.NODE_ENV === 'development' ? ['query', 'error'] : ['error'],
   entities: [__dirname + '/../modules/**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/../migrations/*{.ts,.js}'],
-  poolSize: Number(process.env.DB_POOL_MAX ?? 20),
+  poolSize: dbPoolMax,
   connectorPackage: 'mysql2',
   extra: {
     // mysql2 连接池额外配置（BE-P2-015 优化）
-    connectionLimit: Number(process.env.DB_POOL_MAX ?? 20),
-    minIdle: Number(process.env.DB_POOL_MIN ?? 5),
+    connectionLimit: dbPoolMax,
     waitForConnections: true,
     connectTimeout: 30_000,     // 连接超时 30 秒
     idleTimeout: 10_000,        // 空闲连接 10 秒后回收

@@ -663,7 +663,18 @@ export class SchedulerService {
           ps.component_id,
           po.work_order_no,
           ps.process_step_id,
-          COALESCE(pst.step_name, CONCAT('STEP#', ps.process_step_id)) AS step_name,
+          CASE
+            WHEN COALESCE(out_c2.name, '') = '裁剪类'
+              OR outs.name LIKE '%海绵%'
+              OR outs.name LIKE '%棉%'
+              OR outs.name LIKE '%布%'
+            THEN CONCAT('裁剪：', COALESCE(outs.name, CONCAT('SKU#', ps.output_sku_id)))
+            WHEN outs.name LIKE '%+爪钉%' OR outs.name LIKE '%爪钉%'
+            THEN CONCAT('钉打：', COALESCE(outs.name, CONCAT('SKU#', ps.output_sku_id)))
+            WHEN outs.name LIKE '%+孔%'
+            THEN CONCAT('钻孔：', COALESCE(outs.name, CONCAT('SKU#', ps.output_sku_id)))
+            ELSE COALESCE(pst.step_name, CONCAT('STEP#', ps.process_step_id))
+          END AS step_name,
           ps.output_sku_id,
           outs.name AS output_sku_name,
           ps.worker_id,
@@ -677,6 +688,7 @@ export class SchedulerService {
        LEFT JOIN joint_production_batches jb ON jb.id = po.joint_batch_id AND jb.tenant_id = po.tenant_id
        LEFT JOIN process_steps pst ON pst.id = ps.process_step_id
        LEFT JOIN skus outs ON outs.id = ps.output_sku_id
+       LEFT JOIN sku_categories out_c2 ON out_c2.id = outs.category2_id
        LEFT JOIN users u ON u.id = ps.worker_id
        LEFT JOIN workstations w ON w.id = ps.workstation_id
        WHERE ps.tenant_id = ? AND ps.schedule_date = ? AND ps.status IN ('planned', 'confirmed')
@@ -2383,10 +2395,40 @@ export class SchedulerService {
           op.output_sku_id,
           op.planned_qty,
           po.work_order_no,
-          COALESCE(ps.step_name, CONCAT('STEP#', op.process_step_id)) AS step_name,
+          CASE
+            WHEN COALESCE(out_c2.name, '') = '裁剪类'
+              OR outs.name LIKE '%海绵%'
+              OR outs.name LIKE '%棉%'
+              OR outs.name LIKE '%布%'
+            THEN CONCAT('裁剪：', COALESCE(outs.name, CONCAT('SKU#', op.output_sku_id)))
+            WHEN outs.name LIKE '%+爪钉%' OR outs.name LIKE '%爪钉%'
+            THEN CONCAT('钉打：', COALESCE(outs.name, CONCAT('SKU#', op.output_sku_id)))
+            WHEN outs.name LIKE '%+孔%'
+            THEN CONCAT('钻孔：', COALESCE(outs.name, CONCAT('SKU#', op.output_sku_id)))
+            ELSE COALESCE(ps.step_name, CONCAT('STEP#', op.process_step_id))
+          END AS step_name,
           COALESCE(ps.standard_hours, 0) AS standard_hours,
-          ps.workstation_type,
-          ps.workstation_id,
+          CASE
+            WHEN COALESCE(out_c2.name, '') = '裁剪类'
+              OR outs.name LIKE '%海绵%'
+              OR outs.name LIKE '%棉%'
+              OR outs.name LIKE '%布%'
+            THEN '裁剪区'
+            WHEN outs.name LIKE '%+爪钉%' OR outs.name LIKE '%爪钉%' THEN '钉打区'
+            WHEN outs.name LIKE '%+孔%' THEN '钻孔区'
+            ELSE ps.workstation_type
+          END AS workstation_type,
+          CASE
+            WHEN COALESCE(out_c2.name, '') = '裁剪类'
+              OR outs.name LIKE '%海绵%'
+              OR outs.name LIKE '%棉%'
+              OR outs.name LIKE '%布%'
+              OR outs.name LIKE '%+孔%'
+              OR outs.name LIKE '%+爪钉%'
+              OR outs.name LIKE '%爪钉%'
+            THEN NULL
+            ELSE ps.workstation_id
+          END AS workstation_id,
           outs.name AS output_sku_name
        FROM production_operations op
        INNER JOIN production_orders po ON po.id = op.production_order_id
@@ -2395,6 +2437,7 @@ export class SchedulerService {
        LEFT JOIN production_order_components poc ON poc.id = op.component_id AND poc.tenant_id = op.tenant_id
        LEFT JOIN process_steps ps ON ps.id = op.process_step_id
        LEFT JOIN skus outs ON outs.id = op.output_sku_id
+       LEFT JOIN sku_categories out_c2 ON out_c2.id = outs.category2_id
        WHERE op.tenant_id = ?
          AND po.tenant_id = ?
          AND (? IS NULL OR po.joint_batch_id = ?)

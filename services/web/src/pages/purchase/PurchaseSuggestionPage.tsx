@@ -2,6 +2,7 @@
  * [artifact:前端代码] — 采购建议管理页面
  */
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useJointProductionBatches } from '@/api/mrp';
 import {
@@ -961,7 +962,7 @@ export default function PurchaseSuggestionPage() {
         </div>
       </section>
 
-      {panelOpen && primaryRow && (
+      {panelOpen && primaryRow && createPortal(
         <div className={styles.panelOverlay} role="presentation" onClick={closePanel}>
           <aside
             className={styles.reviewPanel}
@@ -1135,10 +1136,11 @@ export default function PurchaseSuggestionPage() {
               </button>
             </div>
           </aside>
-        </div>
+        </div>,
+        document.body,
       )}
 
-      {supplierPickerOpen && (
+      {supplierPickerOpen && createPortal(
         <div className={styles.dialogOverlay} role="presentation" onClick={closeSupplierPicker}>
           <section
             className={styles.supplierDialog}
@@ -1219,10 +1221,11 @@ export default function PurchaseSuggestionPage() {
               </button>
             </div>
           </section>
-        </div>
+        </div>,
+        document.body,
       )}
 
-      {detailRow && (
+      {detailRow && createPortal(
         <div className={styles.panelOverlay} role="presentation" onClick={closeDetailPanel}>
           <aside
             className={`${styles.reviewPanel} ${styles.detailPanel}`}
@@ -1427,7 +1430,8 @@ export default function PurchaseSuggestionPage() {
               )}
             </div>
           </aside>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

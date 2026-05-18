@@ -14,6 +14,12 @@
 #   Redis：  localhost:6379（仅调试时启用）
 # ─────────────────────────────────────────────────────────────────────────────
 
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ── MySQL 8.0 ──────────────────────────────────────────────────────────────
@@ -21,6 +27,10 @@ services:
     image: mysql:8.0
     container_name: sf_mysql
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: ${MYSQL_MEM_LIMIT:-512m}
+    memswap_limit: ${MYSQL_MEMSWAP_LIMIT:-512m}
+    cpus: ${MYSQL_CPUS:-0.75}
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       MYSQL_DATABASE:      ${DB_NAME}
@@ -30,8 +40,9 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --default-time-zone=+08:00
-      - --max-connections=200
-      - --innodb-buffer-pool-size=256M
+      - --max-connections=${MYSQL_MAX_CONNECTIONS:-80}
+      - --innodb-buffer-pool-size=${MYSQL_INNODB_BUFFER_POOL_SIZE:-128M}
+      - --performance-schema=OFF
       - --slow-query-log=ON
       - --long-query-time=2
       - --slow-query-log-file=/var/log/mysql/slow.log
@@ -53,14 +64,18 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: "1.0"
+          memory: ${MYSQL_MEM_LIMIT:-512m}
+          cpus: ${MYSQL_CPUS:-0.75}
 
   # ── Redis 7 ────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: sf_redis
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: ${REDIS_MEM_LIMIT:-160m}
+    memswap_limit: ${REDIS_MEMSWAP_LIMIT:-160m}
+    cpus: ${REDIS_CPUS:-0.35}
     command:
       - redis-server
       - --requirepass
@@ -72,7 +87,7 @@ services:
       - --maxmemory
       - 128mb
       - --maxmemory-policy
-      - allkeys-lru
+      - noeviction
       - --loglevel
       - notice
     volumes:
@@ -91,8 +106,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 192M
-          cpus: "0.5"
+          memory: ${REDIS_MEM_LIMIT:-160m}
+          cpus: ${REDIS_CPUS:-0.35}
 
   # ── API 服务（Node.js 18）──────────────────────────────────────────────────
   api:
@@ -102,6 +117,10 @@ services:
     image: smart-factory-api:latest
     container_name: sf_api
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: ${API_MEM_LIMIT:-384m}
+    memswap_limit: ${API_MEMSWAP_LIMIT:-384m}
+    cpus: ${API_CPUS:-0.75}
     depends_on:
       mysql:
         condition: service_healthy
@@ -116,7 +135,8 @@ services:
       DB_NAME:        ${DB_NAME}
       DB_USER:        ${DB_USER}
       DB_PASS:        ${DB_PASS}
-      DB_POOL_SIZE:   ${DB_POOL_SIZE:-10}
+      DB_POOL_SIZE:   ${DB_POOL_SIZE:-6}
+      DB_POOL_MAX:    ${DB_POOL_MAX:-6}
       # Redis
       REDIS_HOST:     redis
       REDIS_PORT:     6379
@@ -128,6 +148,8 @@ services:
       # 应用
       APP_NAME:       ${APP_NAME:-智造管家}
       LOG_LEVEL:      ${LOG_LEVEL:-info}
+      NODE_OPTIONS:   ${NODE_OPTIONS:---max-old-space-size=256}
+      ENABLE_BACKGROUND_WORKERS: ${ENABLE_BACKGROUND_WORKERS:-false}
       # 文件上传
       FILE_STORAGE_DRIVER: ${FILE_STORAGE_DRIVER:-local}
       UPLOAD_DIR:     ${UPLOAD_DIR:-/app/uploads}
@@ -158,8 +180,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: "1.0"
+          memory: ${API_MEM_LIMIT:-384m}
+          cpus: ${API_CPUS:-0.75}
 
   # ── Web 前端（React + Nginx）──────────────────────────────────────────────
   web:
@@ -169,6 +191,10 @@ services:
     image: smart-factory-web:latest
     container_name: sf_web
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: ${WEB_MEM_LIMIT:-96m}
+    memswap_limit: ${WEB_MEMSWAP_LIMIT:-96m}
+    cpus: ${WEB_CPUS:-0.25}
     depends_on:
       api:
         condition: service_healthy
@@ -185,8 +211,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 64M
-          cpus: "0.25"
+          memory: ${WEB_MEM_LIMIT:-96m}
+          cpus: ${WEB_CPUS:-0.25}
 
 # ── 持久化卷 ──────────────────────────────────────────────────────────────────
 volumes:

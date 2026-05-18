@@ -515,7 +515,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 400;
+  z-index: var(--z-modal-backdrop, 1200);
   animation: overlayIn 200ms ease;
 }
 
@@ -525,6 +525,8 @@
 }
 
 .thinking_modal {
+  position: relative;
+  z-index: var(--z-modal, 1300);
   background: #FFFFFF;
   border-radius: 16px;
   box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);

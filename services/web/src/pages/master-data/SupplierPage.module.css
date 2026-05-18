@@ -352,7 +352,7 @@
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.55);
-  z-index: 200;
+  z-index: var(--z-modal-backdrop, 1200);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -367,6 +367,8 @@
 }
 
 .perfModal {
+  position: relative;
+  z-index: var(--z-modal, 1300);
   background: var(--bg-card);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);

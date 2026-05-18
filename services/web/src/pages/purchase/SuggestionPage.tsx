@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useAppStore } from '@/stores/appStore';
 import {
   useSuggestionList,
@@ -614,7 +615,7 @@ export default function SuggestionPage() {
       </div>
 
       {/* ── AI Thinking Modal ──────────────────────────────────────────────── */}
-      {thinkingOpen && (
+      {thinkingOpen && createPortal(
         <div
           className={styles.modal_overlay}
           role="dialog"
@@ -678,7 +679,8 @@ export default function SuggestionPage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       <Modal

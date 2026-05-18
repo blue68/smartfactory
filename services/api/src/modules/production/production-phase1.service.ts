@@ -700,6 +700,10 @@ export class ProductionPhase1Service {
     const orderId = Number(order.id);
     const nodes = this.flattenBomDependencyNodes(root);
     const componentByNodeKey = new Map<string, CreatedComponent>();
+    const componentStepBySkuId = await this.fetchPrimaryProcessStepBySkuIds(
+      manager,
+      [...new Set(nodes.filter((node) => node.skuId !== order.sku_id).map((node) => node.skuId))],
+    );
 
     for (const node of [...nodes].sort((a, b) => a.level - b.level || a.path.localeCompare(b.path, 'zh-CN'))) {
       const parentComponent = node.parentKey ? componentByNodeKey.get(node.parentKey) ?? null : null;
@@ -720,19 +724,20 @@ export class ProductionPhase1Service {
     for (const node of [...nodes].sort((a, b) => b.level - a.level || a.path.localeCompare(b.path, 'zh-CN'))) {
       const component = componentByNodeKey.get(node.key);
       if (!component) continue;
-      const processStepId = this.pickBomDependencyProcessStepId(processSteps, node, order.sku_id);
+      const processStep = this.pickBomDependencyProcessStep(processSteps, componentStepBySkuId, node, order.sku_id);
       const opInsert = await manager.query(
         `INSERT INTO production_operations
            (tenant_id, production_order_id, component_id, process_step_id, output_sku_id,
             planned_qty, completed_qty, status, execution_mode, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', 'internal', ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?, ?)`,
         [
           this.tenantId,
           orderId,
           component.id,
-          processStepId,
+          processStep.id,
           node.skuId,
           node.qtyRequired,
+          processStep.execution_mode === 'outsource' ? 'outsource' : 'internal',
           this.userId,
           this.userId,
         ],
@@ -780,28 +785,86 @@ export class ProductionPhase1Service {
     return [root, ...root.children.flatMap((child) => this.flattenBomDependencyNodes(child))];
   }
 
-  private pickBomDependencyProcessStepId(
+  private pickBomDependencyProcessStep(
     processSteps: ProcessStepRow[],
+    componentStepBySkuId: Map<number, ProcessStepRow>,
     node: BomDependencyNode,
     rootSkuId: number,
-  ): number {
+  ): ProcessStepRow {
+    if (node.skuId !== rootSkuId) {
+      const componentStep = componentStepBySkuId.get(node.skuId);
+      if (componentStep) {
+        return componentStep;
+      }
+    }
+
     const exactOutputStep = processSteps.find(
       (step) => Number(step.output_sku_id ?? 0) === node.skuId,
     );
     if (exactOutputStep) {
-      return exactOutputStep.id;
+      return exactOutputStep;
     }
 
     if (node.skuId === rootSkuId) {
       const finalStep = processSteps.find((step) => step.output_type === 'final_product')
         ?? [...processSteps].sort((a, b) => b.step_no - a.step_no)[0];
-      return finalStep.id;
+      return finalStep;
     }
 
     const semiStep = processSteps.find((step) => step.output_type === 'semi_finished')
       ?? processSteps.find((step) => step.output_type !== 'final_product')
       ?? processSteps[0];
-    return semiStep.id;
+    return semiStep;
+  }
+
+  private async fetchPrimaryProcessStepBySkuIds(
+    manager: { query: typeof AppDataSource.query },
+    skuIds: number[],
+  ): Promise<Map<number, ProcessStepRow>> {
+    if (skuIds.length === 0) return new Map();
+
+    const placeholders = skuIds.map(() => '?').join(', ');
+    const rows = await manager.query<Array<ProcessStepRow & { sku_id: number }>>(
+      `SELECT
+          pt.sku_id,
+          ps.id,
+          ps.step_no,
+          ps.step_name,
+          ps.output_type,
+          ps.output_sku_id,
+          ps.execution_mode,
+          ps.predecessor_step_nos_json,
+          ps.route_group_key,
+          ps.route_level
+       FROM process_templates pt
+       INNER JOIN process_steps ps
+         ON ps.template_id = pt.id
+        AND ps.tenant_id = pt.tenant_id
+       WHERE pt.tenant_id = ?
+         AND pt.status = 'active'
+         AND pt.sku_id IN (${placeholders})
+       ORDER BY pt.sku_id ASC, pt.is_default DESC, pt.id DESC, ps.step_no ASC, ps.id ASC`,
+      [this.tenantId, ...skuIds],
+    );
+
+    const bySkuId = new Map<number, ProcessStepRow>();
+    for (const row of rows) {
+      const skuId = Number(row.sku_id);
+      if (bySkuId.has(skuId)) continue;
+      bySkuId.set(skuId, {
+        id: Number(row.id),
+        step_no: Number(row.step_no),
+        step_name: row.step_name,
+        output_type: row.output_type,
+        output_sku_id: row.output_sku_id == null ? null : Number(row.output_sku_id),
+        execution_mode: row.execution_mode === 'outsource' ? 'outsource' : 'internal',
+        predecessor_step_nos_json: row.predecessor_step_nos_json ?? null,
+        route_group_key: row.route_group_key ?? null,
+        route_level: row.route_level == null ? null : Number(row.route_level),
+      });
+    }
+
+    return bySkuId;
   }
 
   private async assertOrderExists(orderId: number): Promise<void> {

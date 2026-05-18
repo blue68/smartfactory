@@ -20,6 +20,7 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useLocation } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
@@ -840,7 +841,7 @@ function WorkstationTypeManager({ open, onClose, preferredType = '' }: Workstati
 
   const typeOptions = types?.map((item) => item.name) ?? [];
 
-  return (
+  return createPortal(
     <div className={styles.managerOverlay} onClick={onClose}>
       <div
         className={styles.managerModal}
@@ -1021,7 +1022,8 @@ function WorkstationTypeManager({ open, onClose, preferredType = '' }: Workstati
           </section>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1180,7 +1182,7 @@ function NodeDrawer({
     setMaterialPickerOpen(false);
   };
 
-  return (
+  return createPortal(
     <>
       <div
         className={`${styles.drawerOverlay} ${open ? styles['drawerOverlay--on'] : ''}`}
@@ -1868,7 +1870,8 @@ function NodeDrawer({
           </div>
         </footer>
       </aside>
-    </>
+    </>,
+    document.body,
   );
 }
 
@@ -4759,7 +4762,7 @@ export default function ProcessConfigPage() {
           setAddProcessDraft(null);
         }}
       >
-        {showAddProcessModal && addProcessDraft && (
+        {showAddProcessModal && addProcessDraft && createPortal(
           <div
             className={`${styles.drawerOverlay} ${styles['drawerOverlay--on']}`}
             onClick={() => {
@@ -4782,7 +4785,7 @@ export default function ProcessConfigPage() {
               boxShadow: '0 24px 60px rgba(15,23,42,0.18)',
               border: '1px solid var(--pc-neutral-200)',
               padding: '1.25rem 1.25rem 1rem',
-              zIndex: 220,
+              zIndex: 'var(--z-modal, 1300)',
               display: 'flex',
               flexDirection: 'column',
               gap: '1rem',
@@ -4984,12 +4987,13 @@ export default function ProcessConfigPage() {
               </button>
             </div>
           </div>
-          </div>
+          </div>,
+          document.body,
         )}
       </DrawerErrorBoundary>
 
       {/* ===== 新建模板 Modal ===== */}
-      {showCreateModal && (
+      {showCreateModal && createPortal(
         <div
           className={`${styles.drawerOverlay} ${styles['drawerOverlay--on']}`}
           onClick={() => setShowCreateModal(false)}
@@ -5006,7 +5010,7 @@ export default function ProcessConfigPage() {
               boxShadow: 'var(--pc-shadow-lg)',
               width: '26rem',
               padding: '1.5rem',
-              zIndex: 202,
+              zIndex: 'var(--z-modal, 1300)',
               display: 'flex',
               flexDirection: 'column',
               gap: '1rem',
@@ -5214,11 +5218,12 @@ export default function ProcessConfigPage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* ===== 删除模板确认 Modal ===== */}
-      {deleteConfirmId !== null && (
+      {deleteConfirmId !== null && createPortal(
         <div
           className={`${styles.drawerOverlay} ${styles['drawerOverlay--on']}`}
           onClick={() => setDeleteConfirmId(null)}
@@ -5235,7 +5240,7 @@ export default function ProcessConfigPage() {
               boxShadow: 'var(--pc-shadow-lg)',
               width: '22rem',
               padding: '1.5rem',
-              zIndex: 202,
+              zIndex: 'var(--z-modal, 1300)',
               display: 'flex',
               flexDirection: 'column',
               gap: '1rem',
@@ -5274,7 +5279,8 @@ export default function ProcessConfigPage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -1116,7 +1116,7 @@
   position: fixed;
   inset: 0;
   background: rgba(15,23,42,.35);
-  z-index: 200;
+  z-index: var(--z-modal-backdrop, 1200);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.28s ease;
@@ -1135,7 +1135,7 @@
   height: 100vh;
   background: var(--pc-white);
   box-shadow: -8px 0 32px rgba(0,0,0,.12);
-  z-index: 201;
+  z-index: var(--z-modal, 1300);
   transform: translateX(100%);
   transition: transform 0.3s cubic-bezier(.32,.72,0,1);
   display: flex;
@@ -2061,9 +2061,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 500;
+  z-index: var(--z-modal-backdrop, 1200);
 }
 .managerModal {
+  position: relative;
+  z-index: var(--z-modal, 1300);
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0,0,0,.18);

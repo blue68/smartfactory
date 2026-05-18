@@ -679,7 +679,7 @@
   align-items: stretch;
   justify-content: flex-end;
   padding: 1rem;
-  z-index: var(--z-modal, 400);
+  z-index: var(--z-modal-backdrop, 1200);
 }
 
 .dialogOverlay {
@@ -689,10 +689,12 @@
   display: grid;
   place-items: center;
   padding: 1rem;
-  z-index: calc(var(--z-modal, 400) + 1);
+  z-index: var(--z-modal-backdrop, 1200);
 }
 
 .supplierDialog {
+  position: relative;
+  z-index: var(--z-modal, 1300);
   width: min(36rem, 100%);
   background: #fff;
   border: 1px solid var(--border);
@@ -744,6 +746,8 @@
 }
 
 .reviewPanel {
+  position: relative;
+  z-index: var(--z-modal, 1300);
   width: min(31.25rem, 100%);
   max-height: calc(100vh - 2rem);
   height: calc(100vh - 2rem);

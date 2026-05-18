@@ -131,6 +131,8 @@ interface AssignmentChange {
 }
 
 const ALERT_STORAGE_KEY = 'schedule-risk-alert-dismissed';
+const ASSIGNMENT_PAGE_SIZE = 100;
+const ORDER_PAGE_SIZE = 20;
 
 function formatInputDate(date: Date): string {
   const year = date.getFullYear();
@@ -1468,6 +1470,7 @@ function AssignmentView(props: {
   const [filter, setFilter] = useState<AssignmentFilter>('all');
   const [selectedScheduleIds, setSelectedScheduleIds] = useState<number[]>([]);
   const [bulkWorkerId, setBulkWorkerId] = useState('');
+  const [page, setPage] = useState(1);
 
   const workerLoads = useMemo(() => {
     const loads = new Map<number, { count: number; hours: number }>();
@@ -1506,6 +1509,13 @@ function AssignmentView(props: {
     });
   }, [filter, keyword, props.drafts, props.rows]);
 
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / ASSIGNMENT_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStartIndex = (currentPage - 1) * ASSIGNMENT_PAGE_SIZE;
+  const pagedRows = visibleRows.slice(pageStartIndex, pageStartIndex + ASSIGNMENT_PAGE_SIZE);
+  const pageStartLabel = visibleRows.length === 0 ? 0 : pageStartIndex + 1;
+  const pageEndLabel = Math.min(pageStartIndex + pagedRows.length, visibleRows.length);
+
   useEffect(() => {
     const availableIds = new Set(props.rows.map((row) => row.scheduleId));
     setSelectedScheduleIds((current) => current.filter((scheduleId) => availableIds.has(scheduleId)));
@@ -1514,19 +1524,25 @@ function AssignmentView(props: {
   useEffect(() => {
     setSelectedScheduleIds([]);
     setBulkWorkerId('');
+    setPage(1);
   }, [filter, keyword]);
 
-  const selectedVisibleRows = visibleRows.filter((row) => selectedScheduleIds.includes(row.scheduleId));
-  const allVisibleSelected =
-    visibleRows.length > 0 && visibleRows.every((row) => selectedScheduleIds.includes(row.scheduleId));
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
 
-  const toggleVisibleRows = () => {
+  const selectedVisibleRows = visibleRows.filter((row) => selectedScheduleIds.includes(row.scheduleId));
+  const selectedPageRows = pagedRows.filter((row) => selectedScheduleIds.includes(row.scheduleId));
+  const allPageSelected =
+    pagedRows.length > 0 && pagedRows.every((row) => selectedScheduleIds.includes(row.scheduleId));
+
+  const togglePageRows = () => {
     setSelectedScheduleIds((current) => {
       const currentSet = new Set(current);
-      if (allVisibleSelected) {
-        visibleRows.forEach((row) => currentSet.delete(row.scheduleId));
+      if (allPageSelected) {
+        pagedRows.forEach((row) => currentSet.delete(row.scheduleId));
       } else {
-        visibleRows.forEach((row) => currentSet.add(row.scheduleId));
+        pagedRows.forEach((row) => currentSet.add(row.scheduleId));
       }
       return [...currentSet];
     });
@@ -1552,6 +1568,31 @@ function AssignmentView(props: {
   const pendingCount = props.rows.filter((row) => (
     !parseOptionalId(getAssignmentWorkerValue(row, props.drafts)) || !row.workstationId
   )).length;
+  const renderAssignmentPagination = (position: 'top' | 'bottom') => (
+    <div className={`${styles.pagination_bar} ${position === 'top' ? styles.pagination_bar_top : ''}`}>
+      <span className={styles.pagination_info}>
+        第 {currentPage} / {totalPages} 页 · 当前显示 {pageStartLabel}-{pageEndLabel} / {visibleRows.length} 条 · 每页最多 {ASSIGNMENT_PAGE_SIZE} 条
+      </span>
+      <div className={styles.pagination_buttons}>
+        <button
+          type="button"
+          className={styles.pagination_button}
+          disabled={currentPage <= 1}
+          onClick={() => setPage((current) => Math.max(1, current - 1))}
+        >
+          上一页
+        </button>
+        <button
+          type="button"
+          className={styles.pagination_button}
+          disabled={currentPage >= totalPages}
+          onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+        >
+          下一页
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <section className={styles.assignment_panel}>
@@ -1608,7 +1649,7 @@ function AssignmentView(props: {
 
       {!props.confirmed && (
         <div className={styles.assignment_bulk_bar}>
-          <span>已选 {selectedVisibleRows.length} 条</span>
+          <span>本页已选 {selectedPageRows.length} 条 · 总已选 {selectedVisibleRows.length} 条</span>
           <select
             value={bulkWorkerId}
             disabled={props.saving || props.loadingWorkers || selectedVisibleRows.length === 0}
@@ -1640,6 +1681,8 @@ function AssignmentView(props: {
         </div>
       )}
 
+      {renderAssignmentPagination('top')}
+
       <div className={styles.assignment_table_wrap}>
         <table className={styles.assignment_table}>
           <thead>
@@ -1647,10 +1690,10 @@ function AssignmentView(props: {
               <th className={styles.assignment_check_cell}>
                 <input
                   type="checkbox"
-                  aria-label={allVisibleSelected ? '取消选择当前任务' : '选择当前任务'}
-                  checked={allVisibleSelected}
-                  disabled={props.confirmed || props.saving || visibleRows.length === 0}
-                  onChange={toggleVisibleRows}
+                  aria-label={allPageSelected ? '取消选择本页任务' : '选择本页任务'}
+                  checked={allPageSelected}
+                  disabled={props.confirmed || props.saving || pagedRows.length === 0}
+                  onChange={togglePageRows}
                 />
               </th>
               <th>任务</th>
@@ -1668,7 +1711,7 @@ function AssignmentView(props: {
                   暂无符合条件的任务
                 </td>
               </tr>
-            ) : visibleRows.map((row) => {
+            ) : pagedRows.map((row) => {
               const draftValue = props.drafts[row.scheduleId];
               const currentWorkerValue = row.workerId ? String(row.workerId) : '';
               const effectiveWorkerValue = getAssignmentWorkerValue(row, props.drafts);
@@ -1748,6 +1791,8 @@ function AssignmentView(props: {
           </tbody>
         </table>
       </div>
+
+      {renderAssignmentPagination('bottom')}
     </section>
   );
 }
@@ -1821,57 +1866,107 @@ function OrderView(props: {
   focusWorkOrderNo: string;
   onTaskClick: (task: ScheduleItem) => void;
 }) {
-  return (
-    <div className={styles.order_grid}>
-      {props.cards.map((card) => (
-        <article
-          key={card.productionOrderId}
-          className={`${styles.order_card} ${props.focusWorkOrderNo === card.workOrderNo ? styles['order_card--focused'] : ''}`}
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(props.cards.length / ORDER_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStartIndex = (currentPage - 1) * ORDER_PAGE_SIZE;
+  const pagedCards = props.cards.slice(pageStartIndex, pageStartIndex + ORDER_PAGE_SIZE);
+  const pageStartLabel = props.cards.length === 0 ? 0 : pageStartIndex + 1;
+  const pageEndLabel = Math.min(pageStartIndex + pagedCards.length, props.cards.length);
+
+  useEffect(() => {
+    setPage(1);
+  }, [props.cards.length, props.focusWorkOrderNo]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
+
+  const renderOrderPagination = (position: 'top' | 'bottom') => (
+    <div className={`${styles.pagination_bar} ${position === 'top' ? styles.pagination_bar_top : ''}`}>
+      <span className={styles.pagination_info}>
+        第 {currentPage} / {totalPages} 页 · 当前显示 {pageStartLabel}-{pageEndLabel} / {props.cards.length} 个工单 · 每页最多 {ORDER_PAGE_SIZE} 个
+      </span>
+      <div className={styles.pagination_buttons}>
+        <button
+          type="button"
+          className={styles.pagination_button}
+          disabled={currentPage <= 1}
+          onClick={() => setPage((current) => Math.max(1, current - 1))}
         >
-          <header className={styles.order_card_header}>
-            <div>
-              <strong>{card.workOrderNo}</strong>
-              {card.batchNo ? <p>联合批次 {card.batchNo}</p> : null}
-              <p>{getOrderRiskLabel(card.risk)}</p>
-            </div>
-            <Tag variant={card.risk === 'danger' ? 'error' : card.risk === 'warning' ? 'warning' : 'success'}>
-              {card.risk === 'danger' ? '存在缺口' : card.risk === 'warning' ? '工序集中' : '排产平稳'}
-            </Tag>
-          </header>
-          <div className={styles.order_metrics}>
-            <span>工序 {card.stepCount}</span>
-            <span>工位 {card.stationCount}</span>
-            <span>工人 {card.workerCount}</span>
-            <span>工时 {card.totalHours}h</span>
-            <span>计划量 {formatQty(card.totalQty)}套</span>
-          </div>
-          <div className={styles.order_outputs}>
-            {card.outputSkuNames.slice(0, 4).map((outputSkuName) => (
-              <span key={outputSkuName} className={styles.order_output_chip}>{outputSkuName}</span>
-            ))}
-          </div>
-          <div className={styles.order_lines}>
-            {card.lines.map((line) => (
-              <button
-                key={line.scheduleId}
-                type="button"
-                className={styles.order_line}
-                onClick={() => props.onTaskClick(line.source)}
-              >
-                <div>
-                  <strong>{line.stepName}</strong>
-                  <span>{line.outputSkuName} · {line.workstationName} · {line.workerName}</span>
-                </div>
-                <div className={styles.order_line_meta}>
-                  <span>{formatQty(line.plannedQty)}套</span>
-                  <span>{formatHours(line.estimatedHours)}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </article>
-      ))}
+          上一页
+        </button>
+        <button
+          type="button"
+          className={styles.pagination_button}
+          disabled={currentPage >= totalPages}
+          onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+        >
+          下一页
+        </button>
+      </div>
     </div>
+  );
+
+  return (
+    <section className={styles.order_view}>
+      {renderOrderPagination('top')}
+
+      <div className={styles.order_grid}>
+        {pagedCards.length === 0 ? (
+          <div className={styles.order_empty}>暂无符合条件的工单</div>
+        ) : pagedCards.map((card) => (
+          <article
+            key={card.productionOrderId}
+            className={`${styles.order_card} ${props.focusWorkOrderNo === card.workOrderNo ? styles['order_card--focused'] : ''}`}
+          >
+            <header className={styles.order_card_header}>
+              <div>
+                <strong>{card.workOrderNo}</strong>
+                {card.batchNo ? <p>联合批次 {card.batchNo}</p> : null}
+                <p>{getOrderRiskLabel(card.risk)}</p>
+              </div>
+              <Tag variant={card.risk === 'danger' ? 'error' : card.risk === 'warning' ? 'warning' : 'success'}>
+                {card.risk === 'danger' ? '存在缺口' : card.risk === 'warning' ? '工序集中' : '排产平稳'}
+              </Tag>
+            </header>
+            <div className={styles.order_metrics}>
+              <span>工序 {card.stepCount}</span>
+              <span>工位 {card.stationCount}</span>
+              <span>工人 {card.workerCount}</span>
+              <span>工时 {card.totalHours}h</span>
+              <span>计划量 {formatQty(card.totalQty)}套</span>
+            </div>
+            <div className={styles.order_outputs}>
+              {card.outputSkuNames.slice(0, 4).map((outputSkuName) => (
+                <span key={outputSkuName} className={styles.order_output_chip}>{outputSkuName}</span>
+              ))}
+            </div>
+            <div className={styles.order_lines}>
+              {card.lines.map((line) => (
+                <button
+                  key={line.scheduleId}
+                  type="button"
+                  className={styles.order_line}
+                  onClick={() => props.onTaskClick(line.source)}
+                >
+                  <div>
+                    <strong>{line.stepName}</strong>
+                    <span>{line.outputSkuName} · {line.workstationName} · {line.workerName}</span>
+                  </div>
+                  <div className={styles.order_line_meta}>
+                    <span>{formatQty(line.plannedQty)}套</span>
+                    <span>{formatHours(line.estimatedHours)}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </article>
+        ))}
+      </div>
+
+      {renderOrderPagination('bottom')}
+    </section>
   );
 }
 
@@ -1977,7 +2072,7 @@ function ConfirmModal(props: {
   onClose: () => void;
   onConfirm: () => void;
 }) {
-  return (
+  return createPortal(
     <div className={styles.modal_overlay} onClick={props.onClose}>
       <div className={styles.modal_panel} onClick={(event) => event.stopPropagation()}>
         <div className={styles.modal_header}>
@@ -2003,7 +2098,8 @@ function ConfirmModal(props: {
           <Button variant="success" loading={props.loading} onClick={props.onConfirm}>确认下发</Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -2173,7 +2269,7 @@ function TaskAdjustModal(props: {
   onClose: () => void;
   onSave: () => void;
 }) {
-  return (
+  return createPortal(
     <div className={styles.modal_overlay} onClick={props.onClose}>
       <div className={`${styles.modal_panel} ${styles['modal_panel--wide']}`} onClick={(event) => event.stopPropagation()}>
         <div className={styles.modal_header}>
@@ -2236,6 +2332,7 @@ function TaskAdjustModal(props: {
           <Button variant="primary" loading={props.loading} disabled={!props.canSave} onClick={props.onSave}>保存调整</Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

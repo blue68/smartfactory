@@ -51,5 +51,10 @@ export function getBullMQConnectionOptions(): ConnectionOptions {
     // BullMQ 内部使用长连接阻塞命令（BLPOP 等），必须禁用单次命令重试限制
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
+    connectTimeout: 5000,
+    retryStrategy: (times: number) => {
+      if (times > 20) return null;
+      return Math.min(times * 250, 5000);
+    },
   };
 }

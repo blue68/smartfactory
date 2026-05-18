@@ -2,15 +2,62 @@ import 'reflect-metadata';
 import { initDatabase } from './config/database';
 import { getRedisClient } from './config/redis';
 import app from './app';
-// Sprint 4：BullMQ Worker（import 即在同进程内启动消费者）
-import { closeMrpWorker } from './workers/mrp.worker';
-import { closeNotificationWorker } from './workers/notification.worker';
-import { closeSuggestionWorker } from './workers/suggestion.worker';
 import { queueService } from './shared/queue-service';
 import { QUEUE_SUGGESTION_CALCULATE } from './shared/queue.config';
 import type { SuggestionCalculateJobData } from './shared/queue-service';
+import type { registerStockAlertProcessor } from './modules/inventory/stockAlert.service';
+import type { initStockAlertScheduler } from './shared/queue';
 
 const PORT = Number(process.env.PORT ?? 3000);
+
+type WorkerCloseFn = () => Promise<void>;
+
+const backgroundWorkerClosers: WorkerCloseFn[] = [];
+
+function shouldStartBackgroundWorkers(): boolean {
+  return process.env.ENABLE_BACKGROUND_WORKERS === 'true';
+}
+
+async function startBackgroundWorkers(redisReady: boolean): Promise<void> {
+  if (!shouldStartBackgroundWorkers()) {
+    console.log('[Bootstrap] 后台 Worker 未启用（ENABLE_BACKGROUND_WORKERS=false）');
+    return;
+  }
+
+  if (!redisReady) {
+    console.warn('[Bootstrap] Redis 不可用，跳过后台 Worker 启动');
+    return;
+  }
+
+  const [
+    mrpWorker,
+    notificationWorker,
+    suggestionWorker,
+    stockAlertService,
+    stockAlertQueue,
+  ] = await Promise.all([
+    import('./workers/mrp.worker'),
+    import('./workers/notification.worker'),
+    import('./workers/suggestion.worker'),
+    import('./modules/inventory/stockAlert.service') as Promise<{
+      registerStockAlertProcessor: typeof registerStockAlertProcessor;
+    }>,
+    import('./shared/queue') as Promise<{
+      initStockAlertScheduler: typeof initStockAlertScheduler;
+    }>,
+  ]);
+
+  stockAlertService.registerStockAlertProcessor();
+  await stockAlertQueue.initStockAlertScheduler();
+
+  backgroundWorkerClosers.push(
+    mrpWorker.closeMrpWorker,
+    notificationWorker.closeNotificationWorker,
+    suggestionWorker.closeSuggestionWorker,
+  );
+
+  console.log('[Bootstrap] 后台 Worker 已启动');
+}
 
 async function bootstrap(): Promise<void> {
   try {
@@ -53,9 +100,11 @@ async function bootstrap(): Promise<void> {
     // 3. 注册每日 06:00 采购建议计算 cron job（BullMQ repeat job）
     //    BullMQ 使用 cron 表达式，repeat job 在 Queue 层维护，不依赖进程常驻定时器。
     //    第一次注册后 Redis 会持久化调度计划，进程重启后自动恢复。
-    if (redisReady) {
+    if (redisReady && shouldStartBackgroundWorkers()) {
       try {
+        const cronTenantId = Number(process.env.SCHEDULE_SUGGESTION_CRON_TENANT_ID ?? 1);
         const jobData: SuggestionCalculateJobData = {
+          tenantId: Number.isFinite(cronTenantId) && cronTenantId > 0 ? cronTenantId : 1,
           triggeredAt: new Date().toISOString(),
         };
         await queueService.addJob(
@@ -79,9 +128,13 @@ async function bootstrap(): Promise<void> {
         // cron 注册失败不影响主服务启动，仅告警
         console.warn('[Bootstrap] cron job 注册失败（Redis 不可用？）:', (cronErr as Error).message);
       }
-    } else {
+    } else if (!redisReady) {
       console.warn('[Bootstrap] 跳过 cron job 注册：Redis 当前不可用');
+    } else {
+      console.log('[Bootstrap] 跳过 cron job 注册：后台 Worker 未启用');
     }
+
+    await startBackgroundWorkers(redisReady);
 
     // 4. 启动 HTTP 服务
     app.listen(PORT, () => {
@@ -102,12 +155,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   console.log(`[API] 收到 ${signal}，正在优雅退出...`);
   try {
     // 并行关闭所有 Worker（等待当前正在处理的 Job 完成）
-    // CR-S4-002 fix: 补充 SuggestionWorker 优雅退出
-    await Promise.all([
-      closeMrpWorker(),
-      closeNotificationWorker(),
-      closeSuggestionWorker(),
-    ]);
+    await Promise.all(backgroundWorkerClosers.map((closeWorker) => closeWorker()));
     // 关闭 BullMQ Queue 连接
     await queueService.close();
   } catch (err) {

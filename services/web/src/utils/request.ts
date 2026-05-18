@@ -114,7 +114,7 @@ function processQueue(token: string | null): void {
   refreshQueue = [];
 }
 
-async function refreshAccessToken(): Promise<string | null> {
+export async function refreshAccessToken(): Promise<string | null> {
   try {
     // Refresh Token 由浏览器通过 HttpOnly Cookie 自动携带，无需手动传入 body
     const res = await axios.post<ApiResponse<{ accessToken: string; permissionSnapshot?: unknown }>>(

@@ -38,6 +38,11 @@ function buildRedisConnectionOptions() {
     // Bull 的连接不设 commandTimeout，避免长轮询被提前断开
     maxRetriesPerRequest: null as unknown as number,
     enableReadyCheck: false,
+    connectTimeout: 5000,
+    retryStrategy: (times: number) => {
+      if (times > 20) return null;
+      return Math.min(times * 250, 5000);
+    },
   };
 }
 

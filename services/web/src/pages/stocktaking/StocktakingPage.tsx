@@ -11,6 +11,7 @@
  */
 
 import { Fragment, useEffect, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useAppStore } from '@/stores/appStore';
 import Button from '@/components/common/Button';
 import { ACTION_CODES } from '@/constants/accessControl';
@@ -593,7 +594,7 @@ export default function StocktakingPage() {
           </div>
         </div>
       )}
-      {createModalOpen && canCreateTask && (
+      {createModalOpen && canCreateTask && createPortal(
         <div className={styles.modal_backdrop} role="dialog" aria-modal="true">
           <div className={styles.modal}>
             <div className={styles.modal_header}>
@@ -677,7 +678,8 @@ export default function StocktakingPage() {
               </Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

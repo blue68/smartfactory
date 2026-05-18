@@ -12,7 +12,7 @@ import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { config } from '@/config';
-import request, { getAccessToken } from '@/utils/request';
+import request, { getAccessToken, refreshAccessToken } from '@/utils/request';
 
 // ── 类型定义 ───────────────────────────────────────────────
 
@@ -214,6 +214,11 @@ async function connectNotificationStream(): Promise<void> {
       },
       signal: controller.signal,
     });
+
+    if (response.status === 401) {
+      await refreshAccessToken();
+      throw new Error('notification stream unauthorized');
+    }
 
     if (!response.ok || !response.body) {
       throw new Error(`HTTP ${response.status}`);
