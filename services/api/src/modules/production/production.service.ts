@@ -8,6 +8,21 @@ import { SchedulerService } from './scheduler.service';
 import { WageService } from '../report/wage.service';
 import { loadWorkCalendarOverrides, resolveWorkCalendarDay, type WorkTimeRange } from './work-calendar.util';
 
+function taskProcessDisplayNameExpr(
+  taskAlias = 'pt',
+  stepAlias = 'ps',
+  outputSkuAlias = 'outs',
+  templateAlias = 'proc_tpl',
+): string {
+  return `CASE
+                  WHEN ${templateAlias}.id IS NOT NULL
+                    AND ${templateAlias}.sku_id IS NULL
+                    AND NULLIF(TRIM(COALESCE(${outputSkuAlias}.name, '')), '') IS NOT NULL
+                  THEN ${outputSkuAlias}.name
+                  ELSE COALESCE(${stepAlias}.step_name, CONCAT('STEP#', ${taskAlias}.process_step_id))
+                END`;
+}
+
 export class ProductionService {
   private readonly tenantId: number;
   private readonly userId: number;
@@ -269,7 +284,7 @@ export class ProductionService {
                 jb.batch_no AS batchNo,
                 po.planned_end AS plannedFinishTime,
                 po.sales_order_id AS salesOrderId, po.sku_id AS skuId, po.qty_planned AS orderPlannedQty,
-                COALESCE(ps.step_name, CONCAT('STEP#', pt.process_step_id)) AS processName, ps.step_no AS stepNo,
+                ${taskProcessDisplayNameExpr()} AS processName, ps.step_no AS stepNo,
                 ps.standard_hours AS standardHours, ps.max_hours AS maxHours,
                 ps.guide_text AS processGuideText,
                 ps.guide_attachment_url AS processGuideAttachmentUrl,
@@ -291,6 +306,9 @@ export class ProductionService {
          LEFT JOIN joint_production_batches jb
            ON jb.id = po.joint_batch_id
           AND jb.tenant_id = po.tenant_id
+         LEFT JOIN process_templates proc_tpl
+           ON proc_tpl.id = po.process_template_id
+          AND proc_tpl.tenant_id = po.tenant_id
          LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
          LEFT JOIN production_operations op
            ON op.id = pt.operation_id
@@ -734,7 +752,7 @@ export class ProductionService {
                jb.batch_no AS batchNo,
                po.priority,
                po.planned_end AS plannedFinishTime,
-               COALESCE(ps.step_name, CONCAT('STEP#', pt.process_step_id)) AS processName,
+               ${taskProcessDisplayNameExpr()} AS processName,
                ws.name AS workstationName,
                u.real_name AS workerName,
                s.name AS skuName,
@@ -768,6 +786,9 @@ export class ProductionService {
              LEFT JOIN joint_production_batches jb
                ON jb.id = po.joint_batch_id
               AND jb.tenant_id = po.tenant_id
+             LEFT JOIN process_templates proc_tpl
+               ON proc_tpl.id = po.process_template_id
+              AND proc_tpl.tenant_id = po.tenant_id
              LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
              LEFT JOIN workstations ws ON ws.id = pt.workstation_id
              LEFT JOIN users u ON u.id = pt.worker_id
@@ -998,7 +1019,7 @@ export class ProductionService {
              jb.batch_no AS batchNo,
              po.priority,
              po.planned_end AS plannedFinishTime,
-             COALESCE(ps.step_name, CONCAT('STEP#', pt.process_step_id)) AS processName,
+             ${taskProcessDisplayNameExpr()} AS processName,
              ws.name AS workstationName,
              u.real_name AS workerName,
              s.name AS skuName,
@@ -1019,6 +1040,9 @@ export class ProductionService {
            LEFT JOIN joint_production_batches jb
              ON jb.id = po.joint_batch_id
             AND jb.tenant_id = po.tenant_id
+           LEFT JOIN process_templates proc_tpl
+             ON proc_tpl.id = po.process_template_id
+            AND proc_tpl.tenant_id = po.tenant_id
            LEFT JOIN process_steps ps ON ps.id = pt.process_step_id
            LEFT JOIN production_schedules sched ON sched.id = pt.schedule_id AND sched.tenant_id = pt.tenant_id
            LEFT JOIN workstations ws ON ws.id = ${workstationRef}

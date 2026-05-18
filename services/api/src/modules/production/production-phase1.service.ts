@@ -157,6 +157,21 @@ interface OperationInputRow {
   sourceCompletedQty?: string | number | null;
 }
 
+function operationDisplayNameExpr(
+  operationAlias = 'po',
+  stepAlias = 'ps',
+  outputSkuAlias = 's',
+  templateAlias = 'proc_tpl',
+): string {
+  return `CASE
+              WHEN ${templateAlias}.id IS NOT NULL
+                AND ${templateAlias}.sku_id IS NULL
+                AND NULLIF(TRIM(COALESCE(${outputSkuAlias}.name, '')), '') IS NOT NULL
+              THEN ${outputSkuAlias}.name
+              ELSE COALESCE(${stepAlias}.step_name, CONCAT('STEP#', ${operationAlias}.process_step_id))
+            END`;
+}
+
 export class ProductionPhase1Service {
   private readonly tenantId: number;
   private readonly userId: number;
@@ -394,7 +409,7 @@ export class ProductionPhase1Service {
               poc.bom_path AS bomPath,
               po.process_step_id AS processStepId,
               ps.step_no AS stepNo,
-              COALESCE(ps.step_name, CONCAT('STEP#', po.process_step_id)) AS stepName,
+              ${operationDisplayNameExpr()} AS stepName,
               po.output_sku_id AS outputSkuId,
               s.sku_code AS outputSkuCode,
               po.execution_mode AS executionMode,
@@ -404,6 +419,12 @@ export class ProductionPhase1Service {
               po.completed_qty AS completedQty,
               po.status
        FROM production_operations po
+       INNER JOIN production_orders ord
+         ON ord.id = po.production_order_id
+        AND ord.tenant_id = po.tenant_id
+       LEFT JOIN process_templates proc_tpl
+         ON proc_tpl.id = ord.process_template_id
+        AND proc_tpl.tenant_id = ord.tenant_id
        LEFT JOIN production_order_components poc ON poc.id = po.component_id
        LEFT JOIN process_steps ps ON ps.id = po.process_step_id
        LEFT JOIN skus s ON s.id = po.output_sku_id AND s.tenant_id = po.tenant_id

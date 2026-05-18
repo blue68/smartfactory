@@ -605,5 +605,14 @@ describe('ProductionPhase1Service', () => {
       sourceStatus: 'in_progress',
       sourceCompletedQty: '4.0000',
     }));
+
+    const operationQuery = mockQuery.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('FROM production_operations po'),
+    );
+    const operationSql = String(operationQuery?.[0] ?? '');
+    expect(operationSql).toContain('LEFT JOIN process_templates proc_tpl');
+    expect(operationSql).toContain('proc_tpl.id IS NOT NULL');
+    expect(operationSql).toContain('proc_tpl.sku_id IS NULL');
+    expect(operationSql).toContain('THEN s.name');
   });
 });

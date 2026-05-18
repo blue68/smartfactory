@@ -37,6 +37,29 @@ describe('ProductionService task state transitions', () => {
     );
   });
 
+  it('listTasks 对通用工艺模板直接使用当前产出名作为展示工序名', async () => {
+    mockQuery.mockImplementation(async (sql: string) => {
+      if (String(sql).includes('SELECT COUNT(*) AS total')) {
+        return [{ total: '0' }];
+      }
+      return [];
+    });
+
+    const svc = new ProductionService({ tenantId: 1, userId: 99 });
+    await svc.listTasks({ page: 1, pageSize: 20 });
+
+    const listCall = mockQuery.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('task_rows.*'),
+    );
+    const listSql = String(listCall?.[0] ?? '');
+
+    expect(listSql).toContain('LEFT JOIN process_templates proc_tpl');
+    expect(listSql).toContain('proc_tpl.id IS NOT NULL');
+    expect(listSql).toContain('proc_tpl.sku_id IS NULL');
+    expect(listSql).toContain('THEN outs.name');
+    expect(listSql).not.toContain("CONCAT(SUBSTRING_INDEX(ps.step_name, '：', 1)");
+  });
+
   it('suspendTask 允许 pending 任务进入 suspended 并记录原因', async () => {
     mockQuery
       .mockResolvedValueOnce([{ id: 11, status: 'pending' }])

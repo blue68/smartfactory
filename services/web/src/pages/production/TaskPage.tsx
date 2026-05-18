@@ -1186,12 +1186,17 @@ export default function TaskPage() {
       key:   'processName',
       title: '工序',
       width: 110,
-      render: (_, record) => (
-        <div className={styles.processCell}>
-          <strong>{record.processName || '—'}</strong>
-          <span>{record.outputSkuName || '未配置产出半成品'}</span>
-        </div>
-      ),
+      render: (_, record) => {
+        const processName = String(record.processName || '—');
+        const outputSkuName = String(record.outputSkuName || '');
+        const shouldShowOutput = outputSkuName && outputSkuName !== processName;
+        return (
+          <div className={styles.processCell}>
+            <strong>{processName}</strong>
+            <span>{shouldShowOutput ? outputSkuName : '未配置独立工序'}</span>
+          </div>
+        );
+      },
     },
     {
       key:   'plannedFinishTime',
