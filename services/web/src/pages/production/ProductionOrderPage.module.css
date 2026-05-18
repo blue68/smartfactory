@@ -1250,7 +1250,7 @@
 
 .operationFlow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 2.25rem minmax(220px, 0.8fr);
+  grid-template-columns: minmax(0, 1.15fr) 2.25rem minmax(0, 0.95fr);
   gap: 0.5rem;
   align-items: center;
 }
@@ -1310,8 +1310,8 @@
 .operationIoItem {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
   gap: 0.45rem;
   padding: 0.45rem 0.55rem;
   border-radius: 8px;
@@ -1349,23 +1349,54 @@
   font-weight: 800;
 }
 
+.operationIoItem__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.operationIoItem__identity {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.85fr) minmax(0, 1.35fr);
+  gap: 0.45rem;
+  align-items: start;
+}
+
+.operationIoItem__code {
+  min-width: 0;
+  color: #0F172A;
+  font-family: "JetBrains Mono", "DM Mono", monospace;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .operationIoItem__name {
   min-width: 0;
   color: #0F172A;
   font-size: 0.8125rem;
   font-weight: 800;
   line-height: 1.35;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
-.operationIoItem__qty {
+.operationIoItem__detail {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  color: #64748B;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.operationIoItem__detail strong {
   color: #0F172A;
   font-family: "JetBrains Mono", "DM Mono", monospace;
-  font-size: 0.75rem;
   font-weight: 800;
-  white-space: nowrap;
 }
 
 .operationIoItem__hint,
@@ -1377,11 +1408,9 @@
 }
 
 .operationIoItem__hint {
-  grid-column: 2 / -1;
+  grid-column: 2;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .operationIoEmpty {
@@ -1555,7 +1584,10 @@
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .operationIoItem__qty,
+  .operationIoItem__identity {
+    grid-template-columns: 1fr;
+  }
+
   .operationIoItem__hint {
     grid-column: 2;
   }

@@ -52,7 +52,6 @@ const EMPTY_ORDER_ROWS: OrderRow[] = [];
 const COMPONENT_ROW_HEIGHT = 58;
 const COMPONENT_OVERSCAN = 8;
 const COMPONENT_VIEWPORT_FALLBACK_HEIGHT = 520;
-const OPERATION_INPUT_PREVIEW_LIMIT = 3;
 
 interface SnapshotStep {
   id?: number | string;
@@ -231,6 +230,19 @@ function operationItemTitle(item: OperationInputItem | OperationOutputItem): str
   const skuName = item.skuName?.trim();
   if (skuCode && skuName) return `${skuCode} · ${skuName}`;
   return skuName || skuCode || '未命名物料';
+}
+
+function operationItemSkuCode(item: OperationInputItem | OperationOutputItem): string {
+  return item.skuCode?.trim() || (item.skuId ? `SKU#${item.skuId}` : '未维护编码');
+}
+
+function operationItemSkuName(item: OperationInputItem | OperationOutputItem): string {
+  return item.skuName?.trim() || '未命名物料';
+}
+
+function operationItemQty(value: number | string | null | undefined, unit?: string | null): string {
+  const unitLabel = unit?.trim() || '单位未配置';
+  return `${formatDecimal(value, 4)} ${unitLabel}`;
 }
 
 function operationInputStatusLabel(item: OperationInputItem): string | null {
@@ -751,8 +763,6 @@ function OperationLane({
           || (!task.operationId && task.processStepId === operation.processStepId)
         );
         const inputItems = operation.inputItems ?? [];
-        const visibleInputItems = inputItems.slice(0, OPERATION_INPUT_PREVIEW_LIMIT);
-        const hiddenInputCount = Math.max(inputItems.length - visibleInputItems.length, 0);
         const outputItem: OperationOutputItem = operation.outputItem ?? {
           skuId: operation.outputSkuId,
           skuCode: operation.outputSkuCode,
@@ -791,7 +801,7 @@ function OperationLane({
                   <strong>{inputItems.length} 项</strong>
                 </div>
                 <div className={styles.operationIoList}>
-                  {visibleInputItems.length > 0 ? visibleInputItems.map((item, itemIndex) => {
+                  {inputItems.length > 0 ? inputItems.map((item, itemIndex) => {
                     const statusLabel = operationInputStatusLabel(item);
                     return (
                       <div
@@ -799,20 +809,20 @@ function OperationLane({
                         className={`${styles.operationIoItem} ${styles[`operationIoItem--${item.itemType}`] ?? ''}`}
                       >
                         <span className={styles.operationIoItem__type}>{operationInputTypeLabel(item.itemType)}</span>
-                        <strong className={styles.operationIoItem__name} title={operationItemTitle(item)}>
-                          {operationItemTitle(item)}
-                        </strong>
-                        <span className={styles.operationIoItem__qty}>
-                          {formatDecimal(item.requiredQty, 4)}{item.unit ? ` ${item.unit}` : ''}
-                        </span>
-                        {statusLabel && <span className={styles.operationIoItem__hint}>{statusLabel}</span>}
+                        <div className={styles.operationIoItem__body} title={operationItemTitle(item)}>
+                          <div className={styles.operationIoItem__identity}>
+                            <span className={styles.operationIoItem__code}>{operationItemSkuCode(item)}</span>
+                            <strong className={styles.operationIoItem__name}>{operationItemSkuName(item)}</strong>
+                          </div>
+                          <div className={styles.operationIoItem__detail}>
+                            <span>用量 <strong>{operationItemQty(item.requiredQty, item.unit)}</strong></span>
+                            {statusLabel && <span>{statusLabel}</span>}
+                          </div>
+                        </div>
                       </div>
                     );
                   }) : (
                     <div className={styles.operationIoEmpty}>未维护输入，按该作业直接推进</div>
-                  )}
-                  {hiddenInputCount > 0 && (
-                    <div className={styles.operationIoMore}>另有 {hiddenInputCount} 项输入</div>
                   )}
                 </div>
               </div>
@@ -822,17 +832,20 @@ function OperationLane({
               <div className={`${styles.operationFlowBlock} ${styles.operationFlowBlockOutput}`}>
                 <div className={styles.operationFlowBlock__head}>
                   <span>输出</span>
-                  <strong>{operationOutputTypeLabel(outputItem.itemType)}</strong>
+                  <strong>1 项</strong>
                 </div>
                 <div className={`${styles.operationIoItem} ${styles[`operationIoItem--${outputItem.itemType}`] ?? ''}`}>
                   <span className={styles.operationIoItem__type}>{operationOutputTypeLabel(outputItem.itemType)}</span>
-                  <strong className={styles.operationIoItem__name} title={operationItemTitle(outputItem)}>
-                    {operationItemTitle(outputItem)}
-                  </strong>
-                  <span className={styles.operationIoItem__qty}>
-                    {formatDecimal(outputItem.plannedQty, 4)}{outputItem.unit ? ` ${outputItem.unit}` : ''}
-                  </span>
-                  <span className={styles.operationIoItem__hint}>已完成 {formatDecimal(outputItem.completedQty, 4)}</span>
+                  <div className={styles.operationIoItem__body} title={operationItemTitle(outputItem)}>
+                    <div className={styles.operationIoItem__identity}>
+                      <span className={styles.operationIoItem__code}>{operationItemSkuCode(outputItem)}</span>
+                      <strong className={styles.operationIoItem__name}>{operationItemSkuName(outputItem)}</strong>
+                    </div>
+                    <div className={styles.operationIoItem__detail}>
+                      <span>数量 <strong>{operationItemQty(outputItem.plannedQty, outputItem.unit)}</strong></span>
+                      <span>已完成 {operationItemQty(outputItem.completedQty, outputItem.unit)}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
