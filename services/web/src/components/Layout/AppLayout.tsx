@@ -14,7 +14,9 @@ import AiFloatButton from '@/components/common/AiFloatButton';
 import { useNotificationStream } from '@/api/notification';
 
 export default function AppLayout() {
-  const { sidebarCollapsed, aiPanelOpen, setAiPanelOpen } = useAppStore();
+  const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
+  const aiPanelOpen = useAppStore((s) => s.aiPanelOpen);
+  const setAiPanelOpen = useAppStore((s) => s.setAiPanelOpen);
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
   const hideAiEntry = user?.scopeLevel === 'platform';

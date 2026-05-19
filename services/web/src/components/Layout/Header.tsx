@@ -59,7 +59,11 @@ function buildBreadcrumbs(pathname: string): BreadcrumbItem[] {
 }
 
 export default function Header({ onAiSearch }: HeaderProps) {
-  const { toggleSidebar, sidebarCollapsed, pageTitle, toggleAiPanel, showToast } = useAppStore();
+  const toggleSidebar = useAppStore((s) => s.toggleSidebar);
+  const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
+  const pageTitle = useAppStore((s) => s.pageTitle);
+  const toggleAiPanel = useAppStore((s) => s.toggleAiPanel);
+  const showToast = useAppStore((s) => s.showToast);
   const { user, logout } = useAuth();
   const setAuth = useAuthStore((s) => s.setAuth);
   const location = useLocation();

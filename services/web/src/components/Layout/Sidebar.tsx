@@ -433,7 +433,7 @@ function groupNavItems(items: NavItem[]): Array<{ group: string; items: NavItem[
 
 export default function Sidebar() {
   const { user, permissionSnapshot } = useAuthStore();
-  const { sidebarCollapsed } = useAppStore();
+  const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   // useLocation 保留：确保路由变化时组件重新渲染（active 状态依赖）
   useLocation();
 

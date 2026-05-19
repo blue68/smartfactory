@@ -41,6 +41,7 @@ export function clearTokens(): void {
 type LoadingListener = (loading: boolean) => void;
 const loadingListeners = new Set<LoadingListener>();
 let activeRequests = 0;
+let lastLoading = false;
 
 export function onGlobalLoading(fn: LoadingListener): () => void {
   loadingListeners.add(fn);
@@ -50,6 +51,8 @@ export function onGlobalLoading(fn: LoadingListener): () => void {
 function setLoading(delta: 1 | -1): void {
   activeRequests = Math.max(0, activeRequests + delta);
   const loading = activeRequests > 0;
+  if (loading === lastLoading) return;
+  lastLoading = loading;
   loadingListeners.forEach((fn) => fn(loading));
 }
 

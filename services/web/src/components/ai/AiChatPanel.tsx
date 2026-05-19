@@ -50,7 +50,7 @@ function trimPanelMessages(messages: Message[]): Message[] {
 }
 
 export default function AiChatPanel() {
-  const { setAiPanelOpen } = useAppStore();
+  const setAiPanelOpen = useAppStore((s) => s.setAiPanelOpen);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: newId(),

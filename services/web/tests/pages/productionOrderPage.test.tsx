@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   useCreateFromSalesOrder: vi.fn(),
   useMaterialRequirements: vi.fn(),
   useCancelOrder: vi.fn(),
+  useReleaseProductionOrder: vi.fn(),
   useShortageSummary: vi.fn(),
   useGenerateMrpSuggestions: vi.fn(),
   fetchSalesOrders: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock('@/api/production', () => ({
   useCreateFromSalesOrder: mocks.useCreateFromSalesOrder,
   useMaterialRequirements: mocks.useMaterialRequirements,
   useCancelOrder: mocks.useCancelOrder,
+  useReleaseProductionOrder: mocks.useReleaseProductionOrder,
 }));
 
 vi.mock('@/api/salesOrder', () => ({
@@ -133,6 +135,7 @@ describe('ProductionOrderPage', () => {
     mocks.useProductionBatchList.mockReturnValue({ data: { list: [], total: 0 } });
     mocks.useCreateFromSalesOrder.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
     mocks.useCancelOrder.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
+    mocks.useReleaseProductionOrder.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
     mocks.useShortageSummary.mockReturnValue({ data: [] });
     mocks.useGenerateMrpSuggestions.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
   });
@@ -144,15 +147,16 @@ describe('ProductionOrderPage', () => {
 
     expect(await screen.findByRole('dialog', { name: 'WO-001' })).toBeInTheDocument();
     expect(screen.getByText('冻结结构 1 节点')).toBeInTheDocument();
-    expect(screen.getByText('工序链 1 道')).toBeInTheDocument();
+    expect(screen.getByText('BOM任务链 1 道')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('结构快照'));
     expect(screen.getByText('冻结结构快照')).toBeInTheDocument();
-    expect(screen.getByText('通配解析：半成品框架 → 替代半成品框架')).toBeInTheDocument();
+    expect(screen.getByText('半成品框架 → 替代半成品框架')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('工序链路'));
-    expect(screen.getByText('半成品工序链路')).toBeInTheDocument();
-    expect(screen.getByText('产出 替代半成品框架')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('BOM任务链'));
+    expect(screen.getByText('BOM 依赖任务链')).toBeInTheDocument();
+    expect(screen.getByText('BOM 依赖任务清单')).toBeInTheDocument();
+    expect(screen.getByText('替代半成品框架')).toBeInTheDocument();
     expect(screen.getByText('TASK-201')).toBeInTheDocument();
   });
 });

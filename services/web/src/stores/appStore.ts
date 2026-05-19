@@ -56,7 +56,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
 
   globalLoading: false,
-  setGlobalLoading: (loading) => set({ globalLoading: loading }),
+  setGlobalLoading: (loading) => set((s) => (
+    s.globalLoading === loading ? s : { globalLoading: loading }
+  )),
 
   toasts: [],
   showToast: (toast) => {

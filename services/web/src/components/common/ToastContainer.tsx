@@ -12,7 +12,8 @@ const ICONS: Record<string, string> = {
 };
 
 export default function ToastContainer() {
-  const { toasts, dismissToast } = useAppStore();
+  const toasts = useAppStore((s) => s.toasts);
+  const dismissToast = useAppStore((s) => s.dismissToast);
 
   if (toasts.length === 0) return null;
 
