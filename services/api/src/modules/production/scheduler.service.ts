@@ -1446,8 +1446,10 @@ export class SchedulerService {
   }
 
   private async insertTaskOutputTransaction(
-    manager: { query: typeof AppDataSource.query },
+    manager: { query: typeof AppDataSource.query; __inventorySnapshotSkuIds?: Set<number> },
     task: {
+      production_order_id: number;
+      task_no: string;
       operation_id: number | null;
       output_sku_id: number | null;
       planned_qty: string;
@@ -1463,10 +1465,66 @@ export class SchedulerService {
       return;
     }
 
+    const [outputContext] = await manager.query<Array<{
+      orderSkuId: number;
+      downstreamCount: string;
+    }>>(
+      `SELECT
+          po.sku_id AS orderSkuId,
+          (
+            SELECT COUNT(*)
+            FROM production_operation_dependencies dep
+            WHERE dep.tenant_id = ?
+              AND dep.predecessor_operation_id = ?
+          ) AS downstreamCount
+       FROM production_orders po
+       WHERE po.id = ? AND po.tenant_id = ?
+       LIMIT 1`,
+      [this.tenantId, task.operation_id ?? 0, task.production_order_id, this.tenantId],
+    );
+    const isFinalOrderOutput =
+      Number(outputContext?.orderSkuId ?? 0) === Number(resolvedOutputSkuId)
+      && Number(outputContext?.downstreamCount ?? 0) === 0;
+
+    let outputInventoryTxId: number | null = null;
+    if (!isFinalOrderOutput) {
+      const sku = await this.getSkuInfo(manager, resolvedOutputSkuId);
+      const wipLocation = await ensureProductionWipWarehouseLocation(manager, this.tenantId, this.userId);
+      const qty = new Decimal(params.completedQty).toFixed(4);
+      const tx = await this.createInventoryTransaction(manager, {
+        skuId: resolvedOutputSkuId,
+        transactionType: 'PRODUCTION_OUTPUT_IN',
+        direction: 'IN',
+        warehouseId: wipLocation.warehouseId,
+        locationId: wipLocation.locationId,
+        sourceRef: 'production:task:output',
+        qtyInput: qty,
+        inputUnit: sku.stockUnit,
+        qtyStockUnit: qty,
+        stockUnit: sku.stockUnit,
+        productionOrderId: task.production_order_id,
+        referenceType: 'production_task',
+        referenceId: taskId,
+        referenceNo: task.task_no,
+        notes: `生产任务 ${task.task_no} 半成品产出`,
+      });
+      outputInventoryTxId = tx.id;
+
+      await this.addInventoryStock(manager, {
+        skuId: resolvedOutputSkuId,
+        warehouseId: wipLocation.warehouseId,
+        locationId: wipLocation.locationId,
+        qty,
+        sourceRef: 'production:task:output',
+      });
+      await this.syncInventoryDailySnapshot(manager, resolvedOutputSkuId);
+      this.trackInventorySnapshotCacheInvalidation(manager, [resolvedOutputSkuId]);
+    }
+
     await manager.query(
       `INSERT INTO task_material_transactions
          (tenant_id, task_id, operation_id, sku_id, io_type, planned_qty, actual_qty, inventory_tx_id, created_by)
-       VALUES (?, ?, ?, ?, 'output', ?, ?, NULL, ?)`,
+       VALUES (?, ?, ?, ?, 'output', ?, ?, ?, ?)`,
       [
         this.tenantId,
         taskId,
@@ -1474,9 +1532,22 @@ export class SchedulerService {
         resolvedOutputSkuId,
         task.planned_qty,
         params.completedQty,
+        outputInventoryTxId,
         this.userId,
       ],
     );
+
+    if (outputInventoryTxId) {
+      await this.linkTaskInventoryMovement(manager, {
+        taskId,
+        taskMaterialTxId: null,
+        skuId: resolvedOutputSkuId,
+        movementType: 'output',
+        inventoryTxId: outputInventoryTxId,
+        qty: new Decimal(params.completedQty).toFixed(4),
+        notes: '工序产出入线边',
+      });
+    }
   }
 
   private async resolveTaskOutputSku(
@@ -1567,13 +1638,18 @@ export class SchedulerService {
         AND si.tenant_id = ps.tenant_id
        LEFT JOIN sku_categories c1
          ON c1.id = si.category1_id
-       LEFT JOIN production_order_components poc
-         ON poc.tenant_id = ?
+       LEFT JOIN (
+         SELECT tenant_id, production_order_id, sku_id, MAX(resolved_sku_id) AS resolved_sku_id
+         FROM production_order_components
+         WHERE tenant_id = ? AND production_order_id = ?
+         GROUP BY tenant_id, production_order_id, sku_id
+       ) poc
+         ON poc.tenant_id = ps.tenant_id
         AND poc.production_order_id = ?
         AND poc.sku_id = psm.input_sku_id
        WHERE ps.id = ? AND ps.tenant_id = ?
        ORDER BY psm.id ASC`,
-      [this.tenantId, task.production_order_id, task.process_step_id, this.tenantId],
+      [this.tenantId, task.production_order_id, task.production_order_id, task.process_step_id, this.tenantId],
     );
 
     if (stepPlans.length > 0) {
@@ -1616,7 +1692,12 @@ export class SchedulerService {
         AND cs.tenant_id = bh.tenant_id
        LEFT JOIN sku_categories c1
          ON c1.id = cs.category1_id
-       LEFT JOIN production_order_components poc
+       LEFT JOIN (
+         SELECT tenant_id, production_order_id, sku_id, MAX(resolved_sku_id) AS resolved_sku_id
+         FROM production_order_components
+         WHERE tenant_id = ? AND production_order_id = ?
+         GROUP BY tenant_id, production_order_id, sku_id
+       ) poc
          ON poc.tenant_id = bh.tenant_id
         AND poc.production_order_id = ?
         AND poc.sku_id = bi.component_sku_id
@@ -1624,7 +1705,7 @@ export class SchedulerService {
          AND bh.sku_id = ?
          AND bh.status = 'active'
        ORDER BY bi.sort_order ASC, bi.id ASC`,
-      [task.production_order_id, this.tenantId, outputSkuId],
+      [this.tenantId, task.production_order_id, task.production_order_id, this.tenantId, outputSkuId],
     );
   }
 
@@ -2104,7 +2185,10 @@ export class SchedulerService {
     for (const material of materialPlans) {
       const usagePerUnit = new Decimal(material.usagePerUnit ?? 0);
       const multiplier = new Decimal(1).plus(new Decimal(material.lossRate ?? 0));
-      const requiredQty = completed.mul(usagePerUnit).mul(multiplier);
+      const requiredQty = completed
+        .mul(usagePerUnit)
+        .mul(multiplier)
+        .toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
       if (requiredQty.lte(0)) continue;
       const key = Number(material.actualSkuId ?? material.inputSkuId);
       requiredBySku.set(key, (requiredBySku.get(key) ?? new Decimal(0)).plus(requiredQty));

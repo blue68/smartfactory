@@ -445,14 +445,19 @@ export class ProductionService {
          ON psm.tenant_id = ps.tenant_id
         AND psm.template_id = ps.template_id
         AND psm.step_no = ps.step_no
-       LEFT JOIN production_order_components poc
+       LEFT JOIN (
+         SELECT tenant_id, production_order_id, sku_id, MAX(resolved_sku_id) AS resolved_sku_id
+         FROM production_order_components
+         WHERE tenant_id = ?
+         GROUP BY tenant_id, production_order_id, sku_id
+       ) poc
          ON poc.tenant_id = pt.tenant_id
         AND poc.production_order_id = pt.production_order_id
         AND poc.sku_id = psm.input_sku_id
        WHERE pt.tenant_id = ?
          AND pt.id IN (${placeholders})
        GROUP BY pt.id, COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id)`,
-      [this.tenantId, ...taskIds],
+      [this.tenantId, this.tenantId, ...taskIds],
     );
 
     const stepMaterialCountRows = await AppDataSource.query<Array<{ taskId: number; materialCount: string }>>(
@@ -501,7 +506,12 @@ export class ProductionService {
            ON bi.bom_header_id = bh.id
           AND bi.tenant_id = bh.tenant_id
           AND bi.parent_item_id IS NULL
-         LEFT JOIN production_order_components poc
+         LEFT JOIN (
+           SELECT tenant_id, production_order_id, sku_id, MAX(resolved_sku_id) AS resolved_sku_id
+           FROM production_order_components
+           WHERE tenant_id = ?
+           GROUP BY tenant_id, production_order_id, sku_id
+         ) poc
            ON poc.tenant_id = pt.tenant_id
           AND poc.production_order_id = pt.production_order_id
           AND poc.sku_id = bi.component_sku_id
@@ -515,7 +525,7 @@ export class ProductionService {
                AND sub_bh.status = 'active'
              LIMIT 1
            )`,
-        [this.tenantId, ...fallbackTaskIds],
+        [this.tenantId, this.tenantId, ...fallbackTaskIds],
       )
       : [];
 
@@ -2049,8 +2059,13 @@ export class ProductionService {
          ON psm.tenant_id = ps.tenant_id
         AND psm.template_id = ps.template_id
         AND psm.step_no = ps.step_no
-       LEFT JOIN production_order_components poc
-         ON poc.tenant_id = ?
+       LEFT JOIN (
+         SELECT tenant_id, production_order_id, sku_id, MAX(resolved_sku_id) AS resolved_sku_id
+         FROM production_order_components
+         WHERE tenant_id = ? AND production_order_id = ?
+         GROUP BY tenant_id, production_order_id, sku_id
+       ) poc
+         ON poc.tenant_id = ps.tenant_id
         AND poc.production_order_id = ?
         AND poc.sku_id = psm.input_sku_id
        LEFT JOIN skus sku
@@ -2064,7 +2079,7 @@ export class ProductionService {
         AND inv.sku_id = COALESCE(poc.resolved_sku_id, poc.sku_id, psm.input_sku_id)
        WHERE ps.id = ? AND ps.tenant_id = ?
        ORDER BY psm.id ASC`,
-      [this.tenantId, task.productionOrderId, this.tenantId, task.processStepId, this.tenantId],
+      [this.tenantId, task.productionOrderId, task.productionOrderId, this.tenantId, task.processStepId, this.tenantId],
     );
 
     if (stepMaterials.length > 0) {

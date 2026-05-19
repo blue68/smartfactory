@@ -8,6 +8,7 @@ dist/
 test-results/
 services/web/dist-fresh/
 .tmp_uploads/
+tmp/
 .swc/
 services/mini/project.private.config.json
 services/mini/miniprogram/project.config.json
