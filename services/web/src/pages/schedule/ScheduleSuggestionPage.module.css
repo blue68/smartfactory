@@ -282,6 +282,98 @@
   transform: translateY(0);
 }
 
+/* ── 建议分页 ── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border-default);
+  background: var(--color-gray-50);
+}
+
+.pagination__info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-width: 0;
+  font-size: var(--text-body-s);
+  color: var(--text-secondary);
+}
+
+.pagination__size {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.pagination__size select {
+  height: 28px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: var(--text-body-s);
+  padding: 0 var(--space-2);
+}
+
+.pagination__buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pagination__button {
+  min-width: 32px;
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: var(--text-body-s);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.pagination__button:hover:not(:disabled) {
+  border-color: var(--color-primary-300);
+  color: var(--color-primary-600);
+  background: var(--color-primary-50);
+}
+
+.pagination__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pagination__button--active {
+  border-color: var(--color-primary-500);
+  background: var(--color-primary-500);
+  color: #ffffff;
+}
+
+.pagination__button--active:hover:not(:disabled) {
+  background: var(--color-primary-600);
+  color: #ffffff;
+}
+
+.pagination__ellipsis {
+  min-width: 24px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--text-body-s);
+}
+
 /* ══════════════════════════════════════════
    底部历史记录区
 ══════════════════════════════════════════ */
@@ -400,4 +492,15 @@
 .history_result--rejected {
   background: var(--color-error-100);
   color: var(--color-error-700);
+}
+
+@media (max-width: 640px) {
+  .pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .pagination__buttons {
+    justify-content: flex-start;
+  }
 }

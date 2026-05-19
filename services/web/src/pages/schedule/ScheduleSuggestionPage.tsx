@@ -30,6 +30,9 @@ import type {
 } from '@/api/scheduleSuggestion';
 import styles from './ScheduleSuggestionPage.module.css';
 
+const DEFAULT_SUGGESTION_PAGE_SIZE = 20;
+const SUGGESTION_PAGE_SIZE_OPTIONS = [20, 50, 100];
+
 // ─── 工具：格式化日期 ─────────────────────────
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -48,6 +51,31 @@ function historyStatusClass(status: string): string {
   if (status === 'completed') return styles['history_result--approved'];
   if (status === 'failed') return styles['history_result--rejected'];
   return '';
+}
+
+function clampPage(page: number, totalPages: number): number {
+  return Math.min(Math.max(page, 1), Math.max(totalPages, 1));
+}
+
+function buildPageItems(currentPage: number, totalPages: number): Array<number | 'ellipsis-left' | 'ellipsis-right'> {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+
+  const pages = new Set<number>([1, totalPages, currentPage]);
+  if (currentPage > 1) pages.add(currentPage - 1);
+  if (currentPage < totalPages) pages.add(currentPage + 1);
+
+  const sorted = Array.from(pages).sort((a, b) => a - b);
+  const result: Array<number | 'ellipsis-left' | 'ellipsis-right'> = [];
+
+  sorted.forEach((page, index) => {
+    const previous = sorted[index - 1];
+    if (previous && page - previous > 1) {
+      result.push(previous === 1 ? 'ellipsis-left' : 'ellipsis-right');
+    }
+    result.push(page);
+  });
+
+  return result;
 }
 
 // ─── Loading 骨架 ─────────────────────────────
@@ -118,6 +146,85 @@ function EmptyBlock({ onTrigger, triggering }: { onTrigger: () => void; triggeri
       >
         {triggering ? '计算中…' : '触发计算'}
       </button>
+    </div>
+  );
+}
+
+function SuggestionPagination({
+  label,
+  total,
+  page,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  label: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = clampPage(page, totalPages);
+  const startRecord = total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endRecord = Math.min(currentPage * pageSize, total);
+
+  return (
+    <div className={styles.pagination} role="navigation" aria-label={`${label}分页控制`}>
+      <div className={styles.pagination__info}>
+        <span>
+          第 {currentPage} / {totalPages} 页 · 显示 {startRecord}-{endRecord} / {total} 条
+        </span>
+        <label className={styles.pagination__size}>
+          <span>每页</span>
+          <select
+            value={pageSize}
+            onChange={(event) => onPageSizeChange(Number(event.target.value))}
+            aria-label={`${label}每页条数`}
+          >
+            {SUGGESTION_PAGE_SIZE_OPTIONS.map((option) => (
+              <option key={option} value={option}>{option} 条</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className={styles.pagination__buttons}>
+        <button
+          type="button"
+          className={styles.pagination__button}
+          disabled={currentPage <= 1}
+          onClick={() => onPageChange(currentPage - 1)}
+        >
+          上一页
+        </button>
+        {buildPageItems(currentPage, totalPages).map((item) => (
+          typeof item === 'number' ? (
+            <button
+              key={item}
+              type="button"
+              className={[
+                styles.pagination__button,
+                item === currentPage ? styles['pagination__button--active'] : '',
+              ].filter(Boolean).join(' ')}
+              aria-current={item === currentPage ? 'page' : undefined}
+              onClick={() => onPageChange(item)}
+            >
+              {item}
+            </button>
+          ) : (
+            <span key={item} className={styles.pagination__ellipsis} aria-hidden="true">…</span>
+          )
+        ))}
+        <button
+          type="button"
+          className={styles.pagination__button}
+          disabled={currentPage >= totalPages}
+          onClick={() => onPageChange(currentPage + 1)}
+        >
+          下一页
+        </button>
+      </div>
     </div>
   );
 }
@@ -206,8 +313,20 @@ function PurchaseSuggestionPanel({
 }: PurchasePanelProps) {
   const { mutate: acceptItem, isPending: accepting } = useAcceptItem();
   const { mutate: rejectItem, isPending: rejecting } = useRejectItem();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_SUGGESTION_PAGE_SIZE);
 
   const pendingItems = items.filter((i) => i.status === 'pending');
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const currentPage = clampPage(page, totalPages);
+  const pagedItems = useMemo(
+    () => items.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [currentPage, items, pageSize],
+  );
+
+  useEffect(() => {
+    setPage((current) => clampPage(current, totalPages));
+  }, [totalPages]);
 
   return (
     <section className={styles.panel} aria-labelledby="purchase-panel-title">
@@ -228,90 +347,103 @@ function PurchaseSuggestionPanel({
       ) : items.length === 0 ? (
         <EmptyBlock onTrigger={onTrigger} triggering={triggering} />
       ) : (
-        <ul className={styles.suggestion_list} role="list">
-          {items.map((item) => (
-            <li key={item.id} className={styles.suggestion_item}>
-              <div className={styles.suggestion_item__top}>
-                <span className={styles.suggestion_item__name}>{item.skuName}</span>
-                <span
-                  className={[
-                    styles.suggestion_item__urgency,
-                    item.status === 'pending' ? '' : '',
-                    item.source === 'shortage_trigger' ? styles['suggestion_item__urgency--high'] : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                >
-                  {item.source === 'shortage_trigger' ? '紧急' : '普通'}
-                </span>
-              </div>
-              <div className={styles.suggestion_item__meta}>
-                <span>
-                  建议采购：<strong>{item.suggestedQty} {item.unit}</strong>
-                </span>
-                <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
-                <span>{item.reason}</span>
-                {item.neededByDate && (
-                  <>
-                    <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
-                    <span>需求日期：{fmtDate(item.neededByDate)}</span>
-                  </>
-                )}
-                {item.supplierName && (
-                  <>
-                    <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
-                    <span>供应商：{item.supplierName}</span>
-                  </>
-                )}
-              </div>
-              {item.status === 'pending' ? (
-                <div className={styles.suggestion_item__actions}>
-                  <button
-                    type="button"
-                    className={styles.btn_approve}
-                    disabled={accepting || rejecting}
-                    onClick={() => acceptItem(item.id)}
-                    aria-label={`批准 ${item.skuName} 采购建议`}
-                  >
-                    {accepting ? '处理中…' : '批准'}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btn_reject}
-                    disabled={accepting || rejecting}
-                    onClick={() =>
-                      rejectItem({ itemId: item.id, reason: '人工驳回' })
-                    }
-                    aria-label={`驳回 ${item.skuName} 采购建议`}
-                  >
-                    驳回
-                  </button>
-                </div>
-              ) : (
-                <div className={styles.suggestion_item__actions}>
+        <>
+          <ul className={styles.suggestion_list} role="list">
+            {pagedItems.map((item) => (
+              <li key={item.id} className={styles.suggestion_item}>
+                <div className={styles.suggestion_item__top}>
+                  <span className={styles.suggestion_item__name}>{item.skuName}</span>
                   <span
                     className={[
                       styles.suggestion_item__urgency,
-                      item.status === 'rejected' ? styles['suggestion_item__urgency--high'] : '',
+                      item.status === 'pending' ? '' : '',
+                      item.source === 'shortage_trigger' ? styles['suggestion_item__urgency--high'] : '',
                     ]
                       .filter(Boolean)
                       .join(' ')}
-                    style={item.status === 'accepted' || item.status === 'applied' ? {
-                      background: 'var(--color-success-100)',
-                      color: 'var(--color-success-700)',
-                    } : undefined}
                   >
-                    {item.status === 'accepted'
-                      ? '已批准'
-                      : item.status === 'applied'
-                      ? '已应用'
-                      : '已驳回'}
+                    {item.source === 'shortage_trigger' ? '紧急' : '普通'}
                   </span>
                 </div>
-              )}
-            </li>
-          ))}
-        </ul>
+                <div className={styles.suggestion_item__meta}>
+                  <span>
+                    建议采购：<strong>{item.suggestedQty} {item.unit}</strong>
+                  </span>
+                  <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                  <span>{item.reason}</span>
+                  {item.neededByDate && (
+                    <>
+                      <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                      <span>需求日期：{fmtDate(item.neededByDate)}</span>
+                    </>
+                  )}
+                  {item.supplierName && (
+                    <>
+                      <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                      <span>供应商：{item.supplierName}</span>
+                    </>
+                  )}
+                </div>
+                {item.status === 'pending' ? (
+                  <div className={styles.suggestion_item__actions}>
+                    <button
+                      type="button"
+                      className={styles.btn_approve}
+                      disabled={accepting || rejecting}
+                      onClick={() => acceptItem(item.id)}
+                      aria-label={`批准 ${item.skuName} 采购建议`}
+                    >
+                      {accepting ? '处理中…' : '批准'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.btn_reject}
+                      disabled={accepting || rejecting}
+                      onClick={() =>
+                        rejectItem({ itemId: item.id, reason: '人工驳回' })
+                      }
+                      aria-label={`驳回 ${item.skuName} 采购建议`}
+                    >
+                      驳回
+                    </button>
+                  </div>
+                ) : (
+                  <div className={styles.suggestion_item__actions}>
+                    <span
+                      className={[
+                        styles.suggestion_item__urgency,
+                        item.status === 'rejected' ? styles['suggestion_item__urgency--high'] : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      style={item.status === 'accepted' || item.status === 'applied' ? {
+                        background: 'var(--color-success-100)',
+                        color: 'var(--color-success-700)',
+                      } : undefined}
+                    >
+                      {item.status === 'accepted'
+                        ? '已批准'
+                        : item.status === 'applied'
+                        ? '已应用'
+                        : '已驳回'}
+                    </span>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          <SuggestionPagination
+            label="采购建议"
+            total={items.length}
+            page={currentPage}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(nextPageSize) => {
+              setPageSize(nextPageSize);
+              setPage(1);
+            }}
+          />
+        </>
       )}
     </section>
   );
@@ -337,8 +469,20 @@ function ProductionSuggestionPanel({
 }: ProductionPanelProps) {
   const { mutate: acceptItem, isPending: accepting } = useAcceptItem();
   const { mutate: rejectItem, isPending: rejecting } = useRejectItem();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_SUGGESTION_PAGE_SIZE);
 
   const pendingItems = items.filter((i) => i.status === 'pending');
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const currentPage = clampPage(page, totalPages);
+  const pagedItems = useMemo(
+    () => items.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [currentPage, items, pageSize],
+  );
+
+  useEffect(() => {
+    setPage((current) => clampPage(current, totalPages));
+  }, [totalPages]);
 
   return (
     <section className={styles.panel} aria-labelledby="production-panel-title">
@@ -359,85 +503,98 @@ function ProductionSuggestionPanel({
       ) : items.length === 0 ? (
         <EmptyBlock onTrigger={onTrigger} triggering={triggering} />
       ) : (
-        <ul className={styles.suggestion_list} role="list">
-          {items.map((item) => (
-            <li key={item.id} className={styles.suggestion_item}>
-              <div className={styles.suggestion_item__top}>
-                <span className={styles.suggestion_item__name}>{item.skuName}</span>
-                <span
-                  className={[
-                    styles.suggestion_item__urgency,
-                    item.rank === 1 ? styles['suggestion_item__urgency--high'] : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                >
-                  {item.rank === 1 ? '紧急' : item.totalScore >= 80 ? '高优' : '普通'}
-                </span>
-              </div>
-              <div className={styles.suggestion_item__meta}>
-                <span>
-                  工单：<strong>{item.workOrderNo}</strong>
-                </span>
-                <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
-                <span>综合评分：<strong>{item.totalScore}</strong></span>
-                <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
-                <span>排名第 {item.rank}</span>
-                {item.recommendedWorkerName && (
-                  <>
-                    <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
-                    <span>推荐工人：{item.recommendedWorkerName}</span>
-                  </>
-                )}
-              </div>
-              {item.status === 'pending' ? (
-                <div className={styles.suggestion_item__actions}>
-                  <button
-                    type="button"
-                    className={styles.btn_approve}
-                    disabled={accepting || rejecting}
-                    onClick={() => acceptItem(item.id)}
-                    aria-label={`确认排产 ${item.workOrderNo}`}
-                  >
-                    {accepting ? '处理中…' : '确认排产'}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btn_reject}
-                    disabled={accepting || rejecting}
-                    onClick={() =>
-                      rejectItem({ itemId: item.id, reason: '延后处理' })
-                    }
-                    aria-label={`延后排产 ${item.workOrderNo}`}
-                  >
-                    延后
-                  </button>
-                </div>
-              ) : (
-                <div className={styles.suggestion_item__actions}>
+        <>
+          <ul className={styles.suggestion_list} role="list">
+            {pagedItems.map((item) => (
+              <li key={item.id} className={styles.suggestion_item}>
+                <div className={styles.suggestion_item__top}>
+                  <span className={styles.suggestion_item__name}>{item.skuName}</span>
                   <span
                     className={[
                       styles.suggestion_item__urgency,
-                      item.status === 'rejected' ? styles['suggestion_item__urgency--high'] : '',
+                      item.rank === 1 ? styles['suggestion_item__urgency--high'] : '',
                     ]
                       .filter(Boolean)
                       .join(' ')}
-                    style={item.status === 'accepted' || item.status === 'applied' ? {
-                      background: 'var(--color-success-100)',
-                      color: 'var(--color-success-700)',
-                    } : undefined}
                   >
-                    {item.status === 'accepted'
-                      ? '已确认'
-                      : item.status === 'applied'
-                      ? '已排产'
-                      : '已延后'}
+                    {item.rank === 1 ? '紧急' : item.totalScore >= 80 ? '高优' : '普通'}
                   </span>
                 </div>
-              )}
-            </li>
-          ))}
-        </ul>
+                <div className={styles.suggestion_item__meta}>
+                  <span>
+                    工单：<strong>{item.workOrderNo}</strong>
+                  </span>
+                  <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                  <span>综合评分：<strong>{item.totalScore}</strong></span>
+                  <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                  <span>排名第 {item.rank}</span>
+                  {item.recommendedWorkerName && (
+                    <>
+                      <span className={styles.suggestion_item__sep} aria-hidden="true">·</span>
+                      <span>推荐工人：{item.recommendedWorkerName}</span>
+                    </>
+                  )}
+                </div>
+                {item.status === 'pending' ? (
+                  <div className={styles.suggestion_item__actions}>
+                    <button
+                      type="button"
+                      className={styles.btn_approve}
+                      disabled={accepting || rejecting}
+                      onClick={() => acceptItem(item.id)}
+                      aria-label={`确认排产 ${item.workOrderNo}`}
+                    >
+                      {accepting ? '处理中…' : '确认排产'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.btn_reject}
+                      disabled={accepting || rejecting}
+                      onClick={() =>
+                        rejectItem({ itemId: item.id, reason: '延后处理' })
+                      }
+                      aria-label={`延后排产 ${item.workOrderNo}`}
+                    >
+                      延后
+                    </button>
+                  </div>
+                ) : (
+                  <div className={styles.suggestion_item__actions}>
+                    <span
+                      className={[
+                        styles.suggestion_item__urgency,
+                        item.status === 'rejected' ? styles['suggestion_item__urgency--high'] : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      style={item.status === 'accepted' || item.status === 'applied' ? {
+                        background: 'var(--color-success-100)',
+                        color: 'var(--color-success-700)',
+                      } : undefined}
+                    >
+                      {item.status === 'accepted'
+                        ? '已确认'
+                        : item.status === 'applied'
+                        ? '已排产'
+                        : '已延后'}
+                    </span>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          <SuggestionPagination
+            label="排产建议"
+            total={items.length}
+            page={currentPage}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(nextPageSize) => {
+              setPageSize(nextPageSize);
+              setPage(1);
+            }}
+          />
+        </>
       )}
     </section>
   );

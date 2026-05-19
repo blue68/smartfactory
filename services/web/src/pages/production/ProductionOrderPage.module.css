@@ -504,6 +504,35 @@
   color: #64748B;
 }
 
+.materialPagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0.95rem;
+  border-top: 1px solid #E2E8F0;
+  background: #F8FBFF;
+}
+
+.materialPagination__buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.structurePagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid #E2E8F0;
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: #F8FBFF;
+}
+
 /* ── 骨架屏 ──────────────────────────────────────────────────────── */
 .loadingWrap {
   display: flex;
@@ -901,11 +930,14 @@
 
 .componentTreeViewport {
   height: min(520px, 56vh);
-  overflow-y: auto;
+  overflow: auto;
   border: 1px solid #E2E8F0;
   border-radius: 10px;
   background: #FFFFFF;
-  contain: strict;
+  contain: layout paint style;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .componentTreeViewport::-webkit-scrollbar {
@@ -918,47 +950,154 @@
   border-radius: 999px;
 }
 
-.componentTreeVirtual {
-  min-height: 100%;
-}
-
-.componentCompactRow {
-  box-sizing: border-box;
-  height: 58px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 88px;
+.structureToolbarActions {
+  display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0 0.85rem 0 calc(0.85rem + min(var(--component-depth, 0), 8) * 0.75rem);
-  border-bottom: 1px solid #EEF2F7;
-  background: #FFFFFF;
+  gap: 0.35rem;
+  flex-shrink: 0;
 }
 
-.componentCompactRow:hover {
+.structureActionBtn {
+  min-height: 30px;
+  padding: 0 0.65rem;
+  border: 1px solid #CBD5E1;
+  border-radius: 7px;
+  background: #FFFFFF;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.structureActionBtn:hover:not(:disabled) {
+  border-color: #93C5FD;
+  background: #EFF6FF;
+  color: #1D4ED8;
+}
+
+.structureActionBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.componentTreeTable {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: 0.8125rem;
+}
+
+.componentTreeTable thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   background: #F8FAFC;
 }
 
-.componentCompactRow__main {
+.componentTreeTable th {
+  height: 38px;
+  padding: 0 0.85rem;
+  border-bottom: 1px solid #E2E8F0;
+  color: #64748B;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.componentTreeTable th:nth-child(1) { width: 54%; }
+.componentTreeTable th:nth-child(2) { width: 92px; }
+.componentTreeTable th:nth-child(3) { width: 112px; }
+.componentTreeTable th:nth-child(4) { width: 22%; }
+
+.componentTreeTable td {
+  min-width: 0;
+  padding: 0.62rem 0.85rem;
+  border-bottom: 1px solid #EEF2F7;
+  vertical-align: middle;
+  background: #FFFFFF;
+}
+
+.componentTreeRow {
+  contain: layout paint style;
+}
+
+.componentTreeRow:hover td {
+  background: #F8FAFC;
+}
+
+.componentTreeNameCell {
+  min-width: 0;
+}
+
+.componentTreeName {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding-left: calc(min(var(--component-depth, 0), 8) * 0.9rem);
+}
+
+.componentTreeToggle,
+.componentTreeToggleSpacer {
+  flex: 0 0 auto;
+  width: 1.45rem;
+  height: 1.45rem;
+  margin-top: 0.05rem;
+}
+
+.componentTreeToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #CBD5E1;
+  border-radius: 6px;
+  background: #FFFFFF;
+  color: #2563EB;
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.componentTreeToggle:hover {
+  border-color: #93C5FD;
+  background: #EFF6FF;
+}
+
+.componentTreeIdentity {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.22rem;
 }
 
-.componentCompactRow__titleLine {
+.componentTreeTitleLine {
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 0.45rem;
 }
 
-.componentCompactRow__titleLine strong {
+.componentTreeTitleLine strong {
   min-width: 0;
   color: #0F172A;
   font-size: 0.875rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.componentTreeChildCount {
+  flex: 0 0 auto;
+  padding: 0.1rem 0.42rem;
+  border-radius: 999px;
+  background: #F1F5F9;
+  color: #64748B;
+  font-size: 0.6875rem;
+  font-weight: 700;
 }
 
 .componentType {
@@ -970,7 +1109,7 @@
   border-radius: 999px;
   font-size: 0.6875rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .componentType--fg {
@@ -1003,52 +1142,47 @@
   font-weight: 700;
 }
 
-.componentCompactRow__meta {
+.componentTreeMeta {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
   color: #64748B;
   font-size: 0.75rem;
   line-height: 1.3;
   white-space: nowrap;
 }
 
-.componentCompactRow__meta span {
+.componentTreeMeta span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.componentCompactRow__path {
-  position: relative;
-  padding-left: 0.6rem;
-  flex: 1;
+.componentTreePath {
+  min-width: 0;
+  color: #94A3B8;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.componentCompactRow__path::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0.2rem;
-  bottom: 0.2rem;
-  width: 1px;
-  background: #E2E8F0;
-}
-
-.componentCompactRow__qty {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 0.35rem;
-  color: #64748B;
-  font-size: 0.75rem;
+.componentTreeQty {
+  text-align: right;
+  color: #0F172A;
+  font-weight: 800;
   font-family: "JetBrains Mono", "DM Mono", monospace;
 }
 
-.componentCompactRow__qty strong {
-  color: #0F172A;
-  font-size: 0.8125rem;
+.componentTreeBomPath {
+  min-width: 0;
+  color: #64748B;
+  font-family: "JetBrains Mono", "DM Mono", monospace;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .componentEmptyResult {
@@ -1113,6 +1247,23 @@
   display: flex;
   flex-direction: column;
   gap: 0.625rem;
+  max-height: min(620px, 62vh);
+  overflow-y: auto;
+  padding-right: 0.35rem;
+  contain: layout paint style;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.operationLane::-webkit-scrollbar {
+  width: 10px;
+}
+
+.operationLane::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border: 3px solid #FFFFFF;
+  border-radius: 999px;
 }
 
 .operationRow {
@@ -1124,6 +1275,8 @@
   border: 1px solid #E2E8F0;
   border-radius: 12px;
   background: #FFFFFF;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
 }
 
 .operationRow:hover {
@@ -1418,12 +1571,19 @@
 }
 
 .operationIoMore {
+  appearance: none;
+  cursor: pointer;
   display: inline-flex;
   align-self: flex-start;
   padding: 0.2rem 0.45rem;
   border-radius: 999px;
   background: #FFFFFF;
   border: 1px dashed #CBD5E1;
+}
+
+.operationIoMore:hover {
+  border-color: #93C5FD;
+  color: #2563EB;
 }
 
 .operationRow__metrics {
@@ -1596,17 +1756,21 @@
     height: min(460px, 58vh);
   }
 
-  .componentCompactRow {
-    grid-template-columns: minmax(0, 1fr) 74px;
-    padding-left: calc(0.7rem + min(var(--component-depth, 0), 8) * 0.45rem);
+  .componentTreeTable {
+    min-width: 760px;
+  }
+
+  .componentTreeTable th,
+  .componentTreeTable td {
+    padding-left: 0.7rem;
     padding-right: 0.7rem;
   }
 
-  .componentCompactRow__meta {
-    gap: 0.4rem;
+  .componentTreeName {
+    padding-left: calc(min(var(--component-depth, 0), 8) * 0.55rem);
   }
 
-  .componentCompactRow__path {
+  .componentTreePath {
     display: none;
   }
 }

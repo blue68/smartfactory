@@ -2,7 +2,7 @@
  * [artifact:前端代码] — 生产工单管理页面 (R-10)
  * 对齐 design-production-order-v2.html 紧凑布局
  */
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   useProductionOrderList,
   useProductionOrderDetail,
@@ -49,9 +49,9 @@ type OperationRow = ProductionOrderOperation;
 type OperationInputItem = NonNullable<OperationRow['inputItems']>[number];
 type OperationOutputItem = NonNullable<OperationRow['outputItem']>;
 const EMPTY_ORDER_ROWS: OrderRow[] = [];
-const COMPONENT_ROW_HEIGHT = 58;
-const COMPONENT_OVERSCAN = 8;
-const COMPONENT_VIEWPORT_FALLBACK_HEIGHT = 520;
+const COMPONENT_PAGE_SIZE = 50;
+const MATERIAL_PAGE_SIZE = 20;
+const OPERATION_PAGE_SIZE = 20;
 
 interface SnapshotStep {
   id?: number | string;
@@ -325,6 +325,18 @@ function BomStatusBar({ materialStatus }: { materialStatus?: string }) {
 // ── 物料需求表格（替代 Table 组件，对齐设计规范）─────────────────────
 
 function MaterialTable({ materials }: { materials: MaterialRow[] }) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(materials.length / MATERIAL_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedMaterials = useMemo(
+    () => materials.slice((currentPage - 1) * MATERIAL_PAGE_SIZE, currentPage * MATERIAL_PAGE_SIZE),
+    [currentPage, materials],
+  );
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
+
   if (!materials.length) {
     return <div className={styles.tableEmptyState}>暂无物料需求数据</div>;
   }
@@ -344,7 +356,7 @@ function MaterialTable({ materials }: { materials: MaterialRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {materials.map((m) => {
+          {pagedMaterials.map((m) => {
             const shortage = Number(m.qtyShortage);
             const statusLabel = m.status === 'fulfilled' ? '充足' : m.status === 'partial' ? '部分' : '缺料';
             const statusCls = m.status === 'fulfilled'
@@ -378,6 +390,33 @@ function MaterialTable({ materials }: { materials: MaterialRow[] }) {
           })}
         </tbody>
       </table>
+      {materials.length > MATERIAL_PAGE_SIZE && (
+        <div className={styles.materialPagination}>
+          <span className={styles.pageInfo}>
+            第 {currentPage} / {totalPages} 页 · 显示 {(currentPage - 1) * MATERIAL_PAGE_SIZE + 1}-{Math.min(currentPage * MATERIAL_PAGE_SIZE, materials.length)} / {materials.length} 条
+          </span>
+          <div className={styles.materialPagination__buttons}>
+            <button
+              type="button"
+              className={styles.pageBtn}
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="物料需求上一页"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className={styles.pageBtn}
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="物料需求下一页"
+            >
+              ›
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -455,20 +494,20 @@ interface OrderTaskLite {
   completedQty?: string;
 }
 
-interface FlatComponentRow {
+interface ComponentTreeRow {
   component: ComponentRow;
   depth: number;
   path: string;
   resolved: boolean;
+  children: ComponentTreeRow[];
+  descendantCount: number;
 }
 
 function ComponentStructure({ components }: { components: ComponentRow[] }) {
   const [filter, setFilter] = useState<ComponentFilter>('all');
   const [keyword, setKeyword] = useState('');
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(COMPONENT_VIEWPORT_FALLBACK_HEIGHT);
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const scrollFrameRef = useRef<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [expandedComponentIds, setExpandedComponentIds] = useState<Set<number>>(() => new Set());
 
   const stats = useMemo(() => components.reduce((acc, component) => {
     acc.total += 1;
@@ -479,11 +518,18 @@ function ComponentStructure({ components }: { components: ComponentRow[] }) {
     return acc;
   }, { total: 0, fg: 0, wip: 0, rm: 0, resolved: 0 }), [components]);
 
-  const flatRows = useMemo<FlatComponentRow[]>(() => {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  const treeData = useMemo(() => {
     const childrenByParent = new Map<number | null, ComponentRow[]>();
     const componentMap = new Map<number, ComponentRow>();
+    const sortedComponents = [...components];
+    const compareComponent = (a: ComponentRow, b: ComponentRow) => {
+      const levelDiff = Number(a.bomLevel ?? 0) - Number(b.bomLevel ?? 0);
+      if (levelDiff !== 0) return levelDiff;
+      return Number(a.id) - Number(b.id);
+    };
 
-    components.forEach((component) => {
+    sortedComponents.forEach((component) => {
       componentMap.set(component.id, component);
       const key = component.parentComponentId ?? null;
       const bucket = childrenByParent.get(key) ?? [];
@@ -492,97 +538,173 @@ function ComponentStructure({ components }: { components: ComponentRow[] }) {
     });
 
     childrenByParent.forEach((items) => {
-      items.sort((a, b) => {
-        const levelDiff = Number(a.bomLevel ?? 0) - Number(b.bomLevel ?? 0);
-        if (levelDiff !== 0) return levelDiff;
-        return Number(a.id) - Number(b.id);
-      });
+      items.sort(compareComponent);
     });
 
-    const rows: FlatComponentRow[] = [];
-    const visited = new Set<number>();
-    const walk = (parentId: number | null, depth: number) => {
-      for (const component of childrenByParent.get(parentId) ?? []) {
-        if (visited.has(component.id)) continue;
-        visited.add(component.id);
-        const resolved = Boolean(component.resolvedSkuId && component.resolvedSkuId !== component.skuId);
-        rows.push({
-          component,
-          depth,
-          path: describeComponentPath(component, componentMap),
-          resolved,
-        });
-        walk(component.id, depth + 1);
-      }
+    const isResolved = (component: ComponentRow) => (
+      Boolean(component.resolvedSkuId && component.resolvedSkuId !== component.skuId)
+    );
+    const matches = (component: ComponentRow) => {
+      const resolved = isResolved(component);
+      if (filter === 'resolved' && !resolved) return false;
+      if (filter !== 'all' && filter !== 'resolved' && component.componentType !== filter) return false;
+      if (!normalizedKeyword) return true;
+
+      const path = describeComponentPath(component, componentMap);
+      const haystack = [
+        component.skuName,
+        component.resolvedSkuName,
+        component.bomPath,
+        path,
+        componentTypeLabel(component.componentType),
+      ].filter(Boolean).join(' ').toLowerCase();
+      return haystack.includes(normalizedKeyword);
     };
 
-    walk(null, 0);
-    if (rows.length < components.length) {
-      for (const component of components) {
-        if (visited.has(component.id)) continue;
-        const resolved = Boolean(component.resolvedSkuId && component.resolvedSkuId !== component.skuId);
-        rows.push({
-          component,
-          depth: Number(component.bomLevel ?? 0),
-          path: describeComponentPath(component, componentMap),
-          resolved,
-        });
+    const activeQuery = filter !== 'all' || Boolean(normalizedKeyword);
+    const matchedIds = new Set<number>();
+    const includedIds = new Set<number>();
+
+    sortedComponents.forEach((component) => {
+      if (!activeQuery || matches(component)) {
+        matchedIds.add(component.id);
+        includedIds.add(component.id);
+        let parent = component.parentComponentId ? componentMap.get(component.parentComponentId) : undefined;
+        const visited = new Set<number>([component.id]);
+        while (parent && !visited.has(parent.id)) {
+          visited.add(parent.id);
+          includedIds.add(parent.id);
+          parent = parent.parentComponentId ? componentMap.get(parent.parentComponentId) : undefined;
+        }
       }
+    });
+
+    const buildNode = (component: ComponentRow, depth: number, ancestors: Set<number>): ComponentTreeRow | null => {
+      if (!includedIds.has(component.id) || ancestors.has(component.id)) return null;
+      const nextAncestors = new Set(ancestors);
+      nextAncestors.add(component.id);
+      const children = (childrenByParent.get(component.id) ?? [])
+        .map((child) => buildNode(child, depth + 1, nextAncestors))
+        .filter((row): row is ComponentTreeRow => Boolean(row));
+      return {
+        component,
+        depth,
+        path: describeComponentPath(component, componentMap),
+        resolved: isResolved(component),
+        children,
+        descendantCount: children.reduce((sum, child) => sum + child.descendantCount + 1, 0),
+      };
+    };
+
+    const roots = sortedComponents
+      .filter((component) => {
+        if (!includedIds.has(component.id)) return false;
+        const parentId = component.parentComponentId ?? null;
+        return parentId === null || !includedIds.has(parentId);
+      })
+      .sort(compareComponent)
+      .map((component) => buildNode(component, Number(component.bomLevel ?? 0), new Set<number>()))
+      .filter((row): row is ComponentTreeRow => Boolean(row));
+
+    const autoExpandedIds = new Set<number>();
+    if (activeQuery) {
+      matchedIds.forEach((id) => {
+        let parent = componentMap.get(id)?.parentComponentId
+          ? componentMap.get(componentMap.get(id)!.parentComponentId!)
+          : undefined;
+        const visited = new Set<number>([id]);
+        while (parent && !visited.has(parent.id)) {
+          visited.add(parent.id);
+          if (includedIds.has(parent.id)) autoExpandedIds.add(parent.id);
+          parent = parent.parentComponentId ? componentMap.get(parent.parentComponentId) : undefined;
+        }
+      });
     }
-    return rows;
-  }, [components]);
 
-  const normalizedKeyword = keyword.trim().toLowerCase();
-  const filteredRows = useMemo(() => flatRows.filter(({ component, path, resolved }) => {
-    if (filter === 'resolved' && !resolved) return false;
-    if (filter !== 'all' && filter !== 'resolved' && component.componentType !== filter) return false;
-    if (!normalizedKeyword) return true;
+    const expandableIds: number[] = [];
+    const visibleRows: ComponentTreeRow[] = [];
+    const expandedForRender = new Set([...expandedComponentIds, ...autoExpandedIds]);
+    const walkVisible = (rows: ComponentTreeRow[]) => {
+      rows.forEach((row) => {
+        visibleRows.push(row);
+        if (row.children.length > 0) {
+          expandableIds.push(row.component.id);
+        }
+        if (row.children.length > 0 && expandedForRender.has(row.component.id)) {
+          walkVisible(row.children);
+        }
+      });
+    };
 
-    const haystack = [
-      component.skuName,
-      component.resolvedSkuName,
-      component.bomPath,
-      path,
-      componentTypeLabel(component.componentType),
-    ].filter(Boolean).join(' ').toLowerCase();
-    return haystack.includes(normalizedKeyword);
-  }), [filter, flatRows, normalizedKeyword]);
+    walkVisible(roots);
+
+    return {
+      roots,
+      visibleRows,
+      matchedCount: activeQuery ? matchedIds.size : components.length,
+      includedCount: includedIds.size,
+      expandableIds,
+      rootIdsKey: roots.map((row) => row.component.id).join(','),
+      autoExpandedIds,
+    };
+  }, [components, expandedComponentIds, filter, normalizedKeyword]);
+
+  useEffect(() => {
+    const rootIds = treeData.rootIdsKey
+      ? treeData.rootIdsKey.split(',').map((id) => Number(id)).filter((id) => Number.isFinite(id))
+      : [];
+    setExpandedComponentIds(new Set(rootIds));
+  }, [treeData.rootIdsKey]);
 
   const handleFilterChange = useCallback((nextFilter: ComponentFilter) => {
     setFilter(nextFilter);
   }, []);
 
-  const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
-    const target = event.currentTarget;
-    const nextScrollTop = target.scrollTop;
-    const nextHeight = target.clientHeight;
-    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      setScrollTop(nextScrollTop);
-      if (nextHeight > 0) setViewportHeight(nextHeight);
-      scrollFrameRef.current = null;
+  useEffect(() => {
+    setPage(1);
+  }, [filter, normalizedKeyword, expandedComponentIds]);
+
+  const totalPages = Math.max(1, Math.ceil(treeData.visibleRows.length / COMPONENT_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedRows = useMemo(
+    () => treeData.visibleRows.slice((currentPage - 1) * COMPONENT_PAGE_SIZE, currentPage * COMPONENT_PAGE_SIZE),
+    [currentPage, treeData.visibleRows],
+  );
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
+
+  const pageStart = treeData.visibleRows.length === 0 ? 0 : (currentPage - 1) * COMPONENT_PAGE_SIZE + 1;
+  const pageEnd = Math.min(currentPage * COMPONENT_PAGE_SIZE, treeData.visibleRows.length);
+
+  const handlePrevPage = useCallback(() => {
+    setPage((current) => Math.max(1, current - 1));
+  }, []);
+
+  const handleNextPage = useCallback(() => {
+    setPage((current) => Math.min(totalPages, current + 1));
+  }, [totalPages]);
+
+  const handleToggleNode = useCallback((componentId: number) => {
+    setExpandedComponentIds((current) => {
+      const next = new Set(current);
+      if (next.has(componentId)) {
+        next.delete(componentId);
+      } else {
+        next.add(componentId);
+      }
+      return next;
     });
   }, []);
 
-  useEffect(() => {
-    setScrollTop(0);
-    if (viewportRef.current) viewportRef.current.scrollTop = 0;
-  }, [filter, normalizedKeyword]);
+  const handleExpandAll = useCallback(() => {
+    setExpandedComponentIds(new Set(treeData.expandableIds));
+  }, [treeData.expandableIds]);
 
-  useEffect(() => () => {
-    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+  const handleCollapseAll = useCallback(() => {
+    setExpandedComponentIds(new Set());
   }, []);
-
-  const visibleCount = Math.ceil(viewportHeight / COMPONENT_ROW_HEIGHT) + COMPONENT_OVERSCAN * 2;
-  const maxStart = Math.max(filteredRows.length - visibleCount, 0);
-  const startIndex = Math.min(
-    Math.max(Math.floor(scrollTop / COMPONENT_ROW_HEIGHT) - COMPONENT_OVERSCAN, 0),
-    maxStart,
-  );
-  const endIndex = Math.min(filteredRows.length, startIndex + visibleCount);
-  const visibleRows = filteredRows.slice(startIndex, endIndex);
-  const paddingTop = startIndex * COMPONENT_ROW_HEIGHT;
-  const paddingBottom = Math.max(filteredRows.length - endIndex, 0) * COMPONENT_ROW_HEIGHT;
 
   if (!components.length) {
     return (
@@ -633,59 +755,132 @@ function ComponentStructure({ components }: { components: ComponentRow[] }) {
           onChange={(event) => setKeyword(event.target.value)}
           placeholder="搜索 SKU / 路径"
         />
+        <div className={styles.structureToolbarActions}>
+          <button
+            type="button"
+            className={styles.structureActionBtn}
+            disabled={treeData.expandableIds.length === 0}
+            onClick={handleExpandAll}
+          >
+            全部展开
+          </button>
+          <button
+            type="button"
+            className={styles.structureActionBtn}
+            disabled={treeData.expandableIds.length === 0}
+            onClick={handleCollapseAll}
+          >
+            全部收缩
+          </button>
+        </div>
         <div className={styles.structureResultMeta}>
-          {filteredRows.length} / {flatRows.length}
+          {treeData.matchedCount} / {stats.total}
         </div>
       </div>
-      <div
-        ref={viewportRef}
-        className={styles.componentTreeViewport}
-        onScroll={handleScroll}
-      >
-        {filteredRows.length === 0 ? (
+      <div className={styles.componentTreeViewport}>
+        {treeData.visibleRows.length === 0 ? (
           <div className={styles.componentEmptyResult}>暂无匹配节点</div>
         ) : (
-          <div className={styles.componentTreeVirtual}>
-            <div style={{ height: paddingTop }} />
-            {visibleRows.map(({ component, depth, path, resolved }) => (
-              <div
-                key={component.id}
-                className={styles.componentCompactRow}
-                style={{ '--component-depth': Math.min(depth, 8) } as React.CSSProperties}
-              >
-                <div className={styles.componentCompactRow__main}>
-                  <div className={styles.componentCompactRow__titleLine}>
-                    <span className={`${styles.componentType} ${styles[`componentType--${component.componentType}`]}`}>
-                      {componentTypeLabel(component.componentType)}
-                    </span>
-                    {resolved && <span className={styles.componentResolvedBadge}>通配</span>}
-                    <strong title={component.resolvedSkuName ?? component.skuName}>
-                      {component.resolvedSkuName ?? component.skuName}
-                    </strong>
-                  </div>
-                  <div className={styles.componentCompactRow__meta}>
-                    {resolved ? (
-                      <span title={`${component.skuName} → ${component.resolvedSkuName ?? ''}`}>
-                        {component.skuName} → {component.resolvedSkuName}
+          <table className={styles.componentTreeTable}>
+            <thead>
+              <tr>
+                <th>结构链路</th>
+                <th>类型</th>
+                <th className={styles.alignRight}>需求量</th>
+                <th>BOM路径</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedRows.map(({ component, depth, path, resolved, children, descendantCount }) => {
+                const isExpanded = expandedComponentIds.has(component.id) || treeData.autoExpandedIds.has(component.id);
+                const resolvedName = component.resolvedSkuName ?? component.skuName;
+                return (
+                  <tr key={component.id} className={styles.componentTreeRow}>
+                    <td className={styles.componentTreeNameCell}>
+                      <div
+                        className={styles.componentTreeName}
+                        style={{ '--component-depth': Math.min(depth, 8) } as React.CSSProperties}
+                      >
+                        {children.length > 0 ? (
+                          <button
+                            type="button"
+                            className={styles.componentTreeToggle}
+                            onClick={() => handleToggleNode(component.id)}
+                            aria-label={isExpanded ? '收缩结构节点' : '展开结构节点'}
+                            aria-expanded={isExpanded}
+                          >
+                            {isExpanded ? '−' : '+'}
+                          </button>
+                        ) : (
+                          <span className={styles.componentTreeToggleSpacer} />
+                        )}
+                        <div className={styles.componentTreeIdentity}>
+                          <div className={styles.componentTreeTitleLine}>
+                            <strong title={resolvedName}>{resolvedName}</strong>
+                            {resolved && <span className={styles.componentResolvedBadge}>通配</span>}
+                            {children.length > 0 && (
+                              <span className={styles.componentTreeChildCount}>{descendantCount} 个下级</span>
+                            )}
+                          </div>
+                          <div className={styles.componentTreeMeta}>
+                            {resolved ? (
+                              <span title={`${component.skuName} → ${component.resolvedSkuName ?? ''}`}>
+                                {component.skuName} → {component.resolvedSkuName}
+                              </span>
+                            ) : (
+                              <span title={component.skuName}>冻结 SKU：{component.skuName}</span>
+                            )}
+                          </div>
+                          <div className={styles.componentTreePath} title={path}>
+                            {path}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span className={`${styles.componentType} ${styles[`componentType--${component.componentType}`]}`}>
+                        {componentTypeLabel(component.componentType)}
                       </span>
-                    ) : (
-                      <span title={component.skuName}>冻结 SKU：{component.skuName}</span>
-                    )}
-                    <span className={styles.componentCompactRow__path} title={path}>
-                      {path}
-                    </span>
-                  </div>
-                </div>
-                <div className={styles.componentCompactRow__qty}>
-                  <span>需求</span>
-                  <strong>{formatQty(component.qtyRequired)}</strong>
-                </div>
-              </div>
-            ))}
-            <div style={{ height: paddingBottom }} />
-          </div>
+                    </td>
+                    <td className={styles.componentTreeQty}>{formatQty(component.qtyRequired)}</td>
+                    <td className={styles.componentTreeBomPath} title={component.bomPath ?? path}>
+                      {component.bomPath || '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </div>
+      {treeData.visibleRows.length > COMPONENT_PAGE_SIZE && (
+        <div className={styles.structurePagination}>
+          <span className={styles.pageInfo}>
+            第 {currentPage} / {totalPages} 页 · 显示 {pageStart}-{pageEnd} / {treeData.visibleRows.length} 可见节点
+            {treeData.includedCount !== treeData.matchedCount ? ` · 含 ${treeData.includedCount - treeData.matchedCount} 个上级链路` : ''}
+          </span>
+          <div className={styles.materialPagination__buttons}>
+            <button
+              type="button"
+              className={styles.pageBtn}
+              disabled={currentPage <= 1}
+              onClick={handlePrevPage}
+              aria-label="结构快照上一页"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className={styles.pageBtn}
+              disabled={currentPage >= totalPages}
+              onClick={handleNextPage}
+              aria-label="结构快照下一页"
+            >
+              ›
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -703,6 +898,8 @@ function OperationLane({
   releasePending: boolean;
   canRelease: boolean;
 }) {
+  const [expandedInputOperationIds, setExpandedInputOperationIds] = useState<Set<number>>(() => new Set());
+  const [page, setPage] = useState(1);
   const sortedOperations = useMemo(
     () => [...operations].sort((a, b) => {
       const levelDiff = Number(b.bomLevel ?? 0) - Number(a.bomLevel ?? 0);
@@ -719,6 +916,38 @@ function OperationLane({
     (sum, operation) => sum + (operation.inputItems ?? []).filter((item) => item.itemType === 'semi_finished').length,
     0,
   );
+  const totalPages = Math.max(1, Math.ceil(sortedOperations.length / OPERATION_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedOperations = useMemo(
+    () => sortedOperations.slice((currentPage - 1) * OPERATION_PAGE_SIZE, currentPage * OPERATION_PAGE_SIZE),
+    [currentPage, sortedOperations],
+  );
+  const pageStart = sortedOperations.length === 0 ? 0 : (currentPage - 1) * OPERATION_PAGE_SIZE + 1;
+  const pageEnd = Math.min(currentPage * OPERATION_PAGE_SIZE, sortedOperations.length);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
+
+  const toggleInputsExpanded = useCallback((operationId: number) => {
+    setExpandedInputOperationIds((current) => {
+      const next = new Set(current);
+      if (next.has(operationId)) {
+        next.delete(operationId);
+      } else {
+        next.add(operationId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handlePrevPage = useCallback(() => {
+    setPage((current) => Math.max(1, current - 1));
+  }, []);
+
+  const handleNextPage = useCallback(() => {
+    setPage((current) => Math.min(totalPages, current + 1));
+  }, [totalPages]);
 
   if (!sortedOperations.length) {
     return (
@@ -757,12 +986,15 @@ function OperationLane({
       </div>
 
       <div className={styles.operationLane}>
-        {sortedOperations.map((operation) => {
+        {pagedOperations.map((operation) => {
         const relatedTasks = tasks.filter((task) =>
           (task.operationId && task.operationId === operation.id)
           || (!task.operationId && task.processStepId === operation.processStepId)
         );
         const inputItems = operation.inputItems ?? [];
+        const inputsExpanded = expandedInputOperationIds.has(operation.id);
+        const visibleInputItems = inputsExpanded ? inputItems : inputItems.slice(0, 5);
+        const hiddenInputCount = Math.max(inputItems.length - visibleInputItems.length, 0);
         const outputItem: OperationOutputItem = operation.outputItem ?? {
           skuId: operation.outputSkuId,
           skuCode: operation.outputSkuCode,
@@ -801,7 +1033,9 @@ function OperationLane({
                   <strong>{inputItems.length} 项</strong>
                 </div>
                 <div className={styles.operationIoList}>
-                  {inputItems.length > 0 ? inputItems.map((item, itemIndex) => {
+                  {inputItems.length > 0 ? (
+                    <>
+                      {visibleInputItems.map((item, itemIndex) => {
                     const statusLabel = operationInputStatusLabel(item);
                     return (
                       <div
@@ -821,7 +1055,27 @@ function OperationLane({
                         </div>
                       </div>
                     );
-                  }) : (
+                      })}
+                      {hiddenInputCount > 0 && (
+                        <button
+                          type="button"
+                          className={styles.operationIoMore}
+                          onClick={() => toggleInputsExpanded(operation.id)}
+                        >
+                          展开剩余 {hiddenInputCount} 项输入
+                        </button>
+                      )}
+                      {inputsExpanded && inputItems.length > 5 && (
+                        <button
+                          type="button"
+                          className={styles.operationIoMore}
+                          onClick={() => toggleInputsExpanded(operation.id)}
+                        >
+                          收起输入明细
+                        </button>
+                      )}
+                    </>
+                  ) : (
                     <div className={styles.operationIoEmpty}>未维护输入，按该作业直接推进</div>
                   )}
                 </div>
@@ -887,6 +1141,33 @@ function OperationLane({
         );
         })}
       </div>
+      {sortedOperations.length > OPERATION_PAGE_SIZE && (
+        <div className={styles.structurePagination}>
+          <span className={styles.pageInfo}>
+            第 {currentPage} / {totalPages} 页 · 显示 {pageStart}-{pageEnd} / {sortedOperations.length} 道作业
+          </span>
+          <div className={styles.materialPagination__buttons}>
+            <button
+              type="button"
+              className={styles.pageBtn}
+              disabled={currentPage <= 1}
+              onClick={handlePrevPage}
+              aria-label="BOM任务链上一页"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className={styles.pageBtn}
+              disabled={currentPage >= totalPages}
+              onClick={handleNextPage}
+              aria-label="BOM任务链下一页"
+            >
+              ›
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
