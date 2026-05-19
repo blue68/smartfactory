@@ -1775,7 +1775,7 @@ export class ProductionService {
     }>>(
       `SELECT
           dep.predecessor_operation_id AS operationId,
-          COALESCE(ps.step_name, CONCAT('STEP#', pred.process_step_id)) AS stepName,
+          ${taskProcessDisplayNameExpr('pred', 'ps', 'pred_display_sku', 'pred_proc_tpl')} AS stepName,
           dep.required_qty AS requiredQty,
           pred.completed_qty AS completedQty,
           pred.status AS status,
@@ -1787,6 +1787,12 @@ export class ProductionService {
        INNER JOIN production_operations pred
          ON pred.id = dep.predecessor_operation_id
         AND pred.tenant_id = dep.tenant_id
+       LEFT JOIN production_orders pred_po
+         ON pred_po.id = pred.production_order_id
+        AND pred_po.tenant_id = pred.tenant_id
+       LEFT JOIN process_templates pred_proc_tpl
+         ON pred_proc_tpl.id = pred_po.process_template_id
+        AND pred_proc_tpl.tenant_id = pred_po.tenant_id
        LEFT JOIN process_steps ps
          ON ps.id = pred.process_step_id
        LEFT JOIN (
@@ -1803,6 +1809,8 @@ export class ProductionService {
         AND pred_component.tenant_id = pred.tenant_id
        LEFT JOIN skus sku
          ON sku.id = COALESCE(pred_task.output_sku_id, pred.output_sku_id, pred_component.resolved_sku_id, pred_component.sku_id)
+       LEFT JOIN skus pred_display_sku
+         ON pred_display_sku.id = COALESCE(pred_task.output_sku_id, pred.output_sku_id, pred_component.resolved_sku_id, pred_component.sku_id)
        WHERE dep.tenant_id = ? AND dep.operation_id = ?
        ORDER BY COALESCE(ps.step_no, 9999) ASC, dep.predecessor_operation_id ASC`,
       [this.tenantId, operationId],

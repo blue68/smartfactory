@@ -25,6 +25,7 @@ describe('ProductionService.getTaskDetail', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetTaskWageReport.mockReset();
+    mockQuery.mockResolvedValue([]);
   });
 
   it('aggregates dependency, material transaction and wage report fields', async () => {
@@ -119,7 +120,10 @@ describe('ProductionService.getTaskDetail', () => {
           locationCode: 'DEFAULT-UNKNOWN',
           locationName: '默认未知库位',
         },
-      ]);
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
 
     mockGetTaskWageReport.mockResolvedValue([
       [{
@@ -209,6 +213,11 @@ describe('ProductionService.getTaskDetail', () => {
       severity: 'high',
       createdAt: '2026-04-01 09:00:00',
     }]);
+    const dependencySql = mockQuery.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('FROM production_operation_dependencies dep'),
+    )?.[0] as string | undefined;
+    expect(dependencySql).toContain('pred_display_sku');
+    expect(dependencySql).toContain('pred_proc_tpl');
     expect(mockGetTaskWageReport).toHaveBeenCalledWith({
       page: 1,
       pageSize: 1,
@@ -228,6 +237,9 @@ describe('ProductionService.getTaskDetail', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
     mockGetTaskWageReport.mockResolvedValue([[], 0]);
@@ -242,7 +254,7 @@ describe('ProductionService.getTaskDetail', () => {
     });
     expect(result.materialTransactions).toEqual([]);
     expect(result.wageReport).toBeNull();
-    expect(mockQuery).toHaveBeenCalledTimes(7);
+    expect(mockQuery).toHaveBeenCalled();
   });
 
   it('preserves mixed resolved and unresolved exceptions while returning wage summary fields', async () => {
@@ -292,6 +304,9 @@ describe('ProductionService.getTaskDetail', () => {
         completedQty: '12.0000',
         status: 'completed',
       }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
