@@ -141,6 +141,50 @@ async function scalar(sql, params = []) {
   return Object.values(first)[0] ?? null;
 }
 
+async function submitIncomingInspection(token, inspectionId, body) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await request(`/incoming-inspections/${inspectionId}/submit`, {
+        token,
+        method: 'POST',
+        body,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const [record] = await query(
+        `SELECT status, overall_result AS overallResult
+         FROM incoming_inspection_records
+         WHERE tenant_id = ? AND id = ?
+         LIMIT 1`,
+        [TENANT_ID, Number(inspectionId)],
+      );
+      if (record?.status && record.status !== 'draft' && record.status !== 'in_progress') {
+        return record;
+      }
+      const retryableSubmitError = message.includes('504')
+        || message.includes('Gateway Time-out')
+        || message.includes('Lock wait timeout')
+        || message.includes('服务内部错误');
+      if (!retryableSubmitError) {
+        throw error;
+      }
+      warn('incoming inspection submit did not return a final response; retrying after status check', {
+        inspectionId: Number(inspectionId),
+        attempt: attempt + 1,
+        status: record?.status ?? null,
+        message,
+      });
+      await sleep(5000 * (attempt + 1));
+    }
+  }
+
+  return request(`/incoming-inspections/${inspectionId}/submit`, {
+    token,
+    method: 'POST',
+    body,
+  });
+}
+
 async function login({ username, password }) {
   const auth = await request('/auth/login', {
     method: 'POST',
@@ -453,15 +497,11 @@ async function procurementFlow(tokens, fixtures) {
     },
   });
 
-  await request(`/incoming-inspections/${inspection.id}/submit`, {
-    token: tokens.supervisor,
-    method: 'POST',
-    body: {
-      overallResult: 'conditional_pass',
-      warehouseId: Number(fixtures.warehouseLocation.warehouseId),
-      locationId: Number(fixtures.warehouseLocation.locationId),
-      notes: `${RUN_TAG} 混合质检提交`,
-    },
+  await submitIncomingInspection(tokens.supervisor, inspection.id, {
+    overallResult: 'conditional_pass',
+    warehouseId: Number(fixtures.warehouseLocation.warehouseId),
+    locationId: Number(fixtures.warehouseLocation.locationId),
+    notes: `${RUN_TAG} 混合质检提交`,
   });
   const preview = await request(`/incoming-inspections/${inspection.id}/preview-receipt`, { token: tokens.supervisor });
   const receiptId = Number(preview.receiptId);
@@ -626,13 +666,9 @@ async function replenishProductionOrderShortages(tokens, supplierId, productionO
         }),
       },
     });
-    await request(`/incoming-inspections/${inspection.id}/submit`, {
-      token: tokens.supervisor,
-      method: 'POST',
-      body: {
-        overallResult: 'pass',
-        notes: `${RUN_TAG} 工单 ${productionOrderId} 缺料补采入库 ${chunkIndex + 1}/${chunks.length}`,
-      },
+    await submitIncomingInspection(tokens.supervisor, inspection.id, {
+      overallResult: 'pass',
+      notes: `${RUN_TAG} 工单 ${productionOrderId} 缺料补采入库 ${chunkIndex + 1}/${chunks.length}`,
     });
 
     report.ids.productionShortagePOs = [
@@ -764,19 +800,156 @@ async function replenishTaskInputShortages(tokens, supplierId, detail) {
       }),
     },
   });
-  await request(`/incoming-inspections/${inspection.id}/submit`, {
-    token: tokens.supervisor,
-    method: 'POST',
-    body: {
-      overallResult: 'pass',
-      notes: `${RUN_TAG} 任务实时缺料补采入库`,
-    },
+  await submitIncomingInspection(tokens.supervisor, inspection.id, {
+    overallResult: 'pass',
+    notes: `${RUN_TAG} 任务实时缺料补采入库`,
   });
 
   report.ids.taskShortagePOs = [
     ...(report.ids.taskShortagePOs ?? []),
     { poId: Number(po.id), inspectionId: Number(inspection.id), skuCount: shortages.length },
   ];
+  return shortages.length;
+}
+
+async function replenishBatchInputShortages(tokens, supplierId, batchId) {
+  const page = await getTaskList(tokens.admin, { batchId });
+  const shortageBySku = new Map();
+
+  for (const task of (page.list ?? [])) {
+    if (task.status === 'completed' || task.status === 'cancelled') continue;
+    const detail = await getTaskDetail(tokens.admin, Number(task.id));
+    for (const item of (detail.inputMaterials ?? [])) {
+      if (item.itemType && item.itemType !== 'material') continue;
+      const required = Number(item.requiredQty ?? 0);
+      const fulfilled = Math.max(
+        Number(item.issuedQty ?? 0),
+        Number(item.fulfilledQty ?? 0),
+      );
+      const shortageQty = Math.max(required - fulfilled, 0);
+      const skuId = Number(item.skuId);
+      if (!Number.isFinite(skuId) || skuId <= 0 || shortageQty <= 0) continue;
+      shortageBySku.set(skuId, (shortageBySku.get(skuId) ?? 0) + shortageQty);
+    }
+  }
+
+  if (shortageBySku.size === 0) return 0;
+
+  const skuIds = [...shortageBySku.keys()];
+  const skuRows = await query(
+    `SELECT id,
+            sku_code AS skuCode,
+            name,
+            stock_unit AS stockUnit,
+            purchase_unit AS purchaseUnit,
+            business_class AS businessClass,
+            has_dye_lot AS hasDyeLot
+     FROM skus
+     WHERE tenant_id = ?
+       AND id IN (${skuIds.map(() => '?').join(',')})
+       AND allow_purchase = 1
+       AND allow_inventory = 1`,
+    [TENANT_ID, ...skuIds],
+  );
+  const shortages = skuRows.map((sku) => ({
+    ...sku,
+    shortageQty: shortageBySku.get(Number(sku.id)) ?? 0,
+  })).filter((sku) => Number(sku.shortageQty) > 0);
+
+  if (shortages.length === 0) return 0;
+
+  await ensureSupplierPricingForSkus(supplierId, shortages, `${RUN_TAG} batch task shortage pricing`);
+  const chunks = [];
+  for (let index = 0; index < shortages.length; index += 20) {
+    chunks.push(shortages.slice(index, index + 20));
+  }
+
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+    const chunk = chunks[chunkIndex];
+    const po = await request('/purchase/orders', {
+      token: tokens.purchaser,
+      method: 'POST',
+      body: {
+        supplierId: Number(supplierId),
+        expectedDate: today(1),
+        notes: `${RUN_TAG} 批次 ${batchId} 任务原料预补 ${chunkIndex + 1}/${chunks.length}`,
+        items: chunk.map((sku) => ({
+          skuId: Number(sku.id),
+          qtyOrdered: decimal(Number(sku.shortageQty) + 1),
+          purchaseUnit: sku.stockUnit || sku.purchaseUnit || '件',
+          unitPrice: '1.00',
+          businessClass: sku.businessClass,
+          receiptMode: 'inventory',
+          requiresAcceptance: true,
+        })),
+      },
+    });
+
+    const delivery = await request(`/purchase/orders/${po.id}/delivery`, {
+      token: tokens.purchaser,
+      method: 'POST',
+      body: {
+        poId: Number(po.id),
+        deliveryDate: today(0),
+        notes: `${RUN_TAG} 批次 ${batchId} 任务原料预补送货 ${chunkIndex + 1}/${chunks.length}`,
+        items: chunk.map((sku) => ({
+          skuId: Number(sku.id),
+          qtyDelivered: decimal(Number(sku.shortageQty) + 1),
+          purchaseUnit: sku.stockUnit || sku.purchaseUnit || '件',
+          unitPrice: '1.00',
+          dyeLotNo: Number(sku.hasDyeLot ?? 0) === 1 ? `${RUN_TAG}-LOT-${sku.skuCode}`.slice(0, 100) : undefined,
+        })),
+      },
+    });
+
+    const inspection = await request('/incoming-inspections', {
+      token: tokens.supervisor,
+      method: 'POST',
+      body: {
+        poId: Number(po.id),
+        deliveryNoteId: Number(delivery.id),
+        inspectionDate: today(0),
+        notes: `${RUN_TAG} 批次 ${batchId} 任务原料预补来料全检 ${chunkIndex + 1}/${chunks.length}`,
+      },
+    });
+    const detailInspection = await request(`/incoming-inspections/${inspection.id}`, { token: tokens.supervisor });
+    await request(`/incoming-inspections/${inspection.id}/items`, {
+      token: tokens.supervisor,
+      method: 'PUT',
+      body: {
+        items: (detailInspection.items ?? []).map((item) => {
+          const qty = String(item.qtyDelivered ?? item.qty_delivered ?? '0');
+          const sku = chunk.find((row) => Number(row.id) === Number(item.skuId ?? item.sku_id));
+          return {
+            id: Number(item.id),
+            qtysampled: qty,
+            qtyPassed: qty,
+            qtyFailed: '0.0000',
+            acceptedStockQty: qty,
+            dyeLotNo: Number(sku?.hasDyeLot ?? 0) === 1 ? `${RUN_TAG}-LOT-${sku.skuCode}`.slice(0, 100) : undefined,
+            result: 'pass',
+            disposition: 'accept',
+            notes: `${RUN_TAG} 批次任务原料预补合格`,
+          };
+        }),
+      },
+    });
+    await submitIncomingInspection(tokens.supervisor, inspection.id, {
+      overallResult: 'pass',
+      notes: `${RUN_TAG} 批次任务原料预补入库`,
+    });
+
+    report.ids.batchShortagePOs = [
+      ...(report.ids.batchShortagePOs ?? []),
+      { batchId: Number(batchId), poId: Number(po.id), inspectionId: Number(inspection.id), skuCount: chunk.length },
+    ];
+  }
+
+  log('procurement-shortage', 'pre-replenished batch task input shortages through purchase and incoming inspection', {
+    batchId: Number(batchId),
+    poCount: chunks.length,
+    skuCount: shortages.length,
+  });
   return shortages.length;
 }
 
@@ -1342,6 +1515,7 @@ async function jointProductionFlow(tokens, fixtures) {
 
     await backfillCompletedTaskOutputsForBatch(batchId);
     await repairDependencyWipDeficitsForBatch(batchId);
+    await replenishBatchInputShortages(tokens, Number(fixtures.supplier.id), batchId);
     const completed = await completeBatchTasks(tokens, batchId, Number(fixtures.supplier.id));
     const orders = await query(
       `SELECT id, work_order_no AS workOrderNo, qty_planned AS qtyPlanned, status
@@ -1406,6 +1580,7 @@ async function jointProductionFlow(tokens, fixtures) {
     body: { date: scheduleDate, batchId: Number(batch.id) },
   });
 
+  await replenishBatchInputShortages(tokens, Number(fixtures.supplier.id), Number(batch.id));
   const completed = await completeBatchTasks(tokens, Number(batch.id), Number(fixtures.supplier.id));
   const orders = await query(
     `SELECT id, work_order_no AS workOrderNo, qty_planned AS qtyPlanned, status
