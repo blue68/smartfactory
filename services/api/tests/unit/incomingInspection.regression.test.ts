@@ -33,6 +33,7 @@ describe('Incoming inspection regressions', () => {
     (IncomingInspectionService as any).purchaseOrderItemControlColumnsSupported = null;
     (IncomingInspectionService as any).purchaseReceiptItemControlColumnsSupported = null;
     (IncomingInspectionService as any).inventoryTransactionQtyChangeColumnSupported = true;
+    (IncomingInspectionService as any).inventoryTransactionBusinessClassColumnSupported = false;
     (IncomingInspectionService as any).returnOrderItemUpdatedBySupported = true;
     (IncomingInspectionService as any).deliveryReceivedStatusSupported = true;
     (IncomingInspectionService as any).deliveryNoteItemPoItemSupported = true;
@@ -118,6 +119,7 @@ describe('Incoming inspection regressions', () => {
     expect(inventoryTxCall?.[1]).toEqual([
       7,
       301,
+      'PURCHASE_IN',
       1,
       1,
       '24.0000',
@@ -304,6 +306,7 @@ describe('Incoming inspection regressions', () => {
     expect(inventoryTxCall?.[1]).toEqual([
       7,
       303,
+      'PURCHASE_IN',
       1,
       1,
       '95.5000',
@@ -333,7 +336,7 @@ describe('Incoming inspection regressions', () => {
     expect(generateNoSpy).toHaveBeenCalledWith('receipt', 7);
   });
 
-  it('submits inspection through receipt creation and reevaluates each received sku once', async () => {
+  it('submits inspection through receipt creation without blocking on MRP reevaluation', async () => {
     const manager = {
       query: jest.fn(async (sql: string) => {
         if (sql.includes('SELECT production_operation_id') && sql.includes('FROM purchase_order_items')) {
@@ -401,8 +404,7 @@ describe('Incoming inspection regressions', () => {
     await svc.submit(10, { overallResult: 'pass', notes: '整单合格入库' });
 
     expect(generateNoSpy).toHaveBeenCalledWith('receipt', 7);
-    expect(reevaluateSpy).toHaveBeenCalledTimes(1);
-    expect(reevaluateSpy).toHaveBeenCalledWith(301, manager);
+    expect(reevaluateSpy).not.toHaveBeenCalled();
 
     const receiptInsertCall = manager.query.mock.calls.find(([sql]: [string]) =>
       String(sql).includes('INSERT INTO purchase_receipts'),

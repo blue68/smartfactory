@@ -164,6 +164,7 @@ async function submitIncomingInspection(token, inspectionId, body) {
       const retryableSubmitError = message.includes('504')
         || message.includes('Gateway Time-out')
         || message.includes('Lock wait timeout')
+        || message.includes('质检单正在提交中')
         || message.includes('服务内部错误');
       if (!retryableSubmitError) {
         throw error;
@@ -1009,17 +1010,32 @@ async function completeTask(token, task, note, support) {
   }
   await issueMaterialsIfNeeded(token, Number(task.id), detail);
   await throttleTaskMutation();
-  await request(`/production/tasks/${task.id}/complete-v2`, {
-    token,
-    method: 'POST',
-    body: {
-      completedQty: String(task.plannedQty ?? detail.plannedQty ?? '1'),
-      actualHours: 1,
-      scrapQty: '0',
-      componentBarcode: `TASK_ID=${task.id}`,
-      notes: note,
-    },
-  });
+  const body = {
+    completedQty: String(task.plannedQty ?? detail.plannedQty ?? '1'),
+    actualHours: 1,
+    scrapQty: '0',
+    componentBarcode: `TASK_ID=${task.id}`,
+    notes: note,
+  };
+  try {
+    await request(`/production/tasks/${task.id}/complete-v2`, {
+      token,
+      method: 'POST',
+      body,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const retryableCompleteError = message.includes('504')
+      || message.includes('Gateway Time-out')
+      || message.includes('Lock wait timeout')
+      || message.includes('Deadlock found')
+      || message.includes('服务内部错误')
+      || message.includes('任务已完工');
+    if (!retryableCompleteError) throw error;
+    const latest = await getTaskDetail(token, task.id);
+    if (latest.status === 'completed') return;
+    throw error;
+  }
 }
 
 async function findActionableWorkerTask(token, workerId, extraQuery = {}) {

@@ -1445,15 +1445,15 @@ export class IncomingInspectionService {
 
   // ── 提交质检结论（核心事务逻辑）────────────────────────────────
   async submit(id: number, params: SubmitInspectionParams): Promise<void> {
-    // 事务外仅做存在性校验，不读取 receipt_triggered / return_triggered。
-    // 幂等位的状态检查必须在事务内通过 FOR UPDATE 行锁读取，
-    // 以防止并发请求同时通过检查后重复执行入库（CR-002）。
     const [preCheck] = await AppDataSource.query(
-      `SELECT id FROM incoming_inspection_records
+      `SELECT id, status FROM incoming_inspection_records
        WHERE id = ? AND tenant_id = ? LIMIT 1`,
       [id, this.tenantId],
     );
     if (!preCheck) throw AppError.notFound('质检单不存在', ResponseCode.NOT_FOUND);
+    if (['passed', 'failed', 'partially_passed'].includes(String(preCheck.status ?? ''))) {
+      return;
+    }
 
     // 读取所有质检明细（明细数据在事务外读取即可，不涉及幂等控制）
     const items = await AppDataSource.query(
@@ -1480,73 +1480,88 @@ export class IncomingInspectionService {
     }
 
     let trackedInventoryManager: InventorySnapshotTrackedManager | null = null;
-    await AppDataSource.transaction(async (manager) => {
-      trackedInventoryManager = manager as InventorySnapshotTrackedManager;
-      // 事务内使用 SELECT ... FOR UPDATE 获取行级锁，
-      // 保证同一质检单的并发请求串行执行，幂等位检查在锁保护下进行。
-      const [record] = await manager.query(
-        `SELECT id, status, receipt_triggered, return_triggered, po_id, delivery_note_id
-         FROM incoming_inspection_records
-         WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
-        [id, this.tenantId],
-      );
-
-      if (record.status === 'passed' || record.status === 'failed' || record.status === 'partially_passed') {
-        throw AppError.conflict('质检单已完成提交，禁止重复操作');
-      }
-
-      // 确定最终状态
-      const allPassed = items.every((i: any) => i.result === 'pass');
-      const allFailed = items.every((i: any) => i.result === 'fail');
-      let finalStatus: string;
-      if (allPassed) {
-        finalStatus = 'passed';
-      } else if (allFailed) {
-        finalStatus = 'failed';
-      } else {
-        finalStatus = 'partially_passed';
-      }
-
-      // 更新质检单状态
-      await manager.query(
-        `UPDATE incoming_inspection_records
-         SET status = ?,
-             overall_result = ?,
-             notes = ?,
-             completed_at = NOW(),
-             updated_by = ?
-         WHERE id = ? AND tenant_id = ?`,
-        [finalStatus, params.overallResult, params.notes ?? null, this.userId, id, this.tenantId],
-      );
-
-      if (record.delivery_note_id) {
-        await manager.query(
-          `UPDATE delivery_notes
-           SET status = 'confirmed', updated_by = ?
-           WHERE id = ? AND tenant_id = ?`,
-          [this.userId, record.delivery_note_id, this.tenantId],
+    try {
+      await AppDataSource.transaction(async (manager) => {
+        trackedInventoryManager = manager as InventorySnapshotTrackedManager;
+        // NOWAIT prevents retrying clients from waiting behind a long-running submit
+        // transaction. The caller can poll the inspection status instead.
+        const [record] = await manager.query(
+          `SELECT id, status, receipt_triggered, return_triggered, po_id, delivery_note_id
+           FROM incoming_inspection_records
+           WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE NOWAIT`,
+          [id, this.tenantId],
         );
+
+        if (['passed', 'failed', 'partially_passed'].includes(String(record.status ?? ''))) {
+          return;
+        }
+
+        // 确定最终状态
+        const allPassed = items.every((i: any) => i.result === 'pass');
+        const allFailed = items.every((i: any) => i.result === 'fail');
+        let finalStatus: string;
+        if (allPassed) {
+          finalStatus = 'passed';
+        } else if (allFailed) {
+          finalStatus = 'failed';
+        } else {
+          finalStatus = 'partially_passed';
+        }
+
+        // 更新质检单状态
+        await manager.query(
+          `UPDATE incoming_inspection_records
+           SET status = ?,
+               overall_result = ?,
+               notes = ?,
+               completed_at = NOW(),
+               updated_by = ?
+           WHERE id = ? AND tenant_id = ?`,
+          [finalStatus, params.overallResult, params.notes ?? null, this.userId, id, this.tenantId],
+        );
+
+        if (record.delivery_note_id) {
+          await manager.query(
+            `UPDATE delivery_notes
+             SET status = 'confirmed', updated_by = ?
+             WHERE id = ? AND tenant_id = ?`,
+            [this.userId, record.delivery_note_id, this.tenantId],
+          );
+        }
+
+        // ── 合格品处理：生成入库单 + 库存事务 ─────────────────────
+        const passedItems = items.filter(
+          (i: any) => new Decimal(i.qty_passed || '0').gt(0),
+        );
+
+        if (passedItems.length > 0 && !record.receipt_triggered) {
+          await this.handlePassedItems(manager, id, record, passedItems, params, {
+            skipMrpReevaluation: true,
+          });
+        }
+
+        // ── 不合格品处理（BD-004）：disposition=return 自动生成退货单 ───
+        const failedForReturn = items.filter(
+          (i: any) =>
+            new Decimal(i.qty_failed || '0').gt(0) && i.disposition === 'return',
+        );
+
+        if (failedForReturn.length > 0 && !record.return_triggered) {
+          await this.handleFailedItems(manager, id, record, failedForReturn);
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes('NOWAIT')
+        || message.includes('Lock wait timeout')
+        || message.includes('ER_LOCK_NOWAIT')
+        || message.includes('ER_LOCK_WAIT_TIMEOUT')
+      ) {
+        throw AppError.conflict('质检单正在提交中，请稍后刷新状态');
       }
-
-      // ── 合格品处理：生成入库单 + 库存事务 ─────────────────────
-      const passedItems = items.filter(
-        (i: any) => new Decimal(i.qty_passed || '0').gt(0),
-      );
-
-      if (passedItems.length > 0 && !record.receipt_triggered) {
-        await this.handlePassedItems(manager, id, record, passedItems, params);
-      }
-
-      // ── 不合格品处理（BD-004）：disposition=return 自动生成退货单 ───
-      const failedForReturn = items.filter(
-        (i: any) =>
-          new Decimal(i.qty_failed || '0').gt(0) && i.disposition === 'return',
-      );
-
-      if (failedForReturn.length > 0 && !record.return_triggered) {
-        await this.handleFailedItems(manager, id, record, failedForReturn);
-      }
-    });
+      throw error;
+    }
 
     await this.invalidateInventorySnapshotCaches(
       this.consumeTrackedInventorySnapshotSkuIds(trackedInventoryManager),
@@ -1560,6 +1575,7 @@ export class IncomingInspectionService {
     record: any,
     passedItems: any[],
     submitParams?: Pick<SubmitInspectionParams, 'warehouseId' | 'locationId'>,
+    options?: { skipMrpReevaluation?: boolean },
   ): Promise<void> {
     const [purchaseOrder] = await manager.query<Array<{ id: number; status: string }>>(
       `SELECT id, status FROM purchase_orders
@@ -1942,7 +1958,9 @@ export class IncomingInspectionService {
 
     for (const skuId of receivedSkuIds) {
       this.trackInventorySnapshotCacheInvalidation(manager, skuId);
-      await this._mrpService().reevaluateAfterReceipt(skuId, manager);
+      if (!options?.skipMrpReevaluation) {
+        await this._mrpService().reevaluateAfterReceipt(skuId, manager);
+      }
     }
 
     // 标记幂等位

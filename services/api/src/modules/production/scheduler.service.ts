@@ -12,7 +12,6 @@ import { WorkflowEngineService } from './workflow-engine.service';
 import { syncInventoryDailySnapshotForSku } from '../inventory/daily-snapshot.util';
 import { ensureProductionWipWarehouseLocation, resolveWarehouseLocationBinding } from '../inventory/warehouse-location.resolver';
 import { findNextWorkday, getResolvedWorkCalendarDay } from './work-calendar.util';
-import { MrpService } from '../mrp/mrp.service';
 
 // ─── 类型定义 ──────────────────────────────────────────────────
 
@@ -222,10 +221,6 @@ export class SchedulerService {
   constructor(ctx: TenantContext) {
     this.tenantId = ctx.tenantId;
     this.userId = ctx.userId;
-  }
-
-  private mrpSvc(): MrpService {
-    return new MrpService({ tenantId: this.tenantId, userId: this.userId });
   }
 
   private phase1(): ProductionPhase1Service {
@@ -1094,9 +1089,6 @@ export class SchedulerService {
         taskMaterialMap,
       );
       consumedSkuIds.forEach((skuId) => affectedInventorySkuIds.add(skuId));
-      for (const skuId of consumedSkuIds) {
-        await this.mrpSvc().reevaluateAfterReceipt(skuId, manager as any);
-      }
 
       await this.insertTaskOutputTransaction(manager, lockedTask, taskId, {
         completedQty: qualifiedQty.toFixed(4),
