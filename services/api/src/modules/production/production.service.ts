@@ -14,13 +14,9 @@ function taskProcessDisplayNameExpr(
   outputSkuAlias = 'outs',
   templateAlias = 'proc_tpl',
 ): string {
-  return `CASE
-                  WHEN ${templateAlias}.id IS NOT NULL
-                    AND ${templateAlias}.sku_id IS NULL
-                    AND NULLIF(TRIM(COALESCE(${outputSkuAlias}.name, '')), '') IS NOT NULL
-                  THEN ${outputSkuAlias}.name
-                  ELSE COALESCE(${stepAlias}.step_name, CONCAT('STEP#', ${taskAlias}.process_step_id))
-                END`;
+  void outputSkuAlias;
+  void templateAlias;
+  return `COALESCE(${stepAlias}.step_name, CONCAT('STEP#', ${taskAlias}.process_step_id))`;
 }
 
 export class ProductionService {
