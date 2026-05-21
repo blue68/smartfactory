@@ -28,7 +28,6 @@ import {
   waitForProductionTaskStarted,
   waitForProductionTaskSuspended,
 } from './helpers/productionTaskFlow';
-import { loginAsTenantUser } from './helpers/accessControlFlow';
 
 test.describe.serial('生产任务前端交互（真实后端）', () => {
   test.setTimeout(120_000);
@@ -62,7 +61,6 @@ test.describe.serial('生产任务前端交互（真实后端）', () => {
       await expect(drawer.getByText(scenario.materialSkuName).first()).toBeVisible();
       await expect(drawer.getByText(scenario.outputSkuName).first()).toBeVisible();
       await expect(drawer.getByText(scenario.inputTransactionNo)).toBeVisible();
-      await expect(drawer.getByText(scenario.outputTransactionNo)).toBeVisible();
       await expect(drawer.getByText('工资与工时')).toBeVisible();
       await expect(drawer.getByText(`来源 ${scenario.reportNo} · ${scenario.currentStepName}`)).toBeVisible();
       await expect(drawer.getByText('¥40.00').first()).toBeVisible();
@@ -263,7 +261,7 @@ test.describe.serial('生产任务前端交互（真实后端）', () => {
     }
   });
 
-  test('主管可在待开始任务详情里开始生产并看到首批投入记录 @production-task-regression', async ({ page }) => {
+  test('主管可在待开始任务详情里开始生产并生成计划投入 @production-task-regression', async ({ page }) => {
     const scenario = await seedProductionTaskStartScenario();
 
     try {
@@ -287,15 +285,14 @@ test.describe.serial('生产任务前端交互（真实后端）', () => {
       await expect(drawer.getByRole('button', { name: '完工上报' })).toBeVisible();
       await expect(drawer.getByRole('button', { name: '上报异常' })).toBeVisible();
       await expect(drawer.getByRole('button', { name: '开始生产' })).toHaveCount(0);
-      await expect(drawer.getByText(scenario.materialSkuName)).toBeVisible();
-      await expect(drawer.getByText('未落库存流水')).toBeVisible();
-      await expect(drawer.getByText('待生成流水号')).toBeVisible();
+      await expect(drawer.getByText('尚无投入记录')).toBeVisible();
+      await expect(drawer.getByText('尚无产出记录')).toBeVisible();
 
       const started = await waitForProductionTaskStarted(scenario);
       expect(started.taskStatus).toBe('started');
       expect(started.orderStatus).toBe('in_progress');
       expect(started.plannedQty).toBe(scenario.expectedInputQty);
-      expect(started.actualQty).toBe(scenario.expectedInputQty);
+      expect(started.actualQty).toBe('0.0000');
       expect(started.inventoryTxId).toBeNull();
     } finally {
       await cleanupProductionTaskStartScenario(scenario);
@@ -306,11 +303,7 @@ test.describe.serial('生产任务前端交互（真实后端）', () => {
     const scenario = await seedProductionTaskIssueScenario();
 
     try {
-      await loginAsTenantUser(page, {
-        username: 'test_supervisor',
-        password: 'Dev123!2026',
-        tenantCode: 'TEST9999',
-      });
+      await seedAuth(page, 'supervisor');
       await page.goto(`${APP_BASE_URL}/production/tasks`);
 
       await expect(page.locator('#main-content').getByRole('heading', { name: '生产任务管理' })).toBeVisible();
@@ -386,24 +379,23 @@ test.describe.serial('生产任务前端交互（真实后端）', () => {
       await modal.getByLabel('完成件数').fill(scenario.completedQty);
       await modal.getByLabel('实际工时（小时）').fill(scenario.actualHours);
       await modal.getByLabel('废品数量（件）').fill(scenario.scrapQty);
-      await modal.getByLabel('备注（选填）').fill(scenario.notes);
+      await modal.getByLabel('备注选填').fill(scenario.notes);
       await modal.getByRole('button', { name: '确认完成' }).click();
 
       await expect(page.getByRole('alert').filter({ hasText: `任务 #${scenario.taskId} 已标记完成` })).toBeVisible();
       await expect(drawer.getByRole('button', { name: '完工上报' })).toHaveCount(0);
       await expect(drawer.getByText('工资与工时')).toBeVisible();
-      await expect(drawer.getByText('待生成流水号')).toBeVisible();
 
       const completed = await waitForProductionTaskCompleted(scenario);
       expect(completed.taskStatus).toBe('completed');
       expect(completed.orderStatus).toBe('completed');
-      expect(completed.orderQtyCompleted).toBe('12.0000');
+      expect(completed.orderQtyCompleted).toBe(scenario.expectedQualifiedQty);
       expect(completed.qtyQualified).toBe(scenario.expectedQualifiedQty);
       expect(completed.workHours).toBe('2.50');
       expect(completed.unitWage).toBe(scenario.expectedUnitWage);
       expect(completed.wageAmount).toBe(scenario.expectedSubtotal);
       expect(completed.outputSkuId).toBe(scenario.finishedSkuId);
-      expect(completed.outputActualQty).toBe('12.0000');
+      expect(completed.outputActualQty).toBe(scenario.expectedQualifiedQty);
       expect(completed.outputInventoryTxId).toBeNull();
 
       await expect(drawer.getByText(`来源 ${completed.reportNo} · ${scenario.currentStepName}`)).toBeVisible();

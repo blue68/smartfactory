@@ -668,8 +668,8 @@ export class ProductionService {
       }
     }
     if (params.keyword) {
-      conds.push('(po.work_order_no LIKE ? OR COALESCE(jb.batch_no, \'\') LIKE ? OR COALESCE(ps.step_name, CONCAT(\'STEP#\', pt.process_step_id)) LIKE ? OR u.real_name LIKE ?)');
-      p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
+      conds.push('(pt.task_no LIKE ? OR po.work_order_no LIKE ? OR COALESCE(jb.batch_no, \'\') LIKE ? OR COALESCE(ps.step_name, CONCAT(\'STEP#\', pt.process_step_id)) LIKE ? OR u.real_name LIKE ?)');
+      p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
     }
     // BE-06-02: 新增筛选参数
     if (params.processId) {
@@ -946,8 +946,8 @@ export class ProductionService {
       }
     }
     if (params.keyword) {
-      conds.push('(po.work_order_no LIKE ? OR COALESCE(jb.batch_no, \'\') LIKE ? OR COALESCE(ps.step_name, CONCAT(\'STEP#\', pt.process_step_id)) LIKE ? OR u.real_name LIKE ?)');
-      p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
+      conds.push('(pt.task_no LIKE ? OR po.work_order_no LIKE ? OR COALESCE(jb.batch_no, \'\') LIKE ? OR COALESCE(ps.step_name, CONCAT(\'STEP#\', pt.process_step_id)) LIKE ? OR u.real_name LIKE ?)');
+      p.push(`%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`, `%${params.keyword}%`);
     }
     if (params.processId) {
       conds.push('pt.process_step_id = ?');

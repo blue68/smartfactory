@@ -48,6 +48,8 @@ export interface PurchaseSuggestionScenario {
 
 const TEST_TENANT_ID = 9999;
 const JWT_SECRET = process.env.JWT_SECRET ?? 'local-test-jwt-secret-key-2026-smartfactory-at-least-32-chars';
+const TEST_LOGIN_PASSWORD = 'Dev123!2026';
+const TEST_LOGIN_PASSWORD_HASH = '$2b$10$MmgwQ9xr9HEolYqOUjcpUumg/M3wle7C3ySCi4ziZSCnJfAl1zacO';
 export const APP_BASE_URL = (process.env.PLAYWRIGHT_APP_BASE_URL ?? 'http://localhost').replace(/\/$/, '');
 const API_BASE_URL = `${APP_BASE_URL}/api`;
 const DB_HOST = process.env.DB_HOST ?? '127.0.0.1';
@@ -173,13 +175,68 @@ export async function closePurchaseFlowDbPool(): Promise<void> {
   }
 }
 
+async function ensureAuthUsers(): Promise<void> {
+  const pool = getDbPool();
+  await pool.execute(
+    `INSERT INTO tenants (id, code, name, status, settings)
+     VALUES (?, 'TEST9999', 'Playwright QA Tenant', 'active', JSON_OBJECT())
+     ON DUPLICATE KEY UPDATE
+       code = VALUES(code),
+       name = VALUES(name),
+       status = VALUES(status),
+       settings = VALUES(settings)`,
+    [TEST_TENANT_ID],
+  );
+
+  for (const seed of Object.values(ROLE_SEEDS)) {
+    await pool.execute(
+      `INSERT INTO users
+         (id, tenant_id, username, password_hash, real_name, status, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, 'active', 0, 0)
+       ON DUPLICATE KEY UPDATE
+         username = VALUES(username),
+         password_hash = VALUES(password_hash),
+         real_name = VALUES(real_name),
+         status = VALUES(status),
+         updated_by = VALUES(updated_by)`,
+      [seed.userId, TEST_TENANT_ID, seed.username, TEST_LOGIN_PASSWORD_HASH, seed.realName],
+    );
+
+    for (const role of seed.roles) {
+      await pool.execute(
+        `INSERT IGNORE INTO user_roles (tenant_id, user_id, role_id)
+         SELECT ?, ?, id FROM roles WHERE tenant_id = 0 AND code = ?`,
+        [TEST_TENANT_ID, seed.userId, role],
+      );
+    }
+  }
+}
+
 export async function seedAuth(page: Page, role: TestRole): Promise<void> {
-  const user = buildUser(role);
-  const token = signToken(role);
-  await page.addInitScript(({ seededUser, seededToken }) => {
+  await ensureAuthUsers();
+  const seed = ROLE_SEEDS[role];
+  const response = await page.request.post(`${API_BASE_URL}/auth/login`, {
+    data: {
+      tenantCode: 'TEST9999',
+      username: seed.username,
+      password: TEST_LOGIN_PASSWORD,
+    },
+  });
+  const payload = await response.json();
+  if (!response.ok() || payload?.code !== 0) {
+    throw new Error(payload?.message ?? `登录失败: HTTP ${response.status()}`);
+  }
+  const token = payload.data.accessToken as string;
+  const user = payload.data.user ?? buildUser(role);
+  const permissionSnapshot = payload.data.permissionSnapshot ?? null;
+
+  await page.addInitScript(({ seededUser, seededToken, seededPermissionSnapshot }) => {
     window.sessionStorage.setItem('__sf_at', seededToken);
     window.localStorage.setItem('sf_user', JSON.stringify(seededUser));
-  }, { seededUser: user, seededToken: token });
+    if (seededPermissionSnapshot) {
+      window.localStorage.setItem('sf_permission_snapshot', JSON.stringify(seededPermissionSnapshot));
+    }
+  }, { seededUser: user, seededToken: token, seededPermissionSnapshot: permissionSnapshot });
 }
 
 export async function ensurePurchaseFixture(): Promise<SeededFixture> {

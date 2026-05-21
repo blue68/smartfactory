@@ -23,7 +23,7 @@ test.describe.serial('生产工单前端交互（真实后端）', () => {
     await closeProductionTaskFlowDbPool();
   });
 
-  test('老板可在工单页查看真实结构快照与工序链路 @production-order-smoke', async ({ page }) => {
+  test('老板可在工单页查看真实结构快照与 BOM 任务链 @production-order-smoke', async ({ page }) => {
     const scenario = await seedProductionTaskScenario();
 
     try {
@@ -41,20 +41,21 @@ test.describe.serial('生产工单前端交互（真实后端）', () => {
 
       await expect(page.getByText('冻结结构 1 节点')).toBeVisible();
       await expect(page.getByRole('heading', { name: scenario.orderNo })).toBeVisible();
-      await expect(page.getByText('工序链 2 道')).toBeVisible();
+      await expect(page.getByText('BOM任务链 2 道')).toBeVisible();
       await expect(page.getByText('任务 1 条')).toBeVisible();
 
       await page.getByText('结构快照').click();
       await expect(page.getByText('冻结结构快照')).toBeVisible();
       await expect(page.getByText('冻结 SKU：')).toBeVisible();
-      await expect(page.getByText('路径 fg')).toBeVisible();
-      await expect(page.getByText('成品', { exact: true })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'BOM路径' })).toBeVisible();
+      await expect(page.getByRole('cell', { name: 'fg', exact: true })).toBeVisible();
+      await expect(page.getByRole('row', { name: /冻结 SKU：.*成品.*fg/ })).toBeVisible();
 
-      await page.getByText('工序链路').click();
-      await expect(page.getByText('半成品工序链路')).toBeVisible();
+      await page.getByText('BOM任务链', { exact: true }).click();
+      await expect(page.getByText('BOM 依赖任务清单')).toBeVisible();
       await expect(page.getByText(scenario.predecessorStepName, { exact: true })).toBeVisible();
       await expect(page.getByText(scenario.currentStepName, { exact: true })).toBeVisible();
-      await expect(page.getByText(`产出 ${scenario.outputSkuName}`)).toHaveCount(2);
+      await expect(page.getByText(scenario.outputSkuName, { exact: true })).toHaveCount(3);
       await expect(page.getByText(scenario.taskNo)).toBeVisible();
       await expect(page.getByText('测试熟练工')).toBeVisible();
     } finally {
@@ -80,13 +81,13 @@ test.describe.serial('生产工单前端交互（真实后端）', () => {
 
       await page.getByText('结构快照').click();
       await expect(page.getByText('冻结结构快照')).toBeVisible();
-      await expect(page.getByText(`通配解析：${scenario.wildcardSourceSkuName} → ${scenario.wildcardResolvedSkuName}`)).toBeVisible();
-      await expect(page.getByText('路径 fg>wip')).toBeVisible();
-      await expect(page.getByText('通配解析', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: '全部展开' }).click();
+      await expect(page.getByRole('row', { name: new RegExp(`${scenario.wildcardResolvedSkuName}.*通配.*${scenario.wildcardSourceSkuName}.*fg>wip`) })).toBeVisible();
+      await expect(page.getByText(scenario.wildcardSourceSkuName).first()).toBeVisible();
 
-      await page.getByText('工序链路').click();
-      await expect(page.getByText('半成品工序链路')).toBeVisible();
-      await expect(page.getByText('还有 1 个任务')).toBeVisible();
+      await page.getByText('BOM任务链', { exact: true }).click();
+      await expect(page.getByText('BOM 依赖任务清单')).toBeVisible();
+      await expect(page.getByText('还有 2 个任务')).toBeVisible();
       await expect(page.getByText(scenario.taskNo, { exact: true })).toBeVisible();
     } finally {
       await cleanupProductionOrderRegressionScenario(scenario);

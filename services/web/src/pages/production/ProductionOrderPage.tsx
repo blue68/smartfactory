@@ -987,10 +987,12 @@ function OperationLane({
 
       <div className={styles.operationLane}>
         {pagedOperations.map((operation) => {
-        const relatedTasks = tasks.filter((task) =>
-          (task.operationId && task.operationId === operation.id)
-          || (!task.operationId && task.processStepId === operation.processStepId)
-        );
+        const relatedTasks = tasks.filter((task) => {
+          const taskOperationId = Number(task.operationId ?? 0);
+          const taskProcessStepId = Number(task.processStepId ?? 0);
+          return (taskOperationId > 0 && taskOperationId === Number(operation.id))
+            || (taskOperationId <= 0 && taskProcessStepId > 0 && taskProcessStepId === Number(operation.processStepId));
+        });
         const inputItems = operation.inputItems ?? [];
         const inputsExpanded = expandedInputOperationIds.has(operation.id);
         const visibleInputItems = inputsExpanded ? inputItems : inputItems.slice(0, 5);

@@ -610,6 +610,52 @@ export async function seedProductionTaskScenario(): Promise<ProductionTaskScenar
     ],
   );
 
+  await pool.execute(
+    `INSERT INTO task_inventory_movements
+       (tenant_id, task_id, task_material_tx_id, sku_id, movement_type, inventory_tx_id, qty, notes, created_by)
+     SELECT ?, ?, tmt.id, ?, 'issue', ?, 6.0000, ?, ?
+       FROM task_material_transactions tmt
+      WHERE tmt.tenant_id = ?
+        AND tmt.task_id = ?
+        AND tmt.io_type = 'input'
+        AND tmt.sku_id = ?
+     ON DUPLICATE KEY UPDATE
+       task_material_tx_id = VALUES(task_material_tx_id),
+       sku_id = VALUES(sku_id),
+       movement_type = VALUES(movement_type),
+       qty = VALUES(qty),
+       notes = VALUES(notes),
+       created_by = VALUES(created_by)`,
+    [
+      TEST_TENANT_ID, ids.taskId, ids.materialSkuId, ids.inputInventoryTxId,
+      `Playwright 投入任务流水 ${ids.suffix}`, TEST_BOSS_ID,
+      TEST_TENANT_ID, ids.taskId, ids.materialSkuId,
+    ],
+  );
+
+  await pool.execute(
+    `INSERT INTO task_inventory_movements
+       (tenant_id, task_id, task_material_tx_id, sku_id, movement_type, inventory_tx_id, qty, notes, created_by)
+     SELECT ?, ?, tmt.id, ?, 'output', ?, 6.0000, ?, ?
+       FROM task_material_transactions tmt
+      WHERE tmt.tenant_id = ?
+        AND tmt.task_id = ?
+        AND tmt.io_type = 'output'
+        AND tmt.sku_id = ?
+     ON DUPLICATE KEY UPDATE
+       task_material_tx_id = VALUES(task_material_tx_id),
+       sku_id = VALUES(sku_id),
+       movement_type = VALUES(movement_type),
+       qty = VALUES(qty),
+       notes = VALUES(notes),
+       created_by = VALUES(created_by)`,
+    [
+      TEST_TENANT_ID, ids.taskId, ids.wipSkuId, ids.outputInventoryTxId,
+      `Playwright 产出任务流水 ${ids.suffix}`, TEST_BOSS_ID,
+      TEST_TENANT_ID, ids.taskId, ids.wipSkuId,
+    ],
+  );
+
   const workReportColumns = [
     'id',
     'tenant_id',
@@ -794,6 +840,10 @@ export async function seedProductionOrderCancelScenario(): Promise<ProductionOrd
   await pool.execute(
     'DELETE FROM work_reports WHERE tenant_id = ? AND id = ?',
     [TEST_TENANT_ID, scenario.reportId],
+  );
+  await pool.execute(
+    'DELETE FROM task_inventory_movements WHERE tenant_id = ? AND task_id = ?',
+    [TEST_TENANT_ID, scenario.taskId],
   );
   await pool.execute(
     'DELETE FROM task_material_transactions WHERE tenant_id = ? AND task_id = ?',
@@ -1113,6 +1163,10 @@ export async function seedProductionTaskRegressionScenario(): Promise<Production
   const resolvedExceptionDescription = `已处理的刀具校准偏差-${scenario.taskId}`;
 
   await pool.execute(
+    'DELETE FROM task_inventory_movements WHERE tenant_id = ? AND task_id = ?',
+    [TEST_TENANT_ID, scenario.taskId],
+  );
+  await pool.execute(
     'DELETE FROM task_material_transactions WHERE tenant_id = ? AND task_id = ?',
     [TEST_TENANT_ID, scenario.taskId],
   );
@@ -1299,6 +1353,10 @@ export async function seedProductionTaskStartScenario(): Promise<ProductionTaskS
     [TEST_TENANT_ID, scenario.templateId, scenario.materialSkuId, TEST_BOSS_ID, TEST_BOSS_ID],
   );
 
+  await pool.execute(
+    'DELETE FROM task_inventory_movements WHERE tenant_id = ? AND task_id = ?',
+    [TEST_TENANT_ID, scenario.taskId],
+  );
   await pool.execute(
     'DELETE FROM task_material_transactions WHERE tenant_id = ? AND task_id = ?',
     [TEST_TENANT_ID, scenario.taskId],
@@ -1503,6 +1561,10 @@ export async function seedProductionTaskCompleteScenario(): Promise<ProductionTa
   );
 
   await pool.execute(
+    'DELETE FROM task_inventory_movements WHERE tenant_id = ? AND task_id = ?',
+    [TEST_TENANT_ID, scenario.taskId],
+  );
+  await pool.execute(
     'DELETE FROM task_material_transactions WHERE tenant_id = ? AND task_id = ?',
     [TEST_TENANT_ID, scenario.taskId],
   );
@@ -1602,6 +1664,10 @@ export async function cleanupProductionTaskScenario(scenario: ProductionTaskScen
   await pool.execute(
     'DELETE FROM work_reports WHERE tenant_id = ? AND id = ?',
     [TEST_TENANT_ID, scenario.reportId],
+  );
+  await pool.execute(
+    'DELETE FROM task_inventory_movements WHERE tenant_id = ? AND task_id = ?',
+    [TEST_TENANT_ID, scenario.taskId],
   );
   await pool.execute(
     'DELETE FROM task_material_transactions WHERE tenant_id = ? AND task_id = ?',
